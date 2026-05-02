@@ -17,17 +17,10 @@ app.all("/api/fireant/*", async (req, res) => {
   const targetPath = req.params[0];
   const query = new URLSearchParams(req.query as any).toString();
   
-  // Decide primary and secondary base URLs
-  let primaryBase = "https://restv2.fireant.vn";
-  let secondaryBase = "https://betarest.fireant.vn";
-  
-  // Swap if it's a known detail/profile endpoint
-  if (targetPath.includes("/profile") || (targetPath.startsWith("bonds/") && !targetPath.includes("stats/"))) {
-    [primaryBase, secondaryBase] = [secondaryBase, primaryBase];
-  }
+  // Use restv2.fireant.vn for all requests as requested
+  const baseUrl = "https://restv2.fireant.vn";
 
-  const executeRequest = async (baseUrl: string) => {
-    const url = `${baseUrl}/${targetPath}${query ? `?${query}` : ""}`;
+  const executeRequest = async (url: string) => {
     console.log(`[Proxy Attempt] ${req.method} ${url}`);
     
     // Token priority: Env variable -> Incoming Header -> Auto-scrape
@@ -54,7 +47,7 @@ app.all("/api/fireant/*", async (req, res) => {
         url,
         headers,
         data: req.body,
-        timeout: 8000,
+        timeout: 12000,
         validateStatus: (status) => status < 500
       });
     } catch (err: any) {
@@ -63,13 +56,8 @@ app.all("/api/fireant/*", async (req, res) => {
   };
 
   try {
-    let response = await executeRequest(primaryBase);
-    
-    // If 404 or specific error on primary, try secondary
-    if (response.status === 404) {
-      console.log(`[Proxy] 404 on ${primaryBase}, trying ${secondaryBase}...`);
-      response = await executeRequest(secondaryBase);
-    }
+    const url = `${baseUrl}/${targetPath}${query ? `?${query}` : ""}`;
+    const response = await executeRequest(url);
     
     res.status(response.status).json(response.data);
   } catch (error: any) {
