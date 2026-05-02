@@ -99,18 +99,19 @@ async function startServer() {
     return FINANCE_FALLBACKS[idx];
   };
 
-  const refreshNews = async (retryCount = 0) => {
-    if (isRefreshingNews && retryCount === 0) return;
+  const refreshNews = async (retryCount = 0): Promise<any[] | null> => {
+    if (isRefreshingNews && retryCount === 0) return newsCache;
     isRefreshingNews = true;
     
     try {
-      console.log(`Background: Refreshing news from Fireant (Attempt ${retryCount + 1})...`);
+      console.log(`[News] Refreshing news from Fireant (Attempt ${retryCount + 1})...`);
       const response = await axios.get("https://fireant.vn/bai-viet", {
-        timeout: 30000,
+        timeout: 15000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8'
+          'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
+          'Cache-Control': 'no-cache'
         }
       });
       
@@ -129,7 +130,6 @@ async function startServer() {
       const data = JSON.parse(jsonStr);
       
       // Navigate through the Next.js state object to find the posts
-      // Structure: props.pageProps.initialState.posts.posts.NEWS_STREAM.posts
       const newsStream = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM;
       const posts = newsStream?.posts;
       
@@ -142,43 +142,30 @@ async function startServer() {
         const title = post.title || "";
         const summary = post.description || post.summary || "";
         
-        // Comprehensive image extraction helper
-        const extractImage = (post: any) => {
-          let img = post.images?.[0]?.imageUrl || 
-                    (post.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${post.images[0].imageID}` : null) ||
-                    post.thumbnail || 
-                    post.linkImage;
+        const extractImage = (p: any) => {
+          let img = p.images?.[0]?.imageUrl || 
+                    (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) ||
+                    p.thumbnail || 
+                    p.linkImage;
           
           if (!img) {
-            // Search in HTML content for common image attributes
-            const contentToSearch = post.content || post.originalContent || post.description || post.summary || "";
-            // Find all images and pick the first one that looks like a real image
+            const contentToSearch = p.content || p.originalContent || p.description || p.summary || "";
             const imgMatches = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
             if (imgMatches.length > 0) {
-              // Prefer images that aren't tiny icons or trackers
               const likelyImg = imgMatches.find(m => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
               img = likelyImg[1];
             }
           }
 
           if (img && typeof img === 'string') {
-            if (img.startsWith('//')) {
-              img = `https:${img}`;
-            } else if (img.startsWith('/')) {
-              img = `https://static.fireant.vn${img}`;
-            }
+            if (img.startsWith('//')) img = `https:${img}`;
+            else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
           }
           return img;
         };
 
-        let image = extractImage(post);
+        let image = extractImage(post) || getFallbackImage(post.postID || 0);
         
-        // Final fallback to global image if still missing
-        if (!image) {
-          image = getFallbackImage(post.postID || 0);
-        }
-
-        // Collect all images from the images array
         const allImages = (post.images || []).map((img: any) => {
           let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
           if (url && typeof url === 'string') {
@@ -188,13 +175,9 @@ async function startServer() {
           return url;
         }).filter(Boolean);
 
-        // Add the primary image to the collection if not present
         if (image && !allImages.includes(image)) {
           allImages.unshift(image);
         }
-
-        // Use the most complete content field available
-        const contentText = post.content || post.originalContent || post.description || post.summary || title;
 
         return {
           id: post.postID?.toString() || `fa-${Date.now()}-${Math.random()}`,
@@ -202,7 +185,7 @@ async function startServer() {
           sourceUrl: post.postSource?.url || null,
           title: title,
           summary: summary,
-          content: contentText,
+          content: post.content || post.originalContent || post.description || post.summary || title,
           author: post.user?.name || 'Fireant',
           image: image || globalFallbackImage,
           images: allImages,
@@ -215,23 +198,19 @@ async function startServer() {
       
       newsCache = mappedNews;
       lastCacheUpdate = Date.now();
-      console.log(`Background: News refreshed successfully (${mappedNews.length} items).`);
+      console.log(`[News] Successfully refreshed news (${mappedNews.length} items).`);
       isRefreshingNews = false;
+      return mappedNews;
     } catch (error: any) {
-      console.error(`Background: News refresh failed: ${error.message}`);
+      console.error(`[News] Refresh failed: ${error.message}`);
       
-      if (retryCount < 3) {
-        const delay = 5000;
-        setTimeout(() => refreshNews(retryCount + 1), delay);
-        isRefreshingNews = true;
-        return;
+      if (retryCount < 2) {
+        isRefreshingNews = false;
+        return await refreshNews(retryCount + 1);
       }
       
-      if (!newsCache) {
-        newsCache = []; 
-        lastCacheUpdate = Date.now();
-      }
       isRefreshingNews = false;
+      return newsCache;
     }
   };
 
@@ -245,11 +224,12 @@ async function startServer() {
   async function getFireantToken(force = false) {
     const now = Date.now();
     
-    // Check environment variable first for a fixed token (prevents scraping overhead)
-    // ONLY use it if not forced
-    if (process.env.FIREANT_ACCESS_TOKEN && !force && !fireantToken) {
-      console.log("[Token] Using token from environment variable");
-      fireantToken = process.env.FIREANT_ACCESS_TOKEN;
+    // Only use env var if it exists and we don't have a better one or are forced
+    if (process.env.FIREANT_ACCESS_TOKEN && !force) {
+      if (!fireantToken || fireantToken !== process.env.FIREANT_ACCESS_TOKEN) {
+        console.log("[Token] Adopting token from environment variable");
+        fireantToken = process.env.FIREANT_ACCESS_TOKEN;
+      }
       return fireantToken;
     }
 
@@ -625,25 +605,23 @@ async function startServer() {
     }
   });
 
-  // API Proxy for News (Legacy/Specific)
+  // API Proxy for News List
   app.get("/api/news", async (req, res) => {
     const now = Date.now();
     
-    // If we have cache (even old), serve it instantly
-    if (newsCache) {
-      // Trigger background refresh if old
-      if (now - lastCacheUpdate > CACHE_TTL && !isRefreshingNews) {
-        refreshNews();
-      }
+    // If cache is fresh, return it
+    if (newsCache && (now - lastCacheUpdate < CACHE_TTL)) {
       return res.json(newsCache);
     }
-
-    // No cache at all: trigger refresh and return empty immediately to avoid timeout
-    if (!isRefreshingNews) {
-      refreshNews();
-    }
     
-    return res.json([]);
+    // If cache is stale or missing, try to refresh
+    console.log(`[News List] ${newsCache ? 'Cache stale' : 'Cache missing'}, fetching fresh news...`);
+    try {
+      const news = await refreshNews();
+      return res.json(news || []);
+    } catch (err) {
+      return res.json(newsCache || []);
+    }
   });
 
   // Vite middleware for development
