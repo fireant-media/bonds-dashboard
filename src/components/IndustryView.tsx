@@ -49,14 +49,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         if (industry === 'Securities') {
           statsUrl = '/api/fireant/bonds/stats/industries?top=20&level=4';
           targetName = 'Công ty chứng khoán';
-        } else if (industry === 'Real Estate') {
+        } else if (industry === 'RealEstate') {
           statsUrl = '/api/fireant/bonds/stats/industries?top=10&level=2';
           targetName = 'Bất động sản';
         }
 
         let icbCode = '3010';
         if (industry === 'Securities') icbCode = '30202005';
-        else if (industry === 'Real Estate') icbCode = '3510';
+        else if (industry === 'RealEstate') icbCode = '3510';
 
         let newStats = industryStats;
         let newRanking = rankingData;
@@ -136,7 +136,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     // Basic translations for the three main tabs
     if (ind === 'Banking') return t('Banking');
     if (ind === 'Securities') return t('Securities');
-    if (ind === 'Real Estate') return t('Real Estate');
+    if (ind === 'RealEstate') return t('RealEstate');
     
     // Fallback to general translation for any other industry string
     return t(ind as any);
@@ -210,7 +210,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const getRankingOptions = () => {
     const displayData = [...rankingData].reverse();
     const maxDebt = rankingData.length > 0 ? Math.max(...rankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
-    const interval = (industry === 'Banking' || industry === 'Real Estate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
+    const interval = (industry === 'Banking' || industry === 'RealEstate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
 
     return {
       tooltip: { 

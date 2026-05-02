@@ -18,6 +18,19 @@ const getFallbackImage = (id: string | number) => {
 let cachedToken: string | null = null;
 let lastTokenFetch = 0;
 
+const findTokenRecursively = (obj: any, depth = 0): string | null => {
+  if (!obj || typeof obj !== 'object' || depth > 10) return null;
+  if (obj.accessToken && typeof obj.accessToken === 'string' && obj.accessToken.length > 20) return obj.accessToken;
+  if (obj.token && typeof obj.token === 'string' && obj.token.length > 20) return obj.token;
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {
+      const res = findTokenRecursively(obj[key], depth + 1);
+      if (res) return res;
+    }
+  }
+  return null;
+};
+
 async function getFireantToken(force = false) {
   const now = Date.now();
   if (process.env.FIREANT_ACCESS_TOKEN && !force) return process.env.FIREANT_ACCESS_TOKEN;
@@ -37,7 +50,9 @@ async function getFireantToken(force = false) {
       const jsonStart = html.indexOf('{', startIdx);
       const jsonEnd = html.indexOf('</script>', jsonStart);
       const data = JSON.parse(html.substring(jsonStart, jsonEnd));
-      const token = data?.props?.pageProps?.initialState?.auth?.accessToken || data?.props?.pageProps?.initialState?.auth?.token;
+      const token = data?.props?.pageProps?.initialState?.auth?.accessToken || 
+                    data?.props?.pageProps?.initialState?.auth?.token ||
+                    findTokenRecursively(data);
       if (token) {
         cachedToken = token;
         lastTokenFetch = now;
@@ -45,30 +60,52 @@ async function getFireantToken(force = false) {
       }
     }
   } catch (e) {
-    console.error("Token fetch failed", (e as any).message);
+    console.error("Token fetch failed in news API", (e as any).message);
   }
   return cachedToken || process.env.FIREANT_ACCESS_TOKEN || null;
 }
 
+function fixContentImages(content: string) {
+  if (!content) return content;
+  // Fix relative image URLs in src, data-src, and srcset
+  let fixed = content.replace(/(src|data-src|srcset)="\/\//g, '$1="https://');
+  fixed = fixed.replace(/(src|data-src|srcset)="\/News\/Image\//g, '$1="https://static.fireant.vn/News/Image/');
+  
+  fixed = fixed.replace(/(src|data-src|srcset)="\/([^"]+)"/g, (match, attr, path) => {
+    if (path.startsWith('http') || path.startsWith('data:')) return match;
+    return `${attr}="https://static.fireant.vn/${path}"`;
+  });
+
+  return fixed;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    const token = await getFireantToken();
+    let token = await getFireantToken();
     let posts = null;
 
     if (token) {
-      try {
-        const apiResponse = await axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
+      const fetchPostsRaw = async (authToken: string) => {
+        return axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
           params: { groupID: 'NEWS_STREAM', offset: 0, limit: 40 },
           headers: {
-            'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+            'Authorization': authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://fireant.vn/'
           },
-          timeout: 8000
+          timeout: 8000,
+          validateStatus: (status) => status < 500
         });
-        if (Array.isArray(apiResponse.data)) posts = apiResponse.data;
-      } catch (e) {
-        console.error("REST API failed", (e as any).message);
+      };
+
+      let apiRes = await fetchPostsRaw(token);
+      if (apiRes.status === 401) {
+        const freshToken = await getFireantToken(true);
+        if (freshToken) apiRes = await fetchPostsRaw(freshToken);
+      }
+
+      if (apiRes.status === 200 && Array.isArray(apiRes.data)) {
+        posts = apiRes.data;
       }
     }
 
@@ -117,13 +154,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         allImages.unshift(image);
       }
 
+      const content = post.originalContent || post.content || post.description || post.summary || post.title;
+      const fixedContent = fixContentImages(content);
+
       return {
         id: post.postID?.toString(),
         source: post.postSource?.name || post.user?.name || 'Fireant',
         sourceUrl: post.postSource?.url || null,
         title: post.title || "",
         summary: post.description || post.summary || "",
-        content: post.content || post.originalContent || post.description || post.summary || post.title,
+        content: fixedContent,
         author: post.user?.name || 'Fireant',
         image: image,
         images: allImages,

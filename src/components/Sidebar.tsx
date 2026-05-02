@@ -39,7 +39,7 @@ export default function Sidebar({
   const subIndustries = [
     { id: 'Banking', label: t('Banking') },
     { id: 'Securities', label: t('Securities') },
-    { id: 'Real Estate', label: t('RealEstate') },
+    { id: 'RealEstate', label: t('RealEstate') },
   ];
 
   return (

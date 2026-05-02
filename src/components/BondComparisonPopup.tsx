@@ -38,67 +38,79 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   // Load initial pool of bonds from cache or fetch if empty
   useEffect(() => {
     const loadPool = async () => {
-      // 1. Try to load from various maturity list caches
-      const cacheRanges = [180, 90, 30, 270, 365];
-      let pooledBonds: Bond[] = [];
-      
-      for (const range of cacheRanges) {
-        const cached = getCache(`maturity_list_${range}`);
-        if (cached && Array.isArray(cached)) {
-          pooledBonds = [...pooledBonds, ...cached];
-        }
-      }
-
-      // 2. Try to load from enterprise list
-      const cachedEnterprises = getCache('enterprise_list');
-      if (cachedEnterprises && Array.isArray(cachedEnterprises)) {
-        // This doesn't contain bonds, but we might have cached bonds for specific enterprises
-      }
-
-      // 3. Remove duplicates
-      const uniquePool = Array.from(new Map(pooledBonds.map(b => [b.code, b])).values());
-      
-      if (uniquePool.length > 0) {
-        setAllBondsPool(uniquePool);
-      }
-
-      // 4. If pool is too small, fetch a larger set background
-      if (uniquePool.length < 50) {
-        try {
-          const token = getFireantToken();
-          const cleanToken = token ? cleanTokenString(token) : undefined;
-          const headers: Record<string, string> = { 'Accept': 'application/json' };
-          if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
-
-          const response = await fetch('/api/fireant/bonds/stats/bonds/maturing-soon?days=1000', { headers });
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data)) {
-              const fetchedBonds: Bond[] = data.map((b: any) => ({
-                id: b.bondCode,
-                code: b.bondCode,
-                enterpriseId: b.issuerSymbol || '',
-                term: String(b.tenorPeriod || 'N/A'),
-                interestRate: b.bondRate || 0,
-                listedVolume: b.currentListedVolume || 0,
-                issueValue: (b.currentListedVolume * 100000) / 1000000000,
-                listedValue: (b.currentListedVolume * 100000) / 1000000000,
-                issueDate: b.issueDate?.split('T')[0] || '',
-                maturityDate: b.maturityDate?.split('T')[0] || '',
-                interestType: b.bondRateType || 'N/A',
-                status: b.status || 'Hiệu lực'
-              }));
-              
-              setAllBondsPool(prev => {
-                const combined = [...prev, ...fetchedBonds];
-                return Array.from(new Map(combined.map(b => [b.code, b])).values());
-              });
-            }
+        // 1. Load from all maturity list caches to get a good initial set
+        const cacheRanges = [30, 90, 180, 270, 365];
+        let pooledBonds: Bond[] = [];
+        
+        for (const range of cacheRanges) {
+          const cached = getCache(`maturity_list_${range}`);
+          if (cached && Array.isArray(cached)) {
+            pooledBonds = [...pooledBonds, ...cached];
           }
-        } catch (e) {
-          console.error("Failed to fetch background pool", e);
         }
-      }
+
+        // 2. Load from enterprise/industry list caches if they contain bonds
+        const cachedDetailedBonds = getCache('comparison_pool_bonds');
+        if (cachedDetailedBonds && Array.isArray(cachedDetailedBonds)) {
+          pooledBonds = [...pooledBonds, ...cachedDetailedBonds];
+        }
+
+        // 3. Remove duplicates
+        const uniquePool = Array.from(new Map(pooledBonds.map(b => [b.code, b])).values());
+        
+        if (uniquePool.length > 0) {
+          setAllBondsPool(uniquePool);
+        }
+
+        // 4. Fetch a very large set in background (last 10 years maturing)
+        if (uniquePool.length < 200) {
+          try {
+            const token = getFireantToken();
+            const cleanToken = token ? cleanTokenString(token) : undefined;
+            const headers: Record<string, string> = { 'Accept': 'application/json' };
+            if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
+
+            // Fetch a larger window to get more symbols into the pool
+            const response = await fetch('/api/fireant/bonds/stats/bonds/maturing-soon?days=3650', { headers });
+            if (response.ok) {
+              const data = await response.json();
+              if (Array.isArray(data)) {
+                const fetchedBonds: Bond[] = data.map((b: any) => {
+                  const issueValue = b.totalIssuedValue 
+                    ? (b.totalIssuedValue > 1000000000 ? b.totalIssuedValue / 1000000000 : b.totalIssuedValue / 100000)
+                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+                  const listedValue = b.currentListedValue
+                    ? (b.currentListedValue > 1000000000 ? b.currentListedValue / 1000000000 : b.currentListedValue / 100000)
+                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+
+                  return {
+                    id: b.bondCode,
+                    code: b.bondCode,
+                    enterpriseId: b.issuerSymbol || '',
+                    term: String(b.tenorPeriod || 'N/A'),
+                    interestRate: b.bondRate || 0,
+                    listedVolume: b.currentListedVolume || 0,
+                    issueValue: issueValue,
+                    listedValue: listedValue,
+                    issueDate: b.issueDate?.split('T')[0] || '',
+                    maturityDate: b.maturityDate?.split('T')[0] || '',
+                    interestType: b.bondRateType || 'N/A',
+                    status: b.status || 'Hiệu lực'
+                  };
+                });
+                
+                setAllBondsPool(prev => {
+                  const combined = [...prev, ...fetchedBonds];
+                  const final = Array.from(new Map(combined.map(b => [b.code, b])).values());
+                  setCache('comparison_pool_bonds', final);
+                  return final;
+                });
+              }
+            }
+          } catch (e) {
+            console.error("Failed to fetch background pool", e);
+          }
+        }
     };
 
     loadPool();
@@ -133,24 +145,35 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         // try to fetch all bonds for that issuer to get the full list (e.g., 174 bonds for BID)
         if (normalizedSearch.length >= 2 && normalizedSearch.length <= 5) {
           try {
-            const issuerRes = await fetch(`/api/fireant/bonds/issuer/${normalizedSearch}`, { headers });
+            // Try different endpoints for issuer bonds
+            const issuerRes = await fetch(`/api/fireant/bonds/get-bonds-by-issuer?issuerSymbol=${normalizedSearch}`, { headers });
             if (issuerRes.ok) {
-              const issuerBonds = await issuerRes.json();
+              const data = await issuerRes.json();
+              const issuerBonds = Array.isArray(data) ? data : (data.items || []);
               if (Array.isArray(issuerBonds)) {
-                const mappedIssuerBonds = issuerBonds.map((b: any) => ({
-                  id: b.bondCode,
-                  code: b.bondCode,
-                  enterpriseId: b.issuerSymbol || normalizedSearch,
-                  term: String(b.tenorPeriod || 'N/A'),
-                  interestRate: b.bondRate || 0,
-                  listedVolume: b.currentListedVolume || 0,
-                  issueValue: (b.currentListedVolume * 100000) / 1000000000,
-                  listedValue: (b.currentListedVolume * 100000) / 1000000000,
-                  issueDate: b.issueDate?.split('T')[0] || '',
-                  maturityDate: b.maturityDate?.split('T')[0] || '',
-                  interestType: b.bondRateType || 'N/A',
-                  status: b.status || 'Hiệu lực'
-                }));
+                const mappedIssuerBonds = issuerBonds.map((b: any) => {
+                  const issueValue = b.totalIssuedValue 
+                    ? (b.totalIssuedValue > 1000000000 ? b.totalIssuedValue / 1000000000 : b.totalIssuedValue / 100000)
+                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+                  const listedValue = b.currentListedValue
+                    ? (b.currentListedValue > 1000000000 ? b.currentListedValue / 1000000000 : b.currentListedValue / 100000)
+                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+
+                  return {
+                    id: b.bondCode,
+                    code: b.bondCode,
+                    enterpriseId: b.issuerSymbol || normalizedSearch,
+                    term: String(b.tenorPeriod || 'N/A'),
+                    interestRate: b.bondRate || 0,
+                    listedVolume: b.currentListedVolume || 0,
+                    issueValue: issueValue,
+                    listedValue: listedValue,
+                    issueDate: b.issueDate?.split('T')[0] || '',
+                    maturityDate: b.maturityDate?.split('T')[0] || '',
+                    interestType: b.bondRateType || 'N/A',
+                    status: b.status || 'Hiệu lực'
+                  };
+                });
                 apiMatches = [...apiMatches, ...mappedIssuerBonds];
               }
             }
@@ -236,16 +259,24 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
       });
 
       if (detailRes.ok) {
-        const b = await detailRes.json();
+        const data = await detailRes.json();
+        const b = data.detail || data;
+        const issueValue = b.totalIssuedValue 
+          ? (b.totalIssuedValue > 1000000000 ? b.totalIssuedValue / 1000000000 : b.totalIssuedValue / 100000)
+          : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+        const listedValue = b.currentListedValue
+          ? (b.currentListedValue > 1000000000 ? b.currentListedValue / 1000000000 : b.currentListedValue / 100000)
+          : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+
         const fullBond: Bond = {
           id: b.bondCode || bond.id,
           code: b.bondCode || bond.code,
-          enterpriseId: '', 
+          enterpriseId: b.issuerSymbol || '', 
           term: String(b.tenorPeriod || 'N/A'),
           interestRate: b.bondRate || 0,
           listedVolume: b.currentListedVolume || 0,
-          issueValue: b.currentListedVolume || 0,
-          listedValue: b.currentListedVolume || 0,
+          issueValue: issueValue,
+          listedValue: listedValue,
           issueDate: b.issueDate?.split('T')[0] || '',
           maturityDate: b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0],
           interestType: b.bondRateType || 'N/A',
@@ -372,7 +403,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
 
   const getScaleOptions = () => {
     const labels = {
-      volume: 'KL phát hành',
+      volume: 'KL phát hành (triệu TP)',
       value: 'Giá trị phát hành',
       listed: 'Giá trị niêm yết'
     };
@@ -417,13 +448,13 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         { 
           type: 'value',
           splitLine: { lineStyle: { color: isDark ? '#333' : '#eee', type: 'dashed' } },
-          axisLabel: { ...axisLabelStyle, formatter: (val: number) => formatNumber(val, 0) },
+          axisLabel: { ...axisLabelStyle, formatter: (val: number) => formatNumber(val, 2) },
           axisLine: { show: false }
         },
         { 
           type: 'value',
           splitLine: { show: false },
-          axisLabel: { ...axisLabelStyle, formatter: (val: number) => formatNumber(val, 0) },
+          axisLabel: { ...axisLabelStyle, formatter: (val: number) => formatNumber(val, 2) },
           axisLine: { show: false }
         }
       ],
@@ -446,7 +477,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
           name: labels.volume,
           type: 'line',
           yAxisIndex: 1,
-          data: selectedBonds.map(b => b.listedVolume / 100),
+          data: selectedBonds.map(b => b.listedVolume / 1000000),
           symbol: 'circle',
           symbolSize: 8,
           lineStyle: { width: 3, color: isDark ? '#4db6ac' : '#00897b' },
@@ -682,7 +713,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                       {selectedBonds.map((b) => (
                         <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
                           {row.isRate ? formatNumber(b.interestRate, 2) : 
-                           row.isValue ? formatNumber(b.issueValue, 0) :
+                           row.isValue ? formatNumber(b.issueValue, 2) :
                            row.isTerm ? b.term.replace(/[^0-9]/g, '') :
                            row.isDate ? formatDate((b as any)[row.key]) :
                            row.key === 'interestType' ? (b.interestType === 'Fixed' ? t('fixed') : b.interestType === 'Floating' ? t('floating') : b.interestType) :
