@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "server.ts",
+      "src": "api/*.ts",
       "use": "@vercel/node"
     },
     {
@@ -13,18 +13,22 @@
       }
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "server.ts"
+      "source": "/api/news",
+      "destination": "/api/news.ts"
     },
     {
-      "src": "/assets/(.*)",
-      "dest": "/assets/$1"
+      "source": "/api/news/:id",
+      "destination": "/api/detail.ts?id=:id"
     },
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/api/fireant/:path*",
+      "destination": "/api/proxy.ts?path=:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

@@ -677,13 +677,4 @@ async function startServer() {
   return app;
 }
 
-// For local development
-if (process.env.NODE_ENV !== "production") {
-  startServer();
-}
-
-// Export for Vercel
-export default async (req: any, res: any) => {
-  const app = await startServer();
-  return app(req, res);
-};
+startServer();
