@@ -105,36 +105,65 @@ async function startServer() {
     
     try {
       console.log(`[News] Refreshing news from Fireant (Attempt ${retryCount + 1})...`);
-      const response = await axios.get("https://fireant.vn/bai-viet", {
-        timeout: 15000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-          'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
-          'Cache-Control': 'no-cache'
+      
+      let token = await getFireantToken();
+      let posts = null;
+
+      // Plan A: Use REST API if token is available (much more reliable on Vercel)
+      if (token) {
+        try {
+          console.log("[News] Attempting to fetch via REST API...");
+          const apiResponse = await axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
+            params: {
+              groupID: 'NEWS_STREAM',
+              offset: 0,
+              limit: 40
+            },
+            headers: {
+              'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://fireant.vn/',
+              'Origin': 'https://fireant.vn'
+            },
+            timeout: 10000
+          });
+          if (apiResponse.data && Array.isArray(apiResponse.data)) {
+            posts = apiResponse.data;
+            console.log(`[News] Successfully fetched ${posts.length} items via REST API.`);
+          }
+        } catch (apiErr: any) {
+          console.log(`[News] REST API fetch failed: ${apiErr.message}`);
         }
-      });
-      
-      const html = response.data;
-      const scriptTag = '<script id="__NEXT_DATA__" type="application/json">';
-      const startIdx = html.indexOf(scriptTag);
-      
-      if (startIdx === -1) {
-        throw new Error("Could not find __NEXT_DATA__ script tag");
+      }
+
+      // Plan B: Fallback to Scraping if REST API failed or no token
+      if (!posts) {
+        console.log("[News] Falling back to HTML scraping...");
+        const response = await axios.get("https://fireant.vn/bai-viet", {
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        const html = response.data;
+        const scriptTag = '<script id="__NEXT_DATA__" type="application/json">';
+        const startIdx = html.indexOf(scriptTag);
+        
+        if (startIdx !== -1) {
+          const jsonStart = html.indexOf('{', startIdx);
+          const scriptEndIdx = html.indexOf('</script>', jsonStart);
+          const jsonStr = html.substring(jsonStart, scriptEndIdx);
+          const data = JSON.parse(jsonStr);
+          posts = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM?.posts;
+        }
       }
       
-      const jsonStart = html.indexOf('{', startIdx);
-      const scriptEndIdx = html.indexOf('</script>', jsonStart);
-      const jsonStr = html.substring(jsonStart, scriptEndIdx);
-      
-      const data = JSON.parse(jsonStr);
-      
-      // Navigate through the Next.js state object to find the posts
-      const newsStream = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM;
-      const posts = newsStream?.posts;
-      
       if (!posts || !Array.isArray(posts)) {
-        throw new Error("Could not find posts array in __NEXT_DATA__");
+        throw new Error("Could not find posts via API or scraping");
       }
 
       // Map to our NewsItem format
@@ -639,7 +668,7 @@ async function startServer() {
     });
   }
 
-  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+  if (process.env.NODE_ENV !== "production") {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
@@ -648,9 +677,13 @@ async function startServer() {
   return app;
 }
 
-const appPromise = startServer();
+// For local development
+if (process.env.NODE_ENV !== "production") {
+  startServer();
+}
 
+// Export for Vercel
 export default async (req: any, res: any) => {
-  const app = await appPromise;
+  const app = await startServer();
   return app(req, res);
 };
