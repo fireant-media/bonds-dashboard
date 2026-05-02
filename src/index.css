@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-text-base: var(--text-base);
+  --color-text-muted: var(--text-muted);
+  --color-text-highlight: var(--text-highlight);
+  --color-border-base: var(--border-base);
+}
+
+:root {
+  --bg-base: #f8f9fa;
+  --bg-surface: #ffffff;
+  --text-base: #111827;
+  --text-muted: #6b7280;
+  --text-highlight: #3634B3;
+  --border-base: #e5e7eb;
+}
+
+.dark {
+  --bg-base: #111827;
+  --bg-surface: #1f2937;
+  --text-base: #f9fafb;
+  --text-muted: #9ca3af;
+  --text-highlight: #3634B3;
+  --border-base: #374151;
+}
+
+@layer base {
+  body {
+    @apply bg-bg-base text-text-base transition-colors duration-300;
+  }
+  
+  .fireant-content p {
+    @apply mb-4 leading-relaxed;
+  }
+  .fireant-content img {
+    @apply rounded-xl my-6 max-w-full h-auto mx-auto border border-border-base shadow-sm;
+  }
+  .fireant-content h2, .fireant-content h3 {
+    @apply font-bold mt-8 mb-4 text-lg md:text-xl text-text-base;
+  }
+  .fireant-content figure {
+    @apply my-6 text-center;
+  }
+  .fireant-content figcaption {
+    @apply text-[11px] italic text-text-muted mt-2 block;
+  }
+  .fireant-content a {
+    @apply text-[#3634B3] hover:underline transition-colors;
+  }
+  .fireant-content ul, .fireant-content ol {
+    @apply my-4 ml-6 list-disc space-y-2;
+  }
+  .fireant-content table {
+    @apply w-full border-collapse my-6 overflow-hidden rounded-xl border border-border-base;
+  }
+  .fireant-content th, .fireant-content td {
+    @apply p-3 border-b border-border-base text-sm;
+  }
+  .fireant-content th {
+    @apply bg-bg-base/50 font-bold text-left;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
