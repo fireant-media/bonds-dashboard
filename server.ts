@@ -3,28 +3,41 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import cookieSession from "cookie-session";
+import dotenv from "dotenv";
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+dotenv.config();
 
-  app.use(express.json());
+const app = express();
+const PORT = 3000;
 
-  // Generic API Proxy for Fireant
-  app.all("/api/fireant/*", async (req, res) => {
-    try {
-      const targetPath = req.params[0];
-      const query = new URLSearchParams(req.query as any).toString();
-      const url = `https://restv2.fireant.vn/${targetPath}${query ? `?${query}` : ""}`;
-      
-      // Get a fresh token if not provided by client
-      let token = req.headers.authorization;
-      if (!token || token === 'Bearer undefined' || token === 'undefined') {
-        token = await getFireantToken();
-        if (token && !token.startsWith('Bearer ')) {
-          token = `Bearer ${token}`;
-        }
+app.use(express.json());
+
+// Generic API Proxy for Fireant
+app.all("/api/fireant/*", async (req, res) => {
+  try {
+    const targetPath = req.params[0];
+    const query = new URLSearchParams(req.query as any).toString();
+    
+    // Intelligent base URL selection:
+    // Use betarest for bond details and profile as requested by user
+    // Use restv2 as fallback for other endpoints like bonds/expiring
+    let baseUrl = "https://restv2.fireant.vn";
+    if (targetPath.startsWith("bonds/") || targetPath.includes("/profile")) {
+      baseUrl = "https://betarest.fireant.vn";
+    }
+    
+    const url = `${baseUrl}/${targetPath}${query ? `?${query}` : ""}`;
+    
+    console.log(`[Proxy] ${req.method} ${url}`);
+    
+    // Get a fresh token if not provided by client
+    let token = req.headers.authorization;
+    if (!token || token === 'Bearer undefined' || token === 'Bearer null' || token === 'undefined' || token === 'null') {
+      token = await getFireantToken();
+      if (token && !token.startsWith('Bearer ')) {
+        token = `Bearer ${token}`;
       }
+    }
 
       const fetchWithToken = async (authToken: string | undefined) => {
         const headers: any = {
@@ -46,7 +59,7 @@ async function startServer() {
           headers,
           data: req.body,
           timeout: 20000,
-          validateStatus: (status) => status < 500 // Don't throw for 40x so we can handle them manually
+          validateStatus: (status) => status < 500
         });
       };
 
@@ -54,18 +67,24 @@ async function startServer() {
       
       // If 401, try refreshing the token once
       if (response.status === 401) {
-        console.log(`[Proxy] 401 detected for ${targetPath}, attempting token refresh...`);
+        console.log(`[Proxy] 401 detected for ${targetPath}, attempting server-side token refresh...`);
         const freshToken = await getFireantToken(true);
         if (freshToken) {
           response = await fetchWithToken(freshToken);
           console.log(`[Proxy] Retry for ${targetPath} resulted in status: ${response.status}`);
+        } else {
+          console.error(`[Proxy] Refresh failed for ${targetPath}`);
         }
       }
       
       res.status(response.status).json(response.data);
     } catch (error: any) {
       console.error(`Error proxying Fireant [${req.method}] ${req.params[0]}:`, error.message);
-      res.status(error.response?.status || 500).json(error.response?.data || { error: "Failed to proxy request" });
+      if (error.response) {
+        res.status(error.response.status).json(error.response.data);
+      } else {
+        res.status(500).json({ error: "Failed to proxy request", message: error.message });
+      }
     }
   });
 
@@ -234,6 +253,14 @@ async function startServer() {
 
   async function getFireantToken(force = false) {
     const now = Date.now();
+    
+    // Check environment variable first for a fixed token (prevents scraping overhead)
+    if (process.env.FIREANT_ACCESS_TOKEN && !force) {
+      if (!fireantToken) console.log(`[Token] Using FIREANT_ACCESS_TOKEN from environment variables.`);
+      fireantToken = process.env.FIREANT_ACCESS_TOKEN;
+      return fireantToken;
+    }
+
     // Cache token and fallback image for 30 minutes, unless forced
     if (!force && fireantToken && (now - lastTokenFetch < 30 * 60 * 1000)) {
       return fireantToken;
@@ -572,13 +599,13 @@ async function startServer() {
   });
 
   // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
@@ -586,9 +613,10 @@ async function startServer() {
     });
   }
 
+if (!process.env.VERCEL) {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+export default app;
