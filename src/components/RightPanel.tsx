@@ -196,13 +196,8 @@ export default function RightPanel({
       }
     } catch (error) {
       console.error('Error fetching expiring bonds:', error);
-      if (error instanceof Error) {
-        if (error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          // Show more technical detail if available to help debugging
-          setError(`${t('dataError')} (${error.message})`);
-        }
+      if (error instanceof Error && error.message.includes('401')) {
+        setError(t('tokenError401'));
       } else {
         setError(t('dataError'));
       }
