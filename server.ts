@@ -14,79 +14,69 @@ app.use(express.json());
 
 // Generic API Proxy for Fireant
 app.all("/api/fireant/*", async (req, res) => {
-  try {
-    const targetPath = req.params[0];
-    const query = new URLSearchParams(req.query as any).toString();
-    
-    // Intelligent base URL selection:
-    // Use betarest for bond details and profile as requested by user
-    // Use restv2 as fallback for other endpoints like bonds/expiring
-    let baseUrl = "https://restv2.fireant.vn";
-    if (targetPath.startsWith("bonds/") || targetPath.includes("/profile")) {
-      baseUrl = "https://betarest.fireant.vn";
-    }
-    
+  const targetPath = req.params[0];
+  const query = new URLSearchParams(req.query as any).toString();
+  
+  // Decide primary and secondary base URLs
+  let primaryBase = "https://restv2.fireant.vn";
+  let secondaryBase = "https://betarest.fireant.vn";
+  
+  // Swap if it's a known detail/profile endpoint
+  if (targetPath.includes("/profile") || (targetPath.startsWith("bonds/") && !targetPath.includes("stats/"))) {
+    [primaryBase, secondaryBase] = [secondaryBase, primaryBase];
+  }
+
+  const executeRequest = async (baseUrl: string) => {
     const url = `${baseUrl}/${targetPath}${query ? `?${query}` : ""}`;
+    console.log(`[Proxy Attempt] ${req.method} ${url}`);
     
-    console.log(`[Proxy] ${req.method} ${url}`);
-    
-    // Get a fresh token if not provided by client
-    let token = req.headers.authorization;
-    if (!token || token === 'Bearer undefined' || token === 'Bearer null' || token === 'undefined' || token === 'null') {
+    // Token priority: Env variable -> Incoming Header -> Auto-scrape
+    let token = process.env.FIREANT_ACCESS_TOKEN || req.headers.authorization as string;
+    if (!token || token.includes('undefined') || token.includes('null') || token === 'Bearer') {
       token = await getFireantToken();
-      if (token && !token.startsWith('Bearer ')) {
-        token = `Bearer ${token}`;
-      }
+    }
+    
+    if (token && !token.startsWith('Bearer ')) {
+      token = `Bearer ${token}`;
     }
 
-      const fetchWithToken = async (authToken: string | undefined) => {
-        const headers: any = {
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://fireant.vn/',
-          'Origin': 'https://fireant.vn',
-          'X-Requested-With': 'XMLHttpRequest'
-        };
-        
-        if (authToken) {
-          headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
-        }
+    const headers: any = {
+      'Accept': 'application/json, text/plain, */*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Referer': 'https://fireant.vn/',
+      'Origin': 'https://fireant.vn'
+    };
+    if (token) headers['Authorization'] = token;
 
-        return await axios({
-          method: req.method,
-          url: url,
-          headers,
-          data: req.body,
-          timeout: 20000,
-          validateStatus: (status) => status < 500
-        });
-      };
-
-      let response = await fetchWithToken(token);
-      
-      // If 401, try refreshing the token once
-      if (response.status === 401) {
-        console.log(`[Proxy] 401 detected for ${targetPath}, attempting server-side token refresh...`);
-        const freshToken = await getFireantToken(true);
-        if (freshToken) {
-          response = await fetchWithToken(freshToken);
-          console.log(`[Proxy] Retry for ${targetPath} resulted in status: ${response.status}`);
-        } else {
-          console.error(`[Proxy] Refresh failed for ${targetPath}`);
-        }
-      }
-      
-      res.status(response.status).json(response.data);
-    } catch (error: any) {
-      console.error(`Error proxying Fireant [${req.method}] ${req.params[0]}:`, error.message);
-      if (error.response) {
-        res.status(error.response.status).json(error.response.data);
-      } else {
-        res.status(500).json({ error: "Failed to proxy request", message: error.message });
-      }
+    try {
+      return await axios({
+        method: req.method,
+        url,
+        headers,
+        data: req.body,
+        timeout: 8000,
+        validateStatus: (status) => status < 500
+      });
+    } catch (err: any) {
+      return { status: 500, data: { error: err.message } };
     }
-  });
+  };
+
+  try {
+    let response = await executeRequest(primaryBase);
+    
+    // If 404 or specific error on primary, try secondary
+    if (response.status === 404) {
+      console.log(`[Proxy] 404 on ${primaryBase}, trying ${secondaryBase}...`);
+      response = await executeRequest(secondaryBase);
+    }
+    
+    res.status(response.status).json(response.data);
+  } catch (error: any) {
+    console.error(`[Proxy Fatal Error] ${targetPath}:`, error.message);
+    res.status(500).json({ error: "Proxy failure", message: error.message });
+  }
+});
 
   // Server-side cache for news to handle slow source
   let newsCache: any = null;
@@ -598,25 +588,34 @@ app.all("/api/fireant/*", async (req, res) => {
     return res.json([]);
   });
 
-  // Vite middleware for development
+async function setupVite() {
+  // Only use Vite middleware in local development
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+    
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } 
+  // On Vercel or Production Server, static files are handled by the platform 
+  // or a simple static mount if it's a standalone server.
+  else if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
+    
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
   }
-
-if (!process.env.VERCEL) {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
 }
+
+setupVite();
 
 export default app;
