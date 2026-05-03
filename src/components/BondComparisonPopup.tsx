@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, Component, ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2 } from 'lucide-react';
-import { Bond, Enterprise } from '../types';
+import { Enterprise } from '../types';
+import { Bond } from "../types";
 import { formatNumber, formatInterestRate, formatDate } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
@@ -139,8 +140,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     return val;
                   };
 
-                  const issueValue = b.totalIssuedValue 
-                    ? normalizeVal(b.totalIssuedValue)
+                  const issueValue = b.totalIssueValue 
+                    ? normalizeVal(b.totalIssueValue)
                     : normalizeVol(b.currentListedVolume);
                   const listedValue = b.currentListedValue 
                     ? normalizeVal(b.currentListedValue)
@@ -226,8 +227,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     return val;
                   };
 
-                  const issueValue = b.totalIssuedValue 
-                    ? normalizeVal(b.totalIssuedValue)
+                  const issueValue = b.totalIssueValue 
+                    ? normalizeVal(b.totalIssueValue)
                     : normalizeVol(b.currentListedVolume);
                   const listedValue = b.currentListedValue 
                     ? normalizeVal(b.currentListedValue)
@@ -374,8 +375,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
           const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
 
-          const issueValue = b.totalIssuedValue
-            ? b.totalIssuedValue / 1000000000
+          const issueValue = b.totalIssueValue
+            ? b.totalIssueValue / 1000000000
             : historyItem?.value
               ? historyItem.value / 1000000000
               : 0;
@@ -386,7 +387,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               : issueValue;
           const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
           const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
-          const interestType = deriveInterestType(b, data.cashFlows);
+          const interestType = deriveInterestType(data, data.cashFlows);
 
           let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
           // Validate the maturityDate
@@ -400,7 +401,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             id: b.bondCode || bond.id,
             code: b.bondCode || bond.code,
             enterpriseId: b.issuerSymbol || '', 
-            term: String(b.tenorPeriod || 'N/A'),
+            term: String(b.tenorPeriod || ''),
             interestRate: Number(interestRate) || 0,
             listedVolume: Number(listedVolume) || 0,
             issueValue: Number(issueValue) || 0,
@@ -616,9 +617,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     }
     
     const labels = {
-      volume: 'KL phát hành',
-      value: 'Giá trị phát hành',
-      listed: 'Giá trị niêm yết'
+      volume: t('issueVolume'),
+      value: t('issueValue'),
+      listed: t('listedValue')
     };
     
     return {
@@ -631,13 +632,24 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         formatter: (params: any) => {
           let res = `<div style="font-weight: bold; margin-bottom: 4px;">${params[0].name}</div>`;
           params.forEach((p: any) => {
-            res += `<div style="display: flex; align-items: center; justify-content: space-between; gap: 20px;">
-              <span style="display: flex; align-items: center; gap: 6px;">
-                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
-                <span style="font-size: 11px;">${p.seriesName}</span>
-              </span>
-              <span style="font-weight: bold; font-family: 'JetBrains Mono';">${formatValue(p.value)}</span>
-            </div>`;
+            let unit = '';
+
+            if (p.seriesName === labels.value || p.seriesName === labels.listed) {
+              unit = ` ${t('unitBillionVND')}`; // tỷ VNĐ
+            } else if (p.seriesName === labels.volume) {
+              unit = ` ${t('bondunits')}`; // trái phiếu
+            }
+
+            res += `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px;">
+                <span style="display: flex; align-items: center; gap: 6px;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
+                  <span style="font-size: 11px;">${p.seriesName}</span>
+                </span>
+                <span style="font-weight: bold; font-family: 'JetBrains Mono';">
+                  ${formatValue(p.value)}${unit}
+                </span>
+              </div>`;
           });
           return res;
         }
@@ -927,19 +939,19 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
                 <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase">{t('issueScale')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">(tỷ VNĐ)</span>
+                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitBillionVND')}</span>
               </div>
               <div className="h-[250px] transition-colors">
-                {safeRenderChart(() => getScaleOptions(), 'Lỗi hiển thị Quy mô phát hành')}
+                {safeRenderChart(() => getScaleOptions(), t('errorIssueScale'))}
               </div>
             </div>
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
-                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">LÃI SUẤT</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">(%)</span>
+                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">{t('interestRate')}</h4>
+                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitPercentLabel')}</span>
               </div>
               <div className="h-[250px] transition-colors">
-                {safeRenderChart(() => getCouponOptions(), 'Lỗi hiển thị Lãi suất')}
+                {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'))}
               </div>
             </div>
           </div>
@@ -952,12 +964,12 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 <tbody>
                   {[
                     { label: t('bondCode'), key: 'code' },
-                    { label: 'Kỳ hạn (tháng)', key: 'term', isTerm: true },
-                    { label: 'Lãi suất (%)', key: 'interestRate', isRate: true },
+                    { label: t('termMonths'), key: 'term', isTerm: true },
+                    { label: t('interestRateUnit'), key: 'interestRate', isRate: true },
                     { label: t('interestType'), key: 'interestType', isInterestType: true },
                     { label: t('issueDate'), key: 'issueDate', isDate: true },
                     { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                    { label: 'Giá trị phát hành (tỷ VNĐ)', key: 'issueValue', isValue: true }
+                    { label: t('issueValueUnit'), key: 'issueValue', isValue: true }
                   ].map((row, idx) => (
                     <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
                       <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[20%]">{row.label}</td>
@@ -967,7 +979,12 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                            row.isValue ? formatValue(b.issueValue) :
                            row.isTerm ? b.term.replace(/[^0-9]/g, '') :
                            row.isDate ? formatDate((b as any)[row.key]) :
-                           row.isInterestType ? (b.interestType === 'Fixed' ? t('fixed') : b.interestType === 'Floating' ? t('floating') : b.interestType) :
+                           row.isInterestType 
+                            ? (['Fixed', 'Cố định'].includes(b.interestType) 
+                                ? t('fixed') 
+                                : ['Floating', 'Thả nổi', 'Thả Nổi'].includes(b.interestType) 
+                                ? t('floating') 
+                                : b.interestType) :
                            (b as any)[row.key]}
                         </td>
                       ))}

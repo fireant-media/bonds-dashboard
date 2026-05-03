@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Calendar, Activity, Briefcase, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
-import { Bond } from '../types';
+import { Bond } from "../Bond";
 import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';

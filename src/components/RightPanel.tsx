@@ -2,7 +2,8 @@ import { Calendar, ChevronRight, Newspaper, TrendingUp, PanelRight, Settings } f
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
-import { ExpiringBond, Bond } from '../types';
+import { ExpiringBond } from '../types';
+import { Bond } from "../Bond";
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';

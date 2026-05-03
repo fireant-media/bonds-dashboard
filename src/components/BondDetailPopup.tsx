@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, Info, Calendar, TrendingUp, Activity, Briefcase, AlertTriangle, ArrowLeftRight } from 'lucide-react';
-import { Bond } from '../types';
+import { Bond } from "../Bond";
 import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
@@ -136,7 +136,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     const dates = sortedCashFlows.map(cf => {
       const date = new Date(cf.paymentDate);
-      return `${date.getMonth() + 1}/${date.getFullYear()}`;
+      return `T${date.getMonth() + 1}/${date.getFullYear()}`;
     });
     const interestData = sortedCashFlows.map(cf => cf.interestAmount);
     const principalData = sortedCashFlows.map(cf => cf.principalAmount);
@@ -159,7 +159,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
       grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
       xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, rotate: 45 } },
       yAxis: { 
-        name: t('unitBillionShort'), 
+        name: t('unitBillionVND'), 
         type: 'value', 
         axisLabel: { 
           fontSize: 10,
@@ -204,7 +204,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
       return rawType;
     })(), icon: Info },
     { label: t('listedVolume'), value: formatNumber(currentBond.listedVolume || 0, 0), icon: Activity },
-    { label: t('issuedValue'), value: `${formatNumber(currentBond.issueValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
+    { label: t('issueValue'), value: `${formatNumber(currentBond.issueValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
     { label: t('listedValueTitle'), value: `${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
   ];
 

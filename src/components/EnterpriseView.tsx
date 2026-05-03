@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info } from 'lucide-react';
-import { Enterprise, Bond } from '../types';
+import { Enterprise } from '../types';
+import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
 import ReactECharts from 'echarts-for-react';
 import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
@@ -852,7 +853,7 @@ export default function EnterpriseView({
                 <span className="text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssuedValueTitle')}</p>
+                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssueValueTitle')}</p>
                 <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issueValue, 2)}</span>
                 <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
               </div>
@@ -951,7 +952,7 @@ export default function EnterpriseView({
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume').toUpperCase()}</th>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('totalIssuedValueTitle').toUpperCase()}</span>
+                      <span className="whitespace-nowrap">{t('totalIssueValueTitle').toUpperCase()}</span>
                       <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
                     </div>
                   </th>
