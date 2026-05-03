@@ -57,17 +57,45 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         if (response.ok) {
           const data = await response.json();
           const detail = data.detail || {};
-          
-          const mappedDetails: Bond = {
-            ...bond,
-            term: detail.tenorPeriod ? formatTerm(detail.tenorPeriod) : formatTerm(bond.term),
-            issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : bond.issueDate,
-            interestType: detail.bondRateType || detail.interestRateType || bond.interestType,
-            interestRate: detail.bondRate || detail.interestRate || bond.interestRate,
-            issueValue: detail.totalIssuedValue ? (detail.totalIssuedValue / 1000000000) : bond.issueValue,
-            listedValue: detail.currentListedValue ? (detail.currentListedValue / 1000000000) : bond.listedValue,
-            status: detail.status || bond.status,
-            cashFlows: (data.cashFlows || []).map((cf: any) => ({
+        const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+        const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+        const interestRate = detail.bondRate || detail.interestRate || detail.couponRate || cashFlowRate || bond.interestRate;
+        const rawInterestType = detail.bondRateType || detail.interestRateType || detail.couponRateType || detail.interestType || bond.interestType || '';
+        const paymentMethod = String(detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || '').toLowerCase();
+        const cashFlowRates = Array.isArray(data.cashFlows)
+          ? (data.cashFlows as any[]).map((cf: any) => cf.bondRate).filter((rate: any) => rate !== undefined && rate !== null)
+          : [];
+        const hasConstantCashRate = cashFlowRates.length > 1 && cashFlowRates.every((rate: any) => rate === cashFlowRates[0]);
+        const interestType = rawInterestType || (
+          /thả nổi|floating|variable|linh hoạt|flo/i.test(paymentMethod)
+            ? 'Thả nổi'
+            : /cố định|fixed|fixed rate|định/i.test(paymentMethod) || hasConstantCashRate
+              ? 'Cố định'
+              : ''
+        );
+        const listedVolume = detail.currentListedVolume || historyItem?.volume || bond.listedVolume;
+        const issueValue = detail.totalIssuedValue
+          ? detail.totalIssuedValue / 1000000000
+          : historyItem?.value
+            ? historyItem.value / 1000000000
+            : bond.issueValue;
+        const listedValue = detail.currentListedValue
+          ? detail.currentListedValue / 1000000000
+          : historyItem?.value
+            ? historyItem.value / 1000000000
+            : bond.listedValue;
+
+        const mappedDetails: Bond = {
+          ...bond,
+          term: detail.tenorPeriod ? formatTerm(detail.tenorPeriod) : formatTerm(bond.term),
+          issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : bond.issueDate,
+          interestType,
+          interestRate,
+          listedVolume,
+          issueValue,
+          listedValue,
+          status: detail.status || bond.status,
+          cashFlows: (data.cashFlows || []).map((cf: any) => ({
               paymentDate: cf.paymentDate,
               interestAmount: (cf.interestAmount || 0) / 1000000000,
               principalAmount: (cf.principalAmount || 0) / 1000000000,
@@ -167,7 +195,14 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     { label: t('issueDate'), value: formatDate(currentBond.issueDate), icon: Calendar },
     { label: t('maturityDate'), value: formatDate(currentBond.maturityDate), icon: Calendar },
     { label: t('interestRate'), value: `${formatInterestRate(currentBond.interestRate)}%`, icon: TrendingUp },
-    { label: t('interestType'), value: currentBond.interestType === 'Cố định' ? t('fixed') : (currentBond.interestType === 'Thả nổi' ? t('floating') : currentBond.interestType), icon: Info },
+    { label: t('interestType'), value: (() => {
+      const rawType = String(currentBond.interestType || '').trim();
+      const normalized = rawType.toLowerCase();
+      if (!normalized) return '-';
+      if (normalized.includes('cố định') || normalized.includes('fixed')) return t('fixed');
+      if (normalized.includes('thả nổi') || normalized.includes('floating')) return t('floating');
+      return rawType;
+    })(), icon: Info },
     { label: t('listedVolume'), value: formatNumber(currentBond.listedVolume || 0, 0), icon: Activity },
     { label: t('issuedValue'), value: `${formatNumber(currentBond.issueValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
     { label: t('listedValueTitle'), value: `${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
@@ -193,8 +228,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           </div>
           <div className="flex items-center gap-2">
             <button 
-              className="flex items-center gap-2 px-4 py-2 bg-text-highlight/10 text-text-highlight hover:bg-text-highlight/20 rounded-xl text-xs font-bold transition-all"
+              className="flex items-center gap-2 px-4 py-2 bg-text-highlight/10 text-text-highlight hover:bg-text-highlight/20 rounded-xl text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => setShowComparison(true)}
+              disabled={loading || !bondDetails}
             >
               <ArrowLeftRight className="h-4 w-4" />
               <span>{t('compareBond')}</span>

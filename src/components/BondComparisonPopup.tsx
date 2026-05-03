@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Component, ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2 } from 'lucide-react';
 import { Bond, Enterprise } from '../types';
@@ -8,13 +8,48 @@ import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
 
+// Error Boundary for this component
+class BondComparisonErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[BondComparisonErrorBoundary] Caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center">
+            <p className="text-red-400 font-bold mb-2">Lỗi hiển thị So sánh</p>
+            <p className="text-red-300 text-sm mb-4">{this.state.error?.message}</p>
+            <p className="text-red-300 text-xs">Vui lòng F5 để làm mới trang</p>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 interface BondComparisonPopupProps {
   primaryBond: Bond;
   onClose: () => void;
   onBack: () => void;
 }
 
-export default function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPopupProps) {
+function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -24,9 +59,26 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   const [suggestions, setSuggestions] = useState<Bond[]>([]);
   const [searching, setSearching] = useState(false);
   const [allBondsPool, setAllBondsPool] = useState<Bond[]>([]);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedBonds = [primaryBond, ...comparisonBonds];
+  // Validate selectedBonds to prevent render errors
+  const validateBond = (bond: Bond): boolean => {
+    if (!bond || !bond.code) return false;
+    const maturityDate = new Date(bond.maturityDate);
+    return !isNaN(maturityDate.getTime());
+  };
+
+  const validatedComparisonBonds = comparisonBonds.filter(validateBond);
+  const selectedBonds = [primaryBond, ...validatedComparisonBonds].filter(validateBond);
+  
+  useEffect(() => {
+    // Log any invalid bonds that were filtered out
+    if (comparisonBonds.length !== validatedComparisonBonds.length) {
+      console.warn('[BondComparisonPopup] Some invalid comparison bonds were filtered:', 
+        comparisonBonds.filter(b => !validateBond(b)));
+    }
+  }, [validatedComparisonBonds.length]);
 
   // Use search to find bonds
   useEffect(() => {
@@ -76,12 +128,23 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
               const data = await response.json();
               if (Array.isArray(data)) {
                 const fetchedBonds: Bond[] = data.map((b: any) => {
+                  const normalizeVal = (val: number | undefined | null) => {
+                    if (!val) return 0;
+                    if (val > 1000000) return val / 1000000000;
+                    return val;
+                  };
+                  const normalizeVol = (val: number | undefined | null) => {
+                    if (!val) return 0;
+                    if (val > 100000) return val / 10000;
+                    return val;
+                  };
+
                   const issueValue = b.totalIssuedValue 
-                    ? (b.totalIssuedValue > 1000000000 ? b.totalIssuedValue / 1000000000 : b.totalIssuedValue / 100000)
-                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
-                  const listedValue = b.currentListedValue
-                    ? (b.currentListedValue > 1000000000 ? b.currentListedValue / 1000000000 : b.currentListedValue / 100000)
-                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+                    ? normalizeVal(b.totalIssuedValue)
+                    : normalizeVol(b.currentListedVolume);
+                  const listedValue = b.currentListedValue 
+                    ? normalizeVal(b.currentListedValue)
+                    : normalizeVol(b.currentListedVolume);
 
                   return {
                     id: b.bondCode,
@@ -89,7 +152,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                     enterpriseId: b.issuerSymbol || '',
                     term: String(b.tenorPeriod || 'N/A'),
                     interestRate: b.bondRate || 0,
-                    listedVolume: b.currentListedVolume || 0,
+                    listedVolume: normalizeVol(b.currentListedVolume),
                     issueValue: issueValue,
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
@@ -152,12 +215,23 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
               const issuerBonds = Array.isArray(data) ? data : (data.items || []);
               if (Array.isArray(issuerBonds)) {
                 const mappedIssuerBonds = issuerBonds.map((b: any) => {
+                  const normalizeVal = (val: number | undefined | null) => {
+                    if (!val) return 0;
+                    if (val > 1000000) return val / 1000000000;
+                    return val;
+                  };
+                  const normalizeVol = (val: number | undefined | null) => {
+                    if (!val) return 0;
+                    if (val > 100000) return val / 10000;
+                    return val;
+                  };
+
                   const issueValue = b.totalIssuedValue 
-                    ? (b.totalIssuedValue > 1000000000 ? b.totalIssuedValue / 1000000000 : b.totalIssuedValue / 100000)
-                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
-                  const listedValue = b.currentListedValue
-                    ? (b.currentListedValue > 1000000000 ? b.currentListedValue / 1000000000 : b.currentListedValue / 100000)
-                    : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+                    ? normalizeVal(b.totalIssuedValue)
+                    : normalizeVol(b.currentListedVolume);
+                  const listedValue = b.currentListedValue 
+                    ? normalizeVal(b.currentListedValue)
+                    : normalizeVol(b.currentListedVolume);
 
                   return {
                     id: b.bondCode,
@@ -165,7 +239,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                     enterpriseId: b.issuerSymbol || normalizedSearch,
                     term: String(b.tenorPeriod || 'N/A'),
                     interestRate: b.bondRate || 0,
-                    listedVolume: b.currentListedVolume || 0,
+                    listedVolume: normalizeVol(b.currentListedVolume),
                     issueValue: issueValue,
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
@@ -199,14 +273,14 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
               id: s.symbol,
               code: s.symbol,
               enterpriseId: '',
-              term: 'N/A',
+              term: '',
               interestRate: 0,
               listedVolume: 0,
               issueValue: 0,
               listedValue: 0,
               issueDate: '',
               maturityDate: new Date().toISOString().split('T')[0],
-              interestType: 'N/A',
+              interestType: '',
               status: 'Hiệu lực'
             }));
             apiMatches = [...apiMatches, ...searchApiMatches];
@@ -229,26 +303,53 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
 
     const timeout = setTimeout(searchBonds, 300);
     return () => clearTimeout(timeout);
-  }, [searchTerm, allBondsPool]);
+  }, [searchTerm, allBondsPool, selectedBonds.length]);
 
   const handleAddBond = async (bond: Bond) => {
-    // If the bond is from pool, it already has data
-    if (bond.term !== 'N/A') {
-      setComparisonBonds(prev => [...prev, bond]);
-      setIsSearching(false);
-      setSearchTerm('');
-      setSuggestions([]);
-      return;
-    }
-
-    // Otherwise fetch details
-    setSearching(true);
+    console.log('[BondComparisonPopup] Attempting to add bond:', bond.code, bond);
+    
     try {
-      const token = getFireantToken();
-      if (!token) {
-        setComparisonBonds(prev => [...prev, bond]);
+      // If the bond is from pool, it already has data
+      if (bond.term !== 'N/A' && bond.term !== undefined && bond.term !== '') {
+        console.log('[BondComparisonPopup] Bond from pool, adding directly:', bond.code);
+        // Validate maturityDate before adding
+        const date = new Date(bond.maturityDate);
+        if (!isNaN(date.getTime())) {
+          setComparisonBonds(prev => [...prev, bond]);
+        } else {
+          // Fallback to today if date is invalid
+          const validBond = {
+            ...bond,
+            maturityDate: new Date().toISOString().split('T')[0]
+          };
+          console.log('[BondComparisonPopup] Fixed invalid date:', validBond);
+          setComparisonBonds(prev => [...prev, validBond]);
+        }
+        setIsSearching(false);
+        setSearchTerm('');
+        setSuggestions([]);
         return;
       }
+
+      // Otherwise fetch details from API
+      console.log('[BondComparisonPopup] Fetching bond details:', bond.code);
+      setSearching(true);
+      
+      const token = getFireantToken();
+      if (!token) {
+        console.log('[BondComparisonPopup] No token, adding bond with fallback data');
+        // Ensure valid maturityDate for fallback bond
+        const validBond = {
+          ...bond,
+          maturityDate: new Date().toISOString().split('T')[0]
+        };
+        setComparisonBonds(prev => [...prev, validBond]);
+        setIsSearching(false);
+        setSearchTerm('');
+        setSuggestions([]);
+        return;
+      }
+      
       const cleanToken = cleanTokenString(token);
       
       const detailRes = await fetch(`/api/fireant/bonds/${bond.code}`, {
@@ -258,36 +359,87 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         }
       });
 
-      if (detailRes.ok) {
-        const data = await detailRes.json();
-        const b = data.detail || data;
-        const issueValue = b.totalIssuedValue 
-          ? (b.totalIssuedValue > 1000000000 ? b.totalIssuedValue / 1000000000 : b.totalIssuedValue / 100000)
-          : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
-        const listedValue = b.currentListedValue
-          ? (b.currentListedValue > 1000000000 ? b.currentListedValue / 1000000000 : b.currentListedValue / 100000)
-          : (b.currentListedVolume ? b.currentListedVolume / 10000 : 0);
+      console.log('[BondComparisonPopup] Fetch response status:', detailRes.status);
 
-        const fullBond: Bond = {
-          id: b.bondCode || bond.id,
-          code: b.bondCode || bond.code,
-          enterpriseId: b.issuerSymbol || '', 
-          term: String(b.tenorPeriod || 'N/A'),
-          interestRate: b.bondRate || 0,
-          listedVolume: b.currentListedVolume || 0,
-          issueValue: issueValue,
-          listedValue: listedValue,
-          issueDate: b.issueDate?.split('T')[0] || '',
-          maturityDate: b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0],
-          interestType: b.bondRateType || 'N/A',
-          status: b.status || 'Hiệu lực'
-        };
-        setComparisonBonds(prev => [...prev, fullBond]);
+      if (detailRes.ok) {
+        try {
+          const data = await detailRes.json();
+          console.log('[BondComparisonPopup] API response data:', data);
+          
+          const b = data.detail || data;
+          if (!b) {
+            throw new Error('No bond data in response');
+          }
+          
+          const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+          const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+
+          const issueValue = b.totalIssuedValue
+            ? b.totalIssuedValue / 1000000000
+            : historyItem?.value
+              ? historyItem.value / 1000000000
+              : 0;
+          const listedValue = b.currentListedValue
+            ? b.currentListedValue / 1000000000
+            : historyItem?.value
+              ? historyItem.value / 1000000000
+              : issueValue;
+          const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
+          const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
+          const interestType = deriveInterestType(b, data.cashFlows);
+
+          let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
+          // Validate the maturityDate
+          const dateCheck = new Date(maturityDate);
+          if (isNaN(dateCheck.getTime())) {
+            console.log('[BondComparisonPopup] Invalid maturity date, using today');
+            maturityDate = new Date().toISOString().split('T')[0];
+          }
+
+          const fullBond: Bond = {
+            id: b.bondCode || bond.id,
+            code: b.bondCode || bond.code,
+            enterpriseId: b.issuerSymbol || '', 
+            term: String(b.tenorPeriod || 'N/A'),
+            interestRate: Number(interestRate) || 0,
+            listedVolume: Number(listedVolume) || 0,
+            issueValue: Number(issueValue) || 0,
+            listedValue: Number(listedValue) || 0,
+            issueDate: b.issueDate?.split('T')[0] || '',
+            maturityDate,
+            interestType,
+            status: b.status || 'Hiệu lực'
+          };
+          
+          console.log('[BondComparisonPopup] Adding full bond:', fullBond);
+          setComparisonBonds(prev => [...prev, fullBond]);
+        } catch (parseError) {
+          console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
+          // Ensure valid date for fallback
+          const validBond = {
+            ...bond,
+            maturityDate: new Date().toISOString().split('T')[0]
+          };
+          console.log('[BondComparisonPopup] Adding fallback bond after parse error:', validBond);
+          setComparisonBonds(prev => [...prev, validBond]);
+        }
       } else {
-        setComparisonBonds(prev => [...prev, bond]);
+        console.warn('[BondComparisonPopup] Fetch failed with status:', detailRes.status);
+        // Ensure valid date for error fallback
+        const validBond = {
+          ...bond,
+          maturityDate: new Date().toISOString().split('T')[0]
+        };
+        setComparisonBonds(prev => [...prev, validBond]);
       }
     } catch (e) {
-      setComparisonBonds(prev => [...prev, bond]);
+      console.error('[BondComparisonPopup] Error in handleAddBond:', e);
+      // Ensure valid date for outer catch fallback
+      const validBond = {
+        ...bond,
+        maturityDate: new Date().toISOString().split('T')[0]
+      };
+      setComparisonBonds(prev => [...prev, validBond]);
     } finally {
       setIsSearching(false);
       setSearchTerm('');
@@ -299,6 +451,28 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   const handleRemoveBond = (bondId: string) => {
     if (bondId === primaryBond.id) return;
     setComparisonBonds(prev => prev.filter(b => b.id !== bondId));
+  };
+
+  const deriveInterestType = (detail: any, cashFlows: any[] = []) => {
+    const rawInterestType = detail?.bondRateType || detail?.interestRateType || detail?.couponRateType || detail?.interestType || '';
+    if (rawInterestType && String(rawInterestType).trim().length > 0) {
+      return rawInterestType;
+    }
+
+    const paymentMethod = String(detail?.interestPaymentMethod || detail?.paymentMethod || detail?.bondType || detail?.bondName || '').toLowerCase();
+    const cashFlowRates = Array.isArray(cashFlows)
+      ? cashFlows.map((cf: any) => cf?.bondRate).filter((rate: any) => rate !== undefined && rate !== null)
+      : [];
+    const hasConstantCashRate = cashFlowRates.length > 1 && cashFlowRates.every((rate: any) => rate === cashFlowRates[0]);
+
+    if (/thả nổi|floating|variable|linh hoạt|flo/i.test(paymentMethod)) {
+      return 'Thả nổi';
+    }
+    if (/cố định|fixed|fixed rate|định|cố định|định kỳ/i.test(paymentMethod) || hasConstantCashRate) {
+      return 'Cố định';
+    }
+
+    return 'N/A';
   };
 
   const handleReset = () => {
@@ -328,14 +502,49 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   };
 
   const getTimelineOptions = () => {
-    const years = selectedBonds.map(b => new Date(b.maturityDate).getFullYear()).sort((a, b) => a - b);
+    if (!selectedBonds || selectedBonds.length === 0) {
+      throw new Error('No bonds available for timeline');
+    }
+    
+    // Validate and parse years, filtering out invalid dates
+    const years = selectedBonds
+      .filter(b => b && b.maturityDate)
+      .map(b => {
+        try {
+          const date = new Date(b.maturityDate);
+          const year = date.getFullYear();
+          return isNaN(year) ? null : year;
+        } catch (e) {
+          console.warn('[getTimelineOptions] Failed to parse date for bond:', b.code, e);
+          return null;
+        }
+      })
+      .filter((y): y is number => y !== null)
+      .sort((a, b) => a - b);
+    
+    // Fallback if no valid years
+    if (years.length === 0) {
+      const currentYear = new Date().getFullYear();
+      years.push(currentYear, currentYear + 1);
+    }
+    
     const minYear = Math.min(...years) - 1;
     const maxYear = Math.max(...years) + 1;
     
     // Group by year to handle overlapping
     const yearGroups: Record<number, number> = {};
     const data = selectedBonds.map(b => {
-      const yr = new Date(b.maturityDate).getFullYear();
+      const date = new Date(b.maturityDate);
+      const yr = date.getFullYear();
+      if (isNaN(yr)) {
+        return {
+          name: b.code,
+          value: [new Date().getFullYear(), 0],
+          isPrimary: b.code === primaryBond.code,
+          labelOffset: -12,
+          labelPosition: 'top' as const
+        };
+      }
       const count = yearGroups[yr] || 0;
       yearGroups[yr] = count + 1;
       
@@ -402,8 +611,12 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   };
 
   const getScaleOptions = () => {
+    if (!selectedBonds || selectedBonds.length === 0) {
+      throw new Error('No bonds available for scale chart');
+    }
+    
     const labels = {
-      volume: 'KL phát hành (triệu TP)',
+      volume: 'KL phát hành',
       value: 'Giá trị phát hành',
       listed: 'Giá trị niêm yết'
     };
@@ -423,7 +636,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                 <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
                 <span style="font-size: 11px;">${p.seriesName}</span>
               </span>
-              <span style="font-weight: bold; font-family: 'JetBrains Mono';">${formatNumber(p.value, 2)}</span>
+              <span style="font-weight: bold; font-family: 'JetBrains Mono';">${formatValue(p.value)}</span>
             </div>`;
           });
           return res;
@@ -477,7 +690,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
           name: labels.volume,
           type: 'line',
           yAxisIndex: 1,
-          data: selectedBonds.map(b => b.listedVolume / 1000000),
+          data: selectedBonds.map(b => b.listedVolume),
           symbol: 'circle',
           symbolSize: 8,
           lineStyle: { width: 3, color: isDark ? '#4db6ac' : '#00897b' },
@@ -488,6 +701,10 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   };
 
   const getCouponOptions = () => {
+    if (!selectedBonds || selectedBonds.length === 0) {
+      throw new Error('No bonds available for coupon chart');
+    }
+    
     return {
       tooltip: { 
         trigger: 'axis', 
@@ -533,6 +750,40 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         }
       ]
     };
+  };
+
+  const formatValue = (val: number) => {
+    if (val === undefined || val === null) return '0';
+    // If it's a whole number, don't show decimals
+    if (val % 1 === 0) return formatNumber(val, 0);
+    // Otherwise show up to 2 decimals
+    const formatted = formatNumber(val, 2);
+    // Remove trailing zeros after decimal if any
+    if (formatted.includes(',')) {
+       return formatted.replace(/,00$/, '').replace(/,(\d)0$/, ',$1');
+    }
+    return formatted;
+  };
+
+  // Safe wrapper for chart rendering with error boundary
+  const safeRenderChart = (optionsGetter: () => any, fallbackMessage: string = 'Lỗi hiển thị biểu đồ') => {
+    try {
+      console.log(`[safeRenderChart] Rendering ${fallbackMessage}`);
+      const options = optionsGetter();
+      if (!options) throw new Error('Options generator returned null');
+      return (
+        <ReactECharts option={options} style={{ height: '100%', width: '100%' }} />
+      );
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[safeRenderChart] ${fallbackMessage}:`, errorMsg, error);
+      return (
+        <div className="w-full h-full flex items-center justify-center flex-col gap-2 text-text-muted text-xs p-4">
+          <span className="font-bold">{fallbackMessage}</span>
+          <span className="text-[10px] text-text-muted/60">{errorMsg}</span>
+        </div>
+      );
+    }
   };
 
   return (
@@ -667,7 +918,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
           <div className="space-y-6">
             <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase">{t('maturityTimeline')}</h4>
             <div className="h-[120px] bg-bg-base/20 rounded-2xl p-4 transition-colors">
-              <ReactECharts option={getTimelineOptions()} style={{ height: '100%', width: '100%' }} />
+              {safeRenderChart(() => getTimelineOptions(), 'Lỗi hiển thị Timeline')}
             </div>
           </div>
 
@@ -679,7 +930,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                 <span className="text-[10px] text-text-muted font-bold tracking-tighter">(tỷ VNĐ)</span>
               </div>
               <div className="h-[250px] transition-colors">
-                <ReactECharts option={getScaleOptions()} style={{ height: '100%', width: '100%' }} />
+                {safeRenderChart(() => getScaleOptions(), 'Lỗi hiển thị Quy mô phát hành')}
               </div>
             </div>
             <div className="space-y-6">
@@ -688,7 +939,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                 <span className="text-[10px] text-text-muted font-bold tracking-tighter">(%)</span>
               </div>
               <div className="h-[250px] transition-colors">
-                <ReactECharts option={getCouponOptions()} style={{ height: '100%', width: '100%' }} />
+                {safeRenderChart(() => getCouponOptions(), 'Lỗi hiển thị Lãi suất')}
               </div>
             </div>
           </div>
@@ -703,7 +954,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                     { label: t('bondCode'), key: 'code' },
                     { label: 'Kỳ hạn (tháng)', key: 'term', isTerm: true },
                     { label: 'Lãi suất (%)', key: 'interestRate', isRate: true },
-                    { label: t('interestType'), key: 'interestType' },
+                    { label: t('interestType'), key: 'interestType', isInterestType: true },
                     { label: t('issueDate'), key: 'issueDate', isDate: true },
                     { label: t('maturityDate'), key: 'maturityDate', isDate: true },
                     { label: 'Giá trị phát hành (tỷ VNĐ)', key: 'issueValue', isValue: true }
@@ -713,10 +964,10 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                       {selectedBonds.map((b) => (
                         <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
                           {row.isRate ? formatNumber(b.interestRate, 2) : 
-                           row.isValue ? formatNumber(b.issueValue, 2) :
+                           row.isValue ? formatValue(b.issueValue) :
                            row.isTerm ? b.term.replace(/[^0-9]/g, '') :
                            row.isDate ? formatDate((b as any)[row.key]) :
-                           row.key === 'interestType' ? (b.interestType === 'Fixed' ? t('fixed') : b.interestType === 'Floating' ? t('floating') : b.interestType) :
+                           row.isInterestType ? (b.interestType === 'Fixed' ? t('fixed') : b.interestType === 'Floating' ? t('floating') : b.interestType) :
                            (b as any)[row.key]}
                         </td>
                       ))}
@@ -729,5 +980,14 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         </div>
       </div>
     </div>
+  );
+}
+
+// Export wrapped with error boundary
+export default function BondComparisonPopupWrapper(props: any) {
+  return (
+    <BondComparisonErrorBoundary>
+      <BondComparisonPopup {...props} />
+    </BondComparisonErrorBoundary>
   );
 }
