@@ -45,101 +45,183 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
     };
   }, []);
 
-  const processTextForSpeech = (text: string) => {
-    // 1. Loại bỏ các phần trong ngoặc đơn (ví dụ: (TPDN), (VBMA), ...)
-    // Loại bỏ cả dấu ngoặc và nội dung bên trong
-    let processedText = text.replace(/\([^)]*\)/g, ' ');
+  useEffect(() => {
+  if (!window.speechSynthesis) return;
 
-    const abbreviations: Record<string, string> = {
-      'TPDN': 'Trái phiếu doanh nghiệp',
-      'CK': 'Chứng khoán',
-      'DN': 'Doanh nghiệp',
-      'NH': 'Ngân hàng',
-      'TMCP': 'Thương mại cổ phần',
-      'BĐS': 'Bất động sản',
-      'LS': 'Lãi suất',
-      'VNĐ': 'Việt Nam đồng',
-      'ĐVT': 'Đơn vị tính',
-      'HĐQT': 'Hội đồng quản trị',
-      'ĐHĐCĐ': 'Đại hội đồng cổ đông',
-      'GĐ': 'Giám đốc',
-      'TGĐ': 'Tổng giám đốc',
-      'TCT': 'Tổng công ty',
-      'MTV': 'Một thành viên',
-      'CP': 'Cổ phần',
-      'VN-Index': 'Việt Nam Index',
-      'HNX': 'Sàn Hà Nội',
-      'UPCoM': 'Sàn Up-com',
-      'HNX-Index': 'Hắt nờ ích Index',
-      'USD': 'Đô la Mỹ',
-      'VND': 'Việt Nam đồng'
-    };
+  // 👉 trigger load voice sớm
+  const load = () => {
+    const voices = window.speechSynthesis.getVoices();
+    console.log("Voices loaded:", voices);
+  };
 
-    Object.entries(abbreviations).forEach(([abbr, full]) => {
-      const regex = new RegExp(`\\b${abbr}\\b`, 'g');
-      processedText = processedText.replace(regex, full);
+  load();
+
+  // 👉 Chrome cần event này
+  window.speechSynthesis.onvoiceschanged = load;
+
+  return () => {
+    window.speechSynthesis.onvoiceschanged = null;
+  };
+}, []);
+
+    // 👉 Load voices chuẩn (fix bug Chrome)
+    const loadVoices = () => {
+    return new Promise<SpeechSynthesisVoice[]>((resolve) => {
+      let voices = window.speechSynthesis.getVoices();
+      if (voices.length) return resolve(voices);
+
+      window.speechSynthesis.onvoiceschanged = () => {
+        voices = window.speechSynthesis.getVoices();
+        resolve(voices);
+      };
     });
-
-    // 2. Làm sạch khoảng trắng thừa
-    processedText = processedText.replace(/\s+/g, ' ').trim();
-
-    return processedText;
   };
 
-  const toggleSpeech = () => {
-    if (!window.speechSynthesis) {
-      alert(t('ttsNotSupported'));
-      return;
+  const extractMainContent = (text: string) => {
+  if (!text) return '';
+
+  let cleaned = text.trim();
+
+  // 👉 bỏ dòng đầu nếu là nguồn / ngày / tác giả
+  const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // rule: bỏ tối đa 3 dòng đầu nếu ngắn (thường là metadata)
+  const filtered = lines.filter((line, index) => {
+    if (index > 2) return true;
+
+    // nếu dòng quá ngắn hoặc chứa pattern metadata → bỏ
+    if (
+      line.length < 40 ||
+      /ngày|date|tác giả|author|vietnam\+|vnexpress|cafef/i.test(line)
+    ) {
+      return false;
     }
 
-    if (isSpeaking) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    } else {
-      // Chuẩn bị nội dung đọc: Tiêu đề + Nội dung
-      const titleText = processTextForSpeech(news.title);
-      const contentText = processTextForSpeech(news.content || '');
-      
-      const fullText = `${titleText}. . . ${contentText}`;
+    return true;
+  });
 
-      const utterance = new SpeechSynthesisUtterance(fullText);
-      
-      // Thiết lập ngôn ngữ
-      utterance.lang = language === 'vi' ? 'vi-VN' : 'en-US';
-      
-      // Tìm giọng đọc phù hợp nhất trong hệ thống
-      const voices = window.speechSynthesis.getVoices();
-      
-      // Một số trình duyệt có giọng đọc chất lượng cao (Google)
-      const langCode = language === 'vi' ? 'vi-VN' : 'en-US';
-      const preferredVoice = voices.find(v => v.lang.includes(langCode) && v.name.includes('Google')) || 
-                           voices.find(v => v.lang.includes(langCode)) || 
-                           voices.find(v => v.lang.startsWith(language));
-      
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
+  return filtered.join(' ');
+};
 
-      // Điều chỉnh để giống giọng phát thanh viên:
-      utterance.rate = 0.85; 
-      utterance.pitch = 0.95; 
+  // 👉 Làm sạch text (UPGRADE VERSION)
+const cleanVietnameseText = (text: string) => {
+  if (!text) return '';
 
-      utterance.onstart = () => {
-        setIsSpeaking(true);
-      };
+  let processed = text;
 
-      utterance.onend = () => {
-        setIsSpeaking(false);
-      };
+  // =========================
+  // XỬ LÝ SỐ
+  // =========================
 
-      utterance.onerror = (event) => {
-        console.error(t('newsSpeechError'), event);
-        setIsSpeaking(false);
-      };
+  // 3.000 → 3000
+  processed = processed.replace(/(\d{1,3}(?:\.\d{3})+)/g, (match: string) => {
+    return match.replace(/\./g, '');
+  });
 
-      window.speechSynthesis.speak(utterance);
-    }
+  // 1,5 → 1.5
+  processed = processed.replace(/(\d+),(\d+)/g, '$1.$2');
+
+  const numberToVietnamese = (num: number): string => {
+    if (num < 1000) return num.toString();
+    if (num < 1000000) return `${Math.floor(num / 1000)} nghìn`;
+    if (num < 1000000000) return `${Math.floor(num / 1000000)} triệu`;
+    return `${Math.floor(num / 1000000000)} tỷ`;
   };
+
+  processed = processed.replace(/\b\d+(\.\d+)?\b/g, (match: string) => {
+    const num = Number(match);
+    if (isNaN(num)) return match;
+
+    if (match.includes('.')) {
+      const [int, dec] = match.split('.');
+      return `${numberToVietnamese(Number(int))} phẩy ${dec}`;
+    }
+
+    return numberToVietnamese(num);
+  });
+
+  return processed;
+};
+
+  // 👉 TTS chính
+  const toggleSpeech = async () => {
+  const synth = window.speechSynthesis;
+
+  if (!synth) {
+    alert(t('ttsNotSupported'));
+    return;
+  }
+
+  // 👉 stop nếu đang đọc
+  if (isSpeaking) {
+    synth.cancel();
+    setIsSpeaking(false);
+    return;
+  }
+
+  // =========================
+  // TEXT
+  // =========================
+  const titleText = cleanVietnameseText(news.title);
+
+  const rawContent = extractMainContent(news.content || '');
+  const contentText = cleanVietnameseText(rawContent);
+
+  // 👉 GỘP 1 utterance (tránh bug + đọc tự nhiên hơn)
+  const fullText = `${titleText}. ... ${contentText}`;
+
+  // =========================
+  // LOAD VOICE CHUẨN
+  // =========================
+  const voices = await loadVoices();
+
+  // 👉 debug (có thể log ra xem)
+  console.log("Available voices:", voices);
+
+  // 👉 chọn giọng tiếng Việt thật
+  let voice =
+    voices.find(v => v.lang === 'vi-VN' && v.name.includes('Google')) ||
+    voices.find(v => v.lang === 'vi-VN') ||
+    voices.find(v => v.lang.startsWith('vi'));
+
+  // ❗ nếu không có tiếng Việt → KHÔNG đọc
+  if (!voice) {
+    alert("Không tìm thấy giọng tiếng Việt trên trình duyệt này");
+    return;
+  }
+
+  // =========================
+  // CREATE UTTERANCE
+  // =========================
+  const utter = new SpeechSynthesisUtterance(fullText);
+
+  utter.lang = 'vi-VN';
+  utter.voice = voice;
+
+  // 👉 tuning để tránh đọc kiểu robot
+  utter.rate = 0.95;
+  utter.pitch = 1;
+  utter.volume = 1;
+
+  // =========================
+  // EVENTS
+  // =========================
+  utter.onstart = () => setIsSpeaking(true);
+  utter.onend = () => setIsSpeaking(false);
+  utter.onerror = (e) => {
+    console.error("TTS error:", e);
+    setIsSpeaking(false);
+  };
+
+  // =========================
+  // RESET ENGINE (QUAN TRỌNG)
+  // =========================
+  synth.cancel();
+
+  setTimeout(() => {
+    synth.speak(utter);
+  }, 150);
+};
 
   const handleShare = () => {
     if (navigator.share) {
@@ -223,14 +305,31 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
             {/* RIGHT - Speech */}
             <button
               onClick={toggleSpeech}
-              title={isSpeaking ? t("stopReading") : t("listenArticle")}
-              className={`p-2.5 rounded-xl transition-all duration-300 ${
-                isSpeaking 
-                  ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400' 
+              disabled={isLoading}
+              aria-pressed={isSpeaking}
+              aria-label={
+                isLoading
+                  ? 'Đang chuẩn bị'
+                  : isSpeaking
+                  ? t("stopReading")
+                  : t("listenArticle")
+              }
+              title={
+                isLoading
+                  ? 'Đang chuẩn bị'
+                  : isSpeaking
+                  ? t("stopReading")
+                  : t("listenArticle")
+              }
+              className={`p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center ${
+                isSpeaking
+                  ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'
                   : 'bg-[#3634B3]/5 text-[#3634B3] hover:bg-[#3634B3] hover:text-white'
-              }`}
+              } disabled:opacity-40 disabled:cursor-not-allowed`}
             >
-              {isSpeaking ? (
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : isSpeaking ? (
                 <VolumeX className="h-4 w-4 animate-pulse" />
               ) : (
                 <Volume2 className="h-4 w-4" />
