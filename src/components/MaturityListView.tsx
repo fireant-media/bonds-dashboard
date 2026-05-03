@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Calendar, Activity, Briefcase, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
-import { Bond } from "../Bond";
+import { Bond } from '../types';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -103,7 +103,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 ) || 'N/A',
                 term: `${b.tenorPeriod} ${t('monthUnit')}`,
                 issueDate: b.issueDate?.split('T')[0] || '',
-                issueValue: 0,
+                issuedValue: 0,
                 status: b.status || t('active'),
                 industry: b.infoObj?.icbNameLv2 || t('others')
               };

@@ -13,8 +13,7 @@ import ProfileView from './components/ProfileView';
 import SettingsView from './components/SettingsView';
 import LoginView from './components/LoginView';
 import HelpView from './components/HelpView';
-import { IndustryType, Enterprise, NewsItem } from './types';
-import { Bond } from "./Bond";
+import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { useLanguage } from './LanguageContext';
 import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
@@ -87,7 +86,7 @@ export default function App() {
         name: suggestion.title,
         industry: cached?.industry || 'N/A',
         bondCount: cached?.bondCount || 0,
-        issueValue: cached?.issueValue || 0,
+        issuedValue: cached?.issuedValue || 0,
         initialDebt: cached?.initialDebt || 0,
         remainingDebt: cached?.remainingDebt || 0,
       };
@@ -155,7 +154,7 @@ export default function App() {
           term: detail.tenorPeriod ? String(detail.tenorPeriod) : '',
           interestRate,
           listedVolume,
-          issueValue,
+          issuedValue: issueValue,
           listedValue,
           issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : '',
           maturityDate: detail.maturityDate ? detail.maturityDate.split('T')[0] : '',
@@ -174,7 +173,7 @@ export default function App() {
           term: '',
           interestRate: 0,
           listedVolume: 0,
-          issueValue: 0,
+          issuedValue: 0,
           listedValue: 0,
           issueDate: '',
           maturityDate: '',
@@ -194,7 +193,7 @@ export default function App() {
         term: '',
         interestRate: 0,
         listedVolume: 0,
-        issueValue: 0,
+        issuedValue: 0,
         listedValue: 0,
         issueDate: '',
         maturityDate: '',

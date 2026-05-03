@@ -382,7 +382,7 @@ export default function MarketOverview() {
     },
     series: [
       {
-        name: t('issueVolumeTitle'),
+        name: t('issuedVolumeTitle'),
         type: 'bar',
         data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalIssuedVolume / 1000)) : [],
         itemStyle: { color: chartColors.primary, borderRadius: [4, 4, 0, 0] },

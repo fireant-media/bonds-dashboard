@@ -114,7 +114,7 @@ export default function EnterpriseView({
             term: String(b.tenorPeriod || 'N/A'),
             interestRate: b.bondRate,
             listedVolume: b.currentListedVolume,
-            issueValue: b.currentListedVolume, // Assuming face value 1B
+            issuedValue: b.currentListedVolume, // Assuming face value 1B
             listedValue: b.currentListedVolume, // Assuming face value 1B
             issueDate: b.issueDate?.split('T')[0] || '',
             maturityDate: b.maturityDate?.split('T')[0] || '',
@@ -313,7 +313,7 @@ export default function EnterpriseView({
               name: issuer.issuerName,
               industry: currentEnt?.industry || 'N/A', 
               bondCount: issuer.bondCount,
-              issueValue: issuer.totalIssuedValue / 1000000000,
+              issuedValue: issuer.totalIssuedValue / 1000000000,
               initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue) / 1000000000,
               remainingDebt: issuer.totalRemainingDebt / 1000000000
             };
@@ -443,8 +443,8 @@ export default function EnterpriseView({
   );
 
   const sortedEnterprises = [...filteredEnterprises].sort((a, b) => {
-    if (issueValueSort === 'HighToLow') return b.issueValue - a.issueValue;
-    if (issueValueSort === 'LowToHigh') return a.issueValue - b.issueValue;
+    if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
+    if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
     return 0;
   });
 
@@ -857,8 +857,8 @@ export default function EnterpriseView({
                 <span className="text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssueValueTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issueValue, 2)}</span>
+                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssuedValueTitle')}</p>
+                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
                 <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
@@ -956,7 +956,7 @@ export default function EnterpriseView({
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume').toUpperCase()}</th>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('totalIssueValueTitle').toUpperCase()}</span>
+                      <span className="whitespace-nowrap">{t('totalIssuedValueTitle').toUpperCase()}</span>
                       <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
                     </div>
                   </th>
@@ -995,7 +995,7 @@ export default function EnterpriseView({
                        ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : bond.interestType)}
                     </td>
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issueValue || 0, 2)}</td>
+                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
@@ -1150,7 +1150,7 @@ export default function EnterpriseView({
               value={issueValueSort}
               onChange={(e) => setIssueValueSort(e.target.value)}
             >
-              <option value="None" className="bg-bg-surface">{t('issueValue')}</option>
+              <option value="None" className="bg-bg-surface">{t('issuedValue')}</option>
               <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
               <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
             </select>
@@ -1185,7 +1185,7 @@ export default function EnterpriseView({
                 <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount').toUpperCase()}</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issueValue').toUpperCase()}</span>
+                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
                     <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
                   </div>
                 </th>
@@ -1228,7 +1228,7 @@ export default function EnterpriseView({
                   </td>
                   <td className="px-6 py-5 text-right whitespace-nowrap">
                     <span className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
-                      {formatNumber(enterprise.issueValue, 2)}
+                      {formatNumber(enterprise.issuedValue, 2)}
                     </span>
                   </td>
                   <td className="px-6 py-5 text-right whitespace-nowrap">

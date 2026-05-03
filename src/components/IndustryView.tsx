@@ -170,12 +170,12 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     if (industryStats) {
       return [
         { 
-          label: t('issueVolumeTitle'), 
+          label: t('issuedVolumeTitle'), 
           value: formatNumber(Math.round(industryStats.totalIssuedVolume / 1000000), 0), 
           unit: t('unitMillionShares') 
         },
         { 
-          label: t('totalIssueValueTitle'), 
+          label: t('totalIssuedValueTitle'), 
           value: formatNumber(Math.round(industryStats.totalIssuedValue / 1000000000), 0), 
           unit: t('unitBillion').replace('Đơn vị: ', '').replace('Unit: ', '') 
         },

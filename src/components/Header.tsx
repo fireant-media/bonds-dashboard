@@ -73,7 +73,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
                 name: issuer.issuerName,
                 industry: 'N/A',
                 bondCount: issuer.bondCount || 0,
-                issueValue: (issuer.totalIssuedValue || 0) / 1000000000,
+                  issuedValue: (issuer.totalIssuedValue || 0) / 1000000000,
                 initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue || 0) / 1000000000,
                 remainingDebt: (issuer.totalRemainingDebt || 0) / 1000000000
               }));

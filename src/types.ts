@@ -7,7 +7,7 @@ export interface Enterprise {
   internationalName?: string;
   industry: IndustryType;
   bondCount: number;
-  issueValue: number;
+  issuedValue: number;
   initialDebt: number;
   remainingDebt: number;
 }
@@ -49,7 +49,7 @@ export interface Bond {
   term: string;
   interestRate: number;
   listedVolume: number;
-  issueValue: number;
+  issuedValue: number;
   listedValue: number;
   issueDate: string;
   maturityDate: string;

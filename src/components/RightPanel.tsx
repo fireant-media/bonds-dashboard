@@ -2,8 +2,7 @@ import { Calendar, ChevronRight, Newspaper, TrendingUp, PanelRight, Settings } f
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
-import { ExpiringBond } from '../types';
-import { Bond } from "../Bond";
+import { ExpiringBond, Bond } from '../types';
 import { formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
@@ -288,7 +287,7 @@ export default function RightPanel({
                             term: bond.term || 'N/A',
                             interestRate: bond.interestRate,
                             listedVolume: bond.listedVolume,
-                            issueValue: 0,
+                            issuedValue: 0,
                             listedValue: 0,
                             issueDate: bond.issueDate || 'N/A',
                             maturityDate: bond.maturityDate,

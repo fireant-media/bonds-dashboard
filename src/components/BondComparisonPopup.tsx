@@ -154,7 +154,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     term: String(b.tenorPeriod || 'N/A'),
                     interestRate: b.bondRate || 0,
                     listedVolume: normalizeVol(b.currentListedVolume),
-                    issueValue: issueValue,
+                    issuedValue: issueValue,
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
                     maturityDate: b.maturityDate?.split('T')[0] || '',
@@ -241,7 +241,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     term: String(b.tenorPeriod || 'N/A'),
                     interestRate: b.bondRate || 0,
                     listedVolume: normalizeVol(b.currentListedVolume),
-                    issueValue: issueValue,
+                    issuedValue: issueValue,
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
                     maturityDate: b.maturityDate?.split('T')[0] || '',
@@ -277,7 +277,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               term: '',
               interestRate: 0,
               listedVolume: 0,
-              issueValue: 0,
+              issuedValue: 0,
               listedValue: 0,
               issueDate: '',
               maturityDate: new Date().toISOString().split('T')[0],
@@ -404,7 +404,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             term: String(b.tenorPeriod || 'N/A'),
             interestRate: Number(interestRate) || 0,
             listedVolume: Number(listedVolume) || 0,
-            issueValue: Number(issueValue) || 0,
+            issuedValue: Number(issueValue) || 0,
             listedValue: Number(listedValue) || 0,
             issueDate: b.issueDate?.split('T')[0] || '',
             maturityDate,
@@ -617,7 +617,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     }
     
     const labels = {
-      volume: t('issueVolume'),
+      volume: t('issuedVolume'),
       value: t('issuedValue'),
       listed: t('listedValue')
     };
@@ -635,9 +635,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             let unit = '';
 
             if (p.seriesName === labels.value || p.seriesName === labels.listed) {
-              unit = ` ${t('billionVND')}`; // tỷ VNĐ
+              unit = ` ${t('unitBillionVND')}`; // tỷ VNĐ
             } else if (p.seriesName === labels.volume) {
-              unit = ` ${t('bond')}`; // trái phiếu
+              unit = ` ${t('bondunits')}`; // trái phiếu
             }
 
             res += `
@@ -688,7 +688,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           name: labels.value,
           type: 'bar',
           barWidth: 15,
-          data: selectedBonds.map(b => b.issueValue),
+          data: selectedBonds.map(b => b.issuedValue),
           itemStyle: { color: isDark ? '#5c6bc0' : '#3634B3', borderRadius: [2, 2, 0, 0] }
         },
         {
@@ -948,7 +948,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
                 <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">{t('interestRate')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('percentage')}</span>
+                <span className="text-[10px] text-text-muted font-bold tracking-tighter">%</span>
               </div>
               <div className="h-[250px] transition-colors">
                 {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'))}
@@ -969,14 +969,14 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     { label: t('interestType'), key: 'interestType', isInterestType: true },
                     { label: t('issueDate'), key: 'issueDate', isDate: true },
                     { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                    { label: t('issuedValue'), key: 'issueValue', isValue: true }
+                    { label: t('issuedValue'), key: 'issuedValue', isValue: true }
                   ].map((row, idx) => (
                     <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
                       <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[20%]">{row.label}</td>
                       {selectedBonds.map((b) => (
                         <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
                           {row.isRate ? formatNumber(b.interestRate, 2) : 
-                           row.isValue ? formatValue(b.issueValue) :
+                           row.isValue ? formatValue(b.issuedValue) :
                            row.isTerm ? b.term.replace(/[^0-9]/g, '') :
                            row.isDate ? formatDate((b as any)[row.key]) :
                            row.isInterestType 

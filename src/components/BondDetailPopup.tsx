@@ -68,7 +68,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           ? detail.totalIssuedValue / 1000000000
           : historyItem?.value
             ? historyItem.value / 1000000000
-            : bond.issueValue;
+            : bond.issuedValue;
         const listedValue = detail.currentListedValue
           ? detail.currentListedValue / 1000000000
           : historyItem?.value
@@ -82,7 +82,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           interestType,
           interestRate,
           listedVolume,
-          issueValue,
+          issuedValue: issueValue,
           listedValue,
           status: detail.status || bond.status,
           cashFlows: (data.cashFlows || []).map((cf: any) => ({
@@ -194,7 +194,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
       return rawType;
     })(), icon: Info },
     { label: t('listedVolume'), value: formatNumber(currentBond.listedVolume || 0, 0), icon: Activity },
-    { label: t('issueValue'), value: `${formatNumber(currentBond.issueValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
+    { label: t('issuedValue'), value: `${formatNumber(currentBond.issuedValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
     { label: t('listedValueTitle'), value: `${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
   ];
 
