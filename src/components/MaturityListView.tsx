@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Calendar, Activity, Briefcase, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
 import { Bond } from '../types';
-import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
+import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../ThemeContext';
@@ -96,14 +96,10 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 listedVolume: b.currentListedVolume || 0,
                 listedValue: (b.currentListedVolume * 100000) / 1000000000, 
                 interestRate: b.bondRate || 0,
-                interestType: normalizeInterestType(
-                  b.bondRateType || b.interestRateType || b.interestType || '',
-                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                  []
-                ) || 'N/A',
+                interestType: b.bondRateType || 'N/A',
                 term: `${b.tenorPeriod} ${t('monthUnit')}`,
                 issueDate: b.issueDate?.split('T')[0] || '',
-                issuedValue: 0,
+                issueValue: 0,
                 status: b.status || t('active'),
                 industry: b.infoObj?.icbNameLv2 || t('others')
               };

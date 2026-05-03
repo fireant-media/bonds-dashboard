@@ -13,8 +13,9 @@ async function startServer() {
   // Generic API Proxy for Fireant
   app.all("/api/fireant/*", async (req, res) => {
     try {
-      const targetPath = (req.params as any)[0];
+      const targetPath = req.params[0];
       const query = new URLSearchParams(req.query as any).toString();
+      
       // Using betarest as requested by user for bond and profile data accuracy
       const baseUrl = "https://betarest.fireant.vn";
       const url = `${baseUrl}/${targetPath}${query ? `?${query}` : ""}`;
@@ -70,7 +71,7 @@ async function startServer() {
       
       res.status(response.status).json(response.data);
     } catch (error: any) {
-      console.error(`Error proxying Fireant [${req.method}] ${(req.params as any)[0]}:`, error.message);
+      console.error(`Error proxying Fireant [${req.method}] ${req.params[0]}:`, error.message);
       if (error.response) {
         res.status(error.response.status).json(error.response.data);
       } else {
@@ -179,9 +180,9 @@ async function startServer() {
           
           if (!img) {
             const contentToSearch = p.content || p.originalContent || p.description || p.summary || "";
-            const imgMatches: RegExpMatchArray[] = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
+            const imgMatches = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
             if (imgMatches.length > 0) {
-              const likelyImg = imgMatches.find((m: RegExpMatchArray) => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
+              const likelyImg = imgMatches.find(m => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
               img = likelyImg[1];
             }
           }
@@ -430,9 +431,9 @@ async function startServer() {
           
           if (!img) {
             const contentToSearch = p.content || p.originalContent || p.description || p.summary || "";
-            const imgMatches: RegExpMatchArray[] = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
+            const imgMatches = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
             if (imgMatches.length > 0) {
-              const likelyImg = imgMatches.find((m: RegExpMatchArray) => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
+              const likelyImg = imgMatches.find(m => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
               img = likelyImg[1];
             }
           }
@@ -527,9 +528,9 @@ async function startServer() {
               
               if (!img) {
                 const contentToSearch = p.content || p.originalContent || p.description || p.summary || "";
-                const imgMatches: RegExpMatchArray[] = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
+                const imgMatches = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
                 if (imgMatches.length > 0) {
-                  const likelyImg = imgMatches.find((m: RegExpMatchArray) => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
+                  const likelyImg = imgMatches.find(m => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
                   img = likelyImg[1];
                 }
               }
@@ -561,7 +562,7 @@ async function startServer() {
               }
 
               // Fix images
-              contentText = contentText.replace(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi, (match: string, src: string) => {
+              contentText = contentText.replace(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi, (match, src) => {
                 let absoluteSrc = src;
                 if (src.startsWith('//')) absoluteSrc = `https:${src}`;
                 else if (src.startsWith('/')) absoluteSrc = `https://static.fireant.vn${src}`;
@@ -586,8 +587,8 @@ async function startServer() {
             }).filter(Boolean);
 
             if (allImages.length <= 1) {
-              const contentImgMatches: RegExpMatchArray[] = Array.from(contentText.matchAll(/<img[^>]+src=["']([^"'\s>]+)["']/gi));
-              contentImgMatches.forEach((m: RegExpMatchArray) => {
+              const contentImgMatches = Array.from(contentText.matchAll(/<img[^>]+src=["']([^"'\s>]+)["']/gi));
+              contentImgMatches.forEach(m => {
                 if (m[1] && !allImages.includes(m[1]) && !m[1].includes('icon') && !m[1].includes('logo')) {
                   allImages.push(m[1]);
                 }

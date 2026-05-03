@@ -20,11 +20,25 @@ interface HeaderProps {
   onHelpClick: () => void;
   onLogoClick: () => void;
   onLogout: () => void;
-  onSearchSelect: (suggestion: SearchSuggestion) => void;
   user: any;
+  setActiveTab: (tab: any) => void;
+  setSelectedEnterprise: (ent: any) => void;
+  setSelectedBond: (bond: any) => void;
+  setBondEnterpriseName: (name: string) => void;
 }
 
-export default function Header({ onProfileClick, onSettingsClick, onHelpClick, onLogoClick, onLogout, onSearchSelect, user }: HeaderProps) {
+export default function Header({ 
+  onProfileClick, 
+  onSettingsClick, 
+  onHelpClick, 
+  onLogoClick, 
+  onLogout, 
+  user,
+  setActiveTab,
+  setSelectedEnterprise,
+  setSelectedBond,
+  setBondEnterpriseName
+}: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,7 +87,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
                 name: issuer.issuerName,
                 industry: 'N/A',
                 bondCount: issuer.bondCount || 0,
-                  issuedValue: (issuer.totalIssuedValue || 0) / 1000000000,
+                issueValue: (issuer.totalIssuedValue || 0) / 1000000000,
                 initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue || 0) / 1000000000,
                 remainingDebt: (issuer.totalRemainingDebt || 0) / 1000000000
               }));
@@ -252,7 +266,14 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
     setSearchQuery('');
     setSuggestions([]);
     setShowDropdown(false);
-    onSearchSelect(suggestion);
+    
+    if (suggestion.type === 'bond' && suggestion.code) {
+      setSelectedBond({ id: suggestion.code, code: suggestion.code } as any);
+      setBondEnterpriseName(suggestion.enterpriseName || '');
+    } else if (suggestion.type === 'enterprise' && suggestion.id) {
+      setSelectedEnterprise({ ticker: suggestion.id, name: suggestion.title } as any);
+      setActiveTab('enterprise');
+    }
   };
 
   return (

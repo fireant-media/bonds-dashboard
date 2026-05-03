@@ -1,10 +1,10 @@
 import { useState, FormEvent, useEffect } from 'react';
-import { ChevronLeft, Volume2, Loader2, Share2, Bookmark, MessageCircle, Send } from 'lucide-react';
 import { NewsItem } from '../types';
+import { ChevronLeft, Share2, MessageCircle, Bookmark, Send, Volume2, VolumeX, ExternalLink, Loader2 } from 'lucide-react';
+import { formatDate } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { fetchNewsDetail } from '../services/newsService';
-import { formatDate } from '../utils/format';
 
 interface NewsDetailViewProps {
   news: NewsItem;
@@ -35,6 +35,111 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
 
     loadFullContent();
   }, [initialNews.id]);
+
+  // Stop speech when component unmounts
+  useEffect(() => {
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const processTextForSpeech = (text: string) => {
+    // 1. Loại bỏ các phần trong ngoặc đơn (ví dụ: (TPDN), (VBMA), ...)
+    // Loại bỏ cả dấu ngoặc và nội dung bên trong
+    let processedText = text.replace(/\([^)]*\)/g, ' ');
+
+    const abbreviations: Record<string, string> = {
+      'TPDN': 'Trái phiếu doanh nghiệp',
+      'CK': 'Chứng khoán',
+      'DN': 'Doanh nghiệp',
+      'NH': 'Ngân hàng',
+      'TMCP': 'Thương mại cổ phần',
+      'BĐS': 'Bất động sản',
+      'LS': 'Lãi suất',
+      'VNĐ': 'Việt Nam đồng',
+      'ĐVT': 'Đơn vị tính',
+      'HĐQT': 'Hội đồng quản trị',
+      'ĐHĐCĐ': 'Đại hội đồng cổ đông',
+      'GĐ': 'Giám đốc',
+      'TGĐ': 'Tổng giám đốc',
+      'TCT': 'Tổng công ty',
+      'MTV': 'Một thành viên',
+      'CP': 'Cổ phần',
+      'VN-Index': 'Việt Nam Index',
+      'HNX': 'Sàn Hà Nội',
+      'UPCoM': 'Sàn Up-com',
+      'HNX-Index': 'Hắt nờ ích Index',
+      'USD': 'Đô la Mỹ',
+      'VND': 'Việt Nam đồng'
+    };
+
+    Object.entries(abbreviations).forEach(([abbr, full]) => {
+      const regex = new RegExp(`\\b${abbr}\\b`, 'g');
+      processedText = processedText.replace(regex, full);
+    });
+
+    // 2. Làm sạch khoảng trắng thừa
+    processedText = processedText.replace(/\s+/g, ' ').trim();
+
+    return processedText;
+  };
+
+  const toggleSpeech = () => {
+    if (!window.speechSynthesis) {
+      alert(t('ttsNotSupported'));
+      return;
+    }
+
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    } else {
+      // Chuẩn bị nội dung đọc: Tiêu đề + Nội dung
+      const titleText = processTextForSpeech(news.title);
+      const contentText = processTextForSpeech(news.content || '');
+      
+      const fullText = `${titleText}. . . ${contentText}`;
+
+      const utterance = new SpeechSynthesisUtterance(fullText);
+      
+      // Thiết lập ngôn ngữ
+      utterance.lang = language === 'vi' ? 'vi-VN' : 'en-US';
+      
+      // Tìm giọng đọc phù hợp nhất trong hệ thống
+      const voices = window.speechSynthesis.getVoices();
+      
+      // Một số trình duyệt có giọng đọc chất lượng cao (Google)
+      const langCode = language === 'vi' ? 'vi-VN' : 'en-US';
+      const preferredVoice = voices.find(v => v.lang.includes(langCode) && v.name.includes('Google')) || 
+                           voices.find(v => v.lang.includes(langCode)) || 
+                           voices.find(v => v.lang.startsWith(language));
+      
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+
+      // Điều chỉnh để giống giọng phát thanh viên:
+      utterance.rate = 0.85; 
+      utterance.pitch = 0.95; 
+
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+      };
+
+      utterance.onend = () => {
+        setIsSpeaking(false);
+      };
+
+      utterance.onerror = (event) => {
+        console.error(t('newsSpeechError'), event);
+        setIsSpeaking(false);
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+  };
 
   const handleShare = () => {
     if (navigator.share) {
@@ -117,13 +222,20 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
 
             {/* RIGHT - Speech */}
             <button
-              onClick={() => {}}
-              aria-label={t("listenArticle")}
-              title={t("listenArticle")}
-              className="p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center bg-[#3634B3]/5 text-[#3634B3] hover:bg-[#3634B3] hover:text-white"
+              onClick={toggleSpeech}
+              title={isSpeaking ? t("stopReading") : t("listenArticle")}
+              className={`p-2.5 rounded-xl transition-all duration-300 ${
+                isSpeaking 
+                  ? 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400' 
+                  : 'bg-[#3634B3]/5 text-[#3634B3] hover:bg-[#3634B3] hover:text-white'
+              }`}
             >
-              <Volume2 className="h-4 w-4" />
-              </button>
+              {isSpeaking ? (
+                <VolumeX className="h-4 w-4 animate-pulse" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
+            </button>
           </div>
         </header>
 

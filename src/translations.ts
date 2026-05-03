@@ -34,9 +34,17 @@ export const translations = {
     couponYield: 'COUPON / LỢI SUẤT',
     detailedSpecs: 'THÔNG SỐ CHI TIẾT',
     tradeNow: 'Giao dịch ngay',
-    issuedVolumeLong: 'KL phát hành',
-    issuedValueShort: 'Giá trị phát hành',
-    listedValueShort: 'Giá trị niêm yết',
+    issueVolume: 'KL phát hành',
+    issueValue: 'Giá trị phát hành',
+    listedValue: 'Giá trị niêm yết',
+    termMonths: 'Kỳ hạn (tháng)',
+    interestRatePercent: 'Lãi suất (%)',
+    issueValueBillion: 'Giá trị phát hành (tỷ VNĐ)',
+    billionVND: '(tỷ VNĐ)',
+    percent: '(%)',
+    issueVolumeLong: 'KL PHÁT HÀNH',
+    issueValueShort: 'GIÁ TRỊ PH',
+    listedValueShort: 'GIÁ TRỊ NY',
     relatedNews: 'Tin tức liên quan',
     newsDescription: 'Cập nhật những thông tin mới nhất từ thị trường tài chính',
     refresh: 'Làm mới',
@@ -121,7 +129,6 @@ export const translations = {
     tradingVolume: 'Khối lượng giao dịch',
     bondCount: 'Số lượng trái phiếu',
     issuedValue: 'Giá trị phát hành',
-    listedValue: 'Giá trị niêm yết',
     interestRateRange: 'Biên độ lãi suất',
     maturityStructure: 'Cấu trúc đáo hạn',
     
@@ -129,7 +136,6 @@ export const translations = {
     bondCode: 'Mã trái phiếu',
     ticker: 'Mã chứng khoán',
     term: 'Kỳ hạn',
-    termMonths: 'Kỳ hạn (tháng)',
     issueDate: 'Ngày phát hành',
     maturityDate: 'Ngày đáo hạn',
     interestRate: 'Lãi suất',
@@ -349,7 +355,6 @@ export const translations = {
     remainingDebtTitle: 'Dư nợ còn lại',
     bondLotsTitle: 'Số lô trái phiếu',
     totalIssuedValueTitle: 'Tổng giá trị phát hành',
-    totalIssuedValueTitleUnit: 'Tổng giá trị phát hành (Tỷ VNĐ)',
     issuedVolumeTitle: 'Khối lượng phát hành',
     loadingMarketData: 'Đang tải dữ liệu thị trường...',
     failedToLoadData: 'Không thể tải dữ liệu',
@@ -559,7 +564,7 @@ export const translations = {
     loadingIndustryData: 'Đang tải dữ liệu ngành',
     
     // Units & Labels
-    unitBillionVND: 'Tỷ VNĐ',
+    unitBillionVND: 'tỷ VNĐ',
     unitThousandShares: 'nghìn TP',
     
     // Enterprise View Specific
@@ -629,14 +634,6 @@ export const translations = {
     principal: 'Gốc',
     interest: 'Lãi',
     summary: 'Nhận xét',
-
-     // Bond comparison specific
-    issuedValueUnit: 'Giá trị phát hành (tỷ VNĐ)',
-    interestRateUnit: 'Lãi suất (%)',
-    issuedVolume: 'Khối lượng phát hành',
-    bondunits:'Trái phiếu',
-    maturityTerm: 'Kỳ hạn đáo hạn (tháng)',
-    comparisonInsight: 'Nhận xét so sánh',
 
     // AI Charts
     aiChartPromptRole: 'Bạn là một chuyên gia phân tích tài chính cao cấp.',
@@ -754,9 +751,17 @@ export const translations = {
     couponYield: 'COUPON / YIELD',
     detailedSpecs: 'DETAILED SPECS',
     tradeNow: 'Trade now',
-    issuedVolumeLong: 'Issue Volume',
-    issuedValueShort: 'Issue Value',
-    listedValueShort: 'Listed Value',
+    issueVolume: 'Issue Volume',
+    issueValue: 'Issue Value',
+    listedValue: 'Listed Value',
+    termMonths: 'Tenor (Months)',
+    interestRatePercent: 'Interest Rate (%)',
+    issueValueBillion: 'Issue Value (Billion VND)',
+    billionVND: '(billion VND)',
+    percent: '(%)',
+    issueVolumeLong: 'ISSUE VOLUME',
+    issueValueShort: 'ISSUE VALUE',
+    listedValueShort: 'LISTED VALUE',
     relatedNews: 'Related News',
     newsDescription: 'Get the latest information from the financial market',
     refresh: 'Refresh',
@@ -841,7 +846,6 @@ export const translations = {
     tradingVolume: 'Trading Volume',
     bondCount: 'Bond Count',
     issuedValue: 'Issued Value',
-    listedValue: 'Listed Value',
     interestRateRange: 'Interest Rate Range',
     maturityStructure: 'Maturity Structure',
     
@@ -849,7 +853,6 @@ export const translations = {
     bondCode: 'Bond Code',
     ticker: 'Ticker',
     term: 'Term',
-    termMonths: 'Term (months)',
     issueDate: 'Issue Date',
     maturityDate: 'Maturity Date',
     interestRate: 'Interest Rate',
@@ -1069,8 +1072,7 @@ export const translations = {
     remainingDebtTitle: 'Remaining Debt',
     bondLotsTitle: 'Bond Lots',
     totalIssuedValueTitle: 'Total Issued Value',
-    totalIssuedValueTitleUnit: 'Total Issued Value (Billion VND)',
-    issuedVolumeTitle: 'Issue Volume',
+    issuedVolumeTitle: 'Issued Volume',
     loadingMarketData: 'Loading market data...',
     failedToLoadData: 'Failed to load data',
     missingToken: 'Missing API Token',
@@ -1267,6 +1269,7 @@ export const translations = {
     upcomingBonds: 'Upcoming Bonds',
     noLatestNews: 'No latest news available',
     unitMillionTrillion: 'million trillion',
+    unitKTy: 'k billion',
     unitTy: 'billion',
     noUpcomingBondsData: 'No upcoming bond maturity data',
     authError401: 'Authentication Error (401)',
@@ -1278,7 +1281,7 @@ export const translations = {
     loadingIndustryData: 'Loading industry data',
 
     // Units & Labels
-    unitBillionVND: 'Billion VND',
+    unitBillionVND: 'billion VND',
     unitThousandShares: 'thousand bonds',
 
     // Enterprise View Specific
@@ -1322,9 +1325,9 @@ export const translations = {
     nearest: 'Nearest',
     farthest: 'Farthest',
     allStatuses: 'All Statuses',
-    rangeLess100: '< 100 Billion VND',
-    range100to500: '100 - 500 Billion VND',
-    rangeMore500: '> 500 Billion VND',
+    rangeLess100: '< 100 Billion',
+    range100to500: '100 - 500 Billion',
+    rangeMore500: '> 500 Billion',
     statusVeryNear: 'Very Near Maturity',
     statusNear: 'Near Maturity',
     statusMonitor: 'Need Monitoring',
@@ -1348,14 +1351,6 @@ export const translations = {
     principal: 'Principal',
     interest: 'Interest',
     summary: 'Summary',
-
-    // Bond comparison specific
-    issuedValueUnit: 'Issued Value (Billion VND)',
-    interestRateUnit: 'Interest Rate (%)',
-    issuedVolume: 'Issue Volume',
-    bondunits:'Bonds',
-    maturityTerm: 'Maturity Term (months)',
-    comparisonInsight: 'Comparison Insight',
 
     // AI Charts
     aiChartPromptRole: 'You are a senior financial analyst.',

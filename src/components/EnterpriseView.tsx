@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info } from 'lucide-react';
-import { Enterprise } from '../types';
-import { Bond } from "../types";
+import { Enterprise, Bond } from '../types';
 import BondDetailPopup from './BondDetailPopup';
 import ReactECharts from 'echarts-for-react';
-import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
+import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 
 interface EnterpriseViewProps {
@@ -114,15 +113,11 @@ export default function EnterpriseView({
             term: String(b.tenorPeriod || 'N/A'),
             interestRate: b.bondRate,
             listedVolume: b.currentListedVolume,
-            issuedValue: b.currentListedVolume, // Assuming face value 1B
+            issueValue: b.currentListedVolume, // Assuming face value 1B
             listedValue: b.currentListedVolume, // Assuming face value 1B
             issueDate: b.issueDate?.split('T')[0] || '',
             maturityDate: b.maturityDate?.split('T')[0] || '',
-            interestType: normalizeInterestType(
-              b.bondRateType || b.interestRateType || b.interestType || '',
-              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-              []
-            ) || 'N/A',
+            interestType: b.bondRateType,
             status: b.status
           }));
           setIssuerBonds(mappedBonds);
@@ -313,7 +308,7 @@ export default function EnterpriseView({
               name: issuer.issuerName,
               industry: currentEnt?.industry || 'N/A', 
               bondCount: issuer.bondCount,
-              issuedValue: issuer.totalIssuedValue / 1000000000,
+              issueValue: issuer.totalIssuedValue / 1000000000,
               initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue) / 1000000000,
               remainingDebt: issuer.totalRemainingDebt / 1000000000
             };
@@ -443,8 +438,8 @@ export default function EnterpriseView({
   );
 
   const sortedEnterprises = [...filteredEnterprises].sort((a, b) => {
-    if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
-    if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
+    if (issueValueSort === 'HighToLow') return b.issueValue - a.issueValue;
+    if (issueValueSort === 'LowToHigh') return a.issueValue - b.issueValue;
     return 0;
   });
 
@@ -858,7 +853,7 @@ export default function EnterpriseView({
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
                 <p className="text-base font-bold text-text-muted mb-2">{t('totalIssuedValueTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
+                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issueValue, 2)}</span>
                 <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
@@ -995,7 +990,7 @@ export default function EnterpriseView({
                        ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : bond.interestType)}
                     </td>
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
+                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issueValue || 0, 2)}</td>
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
@@ -1228,7 +1223,7 @@ export default function EnterpriseView({
                   </td>
                   <td className="px-6 py-5 text-right whitespace-nowrap">
                     <span className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
-                      {formatNumber(enterprise.issuedValue, 2)}
+                      {formatNumber(enterprise.issueValue, 2)}
                     </span>
                   </td>
                   <td className="px-6 py-5 text-right whitespace-nowrap">
