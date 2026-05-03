@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, Info, Calendar, TrendingUp, Activity, Briefcase, AlertTriangle, ArrowLeftRight } from 'lucide-react';
-import { Bond } from "../Bond";
-import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
+import { Bond } from "../types";
+import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
@@ -61,18 +61,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
         const interestRate = detail.bondRate || detail.interestRate || detail.couponRate || cashFlowRate || bond.interestRate;
         const rawInterestType = detail.bondRateType || detail.interestRateType || detail.couponRateType || detail.interestType || bond.interestType || '';
-        const paymentMethod = String(detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || '').toLowerCase();
-        const cashFlowRates = Array.isArray(data.cashFlows)
-          ? (data.cashFlows as any[]).map((cf: any) => cf.bondRate).filter((rate: any) => rate !== undefined && rate !== null)
-          : [];
-        const hasConstantCashRate = cashFlowRates.length > 1 && cashFlowRates.every((rate: any) => rate === cashFlowRates[0]);
-        const interestType = rawInterestType || (
-          /thả nổi|floating|variable|linh hoạt|flo/i.test(paymentMethod)
-            ? 'Thả nổi'
-            : /cố định|fixed|fixed rate|định/i.test(paymentMethod) || hasConstantCashRate
-              ? 'Cố định'
-              : ''
-        );
+        const paymentMethod = detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || detail.bondName || '';
+        const interestType = normalizeInterestType(rawInterestType, paymentMethod, Array.isArray(data.cashFlows) ? data.cashFlows : []);
         const listedVolume = detail.currentListedVolume || historyItem?.volume || bond.listedVolume;
         const issueValue = detail.totalIssuedValue
           ? detail.totalIssuedValue / 1000000000

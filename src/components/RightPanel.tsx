@@ -4,7 +4,7 @@ import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
 import { ExpiringBond } from '../types';
 import { Bond } from "../Bond";
-import { formatInterestRate, formatNumber } from '../utils/format';
+import { formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 
@@ -151,7 +151,11 @@ export default function RightPanel({
         issuerName: b.issuerName,
         term: (b.tenorPeriod || b.term) ? `${b.tenorPeriod || b.term} ${t('monthUnit')}` : 'N/A',
         issueDate: (b.issueDate || b.releaseDate) ? (b.issueDate || b.releaseDate).split('T')[0] : 'N/A',
-        interestType: b.bondRateType || b.interestRateType || b.interestType || 'N/A'
+        interestType: normalizeInterestType(
+          b.bondRateType || b.interestRateType || b.interestType || '',
+          b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+          []
+        ) || 'N/A'
       }));
 
       setExpiringBonds(mappedData);

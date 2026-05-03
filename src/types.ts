@@ -7,7 +7,7 @@ export interface Enterprise {
   internationalName?: string;
   industry: IndustryType;
   bondCount: number;
-  issuedValue: number;
+  issueValue: number;
   initialDebt: number;
   remainingDebt: number;
 }

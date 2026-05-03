@@ -4,7 +4,7 @@ import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
 import ReactECharts from 'echarts-for-react';
-import { formatInterestRate, formatNumber, formatDate } from '../utils/format';
+import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 
 interface EnterpriseViewProps {
@@ -118,7 +118,11 @@ export default function EnterpriseView({
             listedValue: b.currentListedVolume, // Assuming face value 1B
             issueDate: b.issueDate?.split('T')[0] || '',
             maturityDate: b.maturityDate?.split('T')[0] || '',
-            interestType: b.bondRateType,
+            interestType: normalizeInterestType(
+              b.bondRateType || b.interestRateType || b.interestType || '',
+              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+              []
+            ) || 'N/A',
             status: b.status
           }));
           setIssuerBonds(mappedBonds);

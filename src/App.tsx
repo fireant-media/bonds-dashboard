@@ -17,6 +17,7 @@ import { IndustryType, Enterprise, NewsItem } from './types';
 import { Bond } from "./Bond";
 import { useLanguage } from './LanguageContext';
 import { getCache } from './utils/cache';
+import { normalizeInterestType } from './utils/format';
 import { getFireantToken, cleanTokenString } from './utils/token';
 
 export default function App() {
@@ -133,18 +134,8 @@ export default function App() {
 
         const interestRate = detail.bondRate || detail.interestRate || detail.couponRate || cashFlowRate || 0;
         const rawInterestType = detail.bondRateType || detail.interestRateType || detail.couponRateType || detail.interestType || '';
-        const paymentMethod = String(detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || '').toLowerCase();
-        const cashFlowRates = Array.isArray(data.cashFlows)
-          ? (data.cashFlows as any[]).map((cf: any) => cf.bondRate).filter((rate: any) => rate !== undefined && rate !== null)
-          : [];
-        const hasConstantCashRate = cashFlowRates.length > 1 && cashFlowRates.every((rate: any) => rate === cashFlowRates[0]);
-        const interestType = rawInterestType || (
-          /thả nổi|floating|variable|linh hoạt|flo/i.test(paymentMethod)
-            ? 'Thả nổi'
-            : /cố định|fixed|fixed rate|định|cố định/i.test(paymentMethod) || hasConstantCashRate
-              ? 'Cố định'
-              : ''
-        );
+        const paymentMethod = detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || detail.bondName || '';
+        const interestType = normalizeInterestType(rawInterestType, paymentMethod, Array.isArray(data.cashFlows) ? data.cashFlows : []);
         const listedVolume = detail.currentListedVolume || historyItem?.volume || 0;
         const issueValue = detail.totalIssuedValue
           ? detail.totalIssuedValue / 1000000000
