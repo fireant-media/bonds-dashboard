@@ -1150,7 +1150,7 @@ export default function EnterpriseView({
               value={issueValueSort}
               onChange={(e) => setIssueValueSort(e.target.value)}
             >
-              <option value="None" className="bg-bg-surface">{t('issuedValue')}</option>
+              <option value="None" className="bg-bg-surface">{t('issueValue')}</option>
               <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
               <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
             </select>
@@ -1185,7 +1185,7 @@ export default function EnterpriseView({
                 <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount').toUpperCase()}</th>
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
+                    <span className="whitespace-nowrap">{t('issueValue').toUpperCase()}</span>
                     <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
                   </div>
                 </th>

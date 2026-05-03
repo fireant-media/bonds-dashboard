@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2 } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
-import { formatNumber, formatInterestRate, formatDate, normalizeInterestType } from '../utils/format';
+import { formatNumber, formatInterestRate, formatDate } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
@@ -140,8 +140,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     return val;
                   };
 
-                  const issueValue = b.totalIssueValue 
-                    ? normalizeVal(b.totalIssueValue)
+                  const issueValue = b.totalIssuedValue 
+                    ? normalizeVal(b.totalIssuedValue)
                     : normalizeVol(b.currentListedVolume);
                   const listedValue = b.currentListedValue 
                     ? normalizeVal(b.currentListedValue)
@@ -158,11 +158,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
                     maturityDate: b.maturityDate?.split('T')[0] || '',
-                    interestType: normalizeInterestType(
-                      b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
-                      b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                      []
-                    ) || 'N/A',
+                    interestType: b.bondRateType || 'N/A',
                     status: b.status || 'Hiệu lực'
                   };
                 });
@@ -231,8 +227,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     return val;
                   };
 
-                  const issueValue = b.totalIssueValue 
-                    ? normalizeVal(b.totalIssueValue)
+                  const issueValue = b.totalIssuedValue 
+                    ? normalizeVal(b.totalIssuedValue)
                     : normalizeVol(b.currentListedVolume);
                   const listedValue = b.currentListedValue 
                     ? normalizeVal(b.currentListedValue)
@@ -249,11 +245,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
                     maturityDate: b.maturityDate?.split('T')[0] || '',
-                    interestType: normalizeInterestType(
-                      b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
-                      b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                      []
-                    ) || 'N/A',
+                    interestType: b.bondRateType || 'N/A',
                     status: b.status || 'Hiệu lực'
                   };
                 });
@@ -289,7 +281,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               listedValue: 0,
               issueDate: '',
               maturityDate: new Date().toISOString().split('T')[0],
-              interestType: 'N/A',
+              interestType: '',
               status: 'Hiệu lực'
             }));
             apiMatches = [...apiMatches, ...searchApiMatches];
@@ -350,7 +342,6 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         // Ensure valid maturityDate for fallback bond
         const validBond = {
           ...bond,
-          interestType: bond.interestType || 'N/A',
           maturityDate: new Date().toISOString().split('T')[0]
         };
         setComparisonBonds(prev => [...prev, validBond]);
@@ -384,8 +375,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
           const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
 
-          const issueValue = b.totalIssueValue
-            ? b.totalIssueValue / 1000000000
+          const issueValue = b.totalIssuedValue
+            ? b.totalIssuedValue / 1000000000
             : historyItem?.value
               ? historyItem.value / 1000000000
               : 0;
@@ -396,7 +387,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               : issueValue;
           const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
           const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
-          const interestType = deriveInterestType(b, data.cashFlows);
+          const interestType = deriveInterestType(data, data.cashFlows);
 
           let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
           // Validate the maturityDate
@@ -428,7 +419,6 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           // Ensure valid date for fallback
           const validBond = {
             ...bond,
-            interestType: bond.interestType || 'N/A',
             maturityDate: new Date().toISOString().split('T')[0]
           };
           console.log('[BondComparisonPopup] Adding fallback bond after parse error:', validBond);
@@ -439,7 +429,6 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         // Ensure valid date for error fallback
         const validBond = {
           ...bond,
-          interestType: bond.interestType || 'N/A',
           maturityDate: new Date().toISOString().split('T')[0]
         };
         setComparisonBonds(prev => [...prev, validBond]);
@@ -449,7 +438,6 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       // Ensure valid date for outer catch fallback
       const validBond = {
         ...bond,
-        interestType: bond.interestType || 'N/A',
         maturityDate: new Date().toISOString().split('T')[0]
       };
       setComparisonBonds(prev => [...prev, validBond]);
@@ -468,9 +456,24 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   const deriveInterestType = (detail: any, cashFlows: any[] = []) => {
     const rawInterestType = detail?.bondRateType || detail?.interestRateType || detail?.couponRateType || detail?.interestType || '';
-    const paymentMethod = detail?.interestPaymentMethod || detail?.paymentMethod || detail?.bondType || detail?.bondName || '';
-    const normalized = normalizeInterestType(rawInterestType, paymentMethod, cashFlows);
-    return normalized || 'N/A';
+    if (rawInterestType && String(rawInterestType).trim().length > 0) {
+      return rawInterestType;
+    }
+
+    const paymentMethod = String(detail?.interestPaymentMethod || detail?.paymentMethod || detail?.bondType || detail?.bondName || '').toLowerCase();
+    const cashFlowRates = Array.isArray(cashFlows)
+      ? cashFlows.map((cf: any) => cf?.bondRate).filter((rate: any) => rate !== undefined && rate !== null)
+      : [];
+    const hasConstantCashRate = cashFlowRates.length > 1 && cashFlowRates.every((rate: any) => rate === cashFlowRates[0]);
+
+    if (/thả nổi|floating|variable|linh hoạt|flo/i.test(paymentMethod)) {
+      return 'Thả nổi';
+    }
+    if (/cố định|fixed|fixed rate|định|cố định|định kỳ/i.test(paymentMethod) || hasConstantCashRate) {
+      return 'Cố định';
+    }
+
+    return 'N/A';
   };
 
   const handleReset = () => {
@@ -615,7 +618,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     
     const labels = {
       volume: t('issueVolume'),
-      value: t('issueValue'),
+      value: t('issuedValue'),
       listed: t('listedValue')
     };
     
@@ -632,9 +635,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             let unit = '';
 
             if (p.seriesName === labels.value || p.seriesName === labels.listed) {
-              unit = ` ${t('unitBillionVND')}`; // tỷ VNĐ
+              unit = ` ${t('billionVND')}`; // tỷ VNĐ
             } else if (p.seriesName === labels.volume) {
-              unit = ` ${t('bondunits')}`; // trái phiếu
+              unit = ` ${t('bond')}`; // trái phiếu
             }
 
             res += `
@@ -936,7 +939,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
                 <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase">{t('issueScale')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitBillionVND')}</span>
+                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('billionVND')}</span>
               </div>
               <div className="h-[250px] transition-colors">
                 {safeRenderChart(() => getScaleOptions(), t('errorIssueScale'))}
@@ -945,7 +948,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
                 <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">{t('interestRate')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitPercentLabel')}</span>
+                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('percentage')}</span>
               </div>
               <div className="h-[250px] transition-colors">
                 {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'))}
@@ -962,11 +965,11 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                   {[
                     { label: t('bondCode'), key: 'code' },
                     { label: t('termMonths'), key: 'term', isTerm: true },
-                    { label: t('interestRateUnit'), key: 'interestRate', isRate: true },
+                    { label: t('interestRate'), key: 'interestRate', isRate: true },
                     { label: t('interestType'), key: 'interestType', isInterestType: true },
                     { label: t('issueDate'), key: 'issueDate', isDate: true },
                     { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                    { label: t('issueValueUnit'), key: 'issueValue', isValue: true }
+                    { label: t('issuedValue'), key: 'issueValue', isValue: true }
                   ].map((row, idx) => (
                     <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
                       <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[20%]">{row.label}</td>

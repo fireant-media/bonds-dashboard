@@ -170,12 +170,12 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     if (industryStats) {
       return [
         { 
-          label: t('issuedVolumeTitle'), 
+          label: t('issueVolumeTitle'), 
           value: formatNumber(Math.round(industryStats.totalIssuedVolume / 1000000), 0), 
           unit: t('unitMillionShares') 
         },
         { 
-          label: t('totalIssuedValueTitle'), 
+          label: t('totalIssueValueTitle'), 
           value: formatNumber(Math.round(industryStats.totalIssuedValue / 1000000000), 0), 
           unit: t('unitBillion').replace('Đơn vị: ', '').replace('Unit: ', '') 
         },
@@ -251,7 +251,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const getMarketShareOptions = () => {
     const hasData = rankingData.length > 0;
-    let chartData = [];
+    let chartData: { value: number; name: string; itemStyle: { color: string } }[] = [];
 
     if (hasData) {
       const totalDebt = rankingData.reduce((sum, item) => sum + item.totalRemainingDebt, 0);
