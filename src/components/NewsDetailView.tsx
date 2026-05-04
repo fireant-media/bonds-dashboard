@@ -123,7 +123,7 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
               className="p-2.5 rounded-xl transition-all duration-300 flex items-center justify-center bg-[#3634B3]/5 text-[#3634B3] hover:bg-[#3634B3] hover:text-white"
             >
               <Volume2 className="h-4 w-4" />
-              </button>
+            </button>
           </div>
         </header>
 

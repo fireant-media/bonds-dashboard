@@ -52,16 +52,24 @@ export const normalizeInterestType = (rawInterestType: any, paymentMethod: any =
   }
 
   const method = String(paymentMethod || '').toLowerCase();
+  const asciiMethod = method.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const cashFlowRates = Array.isArray(cashFlows)
     ? cashFlows.map((cf: any) => cf?.bondRate).filter((rate: any) => rate !== undefined && rate !== null)
     : [];
+  const hasCashFlowRate = cashFlowRates.length > 0;
   const hasConstantCashRate = cashFlowRates.length > 1 && cashFlowRates.every((rate: any) => rate === cashFlowRates[0]);
+  const hasVariableCashRate = cashFlowRates.length > 1 && cashFlowRates.some((rate: any) => rate !== cashFlowRates[0]);
 
-  if (/thả nổi|floating|variable|linh hoạt|flo/i.test(method)) {
-    return 'Thả nổi';
+  if (/thả nổi|floating|variable|linh hoạt|flo/i.test(method) || /tha noi|floating|variable|linh hoat|flo/.test(asciiMethod) || hasVariableCashRate) {
+    return 'Floating';
   }
-  if (/cố định|fixed|fixed rate|định/i.test(method) || hasConstantCashRate) {
-    return 'Cố định';
+  if (
+    /cố định|fixed|fixed rate|định/i.test(method) ||
+    /co dinh|fixed|fixed rate|dinh ky|tra sau|thanh toan/.test(asciiMethod) ||
+    hasConstantCashRate ||
+    hasCashFlowRate
+  ) {
+    return 'Fixed';
   }
 
   return '';
