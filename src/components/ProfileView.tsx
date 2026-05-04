@@ -38,15 +38,15 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
   ];
 
   return (
-    <div className="flex bg-bg-base h-full overflow-hidden transition-colors">
+    <div className="flex flex-col md:flex-row bg-bg-base h-full overflow-hidden transition-colors">
       {/* Sidebar */}
-      <div className="w-80 bg-bg-surface border-r border-border-base flex flex-col pt-10 pb-10 px-4 shrink-0 shadow-sm transition-colors">
-        <div className="mb-12 px-6">
+      <div className="w-full md:w-80 bg-bg-surface border-b md:border-b-0 md:border-r border-border-base flex flex-col pt-4 md:pt-10 pb-4 md:pb-10 px-3 md:px-4 shrink-0 shadow-sm transition-colors">
+        <div className="mb-4 md:mb-12 px-3 md:px-6">
           <h2 className="text-xl font-bold text-[#3634B3] tracking-tight transition-colors">{t('profileUser')}</h2>
           <p className="text-sm text-text-muted mt-1 font-medium transition-colors">{t('manageAccount')}</p>
         </div>
 
-        <nav className="flex-1 space-y-4 px-2">
+        <nav className="flex-1 grid grid-cols-3 md:block md:space-y-4 gap-2 md:px-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -55,19 +55,19 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                 key={item.id}
                 onClick={() => setActiveTab(item.id as ProfileTab)}
                 className={cn(
-                  "w-full flex items-center justify-between gap-4 px-4 py-4 rounded-xl transition-all text-left group",
+                  "w-full flex items-center justify-center md:justify-between gap-2 md:gap-4 px-3 md:px-4 py-3 md:py-4 rounded-xl transition-all text-left group",
                   isActive 
                     ? "bg-[#3634B3]/5 text-[#3634B3]" 
                     : "text-text-muted hover:bg-bg-base"
                 )}
               >
-                <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="flex items-center justify-center md:justify-start gap-2 md:gap-4 flex-1 min-w-0">
                   <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-[#3634B3]" : "text-text-muted group-hover:text-text-base")} />
-                  <span className={cn("text-sm tracking-tight transition-colors whitespace-nowrap", isActive ? "text-[#3634B3] font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
+                  <span className={cn("hidden sm:inline text-xs md:text-sm tracking-tight transition-colors truncate", isActive ? "text-[#3634B3] font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
                     {item.label}
                   </span>
                 </div>
-                {isActive && <ChevronRight className="h-4 w-4 text-[#3634B3] animate-in slide-in-from-left-2 duration-300" />}
+                {isActive && <ChevronRight className="hidden md:block h-4 w-4 text-[#3634B3] animate-in slide-in-from-left-2 duration-300" />}
               </button>
             );
           })}
@@ -75,8 +75,8 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
       </div>
 
       {/* Main Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-12 custom-scrollbar transition-colors">
-        <div className="max-w-5xl">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar transition-colors">
+        <div className="max-w-5xl min-w-0">
           {activeTab === 'info' && <PersonalInfoView user={user} onUpdateUser={onUpdateUser} />}
           {activeTab === 'security' && <SecuritySettingsView user={user} onUpdateUser={onUpdateUser} />}
           {activeTab === 'history' && <ActivityLogView />}
@@ -120,7 +120,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
         </div>
       )}
 
-      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 transition-colors">
+      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
         <div className="mb-6">
           <div className="flex flex-col md:flex-row gap-12">
             <div className="flex flex-col items-center gap-4">
@@ -145,7 +145,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
             </div>
 
             <div className="flex-1 space-y-6">
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('fullName')}</label>
                   <input 
@@ -172,7 +172,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('roleLabel')}</label>
                   <input 
@@ -193,7 +193,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-end items-center gap-4">
+              <div className="pt-4 flex flex-col sm:flex-row sm:justify-end sm:items-center gap-4">
                 {saveSuccess && (
                   <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-500 animate-in fade-in slide-in-from-right-4 transition-colors">
                     <CheckCircle2 className="h-4 w-4" />
@@ -205,7 +205,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                     onClick={handleSave}
                     disabled={isSaving}
                     className={cn(
-                      "px-10 py-4 bg-[#3634B3] hover:opacity-90 text-white text-sm font-bold rounded-lg shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-widest active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2",
+                      "w-full sm:w-auto justify-center px-8 md:px-10 py-4 bg-[#3634B3] hover:opacity-90 text-white text-sm font-bold rounded-lg shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-widest active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2",
                       isSaving && "cursor-wait"
                     )}
                   >
@@ -289,7 +289,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           {/* Change Password */}
-          <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 transition-colors">
+          <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
             <div className="flex items-center gap-3 mb-8">
                 <Clock className="h-5 w-5 text-[#3634B3] transition-colors" />
                 <h3 className="text-xl font-bold text-[#3634B3] transition-colors">{t('changePassword')}</h3>
@@ -322,7 +322,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                     {errors.current && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('currentPasswordIncorrect')}</p>}
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                     <div className="space-y-2">
                         <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('newPassword')}</label>
                         <input 
@@ -361,11 +361,11 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                     </div>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <button 
                         onClick={handleUpdatePassword}
                         disabled={isSaving || isGoogleUser}
-                        className="flex items-center gap-2 px-8 py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-8 py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {isSaving ? t('updatingLabel') : t('updatePasswordLabel')} <ChevronLeft className="h-4 w-4 rotate-180" />
                     </button>
@@ -383,7 +383,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
 
         <div className="lg:col-span-1">
           {/* Password Requirements */}
-          <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 flex flex-col gap-4 h-full transition-colors">
+          <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 flex flex-col gap-4 h-full transition-colors">
               <div className="h-10 w-10 bg-orange-600 rounded-xl flex items-center justify-center text-white font-bold italic text-lg shadow-lg shadow-orange-600/20">i</div>
               <div>
                   <h4 className="font-bold text-text-base mb-3 transition-colors">{t('securityRequirements')}</h4>
@@ -395,14 +395,14 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
         </div>
 
         <div className="lg:col-span-3">
-             <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 mt-6 transition-colors">
-                <div className="flex items-center justify-between mb-8">
+             <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mt-6 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
                     <h3 className="text-xl font-bold text-[#3634B3] transition-colors">{t('currentSessions')}</h3>
                     <button className="text-[10px] font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
                 </div>
 
                 <div className="overflow-x-auto">
-                    <table className="w-full">
+                    <table className="w-full min-w-[560px]">
                          <thead>
                              <tr className="text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-border-base pb-4 transition-colors">
                                  <th className="text-left py-4 px-2">{t('browserDevice')}</th>
@@ -498,7 +498,7 @@ function ActivityLogView() {
 
       <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="bg-bg-base/50 border-b border-border-base transition-colors">
                 <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('time')}</th>
@@ -534,7 +534,7 @@ function ActivityLogView() {
             </tbody>
           </table>
         </div>
-        <div className="py-6 px-8 bg-bg-base/50 border-t border-border-base flex items-center justify-between transition-colors">
+        <div className="py-4 px-4 md:py-6 md:px-8 bg-bg-base/50 border-t border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors">
             <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">
               {t('showingLogs').replace('{count}', '5').replace('{total}', '128')}
             </p>

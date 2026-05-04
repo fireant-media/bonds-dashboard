@@ -120,8 +120,8 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
   );
 
   return (
-    <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 transition-colors">
-      <div className="flex items-center justify-between">
+    <div className="p-0 md:p-8 space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 transition-colors">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-text-base flex items-center gap-3 transition-colors">
             <Newspaper className="h-7 w-7 text-[#3634B3]" />
@@ -142,7 +142,7 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
       </div>
 
       {loading && newsList.length === 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
           {[...Array(6)].map((_, i) => <NewsSkeleton key={i} />)}
         </div>
       ) : error && newsList.length === 0 ? (
@@ -166,7 +166,7 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
           <p className="text-text-muted font-medium transition-colors">{t('noNewsAvailable')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
           {currentNews.map((news) => {
             const hasImage = news.image && !imageErrors[news.id];
             
@@ -174,9 +174,9 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
               <div 
                 key={news.id} 
                 onClick={() => onSelectNews(news)}
-                className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col h-[520px]"
+                className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col h-auto min-h-[460px] md:h-[520px]"
               >
-                <div className="relative h-64 w-full bg-[#3634B3]">
+                <div className="relative h-48 md:h-64 w-full bg-[#3634B3]">
                   <img 
                     src={news.image || `https://picsum.photos/seed/${news.id}/800/600`}
                     alt={news.title} 
@@ -198,7 +198,7 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
                   </div>
                 </div>
                 
-                <div className="p-6 flex-1 flex flex-col">
+                <div className="p-4 md:p-6 flex-1 flex flex-col">
                   <div className="mb-4">
                     <h3 className="text-lg font-bold text-text-base leading-snug group-hover:text-[#3634B3] transition-colors line-clamp-2 min-h-[3rem]">
                       {news.title}
@@ -229,7 +229,7 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
       )}
 
       {!loading && !error && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8 pb-12">
+        <div className="flex items-center justify-center gap-2 mt-8 pb-12 overflow-x-auto">
           <button
             onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
             disabled={currentPage === 1}

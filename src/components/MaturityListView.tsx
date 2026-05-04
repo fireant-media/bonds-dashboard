@@ -259,7 +259,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   if (error) {
     return (
-      <div className="p-8 flex flex-col items-center justify-center min-h-[400px] text-center transition-colors">
+      <div className="p-4 md:p-8 flex flex-col items-center justify-center min-h-[400px] text-center transition-colors">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full mb-4">
           <AlertCircle className="h-12 w-12 text-red-500 dark:text-red-400" />
         </div>
@@ -278,14 +278,14 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   }
 
   return (
-    <div className="p-6 animate-in fade-in duration-500 transition-colors">
+    <div className="p-0 md:p-6 animate-in fade-in duration-500 transition-colors">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
       </div>
 
       {/* Time Range Selector */}
-      <div className="flex justify-center mb-8">
-        <div className="bg-bg-base p-1 rounded-2xl flex gap-1 transition-colors">
+      <div className="flex justify-center mb-8 overflow-x-auto pb-1">
+        <div className="bg-bg-base p-1 rounded-2xl flex gap-1 transition-colors min-w-max">
           {[
             { label: t('range1Month'), days: 30 },
             { label: t('range3Months'), days: 90 },
@@ -300,7 +300,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setCurrentPage(1);
               }}
               className={cn(
-                "px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                "px-4 md:px-6 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap",
                 selectedTimeRange === range.days 
                   ? "bg-bg-surface text-[#3634B3] shadow-sm" 
                   : "text-text-muted hover:text-text-base"
@@ -316,7 +316,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       </div>
 
       {/* Filters */}
-      <div className="bg-bg-surface p-6 rounded-3xl shadow-sm border border-border-base mb-6 transition-colors">
+      <div className="bg-bg-surface p-4 md:p-6 rounded-3xl shadow-sm border border-border-base mb-6 transition-colors">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Row 1 */}
           {/* Search Item */}
@@ -431,7 +431,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       {/* Table */}
       <div className="bg-bg-surface rounded-3xl shadow-sm border border-border-base overflow-hidden transition-colors">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
               <tr className="bg-[#3634B3] text-white transition-colors">
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode').toUpperCase()}</th>
@@ -540,8 +540,8 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-border-base flex items-center justify-end bg-bg-base/30 transition-colors">
-            <div className="flex items-center gap-2">
+          <div className="px-4 md:px-6 py-4 border-t border-border-base flex items-center justify-end bg-bg-base/30 transition-colors overflow-x-auto">
+            <div className="flex items-center gap-2 min-w-max">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                 disabled={currentPage === 1}

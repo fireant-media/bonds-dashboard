@@ -903,13 +903,13 @@ export default function EnterpriseView({
 
         {/* Bond List Table */}
         <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
-          <div className="p-6 border-b border-border-base flex items-center justify-between">
+          <div className="p-4 md:p-6 border-b border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 className="text-sm font-bold text-text-base uppercase tracking-wider transition-colors">{t('bondList')}</h3>
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3 md:gap-4 w-full sm:w-auto">
               <div className="relative">
                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 <select 
-                  className="pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
                   value={bondTermFilter}
                   onChange={(e) => setBondTermFilter(e.target.value)}
                 >
@@ -922,7 +922,7 @@ export default function EnterpriseView({
               <div className="relative">
                 <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 <select 
-                  className="pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
                   value={bondInterestSort}
                   onChange={(e) => setBondInterestSort(e.target.value)}
                 >
@@ -934,7 +934,7 @@ export default function EnterpriseView({
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[920px] text-left border-collapse">
               <thead className="bg-[#3634B3] text-white">
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode').toUpperCase()}</th>
@@ -1123,16 +1123,16 @@ export default function EnterpriseView({
   }
 
   return (
-    <div className="p-6 space-y-6 transition-colors">
+    <div className="p-0 md:p-6 space-y-4 md:space-y-6 transition-colors">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold text-text-base tracking-tight transition-colors">{t('enterprise')}</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-text-base tracking-tight transition-colors">{t('enterprise')}</h2>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4 items-center bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors">
-        <div className="relative flex-1 min-w-[300px]">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 md:gap-4 items-stretch sm:items-center bg-bg-surface p-3 md:p-4 rounded-2xl border border-border-base shadow-sm transition-colors">
+        <div className="relative flex-1 min-w-0 sm:min-w-[300px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <input 
             type="text" 
@@ -1142,11 +1142,11 @@ export default function EnterpriseView({
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-3">
-          <div className="relative">
+        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 sm:flex-none">
             <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select 
-              className="pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
               value={issueValueSort}
               onChange={(e) => setIssueValueSort(e.target.value)}
             >
@@ -1155,10 +1155,10 @@ export default function EnterpriseView({
               <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
             </select>
           </div>
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select 
-              className="pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
               value={industryFilter}
               onChange={(e) => setIndustryFilter(e.target.value)}
             >
@@ -1177,7 +1177,7 @@ export default function EnterpriseView({
       {/* Enterprise Table */}
       <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full min-w-[720px] text-left">
             <thead>
               <tr className="bg-[#3634B3] text-white transition-colors">
                 <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker').toUpperCase()}</th>

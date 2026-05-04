@@ -43,9 +43,9 @@ export default function Sidebar({
   ];
 
   return (
-    <aside className="w-full bg-bg-surface border-r border-border-base flex flex-col h-full overflow-hidden transition-colors duration-300">
-      <div className={cn("p-6 transition-all duration-300 shrink-0", isOpen ? "w-80" : "w-[64px] px-3")}>
-        <div className={cn("flex items-center mb-8", isOpen ? "justify-between" : "justify-center")}>
+    <aside className="w-full bg-bg-surface md:border-r border-border-base flex flex-col h-auto md:h-full overflow-hidden transition-colors duration-300">
+      <div className={cn("p-3 md:p-6 transition-all duration-300 shrink-0", isOpen ? "w-full md:w-80" : "w-full md:w-[64px] md:px-3")}>
+        <div className={cn("flex items-center mb-3 md:mb-8", isOpen ? "justify-between" : "justify-center")}>
           {isOpen && (
             <div className="flex items-center gap-3 animate-in fade-in duration-300">
               <div className="h-10 w-10 bg-[#3634B3] rounded-xl flex items-center justify-center text-white">
@@ -84,7 +84,7 @@ export default function Sidebar({
                 }}
                 className={cn(
                   "w-full flex items-center rounded-xl transition-all duration-200 group",
-                  isOpen ? "px-4 py-3 justify-between" : "p-3 justify-center",
+                  isOpen ? "px-3 py-2.5 md:px-4 md:py-3 justify-between" : "p-3 justify-center",
                   activeTab === item.id && !item.hasSubmenu
                     ? "bg-[#3634B3]/5 text-text-highlight"
                     : "text-text-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-text-highlight"
@@ -93,7 +93,7 @@ export default function Sidebar({
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id && !item.hasSubmenu ? "text-text-highlight" : "text-gray-400 group-hover:text-text-highlight")} />
-                  {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 whitespace-nowrap", activeTab === item.id && !item.hasSubmenu ? "font-bold" : "font-medium")}>{item.label}</span>}
+                  {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id && !item.hasSubmenu ? "font-bold" : "font-medium")}>{item.label}</span>}
                 </div>
                 {isOpen && item.hasSubmenu && (
                   isIndustryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
@@ -104,7 +104,7 @@ export default function Sidebar({
               </button>
 
               {isOpen && item.hasSubmenu && isIndustryOpen && (
-                <div className="mt-1 ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
+                <div className="mt-1 ml-6 md:ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
                   {subIndustries.map((sub) => (
                     <button
                       key={sub.id}
