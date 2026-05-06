@@ -125,7 +125,7 @@ async function startServer() {
               'Referer': 'https://fireant.vn/',
               'Origin': 'https://fireant.vn'
             },
-            timeout: 10000
+            timeout: 15000
           });
           if (apiResponse.data && Array.isArray(apiResponse.data)) {
             posts = apiResponse.data;
@@ -140,7 +140,7 @@ async function startServer() {
       if (!posts) {
         console.log("[News] Falling back to HTML scraping...");
         const response = await axios.get("https://fireant.vn/bai-viet", {
-          timeout: 15000,
+          timeout: 20000,
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -250,7 +250,7 @@ async function startServer() {
   let globalFallbackImage: string | null = "https://images.unsplash.com/photo-1611974717482-58a2523e16c2?q=80&w=2070&auto=format&fit=crop";
   let lastTokenFetch = 0;
 
-  async function getFireantToken(force = false) {
+  async function getFireantToken(force = false, retryCount = 0): Promise<string | null> {
     const now = Date.now();
     
     // Only use env var if it exists and we don't have a better one or are forced
@@ -268,14 +268,14 @@ async function startServer() {
     }
 
     try {
-      console.log(`[Token] Fetching new access token (force=${force}, reason=${force ? 'Retry/Expiry' : 'Initial'})...`);
+      console.log(`[Token] Fetching new access token (force=${force}, reason=${force ? 'Retry/Expiry' : 'Initial'}, attempt=${retryCount + 1})...`);
       const response = await axios.get('https://fireant.vn/bai-viet', {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Cache-Control': 'no-cache',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         },
-        timeout: 8000 // Reduced for Vercel
+        timeout: 15000 // Increased to prevent timeout on slow connections
       });
       const html = response.data;
       const scriptTag = '<script id="__NEXT_DATA__" type="application/json">';
@@ -344,7 +344,12 @@ async function startServer() {
         console.error("[Token] Could not find __NEXT_DATA__ on Fireant main page");
       }
     } catch (error: any) {
-      console.error("[Token] Failed to fetch Fireant token/image:", error.message);
+      console.error(`[Token] Failed to fetch Fireant token/image (Attempt ${retryCount + 1}):`, error.message);
+      if (retryCount < 2) {
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return getFireantToken(force, retryCount + 1);
+      }
     }
     return fireantToken;
   }
@@ -365,7 +370,7 @@ async function startServer() {
         try {
           console.log(`[News Detail] Fetching post ${postId} via ${new URL(endpoint).hostname}...`);
           const apiResponse = await axios.get(endpoint, {
-            timeout: 10000,
+            timeout: 15000,
             headers: {
               'Accept': 'application/json, text/plain, */*',
               'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
@@ -488,7 +493,7 @@ async function startServer() {
         try {
           console.log(`[News Detail] Scraping URL: ${scrapUrl}`);
           scrapingResponse = await axios.get(scrapUrl, {
-            timeout: 10000,
+            timeout: 15000,
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',

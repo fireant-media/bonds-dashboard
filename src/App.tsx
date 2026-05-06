@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
 import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
@@ -20,12 +21,69 @@ import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
 import { getFireantToken, cleanTokenString } from './utils/token';
 
+const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'settings', 'help', 'login'];
+
+const isBondCode = (s: string) => {
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (RESERVED_ROUTES.includes(lower)) return false;
+  return s.length >= 6;
+};
+
 export default function App() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [activeIndustry, setActiveIndustry] = useState<IndustryType>('Banking');
+  
+  // Derive activeTab from location.pathname
+  const { activeTab, activeIndustry, ticker, newsId, bondCode } = (() => {
+    // If we have a background location (from state), use that to determine the active tab
+    const currentPath = location.state?.backgroundLocation?.pathname || location.pathname;
+    const parts = currentPath.split('/').filter(Boolean);
+    
+    // Check if the actual URL is a bond code first to handle deep links
+    const directParts = location.pathname.split('/').filter(Boolean);
+    const urlBondCode = (directParts.length === 1 && isBondCode(directParts[0])) ? directParts[0] : null;
+
+    if (currentPath === '/' || currentPath === '') return { activeTab: 'overview', bondCode: urlBondCode };
+    
+    if (currentPath.startsWith('/industry')) {
+      return { 
+        activeTab: 'industry', 
+        activeIndustry: (parts[1] || 'Banking') as IndustryType,
+        bondCode: urlBondCode
+      };
+    }
+    
+    if (currentPath.startsWith('/enterprise')) {
+      return { 
+        activeTab: 'enterprise', 
+        ticker: parts[1] || null,
+        bondCode: urlBondCode
+      };
+    }
+    
+    if (currentPath === '/maturity') return { activeTab: 'maturity-list', bondCode: urlBondCode };
+    if (currentPath === '/news-list' || currentPath === '/news') return { activeTab: 'news-list', bondCode: urlBondCode };
+    
+    if (currentPath.startsWith('/news/')) {
+      return { activeTab: 'news-detail', newsId: parts[1], bondCode: urlBondCode };
+    }
+    
+    if (currentPath === '/profile') return { activeTab: 'profile', bondCode: urlBondCode };
+    if (currentPath === '/settings') return { activeTab: 'settings', bondCode: urlBondCode };
+    if (currentPath === '/help') return { activeTab: 'help', bondCode: urlBondCode };
+    
+    // If it's a direct bond link and no background
+    if (directParts.length === 1 && isBondCode(directParts[0])) {
+      return { activeTab: 'bond-detail', bondCode: directParts[0] };
+    }
+    
+    return { activeTab: 'overview', bondCode: urlBondCode };
+  })();
+
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -33,18 +91,165 @@ export default function App() {
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
+  const setActiveTab = (tab: string) => {
+    switch (tab) {
+      case 'overview': navigate('/'); break;
+      case 'industry': {
+        navigate(`/industry/${activeIndustry || 'Banking'}`);
+        break;
+      }
+      case 'enterprise': navigate('/enterprise'); break;
+      case 'maturity-list': navigate('/maturity'); break;
+      case 'news-list': navigate('/news'); break;
+      case 'profile': navigate('/profile'); break;
+      case 'settings': navigate('/settings'); break;
+      case 'help': navigate('/help'); break;
+      default: navigate('/');
+    }
+  };
+
+  const setActiveIndustry = (industry: string) => {
+    navigate(`/industry/${industry}`);
+  };
+
+  const handleSetSelectedBond = (bond: Bond | null) => {
+    if (bond) {
+      setSelectedBond(bond);
+      // Pass the current location as state so we can keep it as background
+      navigate(`/${bond.code}`, { state: { backgroundLocation: location } });
+    } else {
+      setSelectedBond(null);
+      // If we are currently on a bond page, go back to the background location
+      if (location.state?.backgroundLocation) {
+        navigate(-1);
+      } else if (bondCode) {
+        navigate('/');
+      }
+    }
+  };
+
   const appFrameRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Reset scroll position when tab or industry changes
-    if (appFrameRef.current) {
-      appFrameRef.current.scrollTo({ top: 0, behavior: 'instant' });
-    }
+    // Reset scroll position only when the main logical view changes
+    // Opening a modal (bond popup) should not reset the scroll of the background content
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
     }
-  }, [activeTab, activeIndustry]);
+    if (appFrameRef.current) {
+      appFrameRef.current.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [activeTab, activeIndustry, ticker, newsId]);
+
+  const handleSetSelectedEnterprise = (enterprise: Enterprise | null) => {
+    if (enterprise) {
+      navigate(`/enterprise/${enterprise.ticker}`);
+    } else {
+      navigate('/enterprise');
+    }
+  };
+
+  // Sync selectedEnterprise with URL ticker
+  useEffect(() => {
+    if (activeTab === 'enterprise' && ticker) {
+      if (!selectedEnterprise || selectedEnterprise.ticker !== ticker) {
+        const cachedEnterprises = (getCache('enterprise_list') || []) as Enterprise[];
+        const cached = cachedEnterprises.find((e) => e.ticker === ticker);
+        if (cached) {
+          setSelectedEnterprise(cached);
+        } else {
+          setSelectedEnterprise({
+            id: ticker,
+            ticker: ticker,
+            name: ticker,
+            industry: 'N/A',
+            bondCount: 0,
+            issuedValue: 0,
+            initialDebt: 0,
+            remainingDebt: 0
+          });
+        }
+      }
+    } else if (activeTab === 'enterprise' && !ticker && selectedEnterprise) {
+      setSelectedEnterprise(null);
+    }
+  }, [activeTab, ticker, selectedEnterprise]);
+
+  // Sync selectedNews with URL newsId
+  useEffect(() => {
+    if (activeTab === 'news-detail' && newsId && (!selectedNews || selectedNews.id !== newsId)) {
+      setSelectedNews({
+        id: newsId,
+        title: '',
+        summary: '',
+        source: '',
+        date: '',
+        image: '',
+        content: '',
+        author: '',
+        url: ''
+      });
+    }
+  }, [activeTab, newsId, selectedNews]);
+
+  // Sync selectedBond from URL bondCode
+  useEffect(() => {
+    if (bondCode && (!selectedBond || selectedBond.code !== bondCode)) {
+      const fetchBond = async () => {
+        try {
+          const token = getFireantToken();
+          const cleanToken = token ? cleanTokenString(token) : undefined;
+          const headers: Record<string, string> = { 'Accept': 'application/json' };
+          if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
+
+          const response = await fetch(`/api/fireant/bonds/${encodeURIComponent(bondCode)}`, { headers });
+          if (response.ok) {
+            const data = await response.json();
+            const detail = data.detail || {};
+            const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+            const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+
+            let enterpriseName = detail.issuerSymbol || '';
+            try {
+              const profileRes = await fetch(`/api/fireant/symbols/${encodeURIComponent(detail.issuerSymbol)}/profile`, { headers });
+              if (profileRes.ok) {
+                const profile = await profileRes.json();
+                enterpriseName = profile.internationalName || profile.name || detail.issuerSymbol;
+              }
+            } catch (err) {}
+
+            const interestRate = detail.bondRate || detail.interestRate || detail.couponRate || cashFlowRate || 0;
+            const rawInterestType = detail.bondRateType || detail.interestRateType || detail.couponRateType || detail.interestType || '';
+            const paymentMethod = detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || detail.bondName || '';
+            const interestType = normalizeInterestType(rawInterestType, paymentMethod, Array.isArray(data.cashFlows) ? data.cashFlows : []);
+            
+            const fullBond: Bond = {
+              id: bondCode,
+              code: bondCode,
+              enterpriseId: detail.issuerSymbol || '',
+              term: detail.tenorPeriod ? String(detail.tenorPeriod) : '',
+              interestRate,
+              listedVolume: detail.currentListedVolume || historyItem?.volume || 0,
+              issuedValue: (detail.totalIssuedValue || 0) / 1000000000,
+              listedValue: (detail.currentListedValue || 0) / 1000000000,
+              issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : '',
+              maturityDate: detail.maturityDate ? detail.maturityDate.split('T')[0] : '',
+              interestType,
+              status: detail.status || ''
+            };
+            setSelectedBond(fullBond);
+            setBondEnterpriseName(enterpriseName);
+          }
+        } catch (error) {
+          console.error("Error fetching bond from URL:", error);
+        }
+      };
+      fetchBond();
+    } else if (!bondCode && selectedBond) {
+      setSelectedBond(null);
+    }
+  }, [bondCode]); // Removed selectedBond from dependency to prevent re-fetch flicker on close
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -95,8 +300,7 @@ export default function App() {
         initialDebt: cached?.initialDebt || 0,
         remainingDebt: cached?.remainingDebt || 0,
       };
-      setSelectedEnterprise(selection);
-      setActiveTab('enterprise');
+      navigate(`/enterprise/${selection.ticker}`);
       setSelectedBond(null);
       setBondEnterpriseName('');
       return;
@@ -169,6 +373,7 @@ export default function App() {
 
         setSelectedBond(fullBond);
         setBondEnterpriseName(enterpriseName);
+        navigate(`/${fullBond.code}`, { state: { backgroundLocation: location } });
       } else {
         // Fallback to minimal bond object if API fails
         const bond: Bond = {
@@ -187,6 +392,7 @@ export default function App() {
         };
         setSelectedBond(bond);
         setBondEnterpriseName(suggestion.enterpriseName || suggestion.subtitle || '');
+        navigate(`/${bond.code}`, { state: { backgroundLocation: location } });
       }
     } catch (error) {
       console.error('Error fetching bond details for search selection:', error);
@@ -207,21 +413,20 @@ export default function App() {
       };
       setSelectedBond(bond);
       setBondEnterpriseName(suggestion.enterpriseName || suggestion.subtitle || '');
+      navigate(`/${bond.code}`, { state: { backgroundLocation: location } });
     }
   };
 
   const handleEnterpriseTabClick = () => {
-    setActiveTab('enterprise');
-    setSelectedEnterprise(null);
+    navigate('/enterprise');
   };
 
   const handleSelectNews = (news: NewsItem) => {
-    setSelectedNews(news);
-    setActiveTab('news-detail');
+    navigate(`/news/${news.id}`);
   };
 
   const handleSeeMoreNews = () => {
-    setActiveTab('news-list');
+    navigate('/news');
   };
 
   if (loading) {
@@ -285,44 +490,46 @@ export default function App() {
           )}>
             <main className="flex-1 min-h-fit transition-all duration-300 min-w-0">
               <div className={cn(isProfileMode ? "w-full h-full" : "max-w-[1600px] mx-auto py-4 px-3 md:py-6 md:px-6 w-full")}>
-                {activeTab === 'overview' && <MarketOverview />}
-                {activeTab === 'industry' && <IndustryView industry={activeIndustry} />}
-                {activeTab === 'enterprise' && (
-                  <EnterpriseView 
-                    selectedEnterprise={selectedEnterprise} 
-                    setSelectedEnterprise={setSelectedEnterprise}
-                    setSelectedBond={setSelectedBond}
-                    setBondEnterpriseName={setBondEnterpriseName}
-                  />
-                )}
-                {activeTab === 'maturity-list' && (
-                  <MaturityListView 
-                    setSelectedBond={setSelectedBond}
-                    setBondEnterpriseName={setBondEnterpriseName}
-                  />
-                )}
-                {activeTab === 'news-list' && (
-                  <NewsListView onSelectNews={handleSelectNews} />
-                )}
-                {activeTab === 'news-detail' && selectedNews && (
-                  <NewsDetailView 
-                    news={selectedNews} 
-                    onBack={() => setActiveTab('news-list')} 
-                  />
-                )}
-                {activeTab === 'profile' && (
-                  <ProfileView 
-                    onLogout={handleLogout} 
-                    user={user} 
-                    onUpdateUser={handleUpdateUser} 
-                  />
-                )}
-                {activeTab === 'settings' && (
-                  <SettingsView />
-                )}
-                {activeTab === 'help' && (
-                  <HelpView onBack={() => setActiveTab('overview')} />
-                )}
+                <Routes location={location.state?.backgroundLocation || location}>
+                  <Route path="/" element={<MarketOverview />} />
+                  <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
+                  <Route path="/enterprise/:ticker?" element={
+                    <EnterpriseView 
+                      selectedEnterprise={selectedEnterprise} 
+                      setSelectedEnterprise={handleSetSelectedEnterprise}
+                      setSelectedBond={handleSetSelectedBond}
+                      setBondEnterpriseName={setBondEnterpriseName}
+                    />
+                  } />
+                  <Route path="/maturity" element={
+                    <MaturityListView 
+                      setSelectedBond={handleSetSelectedBond}
+                      setBondEnterpriseName={setBondEnterpriseName}
+                    />
+                  } />
+                  <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
+                  <Route path="/news/:id" element={
+                    selectedNews ? (
+                      <NewsDetailView 
+                        news={selectedNews} 
+                        onBack={handleSeeMoreNews} 
+                      />
+                    ) : (
+                      <Navigate to="/news" replace />
+                    )
+                  } />
+                  <Route path="/profile" element={
+                    <ProfileView 
+                      onLogout={handleLogout} 
+                      user={user} 
+                      onUpdateUser={handleUpdateUser} 
+                    />
+                  } />
+                  <Route path="/settings" element={<SettingsView />} />
+                  <Route path="/help" element={<HelpView onBack={() => navigate('/')} />} />
+                  <Route path="/:bondCode" element={<MarketOverview />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
               </div>
             </main>
 
@@ -334,7 +541,7 @@ export default function App() {
                 <RightPanel 
                   isOpen={isRightPanelOpen}
                   onToggle={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                  setSelectedBond={setSelectedBond}
+                  setSelectedBond={handleSetSelectedBond}
                   setBondEnterpriseName={setBondEnterpriseName}
                   onSeeMoreMaturity={() => setActiveTab('maturity-list')}
                   onSelectNews={handleSelectNews}
@@ -350,7 +557,7 @@ export default function App() {
         <BondDetailPopup 
           bond={selectedBond}
           enterpriseName={bondEnterpriseName}
-          onClose={() => setSelectedBond(null)}
+          onClose={() => handleSetSelectedBond(null)}
         />
       )}
       <AIChatBot />

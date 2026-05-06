@@ -109,7 +109,6 @@ export default function Sidebar({
                     <button
                       key={sub.id}
                       onClick={() => {
-                        setActiveTab('industry');
                         setActiveIndustry(sub.id);
                       }}
                       className={cn(
