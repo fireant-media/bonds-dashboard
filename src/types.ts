@@ -7,31 +7,9 @@ export interface Enterprise {
   internationalName?: string;
   industry: IndustryType;
   bondCount: number;
-  issueValue: number;
+  issuedValue: number;
   initialDebt: number;
   remainingDebt: number;
-}
-
-export interface Bond {
-  id: string;
-  code: string;
-  enterpriseId: string;
-  term: string;
-  interestRate: number;
-  listedVolume: number;
-  issueValue: number;
-  listedValue: number;
-  issueDate: string;
-  maturityDate: string;
-  interestType: string;
-  status: string;
-  cashFlows?: {
-    paymentDate: string;
-    interestAmount: number;
-    principalAmount: number;
-    totalCashflow: number;
-    bondRate: number;
-  }[];
 }
 
 export interface NewsItem {
@@ -61,4 +39,27 @@ export interface ExpiringBond {
   term?: string;
   issueDate?: string;
   interestType?: string;
+}
+
+
+export interface Bond {
+  id: string;
+  code: string;
+  enterpriseId: string;
+  term: string;
+  interestRate: number;
+  listedVolume: number;
+  issuedValue: number;
+  listedValue: number;
+  issueDate: string;
+  maturityDate: string;
+  interestType: string;
+  status: string;
+  cashFlows?: {
+    paymentDate: string;
+    interestAmount: number;
+    principalAmount: number;
+    totalCashflow: number;
+    bondRate: number;
+  }[];
 }

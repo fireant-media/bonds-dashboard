@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import Header from './components/Header';
+import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
 import MarketOverview from './components/MarketOverview';
@@ -13,8 +13,12 @@ import ProfileView from './components/ProfileView';
 import SettingsView from './components/SettingsView';
 import LoginView from './components/LoginView';
 import HelpView from './components/HelpView';
-import { IndustryType, Enterprise, Bond, NewsItem } from './types';
+import AIChatBot from './components/AIChatBot';
+import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { useLanguage } from './LanguageContext';
+import { getCache } from './utils/cache';
+import { normalizeInterestType } from './utils/format';
+import { getFireantToken, cleanTokenString } from './utils/token';
 
 export default function App() {
   const { t } = useLanguage();
@@ -77,6 +81,135 @@ export default function App() {
     localStorage.setItem('sentinel_user', JSON.stringify(newUser));
   };
 
+  const handleSearchSelect = async (suggestion: SearchSuggestion) => {
+    if (suggestion.type === 'enterprise') {
+      const cachedEnterprises = (getCache('enterprise_list') || []) as Enterprise[];
+      const cached = cachedEnterprises.find((enterprise) => enterprise.ticker === suggestion.ticker);
+      const selection: Enterprise = {
+        id: suggestion.ticker || suggestion.id,
+        ticker: suggestion.ticker || suggestion.id,
+        name: suggestion.title,
+        industry: cached?.industry || 'N/A',
+        bondCount: cached?.bondCount || 0,
+        issuedValue: cached?.issuedValue || 0,
+        initialDebt: cached?.initialDebt || 0,
+        remainingDebt: cached?.remainingDebt || 0,
+      };
+      setSelectedEnterprise(selection);
+      setActiveTab('enterprise');
+      setSelectedBond(null);
+      setBondEnterpriseName('');
+      return;
+    }
+
+    // For bond selection, fetch full details first
+    try {
+      const token = getFireantToken();
+      const cleanToken = token ? cleanTokenString(token) : undefined;
+      const headers: Record<string, string> = { 'Accept': 'application/json' };
+      if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
+
+      const response = await fetch(`/api/fireant/bonds/${encodeURIComponent(suggestion.code || suggestion.id)}`, {
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const detail = data.detail || {};
+        const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+        const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+
+        // Fetch enterprise name if needed
+        let enterpriseName = suggestion.enterpriseName || suggestion.subtitle || '';
+        if (!enterpriseName && detail.issuerSymbol) {
+          try {
+            const profileRes = await fetch(`/api/fireant/symbols/${encodeURIComponent(detail.issuerSymbol)}/profile`, {
+              headers
+            });
+            if (profileRes.ok) {
+              const profile = await profileRes.json();
+              enterpriseName = profile.internationalName || profile.name || detail.issuerSymbol;
+            }
+          } catch (error) {
+            console.warn('Failed to fetch enterprise name for bond:', error);
+            enterpriseName = detail.issuerSymbol || '';
+          }
+        }
+
+        const interestRate = detail.bondRate || detail.interestRate || detail.couponRate || cashFlowRate || 0;
+        const rawInterestType = detail.bondRateType || detail.interestRateType || detail.couponRateType || detail.interestType || '';
+        const paymentMethod = detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || detail.bondName || '';
+        const interestType = normalizeInterestType(rawInterestType, paymentMethod, Array.isArray(data.cashFlows) ? data.cashFlows : []);
+        const listedVolume = detail.currentListedVolume || historyItem?.volume || 0;
+        const issueValue = detail.totalIssuedValue
+          ? detail.totalIssuedValue / 1000000000
+          : historyItem?.value
+            ? historyItem.value / 1000000000
+            : 0;
+        const listedValue = detail.currentListedValue
+          ? detail.currentListedValue / 1000000000
+          : historyItem?.value
+            ? historyItem.value / 1000000000
+            : issueValue;
+
+        const fullBond: Bond = {
+          id: suggestion.code || suggestion.id,
+          code: suggestion.code || suggestion.id,
+          enterpriseId: detail.issuerSymbol || suggestion.ticker || suggestion.enterpriseName || '',
+          term: detail.tenorPeriod ? String(detail.tenorPeriod) : '',
+          interestRate,
+          listedVolume,
+          issuedValue: issueValue,
+          listedValue,
+          issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : '',
+          maturityDate: detail.maturityDate ? detail.maturityDate.split('T')[0] : '',
+          interestType,
+          status: detail.status || ''
+        };
+
+        setSelectedBond(fullBond);
+        setBondEnterpriseName(enterpriseName);
+      } else {
+        // Fallback to minimal bond object if API fails
+        const bond: Bond = {
+          id: suggestion.code || suggestion.id,
+          code: suggestion.code || suggestion.id,
+          enterpriseId: suggestion.ticker || suggestion.enterpriseName || '',
+          term: '',
+          interestRate: 0,
+          listedVolume: 0,
+          issuedValue: 0,
+          listedValue: 0,
+          issueDate: '',
+          maturityDate: '',
+          interestType: '',
+          status: ''
+        };
+        setSelectedBond(bond);
+        setBondEnterpriseName(suggestion.enterpriseName || suggestion.subtitle || '');
+      }
+    } catch (error) {
+      console.error('Error fetching bond details for search selection:', error);
+      // Fallback to minimal bond object
+      const bond: Bond = {
+        id: suggestion.code || suggestion.id,
+        code: suggestion.code || suggestion.id,
+        enterpriseId: suggestion.ticker || suggestion.enterpriseName || '',
+        term: '',
+        interestRate: 0,
+        listedVolume: 0,
+        issuedValue: 0,
+        listedValue: 0,
+        issueDate: '',
+        maturityDate: '',
+        interestType: '',
+        status: ''
+      };
+      setSelectedBond(bond);
+      setBondEnterpriseName(suggestion.enterpriseName || suggestion.subtitle || '');
+    }
+  };
+
   const handleEnterpriseTabClick = () => {
     setActiveTab('enterprise');
     setSelectedEnterprise(null);
@@ -116,11 +249,8 @@ export default function App() {
         onHelpClick={() => setActiveTab('help')}
         onLogoClick={() => setActiveTab('overview')}
         onLogout={handleLogout}
+        onSearchSelect={handleSearchSelect}
         user={user}
-        setActiveTab={setActiveTab}
-        setSelectedEnterprise={setSelectedEnterprise}
-        setSelectedBond={setSelectedBond}
-        setBondEnterpriseName={setBondEnterpriseName}
       />
       
       <div ref={appFrameRef} className="flex flex-col md:flex-row relative items-stretch h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden md:overflow-hidden">
@@ -223,6 +353,7 @@ export default function App() {
           onClose={() => setSelectedBond(null)}
         />
       )}
+      <AIChatBot />
     </div>
   );
 }

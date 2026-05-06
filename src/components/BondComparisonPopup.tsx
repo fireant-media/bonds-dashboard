@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Component, ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2 } from 'lucide-react';
 import { Enterprise } from '../types';
@@ -9,13 +9,48 @@ import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
 
+// Error Boundary for this component
+class BondComparisonErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('[BondComparisonErrorBoundary] Caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center">
+            <p className="text-red-400 font-bold mb-2">Display Error</p>
+            <p className="text-red-300 text-sm mb-4">{this.state.error?.message}</p>
+            <p className="text-red-300 text-xs">Please refresh the page (F5)</p>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 interface BondComparisonPopupProps {
   primaryBond: Bond;
   onClose: () => void;
   onBack: () => void;
 }
 
-export default function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPopupProps) {
+function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -25,6 +60,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   const [suggestions, setSuggestions] = useState<Bond[]>([]);
   const [searching, setSearching] = useState(false);
   const [allBondsPool, setAllBondsPool] = useState<Bond[]>([]);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Validate selectedBonds to prevent render errors
@@ -123,7 +159,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                     term: String(b.tenorPeriod || 'N/A'),
                     interestRate: b.bondRate || 0,
                     listedVolume: normalizeVol(b.currentListedVolume),
-                    issueValue: issueValue,
+                    issuedValue: issueValue,
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
                     maturityDate: b.maturityDate?.split('T')[0] || '',
@@ -132,7 +168,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                       b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
                       []
                     ) || 'N/A',
-                    status: b.status || 'Hiệu lực'
+                    status: b.status || t('active')
                   };
                 });
                 
@@ -214,7 +250,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                     term: String(b.tenorPeriod || 'N/A'),
                     interestRate: b.bondRate || 0,
                     listedVolume: normalizeVol(b.currentListedVolume),
-                    issueValue: issueValue,
+                    issuedValue: issueValue,
                     listedValue: listedValue,
                     issueDate: b.issueDate?.split('T')[0] || '',
                     maturityDate: b.maturityDate?.split('T')[0] || '',
@@ -223,7 +259,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                       b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
                       []
                     ) || 'N/A',
-                    status: b.status || 'Hiệu lực'
+                    status: b.status || t('active')
                   };
                 });
                 apiMatches = [...apiMatches, ...mappedIssuerBonds];
@@ -251,15 +287,15 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
               id: s.symbol,
               code: s.symbol,
               enterpriseId: '',
-              term: 'N/A',
+              term: '',
               interestRate: 0,
               listedVolume: 0,
-              issueValue: 0,
+              issuedValue: 0,
               listedValue: 0,
               issueDate: '',
               maturityDate: new Date().toISOString().split('T')[0],
-              interestType: 'N/A',
-              status: 'Active'
+              interestType: '',
+              status: t('active')
             }));
             apiMatches = [...apiMatches, ...searchApiMatches];
           }
@@ -281,7 +317,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
 
     const timeout = setTimeout(searchBonds, 300);
     return () => clearTimeout(timeout);
-  }, [searchTerm, allBondsPool]);
+  }, [searchTerm, allBondsPool, selectedBonds.length]);
 
   const handleAddBond = async (bond: Bond) => {
     console.log('[BondComparisonPopup] Attempting to add bond:', bond.code, bond);
@@ -309,14 +345,25 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         return;
       }
 
-    // Otherwise fetch details
-    setSearching(true);
-    try {
+      // Otherwise fetch details from API
+      console.log('[BondComparisonPopup] Fetching bond details:', bond.code);
+      setSearching(true);
+      
       const token = getFireantToken();
       if (!token) {
-        setComparisonBonds(prev => [...prev, bond]);
+        console.log('[BondComparisonPopup] No token, adding bond with fallback data');
+        // Ensure valid maturityDate for fallback bond
+        const validBond = {
+          ...bond,
+          maturityDate: new Date().toISOString().split('T')[0]
+        };
+        setComparisonBonds(prev => [...prev, validBond]);
+        setIsSearching(false);
+        setSearchTerm('');
+        setSuggestions([]);
         return;
       }
+      
       const cleanToken = cleanTokenString(token);
       
       const detailRes = await fetch(`/api/fireant/bonds/${bond.code}`, {
@@ -326,20 +373,20 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         }
       });
 
-      if (detailRes.ok) {
-        const data = await detailRes.json();
-        const b = data.detail || data;
+      console.log('[BondComparisonPopup] Fetch response status:', detailRes.status);
 
-        const normalizeVal = (val: number | undefined | null) => {
-          if (!val) return 0;
-          if (val > 1000000) return val / 1000000000;
-          return val;
-        };
-        const normalizeVol = (val: number | undefined | null) => {
-          if (!val) return 0;
-          if (val > 100000) return val / 10000;
-          return val;
-        };
+      if (detailRes.ok) {
+        try {
+          const data = await detailRes.json();
+          console.log('[BondComparisonPopup] API response data:', data);
+          
+          const b = data.detail || data;
+          if (!b) {
+            throw new Error('No bond data in response');
+          }
+          
+          const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+          const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
 
           const issueValue = b.totalIssuedValue
             ? b.totalIssuedValue / 1000000000
@@ -363,26 +410,50 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
             maturityDate = new Date().toISOString().split('T')[0];
           }
 
-        const fullBond: Bond = {
-          id: b.bondCode || bond.id,
-          code: b.bondCode || bond.code,
-          enterpriseId: b.issuerSymbol || '', 
-          term: String(b.tenorPeriod || 'N/A'),
-          interestRate: b.bondRate || 0,
-          listedVolume: normalizeVol(b.currentListedVolume),
-          issueValue: issueValue,
-          listedValue: listedValue,
-          issueDate: b.issueDate?.split('T')[0] || '',
-          maturityDate: b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0],
-          interestType: b.bondRateType || 'N/A',
-          status: b.status || 'Active'
-        };
-        setComparisonBonds(prev => [...prev, fullBond]);
+          const fullBond: Bond = {
+            id: b.bondCode || bond.id,
+            code: b.bondCode || bond.code,
+            enterpriseId: b.issuerSymbol || '', 
+            term: String(b.tenorPeriod || 'N/A'),
+            interestRate: Number(interestRate) || 0,
+            listedVolume: Number(listedVolume) || 0,
+            issuedValue: Number(issueValue) || 0,
+            listedValue: Number(listedValue) || 0,
+            issueDate: b.issueDate?.split('T')[0] || '',
+            maturityDate,
+            interestType,
+            status: b.status || t('active')
+          };
+          
+          console.log('[BondComparisonPopup] Adding full bond:', fullBond);
+          setComparisonBonds(prev => [...prev, fullBond]);
+        } catch (parseError) {
+          console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
+          // Ensure valid date for fallback
+          const validBond = {
+            ...bond,
+            maturityDate: new Date().toISOString().split('T')[0]
+          };
+          console.log('[BondComparisonPopup] Adding fallback bond after parse error:', validBond);
+          setComparisonBonds(prev => [...prev, validBond]);
+        }
       } else {
-        setComparisonBonds(prev => [...prev, bond]);
+        console.warn('[BondComparisonPopup] Fetch failed with status:', detailRes.status);
+        // Ensure valid date for error fallback
+        const validBond = {
+          ...bond,
+          maturityDate: new Date().toISOString().split('T')[0]
+        };
+        setComparisonBonds(prev => [...prev, validBond]);
       }
     } catch (e) {
-      setComparisonBonds(prev => [...prev, bond]);
+      console.error('[BondComparisonPopup] Error in handleAddBond:', e);
+      // Ensure valid date for outer catch fallback
+      const validBond = {
+        ...bond,
+        maturityDate: new Date().toISOString().split('T')[0]
+      };
+      setComparisonBonds(prev => [...prev, validBond]);
     } finally {
       setIsSearching(false);
       setSearchTerm('');
@@ -429,14 +500,49 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   };
 
   const getTimelineOptions = () => {
-    const years = selectedBonds.map(b => new Date(b.maturityDate).getFullYear()).sort((a, b) => a - b);
+    if (!selectedBonds || selectedBonds.length === 0) {
+      throw new Error('No bonds available for timeline');
+    }
+    
+    // Validate and parse years, filtering out invalid dates
+    const years = selectedBonds
+      .filter(b => b && b.maturityDate)
+      .map(b => {
+        try {
+          const date = new Date(b.maturityDate);
+          const year = date.getFullYear();
+          return isNaN(year) ? null : year;
+        } catch (e) {
+          console.warn('[getTimelineOptions] Failed to parse date for bond:', b.code, e);
+          return null;
+        }
+      })
+      .filter((y): y is number => y !== null)
+      .sort((a, b) => a - b);
+    
+    // Fallback if no valid years
+    if (years.length === 0) {
+      const currentYear = new Date().getFullYear();
+      years.push(currentYear, currentYear + 1);
+    }
+    
     const minYear = Math.min(...years) - 1;
     const maxYear = Math.max(...years) + 1;
     
     // Group by year to handle overlapping
     const yearGroups: Record<number, number> = {};
     const data = selectedBonds.map(b => {
-      const yr = new Date(b.maturityDate).getFullYear();
+      const date = new Date(b.maturityDate);
+      const yr = date.getFullYear();
+      if (isNaN(yr)) {
+        return {
+          name: b.code,
+          value: [new Date().getFullYear(), 0],
+          isPrimary: b.code === primaryBond.code,
+          labelOffset: -12,
+          labelPosition: 'top' as const
+        };
+      }
       const count = yearGroups[yr] || 0;
       yearGroups[yr] = count + 1;
       
@@ -460,7 +566,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         axisLine: { lineStyle: { color: isDark ? '#333' : '#eee' } },
         splitLine: { show: false },
         axisLabel: { 
-          formatter: '{value}',
+          formatter: (value: number) => value.toString(),
           color: isDark ? '#888' : '#333',
           fontWeight: 'bold',
           margin: 15,
@@ -503,9 +609,13 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   };
 
   const getScaleOptions = () => {
+    if (!selectedBonds || selectedBonds.length === 0) {
+      throw new Error('No bonds available for scale chart');
+    }
+    
     const labels = {
-      volume: t('issueVolume'),
-      value: t('issueValue'),
+      volume: t('issuedVolume'),
+      value: t('issuedValue'),
       listed: t('listedValue')
     };
     
@@ -519,13 +629,24 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         formatter: (params: any) => {
           let res = `<div style="font-weight: bold; margin-bottom: 4px;">${params[0].name}</div>`;
           params.forEach((p: any) => {
-            res += `<div style="display: flex; align-items: center; justify-content: space-between; gap: 20px;">
-              <span style="display: flex; align-items: center; gap: 6px;">
-                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
-                <span style="font-size: 11px;">${p.seriesName}</span>
-              </span>
-              <span style="font-weight: bold; font-family: 'JetBrains Mono';">${formatValue(p.value)}</span>
-            </div>`;
+            let unit = '';
+
+            if (p.seriesName === labels.value || p.seriesName === labels.listed) {
+              unit = ` ${t('unitBillionVND')}`; // tỷ VNĐ
+            } else if (p.seriesName === labels.volume) {
+              unit = ` ${t('bondunits')}`; // trái phiếu
+            }
+
+            res += `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px;">
+                <span style="display: flex; align-items: center; gap: 6px;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
+                  <span style="font-size: 11px;">${p.seriesName}</span>
+                </span>
+                <span style="font-weight: bold; font-family: 'JetBrains Mono';">
+                  ${formatValue(p.value)}${unit}
+                </span>
+              </div>`;
           });
           return res;
         }
@@ -564,7 +685,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
           name: labels.value,
           type: 'bar',
           barWidth: 15,
-          data: selectedBonds.map(b => b.issueValue),
+          data: selectedBonds.map(b => b.issuedValue),
           itemStyle: { color: isDark ? '#5c6bc0' : '#3634B3', borderRadius: [2, 2, 0, 0] }
         },
         {
@@ -589,6 +710,10 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
   };
 
   const getCouponOptions = () => {
+    if (!selectedBonds || selectedBonds.length === 0) {
+      throw new Error('No bonds available for coupon chart');
+    }
+    
     return {
       tooltip: { 
         trigger: 'axis', 
@@ -647,6 +772,27 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
        return formatted.replace(/,00$/, '').replace(/,(\d)0$/, ',$1');
     }
     return formatted;
+  };
+
+  // Safe wrapper for chart rendering with error boundary
+  const safeRenderChart = (optionsGetter: () => any, fallbackMessage: string = 'Display Error') => {
+    try {
+      console.log(`[safeRenderChart] Rendering ${fallbackMessage}`);
+      const options = optionsGetter();
+      if (!options) throw new Error('Options generator returned null');
+      return (
+        <ReactECharts option={options} style={{ height: '100%', width: '100%' }} />
+      );
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[safeRenderChart] ${fallbackMessage}:`, errorMsg, error);
+      return (
+        <div className="w-full h-full flex items-center justify-center flex-col gap-2 text-text-muted text-xs p-4">
+          <span className="font-bold">{fallbackMessage}</span>
+          <span className="text-[10px] text-text-muted/60">{errorMsg}</span>
+        </div>
+      );
+    }
   };
 
   return (
@@ -734,7 +880,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('searchBondPlaceholder') || "Enter symbol..."}
+                    placeholder={t('searchBondPlaceholder') || "Enter code..."}
                     className="bg-transparent border-none outline-none text-sm font-bold w-32 md:w-48 text-text-base"
                   />
                   {searching && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
@@ -750,7 +896,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                 {suggestions.length > 0 && (
                   <div className="absolute top-full left-0 mt-2 w-full min-w-[240px] bg-bg-surface border border-border-base rounded-2xl shadow-2xl z-20 max-h-64 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="p-2 border-b border-border-base bg-bg-base/30">
-                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider px-2">{t('searchResult') || "Search results"}</span>
+                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider px-2">{t('searchResult') || "Search Results"}</span>
                     </div>
                     {suggestions.map(bond => (
                       <button
@@ -770,7 +916,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                 
                 {searchTerm.length >= 2 && suggestions.length === 0 && !searching && (
                    <div className="absolute top-full left-0 mt-2 w-full min-w-[240px] bg-bg-surface border border-border-base rounded-2xl shadow-xl z-20 p-4 text-center">
-                     <p className="text-xs font-bold text-text-muted italic">{t('noResults') || "No matching result found"}</p>
+                     <p className="text-xs font-bold text-text-muted italic">{t('noResults') || "No results found"}</p>
                    </div>
                 )}
               </div>
@@ -781,7 +927,7 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
           <div className="space-y-6">
             <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase">{t('maturityTimeline')}</h4>
             <div className="h-[120px] bg-bg-base/20 rounded-2xl p-4 transition-colors">
-              <ReactECharts option={getTimelineOptions()} style={{ height: '100%', width: '100%' }} />
+              {safeRenderChart(() => getTimelineOptions(), t('errorTimeline'))}
             </div>
           </div>
 
@@ -793,16 +939,16 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                 <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitBillionVND')}</span>
               </div>
               <div className="h-[250px] transition-colors">
-                <ReactECharts option={getScaleOptions()} style={{ height: '100%', width: '100%' }} />
+                {safeRenderChart(() => getScaleOptions(), t('errorIssueScale'))}
               </div>
             </div>
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
-                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase">{t('interestRate')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('percent')}</span>
+                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">{t('interestRate')}</h4>
+                <span className="text-[10px] text-text-muted font-bold tracking-tighter">%</span>
               </div>
               <div className="h-[250px] transition-colors">
-                <ReactECharts option={getCouponOptions()} style={{ height: '100%', width: '100%' }} />
+                {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'))}
               </div>
             </div>
           </div>
@@ -816,25 +962,26 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
                   {[
                     { label: t('bondCode'), key: 'code' },
                     { label: t('termMonths'), key: 'term', isTerm: true },
-                    { label: t('interestRatePercent'), key: 'interestRate', isRate: true },
-                    { label: t('interestType'), key: 'interestType' },
+                    { label: t('interestRate'), key: 'interestRate', isRate: true },
+                    { label: t('interestType'), key: 'interestType', isInterestType: true },
                     { label: t('issueDate'), key: 'issueDate', isDate: true },
                     { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                    { label: t('issueValueBillion'), key: 'issueValue', isValue: true }
+                    { label: t('issuedValue'), key: 'issuedValue', isValue: true }
                   ].map((row, idx) => (
                     <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
                       <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[20%]">{row.label}</td>
                       {selectedBonds.map((b) => (
                         <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
                           {row.isRate ? formatNumber(b.interestRate, 2) : 
-                           row.isValue ? formatValue(b.issueValue) :
+                           row.isValue ? formatValue(b.issuedValue) :
                            row.isTerm ? b.term.replace(/[^0-9]/g, '') :
                            row.isDate ? formatDate((b as any)[row.key]) :
-                           row.key === 'interestType' ? (
-                            (b.interestType === 'Fixed' || b.interestType === 'Cố định') ? t('fixed') : 
-                            (b.interestType === 'Floating' || b.interestType === 'Thả nổi' || b.interestType === 'Thả Nổi') ? t('floating') : 
-                            b.interestType
-                           ) :
+                           row.isInterestType 
+                            ? (['Fixed', 'Cố định'].includes(b.interestType) 
+                                ? t('fixed') 
+                                : ['Floating', 'Thả nổi', 'Thả Nổi'].includes(b.interestType) 
+                                ? t('floating') 
+                                : b.interestType) :
                            (b as any)[row.key]}
                         </td>
                       ))}
@@ -847,5 +994,14 @@ export default function BondComparisonPopup({ primaryBond, onClose, onBack }: Bo
         </div>
       </div>
     </div>
+  );
+}
+
+// Export wrapped with error boundary
+export default function BondComparisonPopupWrapper(props: any) {
+  return (
+    <BondComparisonErrorBoundary>
+      <BondComparisonPopup {...props} />
+    </BondComparisonErrorBoundary>
   );
 }

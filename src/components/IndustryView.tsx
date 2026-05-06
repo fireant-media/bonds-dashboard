@@ -251,7 +251,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const getMarketShareOptions = () => {
     const hasData = rankingData.length > 0;
-    let chartData = [];
+    let chartData: { value: number; name: string; itemStyle: { color: string } }[] = [];
 
     if (hasData) {
       const totalDebt = rankingData.reduce((sum, item) => sum + item.totalRemainingDebt, 0);

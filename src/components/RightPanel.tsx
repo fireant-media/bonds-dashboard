@@ -3,7 +3,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
 import { ExpiringBond, Bond } from '../types';
-import { formatInterestRate, formatNumber } from '../utils/format';
+import { formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 
@@ -150,7 +150,11 @@ export default function RightPanel({
         issuerName: b.issuerName,
         term: (b.tenorPeriod || b.term) ? `${b.tenorPeriod || b.term} ${t('monthUnit')}` : 'N/A',
         issueDate: (b.issueDate || b.releaseDate) ? (b.issueDate || b.releaseDate).split('T')[0] : 'N/A',
-        interestType: b.bondRateType || b.interestRateType || b.interestType || 'N/A'
+        interestType: normalizeInterestType(
+          b.bondRateType || b.interestRateType || b.interestType || '',
+          b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+          []
+        ) || 'N/A'
       }));
 
       setExpiringBonds(mappedData);
@@ -283,7 +287,7 @@ export default function RightPanel({
                             term: bond.term || 'N/A',
                             interestRate: bond.interestRate,
                             listedVolume: bond.listedVolume,
-                            issueValue: 0,
+                            issuedValue: 0,
                             listedValue: 0,
                             issueDate: bond.issueDate || 'N/A',
                             maturityDate: bond.maturityDate,
