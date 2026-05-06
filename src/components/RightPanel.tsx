@@ -227,9 +227,9 @@ export default function RightPanel({
   };
 
   return (
-    <aside className="w-full bg-bg-surface border-l border-border-base flex flex-col overflow-hidden transition-colors duration-300">
-      <div className={cn("p-6 transition-all duration-300 flex-1 flex flex-col", isOpen ? "w-[320px]" : "w-[64px] px-3")}>
-        <div className={cn("flex items-center mb-8", isOpen ? "justify-between" : "justify-center")}>
+    <aside className="w-full bg-bg-surface md:border-l border-border-base flex flex-col overflow-hidden transition-colors duration-300">
+      <div className={cn("p-3 md:p-6 transition-all duration-300 flex-1 flex flex-col", isOpen ? "w-full md:w-[320px]" : "w-full md:w-[64px] md:px-3")}>
+        <div className={cn("flex items-center mb-4 md:mb-8", isOpen ? "justify-between" : "justify-center")}>
           <button 
             onClick={onToggle}
             className="p-2 text-text-muted hover:text-[#3634B3] hover:bg-bg-base rounded-lg transition-colors"
@@ -240,7 +240,7 @@ export default function RightPanel({
         </div>
 
         {isOpen ? (
-          <div className="flex-1 flex flex-col space-y-8 animate-in fade-in duration-500">
+          <div className="flex-1 flex flex-col space-y-6 md:space-y-8 animate-in fade-in duration-500">
             {/* Expiring Bonds */}
             <section>
               <div className="flex items-center justify-between mb-4">
@@ -254,7 +254,7 @@ export default function RightPanel({
                   {t('seeMore')}
                 </button>
               </div>
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:block md:space-y-3 gap-3">
                 {loading ? (
                   <div className="flex justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-text-highlight"></div>
@@ -337,7 +337,7 @@ export default function RightPanel({
                   {t('seeMore')}
                 </button>
               </div>
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:block md:space-y-4 gap-4">
                 {loadingNews ? (
                   <div className="flex justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-text-highlight"></div>
@@ -402,7 +402,7 @@ export default function RightPanel({
             </section>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-8 mt-4 text-text-muted transition-colors">
+          <div className="flex flex-row md:flex-col items-center justify-center gap-8 mt-4 text-text-muted transition-colors">
             <Calendar className="h-5 w-5" />
             <Newspaper className="h-5 w-5" />
             <TrendingUp className="h-5 w-5" />

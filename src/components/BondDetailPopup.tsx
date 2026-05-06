@@ -175,25 +175,25 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
   return (
     <div 
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300"
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-2 md:p-4 animate-in fade-in duration-300"
       onClick={onClose}
     >
       <div 
-        className="bg-bg-surface w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 transition-colors"
+        className="bg-bg-surface w-full max-w-5xl max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 transition-colors"
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the popup
       >
-        <div className="p-6 border-b border-border-base flex items-center justify-between bg-bg-base/50 transition-colors">
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 bg-[#3634B3] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-[#3634B3]/20 transition-colors">
+        <div className="p-4 md:p-6 border-b border-border-base flex items-center justify-between gap-3 bg-bg-base/50 transition-colors">
+          <div className="flex items-center gap-3 md:gap-4 min-w-0">
+            <div className="h-10 w-10 md:h-12 md:w-12 bg-[#3634B3] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-[#3634B3]/20 transition-colors shrink-0">
               <Activity className="h-6 w-6" />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-text-base tracking-tight transition-colors">{t('bondDetailTitle')}</h3>
+              <h3 className="text-base md:text-xl font-bold text-text-base tracking-tight transition-colors">{t('bondDetailTitle')}</h3>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button 
-              className="flex items-center gap-2 px-4 py-2 bg-text-highlight/10 text-text-highlight hover:bg-text-highlight/20 rounded-xl text-xs font-bold transition-all"
+              className="hidden sm:flex items-center gap-2 px-4 py-2 bg-text-highlight/10 text-text-highlight hover:bg-text-highlight/20 rounded-xl text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => setShowComparison(true)}
             >
               <ArrowLeftRight className="h-4 w-4" />
@@ -216,9 +216,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           />
         )}
 
-        <div className="grid grid-cols-12 h-[550px]">
+        <div className="grid grid-cols-12 h-[calc(92vh-88px)] lg:h-[550px] overflow-y-auto lg:overflow-hidden">
           {/* Left: Info List */}
-          <div className="col-span-12 lg:col-span-5 p-8 border-r border-border-base bg-bg-surface overflow-y-auto transition-colors">
+          <div className="col-span-12 lg:col-span-5 p-4 md:p-8 lg:border-r border-border-base bg-bg-surface overflow-y-visible lg:overflow-y-auto transition-colors">
             <div className="space-y-3">
               {details.map((detail, idx) => (
                 <div key={idx} className="flex items-start gap-3 group">
@@ -245,7 +245,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           </div>
 
           {/* Right: Cash Flow Chart & AI Insight */}
-          <div className="col-span-12 lg:col-span-7 p-8 bg-bg-base/30 flex flex-col h-full transition-colors">
+          <div className="col-span-12 lg:col-span-7 p-4 md:p-8 bg-bg-base/30 flex flex-col h-auto lg:h-full transition-colors">
             <div className="mb-4">
               <h3 className="text-lg font-bold text-text-base tracking-tight text-center transition-colors">{t('expectedCashFlow')}</h3>
             </div>

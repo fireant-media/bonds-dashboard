@@ -35,15 +35,15 @@ export default function SettingsView() {
   ];
 
   return (
-    <div className="flex bg-bg-base h-full overflow-hidden transition-colors">
+    <div className="flex flex-col md:flex-row bg-bg-base h-full overflow-hidden transition-colors">
       {/* Sidebar */}
-      <div className="w-80 bg-bg-surface border-r border-border-base flex flex-col pt-10 pb-10 px-4 shrink-0 shadow-sm transition-colors">
-        <div className="mb-12 px-6">
+      <div className="w-full md:w-80 bg-bg-surface border-b md:border-b-0 md:border-r border-border-base flex flex-col pt-4 md:pt-10 pb-4 md:pb-10 px-3 md:px-4 shrink-0 shadow-sm transition-colors">
+        <div className="mb-4 md:mb-12 px-3 md:px-6">
           <h2 className="text-xl font-bold text-text-highlight tracking-tight transition-colors">{t('settings')}</h2>
           <p className="text-sm text-text-muted mt-1 font-medium transition-colors">{t('manageAccount')}</p>
         </div>
 
-        <nav className="flex-1 space-y-4 px-2">
+        <nav className="flex-1 grid grid-cols-3 sm:grid-cols-6 md:block md:space-y-4 gap-2 md:px-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -52,19 +52,19 @@ export default function SettingsView() {
                 key={item.id}
                 onClick={() => setActiveTab(item.id as SettingsTab)}
                 className={cn(
-                  "w-full flex items-center justify-between gap-4 px-4 py-4 rounded-xl transition-all text-left group",
+                  "w-full flex items-center justify-center md:justify-between gap-2 md:gap-4 px-3 md:px-4 py-3 md:py-4 rounded-xl transition-all text-left group",
                   isActive 
                     ? "bg-text-highlight/5 text-text-highlight" 
                     : "text-text-muted hover:bg-bg-base"
                 )}
               >
-                <div className="flex items-center gap-4 flex-1 min-w-0">
+                <div className="flex items-center justify-center md:justify-start gap-2 md:gap-4 flex-1 min-w-0">
                   <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-text-highlight" : "text-gray-400 group-hover:text-text-muted")} />
-                  <span className={cn("text-sm tracking-tight transition-colors whitespace-nowrap", isActive ? "text-text-highlight font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
+                  <span className={cn("hidden md:inline text-sm tracking-tight transition-colors truncate", isActive ? "text-text-highlight font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
                     {item.label}
                   </span>
                 </div>
-                {isActive && <ChevronRight className="h-4 w-4 text-text-highlight animate-in slide-in-from-left-2 duration-300" />}
+                {isActive && <ChevronRight className="hidden md:block h-4 w-4 text-text-highlight animate-in slide-in-from-left-2 duration-300" />}
               </button>
             );
           })}
@@ -72,8 +72,8 @@ export default function SettingsView() {
       </div>
 
       {/* Main Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-12 custom-scrollbar transition-colors">
-        <div className="max-w-5xl">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar transition-colors">
+        <div className="max-w-5xl min-w-0">
           {activeTab === 'notifications' && <NotificationSettings />}
           {activeTab === 'interface' && <InterfaceSettings />}
           {activeTab === 'token' && <TokenSettings />}
@@ -129,8 +129,8 @@ function NotificationSettings() {
 
       <div className="space-y-6">
         {/* Push Notifications Card */}
-        <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 transition-colors">
-          <div className="flex items-center justify-between">
+        <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('pushNotificationsTitle')}</h3>
               <p className="text-sm text-text-muted transition-colors leading-relaxed">{t('pushNotificationsDesc')}</p>
@@ -151,8 +151,8 @@ function NotificationSettings() {
         </div>
 
         {/* Email Notifications Card */}
-        <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 transition-colors">
-          <div className="flex items-center justify-between">
+        <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('emailNotificationsTitle')}</h3>
               <p className="text-sm text-text-muted transition-colors leading-relaxed">{t('emailNotificationsDesc')}</p>
@@ -173,7 +173,7 @@ function NotificationSettings() {
         </div>
 
         {/* Do Not Disturb Card */}
-        <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 transition-colors">
+        <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
           <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('dndTitleTotal')}</h3>
           <p className="text-sm text-text-muted mb-8 transition-colors leading-relaxed">{t('dndSubtitle')}</p>
           
@@ -232,19 +232,19 @@ function InterfaceSettings() {
 
       <div className="space-y-6">
         {/* Theme Selection */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
             <div className="max-w-xs transition-colors">
               <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('themeMode')}</h3>
               <p className="text-sm text-text-muted leading-relaxed transition-colors">{t('themeDescription')}</p>
             </div>
             
-            <div className="flex items-start gap-6">
+            <div className="flex flex-wrap items-start gap-4 md:gap-6">
               <div className="flex flex-col items-center gap-3">
                 <button 
                   onClick={() => setTheme('light')}
                   className={cn(
-                    "w-32 h-20 rounded-lg border-2 transition-all overflow-hidden bg-white relative",
+                    "w-28 md:w-32 h-20 rounded-lg border-2 transition-all overflow-hidden bg-white relative",
                     theme === 'light' ? "border-text-highlight shadow-md" : "border-border-base hover:border-text-highlight/30"
                   )}
                 >
@@ -261,7 +261,7 @@ function InterfaceSettings() {
                 <button 
                   onClick={() => setTheme('dark')}
                   className={cn(
-                    "w-32 h-20 rounded-lg border-2 transition-all overflow-hidden bg-[#101827] relative",
+                    "w-28 md:w-32 h-20 rounded-lg border-2 transition-all overflow-hidden bg-[#101827] relative",
                     theme === 'dark' ? "border-text-highlight shadow-md" : "border-border-base hover:border-text-highlight/30"
                   )}
                 >
@@ -278,7 +278,7 @@ function InterfaceSettings() {
                 <button 
                   onClick={() => setTheme('auto')}
                   className={cn(
-                    "w-32 h-20 rounded-lg border-2 transition-all overflow-hidden relative",
+                    "w-28 md:w-32 h-20 rounded-lg border-2 transition-all overflow-hidden relative",
                     theme === 'auto' ? "border-text-highlight shadow-md" : "border-border-base hover:border-text-highlight/30"
                   )}
                 >
@@ -301,7 +301,7 @@ function InterfaceSettings() {
         </div>
 
         {/* Language Selection */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
             <div className="max-w-xs transition-colors">
               <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('uiLanguage')}</h3>
@@ -326,14 +326,14 @@ function InterfaceSettings() {
         </div>
 
         {/* Font Size Selection */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
             <div className="max-w-xs transition-colors">
               <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('fontSize')}</h3>
               <p className="text-sm text-text-muted leading-relaxed transition-colors">{t('fontDescription')}</p>
             </div>
             
-            <div className="flex items-center gap-12 flex-1 max-w-lg">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 md:gap-12 flex-1 max-w-lg">
               <div className="flex-1 space-y-4">
                 <div className="flex justify-between items-end mb-1">
                    <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{t('small')}</span>
@@ -372,7 +372,7 @@ function InterfaceSettings() {
         </div>
 
         {/* UI Density Selection */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
             <div className="max-w-xs transition-colors">
               <h3 className="text-xl font-bold text-text-highlight mb-2 transition-colors">{t('uiDensity')}</h3>
@@ -472,9 +472,9 @@ function TokenSettings() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
       <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('tokenTitleSettings')}</h1>
 
-      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 space-y-8 transition-colors">
+      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 space-y-6 md:space-y-8 transition-colors">
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">FIREANT ACCESS TOKEN</label>
             <button 
               onClick={handleTest}
@@ -508,10 +508,10 @@ function TokenSettings() {
           </div>
         )}
 
-        <div className="flex gap-4 pt-4">
+        <div className="flex flex-col sm:flex-row gap-3 md:gap-4 pt-4">
           <button
             onClick={handleDelete}
-            className="px-8 py-4 bg-bg-base text-text-muted rounded-xl text-sm font-bold hover:bg-rose-500/10 hover:text-rose-500 transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-8 py-4 bg-bg-base text-text-muted rounded-xl text-sm font-bold hover:bg-rose-500/10 hover:text-rose-500 transition-all flex items-center justify-center gap-2"
           >
             <Trash2 className="h-4 w-4" /> {t('deleteTokenLabel')}
           </button>
@@ -563,9 +563,9 @@ function AIKeySettings() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
       <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('aiKeyTitleSettings')}</h1>
 
-      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-8 space-y-8 mt-6 transition-colors">
+      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 space-y-6 md:space-y-8 mt-6 transition-colors">
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">AI API KEY (GEMINI/OPENAI/...)</label>
             <button 
               onClick={() => setShowKey(!showKey)}
@@ -596,10 +596,10 @@ function AIKeySettings() {
           </div>
         )}
 
-        <div className="flex gap-4 pt-4">
+        <div className="flex flex-col sm:flex-row gap-3 md:gap-4 pt-4">
           <button
             onClick={handleDelete}
-            className="px-8 py-4 bg-bg-base text-text-muted rounded-xl text-sm font-bold hover:bg-rose-500/10 hover:text-rose-500 transition-all flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-8 py-4 bg-bg-base text-text-muted rounded-xl text-sm font-bold hover:bg-rose-500/10 hover:text-rose-500 transition-all flex items-center justify-center gap-2"
           >
             <Trash2 className="h-4 w-4" /> {t('delete')}
           </button>
@@ -612,7 +612,7 @@ function AIKeySettings() {
         </div>
       </div>
 
-      <div className="mt-8 bg-text-highlight/5 rounded-2xl p-8 border border-text-highlight/10 transition-colors">
+      <div className="mt-8 bg-text-highlight/5 rounded-2xl p-4 md:p-8 border border-text-highlight/10 transition-colors">
         <h4 className="text-sm font-bold text-text-highlight mb-4 flex items-center gap-2 transition-colors">
           <Info className="h-4 w-4" /> {t('guide')}
         </h4>
@@ -655,8 +655,8 @@ function AppSecuritySettings() {
 
       <div className="grid grid-cols-12 gap-6">
         {/* Biometric Lock */}
-        <div className="col-span-12 lg:col-span-7 bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm flex flex-col justify-between transition-colors">
-          <div className="flex items-start justify-between">
+        <div className="col-span-12 lg:col-span-7 bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm flex flex-col justify-between transition-colors">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex gap-4">
               <div className="mt-1 transition-colors">
                 <Fingerprint className="h-5 w-5 text-text-muted/50 transition-colors" />
@@ -684,7 +684,7 @@ function AppSecuritySettings() {
         </div>
 
         {/* Auto Lock */}
-        <div className="col-span-12 lg:col-span-5 bg-bg-base/50 rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="col-span-12 lg:col-span-5 bg-bg-base/50 rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <div className="flex items-center gap-3 mb-2 transition-colors">
             <Timer className="h-4 w-4 text-text-muted/50 transition-colors" />
             <h3 className="text-xl font-bold text-text-highlight transition-colors">{t('autoLock')}</h3>
@@ -709,8 +709,8 @@ function AppSecuritySettings() {
         </div>
 
         {/* Quick Login */}
-        <div className="col-span-12 lg:col-span-8 bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm flex flex-col justify-between transition-colors">
-          <div className="flex items-start justify-between">
+        <div className="col-span-12 lg:col-span-8 bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm flex flex-col justify-between transition-colors">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex gap-4">
               <div className="mt-1 transition-colors">
                 <Zap className="h-5 w-5 text-text-muted/50 transition-colors" />
@@ -738,7 +738,7 @@ function AppSecuritySettings() {
         </div>
 
         {/* Organizational Standard Card */}
-        <div className="col-span-12 lg:col-span-4 bg-[#000045] rounded-2xl p-8 relative overflow-hidden flex flex-col justify-between min-h-[220px]">
+        <div className="col-span-12 lg:col-span-4 bg-[#000045] rounded-2xl p-4 md:p-8 relative overflow-hidden flex flex-col justify-between min-h-[220px]">
           {/* Background Decorative Text */}
           <div className="absolute top-0 right-0 text-[100px] font-bold text-white/5 select-none leading-none -translate-y-1/4 translate-x-1/4">
             {t('appDesign')}
@@ -772,23 +772,23 @@ function AboutSettings() {
 
       <div className="space-y-6">
         {/* Version Info Card */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <h3 className="text-xl font-bold text-text-highlight mb-2 uppercase tracking-tight transition-colors">FIREANT DASHBOARD</h3>
           <p className="text-sm text-text-muted font-medium tracking-wide transition-colors">{t('version')}: 2.5.0 (Build 20231027)</p>
         </div>
 
         {/* Legal Documents */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <h3 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-6 transition-colors">{t('legalDocs')}</h3>
           <div className="space-y-3">
-            <button className="w-full flex items-center justify-between p-6 bg-bg-base/50 rounded-xl hover:bg-bg-base transition-colors group">
+            <button className="w-full flex items-center justify-between gap-3 p-4 md:p-6 bg-bg-base/50 rounded-xl hover:bg-bg-base transition-colors group">
               <div className="flex items-center gap-4">
                 <Scale className="h-5 w-5 text-text-muted/50 transition-colors" />
                 <span className="text-sm font-bold text-text-base transition-colors">{t('termsOfService')}</span>
               </div>
               <ChevronRight className="h-4 w-4 text-text-muted/30 group-hover:text-text-muted/60 transition-colors" />
             </button>
-            <button className="w-full flex items-center justify-between p-6 bg-bg-base/50 rounded-xl hover:bg-bg-base transition-colors group">
+            <button className="w-full flex items-center justify-between gap-3 p-4 md:p-6 bg-bg-base/50 rounded-xl hover:bg-bg-base transition-colors group">
               <div className="flex items-center gap-4">
                 <Shield className="h-5 w-5 text-text-muted/50 transition-colors" />
                 <span className="text-sm font-bold text-text-base transition-colors">{t('privacyPolicy')}</span>
@@ -799,7 +799,7 @@ function AboutSettings() {
         </div>
 
         {/* Support */}
-        <div className="bg-bg-surface rounded-2xl p-8 border border-border-base shadow-sm transition-colors">
+        <div className="bg-bg-surface rounded-2xl p-4 md:p-8 border border-border-base shadow-sm transition-colors">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
             <div className="flex-1">
               <h3 className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-4 transition-colors">{t('contactSupportLabel')}</h3>
@@ -807,7 +807,7 @@ function AboutSettings() {
                 {t('supportDescLabel')}
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <button className="flex items-center gap-3 px-6 py-3.5 bg-text-highlight text-white text-xs font-bold rounded-xl hover:opacity-90 transition-all shadow-lg shadow-text-highlight/10 active:scale-95">
                 <Mail className="h-4 w-4" /> {t('techContact')}
               </button>

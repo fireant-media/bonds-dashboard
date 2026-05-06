@@ -29,10 +29,14 @@ export default function App() {
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
+  const appFrameRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Reset scroll position when tab or industry changes
+    if (appFrameRef.current) {
+      appFrameRef.current.scrollTo({ top: 0, behavior: 'instant' });
+    }
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
     }
@@ -119,11 +123,11 @@ export default function App() {
         setBondEnterpriseName={setBondEnterpriseName}
       />
       
-      <div className="flex relative items-stretch h-[calc(100vh-64px)] overflow-hidden">
+      <div ref={appFrameRef} className="flex flex-col md:flex-row relative items-stretch h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden md:overflow-hidden">
         {!isProfileMode && (
           <div className={cn(
-            "transition-all duration-300 ease-in-out shrink-0 border-r border-border-base bg-bg-surface",
-            isSidebarOpen ? "w-80" : "w-16"
+            "transition-all duration-300 ease-in-out shrink-0 border-b md:border-b-0 md:border-r border-border-base bg-bg-surface",
+            isSidebarOpen ? "w-full md:w-80" : "w-full md:w-16"
           )}>
             <Sidebar 
               activeTab={activeTab} 
@@ -141,16 +145,16 @@ export default function App() {
         <div 
           ref={scrollContainerRef}
           className={cn(
-            "flex-1 h-full transition-all duration-300",
-            isProfileMode ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
+            "flex-1 min-w-0 transition-all duration-300",
+            isProfileMode ? "h-full overflow-hidden" : "h-auto md:h-full overflow-visible md:overflow-y-auto md:overflow-x-hidden"
           )}
         >
           <div className={cn(
-            "flex items-stretch transition-all duration-300",
+            "flex flex-col md:flex-row items-stretch transition-all duration-300",
             !isProfileMode ? "min-h-full bg-bg-base/30" : "h-full"
           )}>
             <main className="flex-1 min-h-fit transition-all duration-300 min-w-0">
-              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-[1600px] mx-auto py-6 px-6 w-full")}>
+              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-[1600px] mx-auto py-4 px-3 md:py-6 md:px-6 w-full")}>
                 {activeTab === 'overview' && <MarketOverview />}
                 {activeTab === 'industry' && <IndustryView industry={activeIndustry} />}
                 {activeTab === 'enterprise' && (
@@ -194,8 +198,8 @@ export default function App() {
 
             {!isProfileMode && (
               <div className={cn(
-                "transition-all duration-300 ease-in-out shrink-0 border-l border-border-base bg-bg-surface",
-                isRightPanelOpen ? "w-80" : "w-16"
+                "transition-all duration-300 ease-in-out shrink-0 border-t md:border-t-0 md:border-l border-border-base bg-bg-surface",
+                isRightPanelOpen ? "w-full md:w-80" : "w-full md:w-16"
               )}>
                 <RightPanel 
                   isOpen={isRightPanelOpen}

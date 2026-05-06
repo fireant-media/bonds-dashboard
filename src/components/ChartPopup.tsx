@@ -75,15 +75,15 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
   }, [title, dataSummary, language, t]);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-bg-surface rounded-[32px] w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300 transition-colors">
         {/* Header */}
-        <div className="px-8 py-6 border-b border-border-base flex items-center justify-between bg-bg-surface sticky top-0 z-10 transition-colors">
-          <div className="flex items-center gap-3">
+        <div className="px-4 md:px-8 py-4 md:py-6 border-b border-border-base flex items-center justify-between gap-3 bg-bg-surface sticky top-0 z-10 transition-colors">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="h-10 w-10 bg-indigo-50 dark:bg-indigo-900/40 rounded-xl flex items-center justify-center text-[#3634B3] transition-colors">
               <MessageSquareText className="h-5 w-5" />
             </div>
-            <h2 className="text-xl font-bold text-text-base transition-colors">{title}</h2>
+            <h2 className="text-base md:text-xl font-bold text-text-base transition-colors truncate">{title}</h2>
           </div>
           <button 
             onClick={onClose}
@@ -94,14 +94,14 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8 transition-colors">
-          <div className={`grid ${isPortrait ? 'grid-cols-1 lg:grid-cols-[1fr_400px]' : 'grid-cols-1'} gap-8 h-full`}>
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 transition-colors">
+          <div className={`grid ${isPortrait ? 'grid-cols-1 lg:grid-cols-[1fr_400px]' : 'grid-cols-1'} gap-4 md:gap-8 h-full`}>
             {/* Chart Section */}
             <div 
               ref={chartContainerRef}
-              className="bg-bg-base/50 rounded-[24px] p-6 flex items-center justify-center min-h-[400px] transition-colors"
+              className="bg-bg-base/50 rounded-[24px] p-3 md:p-6 flex items-center justify-center min-h-[320px] md:min-h-[400px] transition-colors"
             >
-              <div className="w-full h-full min-h-[400px]">
+              <div className="w-full h-full min-h-[320px] md:min-h-[400px]">
                 <ReactECharts 
                   option={{
                     ...option,
@@ -115,7 +115,7 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
 
             {/* Insight Section */}
             <div className="flex flex-col gap-6">
-              <div className="bg-bg-base/30 rounded-[24px] p-8 h-full border border-border-base transition-colors">
+              <div className="bg-bg-base/30 rounded-[24px] p-4 md:p-8 h-full border border-border-base transition-colors">
                 <div className="flex items-center gap-2 mb-4 text-[#3634B3] transition-colors">
                   <MessageSquareText className="h-5 w-5" />
                   <h3 className="font-bold uppercase tracking-wider text-sm transition-colors">{t('chartInsight')}</h3>

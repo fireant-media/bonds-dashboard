@@ -192,7 +192,7 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
   );
 
   return (
-    <div className="max-w-4xl mx-auto p-8 animate-in fade-in slide-in-from-left-4 duration-700 transition-colors">
+    <div className="max-w-4xl mx-auto p-0 md:p-8 animate-in fade-in slide-in-from-left-4 duration-700 transition-colors">
       <button 
         onClick={onBack}
         className="flex items-center gap-2 text-sm font-bold text-[#3634B3] hover:gap-3 transition-all mb-8 bg-bg-surface px-4 py-2 rounded-xl border border-border-base shadow-sm hover:shadow-md"
@@ -200,13 +200,13 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
         <ChevronLeft className="h-4 w-4" /> {t('back')}
       </button>
 
-      <article className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden p-8 md:p-12 transition-colors">
+      <article className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden p-4 md:p-12 transition-colors">
         <header className="mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-text-base leading-tight mb-6 transition-colors">
             {news.title}
           </h1>
 
-          <div className="flex items-center justify-between pb-6">
+          <div className="flex items-start justify-between gap-4 pb-6">
             {/* LEFT */}
             <div className="flex flex-col gap-1">
               {/* Nguồn + Ngày */}
@@ -230,11 +230,7 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
                   : 'bg-[#3634B3]/5 text-[#3634B3] hover:bg-[#3634B3] hover:text-white'
               }`}
             >
-              {isSpeaking ? (
-                <VolumeX className="h-4 w-4 animate-pulse" />
-              ) : (
-                <Volume2 className="h-4 w-4" />
-              )}
+              <Volume2 className="h-4 w-4" />
             </button>
           </div>
         </header>
@@ -282,16 +278,16 @@ export default function NewsDetailView({ news: initialNews, onBack }: NewsDetail
 
         <div className="pt-8 border-t border-border-base transition-colors">
           <div className="flex flex-wrap items-center justify-between gap-6 mb-12">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 md:gap-4 w-full sm:w-auto">
               <button 
                 onClick={handleShare}
-                className="flex items-center gap-2 px-6 py-2.5 bg-[#3634B3] text-white rounded-xl font-bold text-sm hover:translate-y-[-2px] hover:shadow-lg transition-all active:translate-y-0"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-[#3634B3] text-white rounded-xl font-bold text-sm hover:translate-y-[-2px] hover:shadow-lg transition-all active:translate-y-0"
               >
                 <Share2 className="h-4 w-4" /> {t('share')}
               </button>
               <button 
                 onClick={handleSave}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all border ${
+                className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all border ${
                   isSaved 
                     ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-400/30' 
                     : 'bg-bg-surface text-text-muted border-border-base hover:border-[#3634B3] hover:text-[#3634B3]'
