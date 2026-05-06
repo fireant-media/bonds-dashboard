@@ -142,7 +142,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
       const cachedEnterprises = (getCache('enterprise_list') || []) as any[];
       cachedEnterprises.forEach((enterprise) => {
         const name = String(enterprise.name || '');
-        const ticker = String(enterprise.ticker || '');
+        const ticker = String(enterprise.ticker || enterprise.id || '');
         if (name.toLowerCase().includes(normalized) || ticker.toLowerCase().includes(normalized)) {
           addSuggestion({
             id: ticker,
@@ -157,7 +157,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
 
       const cachedBonds = (getCache('comparison_pool_bonds') || []) as any[];
       cachedBonds.forEach((bond) => {
-        const code = String(bond.code || '');
+        const code = String(bond.code || bond.id || '');
         if (!code) return;
         if (code.toLowerCase().includes(normalized) || String(bond.enterpriseId || '').toLowerCase().includes(normalized)) {
           addSuggestion({
@@ -192,19 +192,28 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
 
             const name = String(item.name || item.fullName || item.companyName || item.issuerName || '');
             const symbolType = String(item.symbolType || item?.type || '').toLowerCase();
-            const isBond = symbolType.includes('bond') || /\d/.test(symbol);
-            const title = isBond ? symbol : (name || symbol);
-            const subtitle = isBond ? (name || item.symbolType || '') : symbol;
-            const suggestion: SearchSuggestion = {
-              id: symbol,
-              type: isBond ? 'bond' : 'enterprise',
-              title,
-              subtitle,
-              code: isBond ? symbol : undefined,
-              ticker: !isBond ? symbol : undefined,
-              enterpriseName: !isBond ? name || symbol : undefined
-            };
-            addSuggestion(suggestion);
+            
+            // Stricter classification to avoid warrants (cw) or other types
+            const isBondType = symbolType.includes('bond') || symbolType === '3'; // Type 3 is often bonds in some Fireant APIs
+            const isStockType = symbolType.includes('stock') || symbolType.includes('enterprise') || symbolType === '1';
+            
+            // Only add if it's clearly a bond or enterprise, and avoid warrants
+            if (isBondType || isStockType) {
+              const type = isBondType ? 'bond' : 'enterprise';
+              const title = isBondType ? symbol : (name || symbol);
+              const subtitle = isBondType ? (name || item.symbolType || '') : symbol;
+              
+              const suggestion: SearchSuggestion = {
+                id: symbol,
+                type: type,
+                title,
+                subtitle,
+                code: isBondType ? symbol : undefined,
+                ticker: !isBondType ? symbol : undefined,
+                enterpriseName: !isBondType ? name || symbol : undefined
+              };
+              addSuggestion(suggestion);
+            }
           });
         }
       } catch (error) {

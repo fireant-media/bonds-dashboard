@@ -277,13 +277,20 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         if (response.ok) {
           const data = await response.json();
           if (data && Array.isArray(data)) {
-            const searchApiMatches = data.filter((s: any) => 
-              // Include anything that looks like a bond or matches search well
-              (s.symbolType?.toLowerCase() === 'bond' || s.symbol.length >= 6 || s.symbol.toUpperCase().includes(normalizedSearch)) &&
-              !selectedBonds.some(sb => sb.code === s.symbol) &&
-              !poolMatches.some(pm => pm.code === s.symbol) &&
-              !apiMatches.some(am => am.code === s.symbol)
-            ).map((s: any) => ({
+            const searchApiMatches = data.filter((s: any) => {
+              const symType = String(s.symbolType || s.type || '').toLowerCase();
+              const symbol = String(s.symbol || s.ticker || '');
+              
+              // Only include if explicitly a bond or matches pre-cached bond patterns
+              // Avoid warrants (cw) or other types
+              const isBondType = symType.includes('bond') || symType === '3';
+              const looksLikeBond = symbol.length >= 6 && /\d/.test(symbol) && !symType.includes('cw') && !symType.includes('warrant');
+              
+              return (isBondType || looksLikeBond) &&
+                !selectedBonds.some(sb => sb.code === symbol) &&
+                !poolMatches.some(pm => pm.code === symbol) &&
+                !apiMatches.some(am => am.code === symbol);
+            }).map((s: any) => ({
               id: s.symbol,
               code: s.symbol,
               enterpriseId: '',
@@ -381,8 +388,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           console.log('[BondComparisonPopup] API response data:', data);
           
           const b = data.detail || data;
-          if (!b) {
-            throw new Error('No bond data in response');
+          if (!b || (!b.bondCode && !b.symbol)) {
+            throw new Error('Invalid bond data response');
           }
           
           const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
@@ -429,22 +436,11 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           setComparisonBonds(prev => [...prev, fullBond]);
         } catch (parseError) {
           console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
-          // Ensure valid date for fallback
-          const validBond = {
-            ...bond,
-            maturityDate: new Date().toISOString().split('T')[0]
-          };
-          console.log('[BondComparisonPopup] Adding fallback bond after parse error:', validBond);
-          setComparisonBonds(prev => [...prev, validBond]);
+          // If we can't parse it as a valid bond, don't add it
         }
       } else {
         console.warn('[BondComparisonPopup] Fetch failed with status:', detailRes.status);
-        // Ensure valid date for error fallback
-        const validBond = {
-          ...bond,
-          maturityDate: new Date().toISOString().split('T')[0]
-        };
-        setComparisonBonds(prev => [...prev, validBond]);
+        // If fetch failed, it's likely not a valid bond according to the bond API
       }
     } catch (e) {
       console.error('[BondComparisonPopup] Error in handleAddBond:', e);
