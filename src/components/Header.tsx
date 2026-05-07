@@ -272,12 +272,12 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
           className="flex items-center hover:cursor-pointer select-none group"
           onClick={onLogoClick}
         >
-          <div className="flex items-center gap-6 md:gap-10">
+          <div className="flex items-end gap-6 md:gap-10">
             <div className="scale-110 md:scale-125 origin-left">
               <Logo />
             </div>
-            <h1 className="text-lg md:text-xl font-black text-text-highlight tracking-tighter transition-colors hidden lg:block uppercase">
-              Dashboard
+            <h1 className="text-base md:text-lg font-bold text-text-highlight tracking-tight transition-colors hidden lg:block uppercase leading-none relative -top-[2px]">
+              Bonds Dashboard
             </h1>
           </div>
         </div>
@@ -338,7 +338,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
             <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold text-text-base leading-none">{user?.name || 'Admin User'}</p>
             </div>
-            <div className="h-9 w-9 rounded-full bg-[#3634B3] flex items-center justify-center text-white font-bold overflow-hidden">
+            <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold overflow-hidden">
               {user?.picture ? (
                 <img src={user.picture} alt={user.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
               ) : (

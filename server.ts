@@ -4,12 +4,21 @@ import path from "path";
 import axios from "axios";
 import cookieSession from "cookie-session";
 import { GoogleGenAI } from "@google/genai";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  app.use(cookieSession({
+    name: 'session',
+    keys: [process.env.SESSION_SECRET || 'sentinel-secret-key'],
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }));
 
   // Generic API Proxy for Fireant
   app.all("/api/fireant/*", async (req, res) => {
@@ -79,183 +88,6 @@ async function startServer() {
       }
     }
   });
-
-  // Server-side cache for news to handle slow source
-  let newsCache: any = null;
-  let lastCacheUpdate = 0;
-  let isRefreshingNews = false;
-  const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
-
-  const FINANCE_FALLBACKS = [
-    "https://images.unsplash.com/photo-1611974717482-58a2523e16c2?q=80&w=800&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=800&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1526303328184-bf7159787ca7?q=80&w=800&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=800&auto=format&fit=crop",
-    "https://images.unsplash.com/photo-1633156191771-7a55444e998b?q=80&w=800&auto=format&fit=crop"
-  ];
-
-  const getFallbackImage = (id: string | number) => {
-    const idx = typeof id === 'number' ? id % FINANCE_FALLBACKS.length : (id.length % FINANCE_FALLBACKS.length);
-    return FINANCE_FALLBACKS[idx];
-  };
-
-  const refreshNews = async (retryCount = 0): Promise<any[] | null> => {
-    if (isRefreshingNews && retryCount === 0) return newsCache;
-    isRefreshingNews = true;
-    
-    try {
-      console.log(`[News] Refreshing news from Fireant (Attempt ${retryCount + 1})...`);
-      
-      let token = await getFireantToken();
-      let posts = null;
-
-      // Plan A: Use REST API if token is available (much more reliable on Vercel)
-      if (token) {
-        try {
-          console.log("[News] Attempting to fetch via REST API...");
-          const apiResponse = await axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
-            params: {
-              groupID: 'NEWS_STREAM',
-              offset: 0,
-              limit: 40
-            },
-            headers: {
-              'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'https://fireant.vn/',
-              'Origin': 'https://fireant.vn'
-            },
-            timeout: 15000
-          });
-          if (apiResponse.data && Array.isArray(apiResponse.data)) {
-            posts = apiResponse.data;
-            console.log(`[News] Successfully fetched ${posts.length} items via REST API.`);
-          }
-        } catch (apiErr: any) {
-          console.log(`[News] REST API fetch failed: ${apiErr.message}`);
-          
-          // If 401 Unauthorized, the token is likely expired. Force a refresh and retry.
-          if (apiErr.response?.status === 401 && retryCount < 1) {
-            console.log("[News] Token expired (401). Forcing token refresh and retrying news fetch...");
-            token = await getFireantToken(true);
-            if (token) {
-              isRefreshingNews = false; // Reset so the retry isn't blocked
-              return refreshNews(retryCount + 1);
-            }
-          }
-        }
-      }
-
-      // Plan B: Fallback to Scraping if REST API failed or no token
-      if (!posts) {
-        console.log("[News] Falling back to HTML scraping...");
-        const response = await axios.get("https://fireant.vn/bai-viet", {
-          timeout: 20000,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
-            'Cache-Control': 'no-cache'
-          }
-        });
-        
-        const html = response.data;
-        const scriptTag = '<script id="__NEXT_DATA__" type="application/json">';
-        const startIdx = html.indexOf(scriptTag);
-        
-        if (startIdx !== -1) {
-          const jsonStart = html.indexOf('{', startIdx);
-          const scriptEndIdx = html.indexOf('</script>', jsonStart);
-          const jsonStr = html.substring(jsonStart, scriptEndIdx);
-          const data = JSON.parse(jsonStr);
-          posts = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM?.posts;
-        }
-      }
-      
-      if (!posts || !Array.isArray(posts)) {
-        throw new Error("Could not find posts via API or scraping");
-      }
-
-      // Map to our NewsItem format
-      const mappedNews = posts.map((post: any) => {
-        const title = post.title || "";
-        const summary = post.description || post.summary || "";
-        
-        const extractImage = (p: any) => {
-          let img = p.images?.[0]?.imageUrl || 
-                    (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) ||
-                    p.thumbnail || 
-                    p.linkImage;
-          
-          if (!img) {
-            const contentToSearch = p.content || p.originalContent || p.description || p.summary || "";
-            const imgMatches: RegExpMatchArray[] = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
-            if (imgMatches.length > 0) {
-              const likelyImg = imgMatches.find((m: RegExpMatchArray) => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
-              img = likelyImg[1];
-            }
-          }
-
-          if (img && typeof img === 'string') {
-            if (img.startsWith('//')) img = `https:${img}`;
-            else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
-          }
-          return img;
-        };
-
-        let image = extractImage(post) || getFallbackImage(post.postID || 0);
-        
-        const allImages = (post.images || []).map((img: any) => {
-          let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
-          if (url && typeof url === 'string') {
-            if (url.startsWith('//')) url = `https:${url}`;
-            else if (url.startsWith('/')) url = `https://static.fireant.vn${url}`;
-          }
-          return url;
-        }).filter(Boolean);
-
-        if (image && !allImages.includes(image)) {
-          allImages.unshift(image);
-        }
-
-        return {
-          id: post.postID?.toString() || `fa-${Date.now()}-${Math.random()}`,
-          source: post.postSource?.name || post.user?.name || 'Fireant',
-          sourceUrl: post.postSource?.url || null,
-          title: title,
-          summary: summary,
-          content: post.content || post.originalContent || post.description || post.summary || title,
-          author: post.user?.name || 'Fireant',
-          image: image || globalFallbackImage,
-          images: allImages,
-          date: post.date,
-          url: `https://fireant.vn/bai-viet/${post.postID}`,
-          originalUrl: post.postSourceUrl || post.link || null,
-          category: post.postGroup?.name || 'Market'
-        };
-      });
-      
-      newsCache = mappedNews;
-      lastCacheUpdate = Date.now();
-      console.log(`[News] Successfully refreshed news (${mappedNews.length} items).`);
-      isRefreshingNews = false;
-      return mappedNews;
-    } catch (error: any) {
-      console.error(`[News] Refresh failed: ${error.message}`);
-      
-      if (retryCount < 2) {
-        isRefreshingNews = false;
-        return await refreshNews(retryCount + 1);
-      }
-      
-      isRefreshingNews = false;
-      return newsCache;
-    }
-  };
-
-  // Initial fetch to populate cache on startup
-  refreshNews();
 
   let fireantToken: string | null = null;
   let globalFallbackImage: string | null = "https://images.unsplash.com/photo-1611974717482-58a2523e16c2?q=80&w=2070&auto=format&fit=crop";
@@ -364,6 +196,190 @@ async function startServer() {
     }
     return fireantToken;
   }
+
+  // Server-side cache for news to handle slow source
+  let newsCache: any = null;
+  let lastCacheUpdate = 0;
+  let isRefreshingNews = false;
+  const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+  const FINANCE_FALLBACKS = [
+    "https://images.unsplash.com/photo-1611974717482-58a2523e16c2?q=80&w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1526303328184-bf7159787ca7?q=80&w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=800&auto=format&fit=crop",
+    "https://images.unsplash.com/photo-1633156191771-7a55444e998b?q=80&w=800&auto=format&fit=crop"
+  ];
+
+  const getFallbackImage = (id: string | number) => {
+    const idx = typeof id === 'number' ? id % FINANCE_FALLBACKS.length : (id.length % FINANCE_FALLBACKS.length);
+    return FINANCE_FALLBACKS[idx];
+  };
+
+  const refreshNews = async (retryCount = 0): Promise<any[] | null> => {
+    if (isRefreshingNews && retryCount === 0) return newsCache;
+    isRefreshingNews = true;
+    
+    try {
+      console.log(`[News] Refreshing news from Fireant (Attempt ${retryCount + 1})...`);
+      
+      let token = await getFireantToken();
+      let posts = null;
+
+      // Plan A: Use REST API if token is available
+      if (token) {
+        try {
+          console.log("[News] Attempting to fetch via REST API...");
+          const apiResponse = await axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
+            params: {
+              groupID: 'NEWS_STREAM',
+              offset: 0,
+              limit: 40
+            },
+            headers: {
+              'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://fireant.vn/',
+              'Origin': 'https://fireant.vn'
+            },
+            timeout: 15000,
+            validateStatus: (status) => status < 500
+          });
+
+          if (apiResponse.status === 200 && apiResponse.data && Array.isArray(apiResponse.data)) {
+            posts = apiResponse.data;
+            console.log(`[News] Successfully fetched ${posts.length} items via REST API.`);
+          } else if (apiResponse.status === 401) {
+            console.warn(`[News] REST API 401 Unauthorized with token: ${token.substring(0, 10)}...`);
+            if (retryCount < 1) {
+              console.log("[News] Forcing token refresh and retrying...");
+              await getFireantToken(true);
+              isRefreshingNews = false;
+              return refreshNews(retryCount + 1);
+            }
+          } else {
+            console.log(`[News] REST API returned status ${apiResponse.status}`);
+          }
+        } catch (apiErr: any) {
+          console.log(`[News] REST API axios error: ${apiErr.message}`);
+        }
+      }
+
+      // Plan B: Fallback to Scraping if REST API failed or no token
+      if (!posts) {
+        console.log("[News] Falling back to HTML scraping...");
+        try {
+          const response = await axios.get("https://fireant.vn/bai-viet", {
+            timeout: 20000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+              'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
+              'Cache-Control': 'no-cache'
+            },
+            validateStatus: (status) => status === 200
+          });
+          
+          const html = response.data;
+          const scriptTag = '<script id="__NEXT_DATA__" type="application/json">';
+          const startIdx = html.indexOf(scriptTag);
+          
+          if (startIdx !== -1) {
+            const jsonStart = html.indexOf('{', startIdx);
+            const scriptEndIdx = html.indexOf('</script>', jsonStart);
+            const jsonStr = html.substring(jsonStart, scriptEndIdx);
+            const data = JSON.parse(jsonStr);
+            posts = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM?.posts;
+          }
+        } catch (scrapErr: any) {
+          console.error(`[News] Scraping error: ${scrapErr.message}`);
+        }
+      }
+      
+      if (!posts || !Array.isArray(posts)) {
+        throw new Error("Could not find posts via API or scraping");
+      }
+
+      // Map to our NewsItem format
+      const mappedNews = posts.map((post: any) => {
+        const title = post.title || "";
+        const summary = post.description || post.summary || "";
+        
+        const extractImage = (p: any) => {
+          let img = p.images?.[0]?.imageUrl || 
+                    (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) ||
+                    p.thumbnail || 
+                    p.linkImage;
+          
+          if (!img) {
+            const contentToSearch = p.content || p.originalContent || p.description || p.summary || "";
+            const imgMatches: RegExpMatchArray[] = Array.from(contentToSearch.matchAll(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi));
+            if (imgMatches.length > 0) {
+              const likelyImg = imgMatches.find((m: RegExpMatchArray) => !m[1].includes('icon') && !m[1].includes('logo')) || imgMatches[0];
+              img = likelyImg[1];
+            }
+          }
+
+          if (img && typeof img === 'string') {
+            if (img.startsWith('//')) img = `https:${img}`;
+            else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
+          }
+          return img;
+        };
+
+        let image = extractImage(post) || getFallbackImage(post.postID || 0);
+        
+        const allImages = (post.images || []).map((img: any) => {
+          let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
+          if (url && typeof url === 'string') {
+            if (url.startsWith('//')) url = `https:${url}`;
+            else if (url.startsWith('/')) url = `https://static.fireant.vn${url}`;
+          }
+          return url;
+        }).filter(Boolean);
+
+        if (image && !allImages.includes(image)) {
+          allImages.unshift(image);
+        }
+
+        return {
+          id: post.postID?.toString() || `fa-${Date.now()}-${Math.random()}`,
+          source: post.postSource?.name || post.user?.name || 'Fireant',
+          sourceUrl: post.postSource?.url || null,
+          title: title,
+          summary: summary,
+          content: post.content || post.originalContent || post.description || post.summary || title,
+          author: post.user?.name || 'Fireant',
+          image: image || globalFallbackImage,
+          images: allImages,
+          date: post.date,
+          url: `https://fireant.vn/bai-viet/${post.postID}`,
+          originalUrl: post.postSourceUrl || post.link || null,
+          category: post.postGroup?.name || 'Market'
+        };
+      });
+      
+      newsCache = mappedNews;
+      lastCacheUpdate = Date.now();
+      console.log(`[News] Successfully refreshed news (${mappedNews.length} items).`);
+      isRefreshingNews = false;
+      return mappedNews;
+    } catch (error: any) {
+      console.error(`[News] Refresh failed: ${error.message}`);
+      
+      if (retryCount < 2) {
+        isRefreshingNews = false;
+        return await refreshNews(retryCount + 1);
+      }
+      
+      isRefreshingNews = false;
+      return newsCache;
+    }
+  };
+
+  // Initial fetch to populate cache on startup
+  refreshNews();
 
   // API to fetch full content for a specific post
   app.get("/api/news/:id", async (req, res) => {
@@ -669,44 +685,109 @@ async function startServer() {
     }
   });
 
-  // AI Chat Route
+  // AI Chat Route with persistence
   app.post("/api/ai/chat", async (req, res) => {
-    const { messages, userMessage } = req.body;
+    const { messages = [], userMessage } = req.body;
+    const session = req.session as any;
     
-    if (!process.env.GEMINI_API_KEY) {
-      console.error("[AI] GEMINI_API_KEY is not set in environment");
+    if (!userMessage) {
+      return res.status(400).json({ error: "User message is required" });
+    }
+    
+    // Support both naming conventions for compatibility across environments
+    const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
+    
+    if (!apiKey) {
+      console.error("[AI] API key is not set in environment (tried GOOGLE_GENAI_API_KEY and GEMINI_API_KEY)");
       return res.status(500).json({ error: "AI service not configured" });
     }
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       
+      // Update session history
+      if (!session.chatHistory) {
+        session.chatHistory = [];
+      }
+
       // Build the prompt from history
-      const contents = [
-        ...messages.map((m: any) => ({
+      // Gemini history MUST start with 'user' role.
+      const chatHistory = messages
+        .filter((m: any, index: number) => {
+          if (index === 0 && m.role === 'assistant') return false;
+          return true;
+        })
+        .map((m: any) => ({
           role: m.role === 'assistant' ? 'model' : 'user',
           parts: [{ text: m.content }]
-        })),
+        }));
+
+      const contents = [
+        ...chatHistory,
         {
           role: 'user',
           parts: [{ text: userMessage }]
         }
       ];
 
+      console.log(`[AI] Sending request to Gemini for user: ${session.user?.email || 'Anonymous'}...`);
+      // Use gemini-3-flash-preview for better compliance and features
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3-flash-preview", 
         contents: contents,
         config: {
-          systemInstruction: "You are Sentinel AI Support, an expert in bond markets and financial data. Answer user questions about bond markets accurately and professionally. Use information from the user request history if available. If you don't know the answer, say you don't know and advise consulting a professional advisor. Keep answers concise."
+          systemInstruction: "You are Sentinel AI Support, an expert in bond markets and financial data. Answer user questions about bond markets accurately and professionally. You have access to the user's identified profile if they are logged in. Use information from the user request history if available. If you don't know the answer, say you don't know and advise consulting a professional advisor. Keep answers concise."
         }
       });
 
+      if (!response.text) {
+        throw new Error("No response text from AI");
+      }
+
       const text = response.text;
-      res.json({ text });
+      
+      // Update persistent session history
+      session.chatHistory.push({ role: 'user', content: userMessage });
+      session.chatHistory.push({ role: 'assistant', content: text });
+      // Keep only last 20 messages to keep session cookie size small
+      if (session.chatHistory.length > 20) {
+        session.chatHistory = session.chatHistory.slice(-20);
+      }
+
+      console.log("[AI] Response received successfully");
+      res.json({ text, history: session.chatHistory });
     } catch (error: any) {
-      console.error("[AI] Server Error:", error);
-      res.status(500).json({ error: "AI connection failed", details: error.message });
+      console.error("[AI] Error details:", error.message);
+      if (error.response?.data) {
+        console.error("[AI] API Response error:", JSON.stringify(error.response.data));
+      }
+      
+      res.status(500).json({ 
+        error: "AI connection failed", 
+        message: error.message,
+        details: error.response?.data?.error?.message || error.message
+      });
     }
+  });
+
+  app.get("/api/ai/history", (req, res) => {
+    const session = req.session as any;
+    res.json({ history: session?.chatHistory || [] });
+  });
+
+  app.post("/api/auth/login", (req, res) => {
+    const { userData } = req.body;
+    (req.session as any).user = userData;
+    res.json({ success: true, user: userData });
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session = null;
+    res.json({ success: true });
+  });
+
+  app.get("/api/auth/session", (req, res) => {
+    res.json({ user: (req.session as any)?.user || null });
   });
 
   // Vite middleware for development
@@ -724,13 +805,14 @@ async function startServer() {
     });
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
 
   return app;
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

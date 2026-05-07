@@ -253,6 +253,21 @@ export default function App() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      try {
+        // Try to get session from server first (more reliable for real environments)
+        const response = await fetch('/api/auth/session');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.user) {
+            setUser(data.user);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check server session", err);
+      }
+
       const storedUser = localStorage.getItem('sentinel_user');
       if (storedUser) {
         try {
@@ -271,12 +286,21 @@ export default function App() {
   const handleLoginSuccess = (userData: any) => {
     setUser(userData);
     localStorage.setItem('sentinel_user', JSON.stringify(userData));
+    // Tell server about login
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userData })
+    }).catch(console.error);
+    
     setActiveTab('overview');
   };
 
   const handleLogout = async () => {
     setUser(null);
     localStorage.removeItem('sentinel_user');
+    // Tell server about logout
+    fetch('/api/auth/logout', { method: 'POST' }).catch(console.error);
     setActiveTab('overview');
   };
 
@@ -431,7 +455,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#3634B3]">
+      <div className="min-h-screen flex items-center justify-center bg-blue-600">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
           <p className="text-white/60 font-bold uppercase tracking-widest text-xs">{t('authenticating')}</p>

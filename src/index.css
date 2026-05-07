@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
   --color-bg-base: var(--bg-base);
@@ -12,19 +13,19 @@
 :root {
   --bg-base: #f8f9fa;
   --bg-surface: #ffffff;
-  --text-base: #111827;
-  --text-muted: #6b7280;
-  --text-highlight: #3634B3;
-  --border-base: #e5e7eb;
+  --text-base: #1c1e21;
+  --text-muted: #65676b;
+  --text-highlight: #2563eb; /* blue-600 */
+  --border-base: #e4e6eb;
 }
 
 .dark {
-  --bg-base: #111827;
-  --bg-surface: #1f2937;
-  --text-base: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-highlight: #3634B3;
-  --border-base: #374151;
+  --bg-base: #18191a;
+  --bg-surface: #242526;
+  --text-base: #e4e6eb;
+  --text-muted: #b0b3b8;
+  --text-highlight: #3b82f6; /* blue-500 */
+  --border-base: #3e4042;
 }
 
 @layer base {
@@ -45,10 +46,10 @@
     @apply my-6 text-center;
   }
   .fireant-content figcaption {
-    @apply text-[11px] italic text-text-muted mt-2 block;
+    @apply text-xs italic text-text-muted mt-2 block;
   }
   .fireant-content a {
-    @apply text-[#3634B3] hover:underline transition-colors;
+    @apply text-blue-600 dark:text-blue-400 hover:underline transition-colors;
   }
   .fireant-content ul, .fireant-content ol {
     @apply my-4 ml-6 list-disc space-y-2;

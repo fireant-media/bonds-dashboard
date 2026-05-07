@@ -83,11 +83,11 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         <div className="w-full max-w-[500px] p-6 lg:p-8 relative z-10 flex flex-col justify-between h-fit">
           <div className="relative">
             {/* 1. Header with Logo */}
-            <div className="flex items-center gap-2 mb-8 text-[#3634B3]">
+            <div className="flex items-center gap-2 mb-8 text-blue-600">
               <div className="h-8 w-8 bg-white dark:bg-slate-800 rounded-lg flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shadow-sm transition-colors">
                 <ShieldCheck className="h-5 w-5" />
               </div>
-              <span className="font-black text-lg tracking-tight uppercase">FIREANT</span>
+              <span className="font-bold text-lg tracking-tight uppercase">FIREANT</span>
             </div>
 
             <motion.div
@@ -97,7 +97,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
               transition={{ duration: 0.5 }}
             >
               {/* 2. Hero Section */}
-              <h1 className="text-2xl lg:text-3xl font-extrabold text-[#3634B3] mb-4 leading-tight tracking-tight transition-colors">
+              <h1 className="text-2xl lg:text-3xl font-bold text-blue-600 mb-4 leading-tight tracking-tight transition-colors">
                 {t('heroTitle1')} <br />
                 <span className="text-text-base font-bold transition-colors">{t('heroTitle2')}</span>
               </h1>
@@ -120,9 +120,9 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
                     className="bg-bg-surface/40 backdrop-blur-sm border border-border-base rounded-2xl p-3.5 flex items-center gap-3 shadow-sm hover:shadow-md hover:bg-bg-surface transition-all cursor-pointer group"
                   >
                     <div className="h-8 w-8 shrink-0 rounded-lg bg-bg-surface border border-border-base flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-                      <item.icon className="h-4 w-4 text-[#3634B3]" />
+                      <item.icon className="h-4 w-4 text-blue-600" />
                     </div>
-                    <span className="text-[10px] font-bold text-text-base leading-tight tracking-tight uppercase transition-colors">{item.label}</span>
+                    <span className="text-[10px] font-semibold text-text-base leading-tight tracking-tight uppercase transition-colors">{item.label}</span>
                   </div>
                 ))}
               </div>
@@ -153,8 +153,8 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
 
             {/* 6. Footer trái dưới cùng */}
             <div className="pt-6 border-t border-border-base flex items-center gap-3 transition-colors">
-              <div className="h-1 w-8 bg-[#3634B3] rounded-full transition-colors"></div>
-              <span className="text-[9px] font-black text-[#3634B3] tracking-[0.4em] uppercase transition-colors">FIREANT FINANCE</span>
+              <div className="h-1 w-8 bg-blue-600 rounded-full transition-colors"></div>
+              <span className="text-xs font-bold text-blue-600 tracking-[0.4em] uppercase transition-colors">FIREANT FINANCE</span>
             </div>
           </div>
         </div>
@@ -173,7 +173,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
                 transition={{ duration: 0.3 }}
               >
                 <div className="mb-8 text-center">
-                  <p className="text-[10px] font-bold text-[#3634B3] uppercase tracking-tight mb-2 transition-colors">{t('loginWelcome')}</p>
+                  <p className="text-xs font-semibold text-blue-600 uppercase tracking-tight mb-2 transition-colors">{t('loginWelcome')}</p>
                   <h2 className="text-xl font-bold text-text-base tracking-tight transition-colors">{t('loginAccount')}</h2>
                 </div>
 
@@ -221,13 +221,13 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
 
                   <div className="flex items-center justify-between px-0.5">
                     <label className="flex items-center gap-2 cursor-pointer group">
-                      <input type="checkbox" className="w-3.5 h-3.5 rounded border-border-base text-[#3634B3] focus:ring-0 cursor-pointer bg-bg-base" />
-                      <span className="text-[10px] text-text-muted font-medium group-hover:text-text-base transition-colors tracking-tight">{t('rememberMe')}</span>
+                      <input type="checkbox" className="w-3.5 h-3.5 rounded border-border-base text-blue-600 focus:ring-0 cursor-pointer bg-bg-base" />
+                      <span className="text-xs text-text-muted font-medium group-hover:text-text-base transition-colors tracking-tight">{t('rememberMe')}</span>
                     </label>
-                    <button type="button" onClick={() => setAuthMode('register')} className="text-[9px] font-bold text-[#3634B3] hover:underline uppercase tracking-tight transition-colors">{t('forgotPassword')}</button>
+                    <button type="button" onClick={() => setAuthMode('register')} className="text-xs font-bold text-blue-600 hover:underline uppercase tracking-tight transition-colors">{t('forgotPassword')}</button>
                   </div>
 
-                  <button type="submit" className="w-full py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-tight active:scale-[0.98]">
+                  <button type="submit" className="w-full py-3 bg-blue-600 hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all uppercase tracking-tight active:scale-[0.98]">
                     {t('signIn')}
                   </button>
                 </form>
@@ -309,14 +309,14 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
 
                   <div className="space-y-1 pt-0.5">
                     <label className="flex items-start gap-3 cursor-pointer group">
-                      <input type="checkbox" className="mt-0.5 w-3.5 h-3.5 rounded border-border-base text-[#3634B3] focus:ring-0 cursor-pointer bg-bg-base" />
-                      <span className="text-[9px] text-text-muted font-medium leading-normal tracking-tight transition-colors">
+                      <input type="checkbox" className="mt-0.5 w-3.5 h-3.5 rounded border-border-base text-blue-600 focus:ring-0 cursor-pointer bg-bg-base" />
+                      <span className="text-xs text-text-muted font-medium leading-normal tracking-tight transition-colors">
                         {t('agreeTerms')} <span className="font-bold text-text-base underline">{t('termsOfService')}</span>.
                       </span>
                     </label>
                   </div>
 
-                  <button type="submit" className="w-full py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-tight active:scale-[0.98]">
+                  <button type="submit" className="w-full py-3 bg-blue-600 hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all uppercase tracking-tight active:scale-[0.98]">
                     {t('createAccount')}
                   </button>
                 </form>
@@ -341,7 +341,7 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
                 className="flex items-center justify-center gap-2 py-2 border border-border-base rounded-xl hover:bg-bg-base transition-all active:scale-[0.98] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGoogleLoading ? (
-                  <div className="h-3.5 w-3.5 border-2 border-[#3634B3]/20 border-t-[#3634B3] rounded-full animate-spin"></div>
+                  <div className="h-3.5 w-3.5 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
                 ) : (
                   <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="h-3.5 w-3.5" />
                 )}
@@ -355,11 +355,11 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
               </button>
             </div>
 
-            <div className="text-center text-[11px] text-text-muted mt-4 tracking-tight font-medium transition-colors">
+            <div className="text-center text-xs text-text-muted mt-4 tracking-tight font-medium transition-colors">
               {isLogin ? (
-                <>{t('dontHaveAccount')} <button onClick={() => setAuthMode('register')} className="text-[#3634B3] font-bold hover:underline">{t('signUp')}</button></>
+                <>{t('dontHaveAccount')} <button onClick={() => setAuthMode('register')} className="text-blue-600 font-bold hover:underline">{t('signUp')}</button></>
               ) : (
-                <>{t('alreadyHaveAccount')} <button onClick={() => setAuthMode('login')} className="text-[#3634B3] font-bold hover:underline">{t('signIn')}</button></>
+                <>{t('alreadyHaveAccount')} <button onClick={() => setAuthMode('login')} className="text-blue-600 font-bold hover:underline">{t('signIn')}</button></>
               )}
             </div>
           </div>

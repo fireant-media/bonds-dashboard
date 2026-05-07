@@ -44,7 +44,7 @@ export default function Sidebar({
 
   return (
     <aside className="w-full bg-bg-surface md:border-r border-border-base flex flex-col h-auto md:h-full overflow-hidden transition-colors duration-300">
-      <div className={cn("p-3 md:p-6 transition-all duration-300 shrink-0", isOpen ? "w-full md:w-80" : "w-full md:w-[64px] md:px-3")}>
+      <div className={cn("p-3 md:p-6 transition-all duration-300 shrink-0", isOpen ? "w-full md:w-80" : "w-full md:w-16 md:px-3")}>
         <div className={cn("flex items-center mb-3 md:mb-8", isOpen ? "justify-end" : "justify-center")}>
           <button 
             onClick={onToggle}
@@ -76,14 +76,14 @@ export default function Sidebar({
                   "w-full flex items-center rounded-xl transition-all duration-200 group",
                   isOpen ? "px-3 py-2.5 md:px-4 md:py-3 justify-between" : "p-3 justify-center",
                   activeTab === item.id && !item.hasSubmenu
-                    ? "bg-[#3634B3]/5 text-text-highlight"
+                    ? "bg-blue-600/5 text-text-highlight font-semibold"
                     : "text-text-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-text-highlight"
                 )}
                 title={!isOpen ? item.label : undefined}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id && !item.hasSubmenu ? "text-text-highlight" : "text-gray-400 group-hover:text-text-highlight")} />
-                  {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id && !item.hasSubmenu ? "font-bold" : "font-medium")}>{item.label}</span>}
+                  {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id && !item.hasSubmenu ? "font-semibold" : "font-medium")}>{item.label}</span>}
                 </div>
                 {isOpen && item.hasSubmenu && (
                   isIndustryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
@@ -104,7 +104,7 @@ export default function Sidebar({
                       className={cn(
                         "w-full text-left px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-between group whitespace-nowrap",
                         activeTab === 'industry' && activeIndustry === sub.id
-                          ? "text-text-highlight font-bold bg-[#3634B3]/5"
+                          ? "text-text-highlight font-semibold bg-blue-600/5"
                           : "text-text-muted hover:text-text-highlight hover:bg-gray-50 dark:hover:bg-gray-800/50"
                       )}
                     >

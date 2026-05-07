@@ -38,8 +38,8 @@ export default function MarketOverview() {
 
   // Common styles for consistency
   const chartColors = {
-    primary: isDark ? '#5c6bc0' : '#3634B3',
-    secondary: isDark ? '#ff8a65' : '#ff7043',
+    primary: isDark ? '#3b82f6' : '#2563eb', // blue-500 : blue-600
+    secondary: isDark ? '#94a3b8' : '#64748b', // slate-400 : slate-500
   };
 
   const legendStyle = {
@@ -60,6 +60,15 @@ export default function MarketOverview() {
     color: isDark ? '#9ca3af' : '#666',
     fontFamily: 'Inter',
   };
+
+  const tooltipTextStyle = {
+    fontSize: 12,
+    fontFamily: 'Inter',
+    fontWeight: 'normal' as const,
+    color: isDark ? '#e5e7eb' : '#333'
+  };
+
+  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
 
   useEffect(() => {
     let isMounted = true;
@@ -151,9 +160,12 @@ export default function MarketOverview() {
   }, []);
 
   const topDebtOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'axis', 
       axisPointer: { type: 'shadow' },
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         const symbol = params[0].name;
         const issuer = topDebtData.find(d => d.issuerSymbol === symbol);
@@ -188,7 +200,7 @@ export default function MarketOverview() {
         data: topDebtData.length > 0 
           ? [...topDebtData].reverse().map(d => Math.round(d.totalIssuedValue / 1000000000)) 
           : [],
-        itemStyle: { color: chartColors.primary, borderRadius: [0, 4, 4, 0] },
+        itemStyle: { borderRadius: [0, 4, 4, 0] },
         barWidth: '40%'
       },
       {
@@ -197,15 +209,18 @@ export default function MarketOverview() {
         data: topDebtData.length > 0 
           ? [...topDebtData].reverse().map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
           : [],
-        itemStyle: { color: chartColors.secondary, borderRadius: [0, 4, 4, 0] },
+        itemStyle: { borderRadius: [0, 4, 4, 0] },
         barWidth: '40%'
       }
     ]
   };
 
   const topInterestOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${formatInterestRate(params[0].value)}%`;
       }
@@ -232,15 +247,18 @@ export default function MarketOverview() {
       data: topInterestData.length > 0 
         ? topInterestData.map(d => d.bondRate) 
         : [],
-      itemStyle: { color: chartColors.primary, borderRadius: [4, 4, 0, 0] },
+      itemStyle: { borderRadius: [4, 4, 0, 0] },
       barWidth: '50%',
       barGap: 15
     }]
   };
 
   const debtLotsOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         const symbol = params[0].name;
         const issuer = topDebtData.find(d => d.issuerSymbol === symbol);
@@ -288,7 +306,7 @@ export default function MarketOverview() {
         data: topDebtData.length > 0 
           ? topDebtData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
           : [], 
-        itemStyle: { color: chartColors.primary },
+        itemStyle: { },
         barWidth: '60%',
         barGap: 15
       },
@@ -299,7 +317,7 @@ export default function MarketOverview() {
         data: topDebtData.length > 0 
           ? topDebtData.map(d => d.bondCount) 
           : [], 
-        itemStyle: { color: chartColors.secondary },
+        itemStyle: { },
         symbol: 'circle',
         symbolSize: 6
       }
@@ -307,8 +325,11 @@ export default function MarketOverview() {
   };
 
   const industryValueOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
@@ -341,7 +362,7 @@ export default function MarketOverview() {
         data: industryData.length > 0 
           ? industryData.map(d => Math.round(d.totalCurrentListedValue / 1000000000)) 
           : [], 
-        itemStyle: { color: chartColors.primary } 
+        itemStyle: { } 
       },
       { 
         name: t('remainingDebtTitle'), 
@@ -349,14 +370,17 @@ export default function MarketOverview() {
         data: industryData.length > 0 
           ? industryData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
           : [], 
-        itemStyle: { color: chartColors.secondary } 
+        itemStyle: { } 
       }
     ]
   };
 
   const industryVolumeOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
@@ -385,14 +409,14 @@ export default function MarketOverview() {
         name: t('issuedVolumeTitle'),
         type: 'bar',
         data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalIssuedVolume / 1000)) : [],
-        itemStyle: { color: chartColors.primary, borderRadius: [4, 4, 0, 0] },
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
         barWidth: '30%'
       },
       {
         name: t('listedVolume'),
         type: 'bar',
         data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalCurrentListedVolume / 1000)) : [],
-        itemStyle: { color: chartColors.secondary, borderRadius: [4, 4, 0, 0] },
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
         barWidth: '30%'
       }
     ]
@@ -401,8 +425,8 @@ export default function MarketOverview() {
   if (loading) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3634B3]"></div>
-        <p className="text-gray-500 font-medium">{t('loadingMarketData')}</p>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p className="text-text-muted font-medium">{t('loadingMarketData')}</p>
       </div>
     );
   }
@@ -410,17 +434,17 @@ export default function MarketOverview() {
   if (error) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
-        <div className="bg-red-50 p-4 rounded-full">
+        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900">{t('failedToLoadData')}</h3>
-        <p className="text-gray-500 max-w-md">{error}</p>
+        <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
+        <p className="text-text-muted max-w-md">{error}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-colors"
+            className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
           >
             {t('tryAgain')}
           </button>
@@ -433,7 +457,7 @@ export default function MarketOverview() {
     <div className="space-y-2 transition-colors duration-300">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-text-base tracking-tight">{t('marketOverview')}</h2>
+          <h1 className="text-2xl font-bold text-text-base tracking-tight">{t('marketOverview')}</h1>
         </div>
       </div>
 
@@ -443,8 +467,8 @@ export default function MarketOverview() {
           className="col-span-12 lg:col-span-6 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
         >
           <div className="mb-2">
-            <h3 className="text-base font-bold text-text-base text-center">{t('top10Debt')}</h3>
-            <p className="text-[10px] text-text-muted text-right mt-1">{t('unitBillion')}</p>
+            <h3 className="text-base font-semibold text-text-base/80 text-center">{t('top10Debt')}</h3>
+            <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: Tỷ VNĐ</p>
           </div>
           <ReactECharts option={topDebtOptions} style={{ height: '500px' }} />
         </div>
@@ -455,8 +479,8 @@ export default function MarketOverview() {
             className="bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
           >
             <div className="mb-2">
-              <h3 className="text-base font-bold text-text-base text-center">{t('top10Interest')}</h3>
-              <p className="text-[10px] text-text-muted text-right mt-1">{t('unitPercent')}</p>
+              <h3 className="text-base font-semibold text-text-base/80 text-center">{t('top10Interest')}</h3>
+              <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: %</p>
             </div>
             <ReactECharts option={topInterestOptions} style={{ height: '250px' }} />
           </div>
@@ -465,7 +489,7 @@ export default function MarketOverview() {
           <div 
             className="bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
           >
-            <h3 className="text-base font-bold text-text-base text-center mb-2">{t('debtAndLots')}</h3>
+            <h3 className="text-base font-semibold text-text-base/80 text-center mb-2">{t('debtAndLots')}</h3>
             <ReactECharts option={debtLotsOptions} style={{ height: '250px' }} />
           </div>
         </div>
@@ -475,8 +499,8 @@ export default function MarketOverview() {
           className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
         >
           <div className="mb-2">
-            <h3 className="text-base font-bold text-text-base text-center">{t('valueByIndustry')}</h3>
-            <p className="text-[10px] text-text-muted text-right mt-1">{t('unitBillion')}</p>
+            <h3 className="text-base font-semibold text-text-base/80 text-center">{t('valueByIndustry')}</h3>
+            <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: Tỷ USD</p>
           </div>
           <ReactECharts option={industryValueOptions} style={{ height: '350px' }} />
         </div>
@@ -486,8 +510,8 @@ export default function MarketOverview() {
           className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
         >
           <div className="mb-2">
-            <h3 className="text-base font-bold text-text-base text-center">{t('volumeByIndustry')}</h3>
-            <p className="text-[10px] text-text-muted text-right mt-1">{t('unitThousand')}</p>
+            <h3 className="text-base font-semibold text-text-base/80 text-center">{t('volumeByIndustry')}</h3>
+            <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: Nghìn trái phiếu</p>
           </div>
           <ReactECharts option={industryVolumeOptions} style={{ height: '350px' }} />
         </div>

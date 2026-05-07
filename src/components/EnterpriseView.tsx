@@ -50,8 +50,8 @@ export default function EnterpriseView({
   const enterprisesPerPage = 10;
 
   const chartColors = isDark 
-    ? ['#5c6bc0', '#ff8a65', '#4d5bbd', '#8e99f3', '#c5cae9', '#3949ab', '#64b5f6', '#ffb199', '#ffab91']
-    : ['#3634B3', '#ff7043', '#4fc3f7', '#7986cb', '#c5cae9', '#5c6bc0', '#8e99f3', '#ffab91', '#ff8a65'];
+    ? ['#3b82f6', '#94a3b8', '#2563eb', '#60a5fa', '#bfdbfe', '#1d4ed8', '#93c5fd', '#cbd5e1', '#e2e8f0']
+    : ['#2563eb', '#64748b', '#3b82f6', '#60a5fa', '#bfdbfe', '#1d4ed8', '#93c5fd', '#cbd5e1', '#e2e8f0'];
 
   const legendStyle = {
     fontSize: 10,
@@ -65,12 +65,21 @@ export default function EnterpriseView({
     fontFamily: 'Inter',
   };
 
+  const tooltipTextStyle = {
+    fontSize: 10,
+    fontFamily: 'Inter',
+    fontWeight: 'normal' as const,
+    color: isDark ? '#e5e7eb' : '#333'
+  };
+
   const chartTitleStyle = {
     fontSize: 10,
     color: isDark ? '#e5e7eb' : '#374151',
     fontWeight: 'bold' as const,
     fontFamily: 'Inter',
   };
+
+  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
 
   useEffect(() => {
     /**
@@ -493,12 +502,13 @@ export default function EnterpriseView({
     return acc;
   }, {});
   const interestTypePieData = Object.entries(interestTypeData)
+    .sort((a, b) => {
+      const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
+      return (order[a[0]] || 99) - (order[b[0]] || 99);
+    })
     .map(([name, value]) => ({ 
       name, 
-      value,
-      itemStyle: {
-        color: name === t('fixed') ? chartColors[0] : (name === t('floating') ? chartColors[1] : chartColors[2])
-      }
+      value
     }));
 
   const bubbleGroups = enterpriseBonds.reduce((acc: any, bond) => {
@@ -513,19 +523,23 @@ export default function EnterpriseView({
 
   const maxVolume = Math.max(...enterpriseBonds.map(b => b.listedVolume), 1);
 
-  const bubbleSeries = Object.entries(bubbleGroups).map(([name, data]) => ({
-    name,
-    data,
-    type: 'scatter',
-    symbolSize: (data: any) => {
-      const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
-      return Math.max(8, size);
-    },
-    itemStyle: { 
-      color: name === t('fixed') ? chartColors[0] : (name === t('floating') ? chartColors[1] : chartColors[2]),
-      opacity: 0.7 
-    }
-  }));
+  const bubbleSeries = Object.entries(bubbleGroups)
+    .sort((a, b) => {
+      const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
+      return (order[a[0]] || 99) - (order[b[0]] || 99);
+    })
+    .map(([name, data]) => ({
+      name,
+      data,
+      type: 'scatter',
+      symbolSize: (data: any) => {
+        const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
+        return Math.max(8, size);
+      },
+      itemStyle: { 
+        opacity: 0.7 
+      }
+    }));
 
   const maturityYearData = enterpriseBonds.reduce((acc: any, bond) => {
     const year = bond.maturityDate.split('-')[0];
@@ -536,8 +550,11 @@ export default function EnterpriseView({
   const columnData = sortedYears.map(year => maturityYearData[year]);
 
   const pieOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'item', 
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
     },
     legend: { 
@@ -563,14 +580,16 @@ export default function EnterpriseView({
       itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
       label: { show: false },
       emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
-      data: pieData,
-      color: chartColors
+      data: pieData
     }]
   };
 
   const interestTypePieOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'item', 
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
     },
     legend: { 
@@ -591,8 +610,11 @@ export default function EnterpriseView({
   };
 
   const bubbleOptions = {
+    color: chartPalette,
     tooltip: {
       trigger: 'item',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${params.data[0]} ${t('monthUnit')}<br/>${t('interestRate')}: ${formatInterestRate(params.data[1])}%<br/>${t('listedVolume')}: ${formatNumber(params.data[2] || 0, 0)}`
     },
     legend: {
@@ -622,14 +644,17 @@ export default function EnterpriseView({
   };
 
   const columnOptions = {
+    color: chartPalette,
     tooltip: { 
       trigger: 'axis',
-      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${formatNumber(params[0].value, 2)} ${t('unitBillionShort')}`
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${formatNumber(params[0].value, 2)} ${t('unitBillionVND')}`
     },
     grid: { top: '15%', bottom: '15%', left: '15%', right: '5%' },
     xAxis: { type: 'category', data: sortedYears, axisLabel: axisLabelStyle },
     yAxis: { 
-      name: t('unitBillionShort'), 
+      name: t('unitBillion'), 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: { 
@@ -642,7 +667,6 @@ export default function EnterpriseView({
       type: 'bar',
       data: columnData,
       itemStyle: { 
-        color: chartColors[0], 
         borderRadius: [4, 4, 0, 0] 
       },
       barWidth: '40%'
@@ -652,8 +676,8 @@ export default function EnterpriseView({
   if (loading) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3634B3]"></div>
-        <p className="text-gray-500 font-medium">{t('loadingEnterprisesMessage')}</p>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p className="text-text-muted font-medium">{t('loadingEnterprisesMessage')}</p>
       </div>
     );
   }
@@ -661,17 +685,17 @@ export default function EnterpriseView({
   if (error) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
-        <div className="bg-red-50 p-4 rounded-full">
+        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900">{t('failedToLoadData')}</h3>
-        <p className="text-gray-500 max-w-md">{error}</p>
+        <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
+        <p className="text-text-muted max-w-md">{error}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-colors"
+            className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
           >
             {t('tryAgain')}
           </button>
@@ -683,7 +707,7 @@ export default function EnterpriseView({
   if (selectedEnterprise) {
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-widest">
+        <div className="flex items-center gap-2 text-xs font-bold text-text-muted uppercase tracking-widest">
           <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">{t('enterprise').toUpperCase()}</button>
           <ChevronRight className="h-3 w-3" />
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
@@ -819,8 +843,8 @@ export default function EnterpriseView({
                     className="flex items-center px-4 py-1.5 bg-indigo-50/40 dark:bg-indigo-900/20 border border-indigo-100/50 dark:border-indigo-400/30 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all cursor-help h-[32px] shadow-sm select-none"
                     title={badge.tooltip}
                   >
-                    <span className="text-[10px] font-medium text-[#3634B3] mr-2 uppercase tracking-tight opacity-80">{badge.label}:</span>
-                    <span className="text-xs font-bold text-[#3634B3] leading-none">{badge.value}</span>
+                    <span className="text-[10px] font-medium text-blue-600 mr-2 uppercase tracking-tight opacity-80">{badge.label}:</span>
+                    <span className="text-xs font-bold text-blue-600 leading-none">{badge.value}</span>
                   </div>
                 ));
               })() : loadingFinancial ? (
@@ -836,7 +860,7 @@ export default function EnterpriseView({
 
         {loadingBonds ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-12 h-12 border-4 border-[#3634B3] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-sm font-bold text-text-muted uppercase tracking-widest">{t('loadingBondsMessage')}</p>
           </div>
         ) : bondError ? (
@@ -857,24 +881,24 @@ export default function EnterpriseView({
             {/* KPI Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('bondCodeCount')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
+                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('bondCodeCount')}</p>
+                <span className="text-2xl md:text-3xl font-bold text-text-base mb-1 transition-colors whitespace-nowrap">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
+                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssuedValueTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
+                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('totalIssuedValueTitle')}</p>
+                <span className="text-2xl md:text-3xl font-bold text-text-base mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
+                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('initialDebtFull')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
+                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('initialDebtFull')}</p>
+                <span className="text-2xl md:text-3xl font-bold text-text-base mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
+                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
               </div>
               <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('remainingDebtTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
+                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('remainingDebtTitle')}</p>
+                <span className="text-2xl md:text-3xl font-bold text-text-base mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
+                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
               </div>
             </div>
 
@@ -883,25 +907,25 @@ export default function EnterpriseView({
           <div 
             className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('bondStructureByTerm')}</h3>
+            <h3 className="text-base font-semibold text-text-base/80 mb-4 text-center transition-colors">{t('bondStructureByTerm')}</h3>
             <ReactECharts option={pieOptions} style={{ height: '320px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
+            <h3 className="text-base font-semibold text-text-base/80 mb-4 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
             <ReactECharts option={interestTypePieOptions} style={{ height: '300px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('interestRateVsTerm')}</h3>
+            <h3 className="text-base font-semibold text-text-base/80 mb-4 text-center transition-colors">{t('interestRateVsTerm')}</h3>
             <ReactECharts option={bubbleOptions} style={{ height: '300px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
+            <h3 className="text-base font-semibold text-text-base/80 mb-4 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
             <ReactECharts option={columnOptions} style={{ height: '300px' }} />
           </div>
         </div>
@@ -940,38 +964,38 @@ export default function EnterpriseView({
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[920px] text-left border-collapse">
-              <thead className="bg-[#3634B3] text-white">
+              <thead className="bg-blue-600 text-white">
                 <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('term').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('monthUnit').toUpperCase()})</span>
+                      <span className="whitespace-nowrap leading-none">{t('term')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('monthUnit')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate')}</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate')}</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('interestRate').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitPercentLabel')})</span>
+                      <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType')}</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume')}</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('totalIssuedValueTitle').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                      <span className="whitespace-nowrap leading-none">{t('totalIssuedValueTitle')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('listedValueTitle').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                      <span className="whitespace-nowrap leading-none">{t('listedValueTitle')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status').toUpperCase()}</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1035,7 +1059,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(i + 1)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === i + 1 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1048,7 +1072,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(1)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === 1 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1058,7 +1082,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(2)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === 2 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1071,7 +1095,7 @@ export default function EnterpriseView({
                           onClick={() => setBondPage(3)}
                           className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                             bondPage === 3 
-                              ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                              ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                               : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                           }`}
                         >
@@ -1085,7 +1109,7 @@ export default function EnterpriseView({
                         {bondPage < totalBondPages && (
                           <>
                             <button
-                              className="px-3 py-1 text-xs font-bold rounded-lg bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20"
+                              className="px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20"
                             >
                               {bondPage}
                             </button>
@@ -1099,7 +1123,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(totalBondPages)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === totalBondPages 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1142,7 +1166,7 @@ export default function EnterpriseView({
           <input 
             type="text" 
             placeholder={t('searchPlaceholderEnterprises')}
-            className="w-full pl-10 pr-4 py-2 bg-bg-base border-border-base border rounded-xl text-sm text-text-base focus:ring-2 focus:ring-[#3634B3]/20 transition-all outline-none"
+            className="w-full pl-10 pr-4 py-2 bg-bg-base border-border-base border rounded-xl text-sm text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all outline-none"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1184,20 +1208,20 @@ export default function EnterpriseView({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left">
             <thead>
-              <tr className="bg-[#3634B3] text-white transition-colors">
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker').toUpperCase()}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName').toUpperCase()}</th>
-                <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount').toUpperCase()}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
+              <tr className="bg-blue-600 text-white transition-colors">
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
+                <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount')}</th>
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                    <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
+                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('remainingDebtTitle').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                    <span className="whitespace-nowrap leading-none">{t('remainingDebtTitle')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                   </div>
                 </th>
               </tr>
@@ -1266,7 +1290,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(i + 1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === i + 1 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1279,7 +1303,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 1 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1289,7 +1313,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(2)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 2 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1302,7 +1326,7 @@ export default function EnterpriseView({
                         onClick={() => setEnterprisePage(3)}
                         className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                           enterprisePage === 3 
-                            ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                            ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                             : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                         }`}
                       >
@@ -1316,7 +1340,7 @@ export default function EnterpriseView({
                       {enterprisePage < totalEnterprisePages && (
                         <>
                           <button
-                            className="px-3 py-1 text-xs font-bold rounded-lg bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20"
+                            className="px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20"
                           >
                             {enterprisePage}
                           </button>
@@ -1330,7 +1354,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(totalEnterprisePages)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === totalEnterprisePages 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >

@@ -215,7 +215,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     if (days < 30) return { label: t('statusVeryNear'), color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30', icon: AlertCircle, iconColor: 'text-red-600' };
     if (days <= 90) return { label: t('statusNear'), color: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-400/30', icon: Zap, iconColor: 'text-orange-600' };
     if (days <= 180) return { label: t('statusMonitor'), color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-400/30', icon: Eye, iconColor: 'text-yellow-600' };
-    if (days <= 270) return { label: t('statusMediumTerm'), color: 'bg-[#3634B3]/5 text-[#3634B3] border-[#3634B3]/10', icon: Activity, iconColor: 'text-[#3634B3]' };
+    if (days <= 270) return { label: t('statusMediumTerm'), color: 'bg-blue-600/5 text-blue-600 border-blue-600/10', icon: Activity, iconColor: 'text-blue-600' };
     return { label: t('statusLongTerm'), color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30', icon: CheckCircle2, iconColor: 'text-green-600' };
   };
 
@@ -268,7 +268,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         <div className="flex gap-4">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-[#3634B3]/20"
+            className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
           >
             {t('tryAgain')}
           </button>
@@ -280,7 +280,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   return (
     <div className="p-0 md:p-6 animate-in fade-in duration-500 transition-colors">
       <div className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
+        <h1 className="text-2xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
       </div>
 
       {/* Time Range Selector */}
@@ -302,7 +302,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               className={cn(
                 "px-4 md:px-6 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap",
                 selectedTimeRange === range.days 
-                  ? "bg-bg-surface text-[#3634B3] shadow-sm" 
+                  ? "bg-bg-surface text-blue-600 shadow-sm" 
                   : "text-text-muted hover:text-text-base"
               )}
             >
@@ -330,7 +330,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 transition-all placeholder:text-text-muted outline-none"
+              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-text-muted outline-none"
             />
           </div>
 
@@ -349,7 +349,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               <option value="default">{t('maturityDateSort')}</option>
               <option value="near">{t('nearest')}</option>
@@ -372,7 +372,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               <option value="default">{t('issuedValue')}</option>
               <option value="high">{t('highToLow')}</option>
@@ -390,7 +390,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setIndustryFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               {industries.map(ind => <option key={ind} value={ind}>{t(ind as any)}</option>)}
             </select>
@@ -405,7 +405,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setValueFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               {[t('allValues'), t('rangeLess100'), t('range100to500'), t('rangeMore500')].map(val => <option key={val} value={val}>{val}</option>)}
             </select>
@@ -420,7 +420,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setWarningFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               {warningLevels.map(level => <option key={level} value={level}>{level}</option>)}
             </select>
@@ -433,26 +433,26 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
-              <tr className="bg-[#3634B3] text-white transition-colors">
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode').toUpperCase()}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('enterprise').toUpperCase()}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate').toUpperCase()}</th>
+              <tr className="bg-blue-600 text-white transition-colors">
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode')}</th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('enterprise')}</th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate')}</th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('daysLeftLabel')}</span>
-                    <span className="whitespace-nowrap">({t('daysUnit')})</span>
+                    <span className="whitespace-nowrap leading-none">{t('daysLeftLabel')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('daysUnit')})</span>
                   </div>
                 </th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                    <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionShort')})</span>
                   </div>
                 </th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('interestRate').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitPercentLabel')})</span>
+                    <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                   </div>
                 </th>
                 <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('situation')}</th>
@@ -494,7 +494,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                               ? enterpriseNamesEN[bond.ticker] 
                               : t(bond.issuerName as any, bond.ticker)}
                           </p>
-                          <p className="text-[10px] text-text-muted truncate font-semibold group-hover:text-text-highlight transition-colors">
+                          <p className="text-xs text-text-muted truncate font-semibold group-hover:text-text-highlight transition-colors">
                             {t(bond.industry as any)}
                           </p>
                         </div>
@@ -505,7 +505,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                       <td className="px-6 py-5 whitespace-nowrap text-right border-none">
                         <div className="flex items-center gap-1 justify-end">
                           <span className={cn(
-                            "px-2 py-1 rounded-lg text-[10px] font-bold transition-colors",
+                            "px-2 py-1 rounded-lg text-xs font-bold transition-colors",
                             status.color,
                             "group-hover:text-text-highlight group-hover:bg-white/50"
                           )}>
@@ -520,7 +520,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                         {formatInterestRate(bond.interestRate)}%
                       </td>
                       <td className="px-6 py-5 whitespace-nowrap text-left border-none">
-                        <span className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase border transition-colors", status.color)}>
+                        <span className={cn("px-3 py-1 rounded-full text-xs font-bold uppercase border transition-colors", status.color)}>
                           {status.label}
                         </span>
                       </td>

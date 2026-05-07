@@ -387,29 +387,11 @@ export default function RightPanel({
               </div>
             </section>
 
-            {/* Expert Analysis */}
-            <section className="bg-[#3634B3] rounded-2xl p-5 text-white mt-auto mb-4 border border-transparent transition-colors">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="h-4 w-4" />
-                <h3 className="text-xs font-bold uppercase tracking-wider">{t('expertAnalysis')}</h3>
-              </div>
-              <p className="text-xs leading-relaxed opacity-80 mb-4 italic">
-                {t('expertQuote')}
-              </p>
-              <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">RS</div>
-                <div>
-                  <p className="text-[10px] font-bold">{t('researchTeam')?.toUpperCase() || 'RESEARCH TEAM'}</p>
-                  <p className="text-[8px] opacity-60">{t('financialSentinel') || 'Financial Sentinel'}</p>
-                </div>
-              </div>
-            </section>
           </div>
         ) : (
           <div className="flex flex-row md:flex-col items-center justify-center gap-8 mt-4 text-text-muted transition-colors">
             <Calendar className="h-5 w-5" />
             <Newspaper className="h-5 w-5" />
-            <TrendingUp className="h-5 w-5" />
           </div>
         )}
       </div>

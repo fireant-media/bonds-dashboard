@@ -272,8 +272,6 @@ export const translations = {
     signingIn: 'Đang đăng nhập...',
     newUser: 'Người dùng mới',
     languageName: 'Tiếng Việt',
-    researchTeam: 'Ban Nghiên cứu',
-    financialSentinel: 'Sentinel Tài chính',
     adminUser: 'Người dùng Quản trị',
     adminRole: 'Quản trị viên',
     sentinelOrg: 'Sentinel Institutional',
@@ -558,8 +556,6 @@ export const translations = {
     unitTy: 'tỷ',
     noUpcomingBondsData: 'Không có dữ liệu trái phiếu sắp đáo hạn',
     authError401: 'Lỗi xác thực (401)',
-    expertAnalysis: 'Phân tích chuyên gia',
-    expertQuote: '"Vinhomes duy trì cấu trúc nợ ổn định với tỷ trọng trái phiếu dài hạn chiếm ưu thế. Dòng tiền từ các đại dự án đang triển khai đảm bảo khả năng thanh toán lãi và gốc trong 2024-2025."',
     unitTrillion: 'nghìn tỷ',
     volume: 'Khối lượng',
     
@@ -567,7 +563,7 @@ export const translations = {
     
     // Units & Labels
     unitBillionVND: 'Tỷ VNĐ',
-    unitThousandShares: 'nghìn TP',
+    unitThousandShares: 'Nghìn TP',
     
     // Enterprise View Specific
     enterpriseDetail: 'Chi tiết doanh nghiệp',
@@ -590,7 +586,7 @@ export const translations = {
     fixed: 'Cố định',
     floating: 'Thả nổi',
     unitPercentLabel: '%',
-    unitBillionShort: 'tỷ VNĐ',
+    unitBillionShort: 'Tỷ VNĐ',
     issuerName: 'Tên tổ chức phát hành',
     searchEnterprise: 'Tìm kiếm doanh nghiệp...',
     allIndustries: 'Tất cả ngành',
@@ -618,9 +614,9 @@ export const translations = {
     statusMonitor: 'Cần theo dõi',
     statusMediumTerm: 'Trung hạn',
     statusLongTerm: 'Dài hạn',
-    daysLeftLabel: 'CÒN LẠI',
-    daysUnit: 'NGÀY',
-    situation: 'TÌNH TRẠNG',
+    daysLeftLabel: 'Còn lại',
+    daysUnit: 'Ngày',
+    situation: 'Tình trạng',
     noBondsFound: 'Không tìm thấy trái phiếu nào phù hợp',
     allValues: 'Tất cả giá trị',
 
@@ -1002,8 +998,6 @@ export const translations = {
     signingIn: 'Signing in...',
     newUser: 'New User',
     languageName: 'English',
-    researchTeam: 'Research Team',
-    financialSentinel: 'Financial Sentinel',
     adminUser: 'Admin User',
     adminRole: 'Admin',
     sentinelOrg: 'Sentinel Institutional',
@@ -1287,8 +1281,6 @@ export const translations = {
     unitTy: 'billion',
     noUpcomingBondsData: 'No upcoming bond maturity data',
     authError401: 'Authentication Error (401)',
-    expertAnalysis: 'Expert Analysis',
-    expertQuote: '"Vinhomes maintains a stable debt structure with a predominance of long-term bonds. Cash flow from ongoing major projects ensures interest and principal payment capabilities in 2024-2025."',
     unitTrillion: 'trillion',
     volume: 'Volume',
 

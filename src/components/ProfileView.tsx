@@ -42,7 +42,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
       {/* Sidebar */}
       <div className="w-full md:w-80 bg-bg-surface border-b md:border-b-0 md:border-r border-border-base flex flex-col pt-4 md:pt-10 pb-4 md:pb-10 px-3 md:px-4 shrink-0 shadow-sm transition-colors">
         <div className="mb-4 md:mb-12 px-3 md:px-6">
-          <h2 className="text-xl font-bold text-[#3634B3] tracking-tight transition-colors">{t('profileUser')}</h2>
+          <h2 className="text-xl font-bold text-blue-600 tracking-tight transition-colors">{t('profileUser')}</h2>
           <p className="text-sm text-text-muted mt-1 font-medium transition-colors">{t('manageAccount')}</p>
         </div>
 
@@ -57,17 +57,17 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                 className={cn(
                   "w-full flex items-center justify-center md:justify-between gap-2 md:gap-4 px-3 md:px-4 py-3 md:py-4 rounded-xl transition-all text-left group",
                   isActive 
-                    ? "bg-[#3634B3]/5 text-[#3634B3]" 
+                    ? "bg-blue-600/5 text-blue-600" 
                     : "text-text-muted hover:bg-bg-base"
                 )}
               >
                 <div className="flex items-center justify-center md:justify-start gap-2 md:gap-4 flex-1 min-w-0">
-                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-[#3634B3]" : "text-text-muted group-hover:text-text-base")} />
-                  <span className={cn("hidden sm:inline text-xs md:text-sm tracking-tight transition-colors truncate", isActive ? "text-[#3634B3] font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
+                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-blue-600" : "text-text-muted group-hover:text-text-base")} />
+                  <span className={cn("hidden sm:inline text-xs md:text-sm tracking-tight transition-colors truncate", isActive ? "text-blue-600 font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
                     {item.label}
                   </span>
                 </div>
-                {isActive && <ChevronRight className="hidden md:block h-4 w-4 text-[#3634B3] animate-in slide-in-from-left-2 duration-300" />}
+                {isActive && <ChevronRight className="hidden md:block h-4 w-4 text-blue-600 animate-in slide-in-from-left-2 duration-300" />}
               </button>
             );
           })}
@@ -114,7 +114,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
       <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('personalInfo')}</h1>
 
       {isGoogleUser && (
-        <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900 rounded-xl flex items-center gap-3 text-[#3634B3] text-xs font-bold transition-colors">
+        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900 rounded-xl flex items-center gap-3 text-blue-600 text-xs font-bold transition-colors">
           <ShieldCheck className="h-5 w-5" />
           <span>Tài khoản Google đang được sử dụng. Thông tin cá nhân được đồng bộ từ Google và không thể thay đổi tại đây.</span>
         </div>
@@ -141,32 +141,32 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                   {t('uploadNewPhoto')}
                 </button>
               )}
-              <p className="text-[10px] text-text-muted transition-colors">{t('uploadSizeLimit')}</p>
+              <p className="text-xs text-text-muted transition-colors">{t('uploadSizeLimit')}</p>
             </div>
 
             <div className="flex-1 space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('fullName')}</label>
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('fullName')}</label>
                   <input 
                     type="text" 
                     value={formData.name}
                     disabled={isGoogleUser}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className={cn(
-                      "w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 transition-all outline-none",
+                      "w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 transition-all outline-none",
                       isGoogleUser && "opacity-60 cursor-not-allowed bg-bg-base/50"
                     )}
                   />
                 </div>
                 {!isGoogleUser && (
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('email')}</label>
+                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('email')}</label>
                     <input 
                       type="email" 
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 transition-all outline-none"
+                      className="w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 transition-all outline-none"
                     />
                   </div>
                 )}
@@ -174,7 +174,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('roleLabel')}</label>
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('roleLabel')}</label>
                   <input 
                     type="text" 
                     defaultValue={t('adminRole')} 
@@ -183,7 +183,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('organization')}</label>
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('organization')}</label>
                   <input 
                     type="text" 
                     defaultValue={t('sentinelOrg')} 
@@ -205,7 +205,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                     onClick={handleSave}
                     disabled={isSaving}
                     className={cn(
-                      "w-full sm:w-auto justify-center px-8 md:px-10 py-4 bg-[#3634B3] hover:opacity-90 text-white text-sm font-bold rounded-lg shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-widest active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2",
+                      "w-full sm:w-auto justify-center px-8 md:px-10 py-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-600/20 transition-all uppercase tracking-widest active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2",
                       isSaving && "cursor-wait"
                     )}
                   >
@@ -291,8 +291,8 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
           {/* Change Password */}
           <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
             <div className="flex items-center gap-3 mb-8">
-                <Clock className="h-5 w-5 text-[#3634B3] transition-colors" />
-                <h3 className="text-xl font-bold text-[#3634B3] transition-colors">{t('changePassword')}</h3>
+                <Clock className="h-5 w-5 text-blue-600 transition-colors" />
+                <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('changePassword')}</h3>
             </div>
 
             {isGoogleUser && (
@@ -304,7 +304,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
 
             <div className={cn("space-y-6", isGoogleUser && "opacity-50 pointer-events-none")}>
                 <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('currentPassword')}</label>
+                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('currentPassword')}</label>
                     <input 
                         type="password" 
                         disabled={isGoogleUser}
@@ -315,16 +315,16 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                             setErrors({...errors, current: false});
                         }}
                         className={cn(
-                            "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 outline-none text-text-base",
+                            "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 outline-none text-text-base",
                             errors.current ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-border-base"
                         )}
                     />
-                    {errors.current && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('currentPasswordIncorrect')}</p>}
+                    {errors.current && <p className="text-xs text-red-500 font-bold uppercase tracking-tight ml-1">{t('currentPasswordIncorrect')}</p>}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('newPassword')}</label>
+                        <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('newPassword')}</label>
                         <input 
                             type="password" 
                             disabled={isGoogleUser}
@@ -335,14 +335,14 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                                 setErrors({...errors, new: false});
                             }}
                             className={cn(
-                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 outline-none text-text-base",
+                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 outline-none text-text-base",
                                 errors.new ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-border-base"
                             )}
                         />
-                        {errors.new && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('invalidPasswordFormat')}</p>}
+                        {errors.new && <p className="text-xs text-red-500 font-bold uppercase tracking-tight ml-1">{t('invalidPasswordFormat')}</p>}
                     </div>
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('confirmNewPassword')}</label>
+                        <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('confirmNewPassword')}</label>
                         <input 
                             type="password" 
                             disabled={isGoogleUser}
@@ -353,11 +353,11 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                                 setErrors({...errors, confirm: false});
                             }}
                             className={cn(
-                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 outline-none text-text-base",
+                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 outline-none text-text-base",
                                 errors.confirm ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-border-base"
                             )}
                         />
-                        {errors.confirm && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('passwordsDoNotMatch')}</p>}
+                        {errors.confirm && <p className="text-xs text-red-500 font-bold uppercase tracking-tight ml-1">{t('passwordsDoNotMatch')}</p>}
                     </div>
                 </div>
 
@@ -365,7 +365,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                     <button 
                         onClick={handleUpdatePassword}
                         disabled={isSaving || isGoogleUser}
-                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-8 py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {isSaving ? t('updatingLabel') : t('updatePasswordLabel')} <ChevronLeft className="h-4 w-4 rotate-180" />
                     </button>
@@ -397,14 +397,14 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
         <div className="lg:col-span-3">
              <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mt-6 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
-                    <h3 className="text-xl font-bold text-[#3634B3] transition-colors">{t('currentSessions')}</h3>
-                    <button className="text-[10px] font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
+                    <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('currentSessions')}</h3>
+                    <button className="text-xs font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
                 </div>
 
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[560px]">
                          <thead>
-                             <tr className="text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-border-base pb-4 transition-colors">
+                             <tr className="text-xs font-bold text-text-muted uppercase tracking-widest border-b border-border-base pb-4 transition-colors">
                                  <th className="text-left py-4 px-2">{t('browserDevice')}</th>
                                  <th className="text-left py-4 px-2">{t('location')}</th>
                                  <th className="text-left py-4 px-2">{t('time')}</th>
@@ -427,7 +427,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                                  <td className="text-sm text-text-muted px-2 transition-colors">{t('hanoiVN')}</td>
                                  <td className="text-sm text-text-muted px-2 transition-colors">{t('current')}</td>
                                  <td className="text-right px-2">
-                                     <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-500 text-[10px] font-bold rounded uppercase transition-colors">{t('activeStatus')}</span>
+                                     <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-500 text-xs font-bold rounded uppercase transition-colors">{t('activeStatus')}</span>
                                  </td>
                              </tr>
                              <tr className="transition-colors hover:bg-bg-base/50">
@@ -445,7 +445,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                                  <td className="text-sm text-text-muted px-2 transition-colors">{t('hanoiVN')}</td>
                                  <td className="text-sm text-text-muted px-2 transition-colors">{t('twoHoursAgo')}</td>
                                  <td className="text-right px-2">
-                                     <span className="px-2 py-1 bg-bg-base text-text-muted text-[10px] font-bold rounded uppercase transition-colors">{t('validStatus')}</span>
+                                     <span className="px-2 py-1 bg-bg-base text-text-muted text-xs font-bold rounded uppercase transition-colors">{t('validStatus')}</span>
                                  </td>
                              </tr>
                          </tbody>
@@ -486,11 +486,11 @@ function ActivityLogView() {
             </div>
         </div>
         <div className="bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm flex items-center gap-4 transition-colors">
-            <div className="h-12 w-12 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl flex items-center justify-center transition-colors">
-                <Globe className="h-6 w-6 text-[#3634B3]" />
+            <div className="h-12 w-12 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center justify-center transition-colors">
+                <Globe className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-                <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('locations')}</p>
+                <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('locations')}</p>
                 <p className="text-base font-bold text-text-base transition-colors">{t('hanoiVN')}</p>
             </div>
         </div>
@@ -501,10 +501,10 @@ function ActivityLogView() {
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="bg-bg-base/50 border-b border-border-base transition-colors">
-                <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('time')}</th>
-                <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('activities')}</th>
-                <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('ipAddress')}</th>
-                <th className="text-right py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('devices')}</th>
+                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('time')}</th>
+                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('activities')}</th>
+                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('ipAddress')}</th>
+                <th className="text-right py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('devices')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-base">
@@ -526,7 +526,7 @@ function ActivityLogView() {
                   <td className="py-6 px-8 text-right">
                     <div className="inline-flex items-center gap-3 bg-bg-base px-4 py-2 rounded-lg group transition-colors">
                         {item.device.includes('iPhone') ? <Smartphone className="h-4 w-4 text-text-muted" /> : <Monitor className="h-4 w-4 text-text-muted" />}
-                        <span className="text-[10px] font-bold text-text-muted uppercase transition-all">{item.device}</span>
+                        <span className="text-xs font-bold text-text-muted uppercase transition-all">{item.device}</span>
                     </div>
                   </td>
                 </tr>
@@ -535,15 +535,15 @@ function ActivityLogView() {
           </table>
         </div>
         <div className="py-4 px-4 md:py-6 md:px-8 bg-bg-base/50 border-t border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors">
-            <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">
+            <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">
               {t('showingLogs').replace('{count}', '5').replace('{total}', '128')}
             </p>
             <div className="flex items-center gap-1">
-                <button className="px-3 py-1 text-[10px] font-bold text-text-muted uppercase hover:text-[#3634B3] transition-colors">{t('prev')}</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded bg-[#3634B3] text-white text-[10px] font-bold transition-colors">1</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-[10px] font-bold text-text-muted transition-colors">2</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-[10px] font-bold text-text-muted transition-colors">3</button>
-                <button className="px-3 py-1 text-[10px] font-bold text-text-muted uppercase hover:text-[#3634B3] transition-colors">{t('next')}</button>
+                <button className="px-3 py-1 text-xs font-bold text-text-muted uppercase hover:text-blue-600 transition-colors">{t('prev')}</button>
+                <button className="w-8 h-8 flex items-center justify-center rounded bg-blue-600 text-white text-xs font-bold transition-colors">1</button>
+                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-xs font-bold text-text-muted transition-colors">2</button>
+                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-xs font-bold text-text-muted transition-colors">3</button>
+                <button className="px-3 py-1 text-xs font-bold text-text-muted uppercase hover:text-blue-600 transition-colors">{t('next')}</button>
             </div>
         </div>
       </div>

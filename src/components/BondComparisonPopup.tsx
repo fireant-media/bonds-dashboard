@@ -54,6 +54,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+
+  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
+
   const [comparisonBonds, setComparisonBonds] = useState<Bond[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -476,9 +479,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   };
 
   const chartColors = {
-    primary: isDark ? '#5c6bc0' : '#3634B3',
-    secondary: isDark ? '#ff8a65' : '#ff7043',
-    tertiary: isDark ? '#4db6ac' : '#00897b',
+    primary: isDark ? '#3b82f6' : '#2563eb',
+    secondary: isDark ? '#94a3b8' : '#64748b',
+    tertiary: isDark ? '#10b981' : '#059669',
     quaternary: isDark ? '#444' : '#ccc'
   };
 
@@ -493,6 +496,13 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     color: isDark ? '#9ca3af' : '#666',
     fontFamily: 'Inter',
     fontWeight: 'bold'
+  };
+
+  const tooltipTextStyle = {
+    fontSize: 10,
+    fontFamily: 'Inter',
+    fontWeight: 'normal' as const,
+    color: isDark ? '#f1f5f9' : '#1e293b'
   };
 
   const getTimelineOptions = () => {
@@ -553,6 +563,13 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     });
 
     return {
+      color: chartPalette,
+      tooltip: {
+        trigger: 'item',
+        confine: true,
+        textStyle: tooltipTextStyle,
+        formatter: (params: any) => `${params.name}: ${params.value[0]}`
+      },
       grid: { top: 60, bottom: 60, left: 50, right: 50 },
       xAxis: {
         type: 'value',
@@ -582,7 +599,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           type: 'scatter',
           data: data.map(d => ({
             ...d,
-            itemStyle: { color: d.isPrimary ? '#3634B3' : (isDark ? '#444' : '#ccc') },
+            itemStyle: { },
             label: {
               show: true,
               position: d.labelPosition,
@@ -590,7 +607,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               fontWeight: 'bold',
               fontSize: 10,
               fontFamily: 'Inter',
-              backgroundColor: d.isPrimary ? '#3634B3' : (isDark ? '#222' : '#f0f0f0'),
+              backgroundColor: d.isPrimary ? '#2563eb' : (isDark ? '#222' : '#f0f0f0'),
               color: d.isPrimary ? '#fff' : (isDark ? '#eee' : '#555'),
               padding: [4, 8],
               borderRadius: 4,
@@ -616,12 +633,14 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     };
     
     return {
+      color: chartPalette,
       tooltip: { 
         trigger: 'axis', 
         axisPointer: { type: 'shadow' },
+        confine: true,
         backgroundColor: isDark ? '#1e293b' : '#fff',
         borderColor: isDark ? '#334155' : '#e2e8f0',
-        textStyle: { color: isDark ? '#f1f5f9' : '#1e293b', fontFamily: 'Inter', fontSize: 12 },
+        textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           let res = `<div style="font-weight: bold; margin-bottom: 4px;">${params[0].name}</div>`;
           params.forEach((p: any) => {
@@ -682,14 +701,14 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           type: 'bar',
           barWidth: 15,
           data: selectedBonds.map(b => b.issuedValue),
-          itemStyle: { color: isDark ? '#5c6bc0' : '#3634B3', borderRadius: [2, 2, 0, 0] }
+          itemStyle: { borderRadius: [2, 2, 0, 0] }
         },
         {
           name: labels.listed,
           type: 'bar',
           barWidth: 15,
           data: selectedBonds.map(b => b.listedValue),
-          itemStyle: { color: isDark ? '#ff8a65' : '#ff7043', borderRadius: [2, 2, 0, 0] }
+          itemStyle: { borderRadius: [2, 2, 0, 0] }
         },
         {
           name: labels.volume,
@@ -698,8 +717,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           data: selectedBonds.map(b => b.listedVolume),
           symbol: 'circle',
           symbolSize: 8,
-          lineStyle: { width: 3, color: isDark ? '#4db6ac' : '#00897b' },
-          itemStyle: { color: isDark ? '#4db6ac' : '#00897b' }
+          lineStyle: { width: 3 },
+          itemStyle: { }
         }
       ]
     };
@@ -711,12 +730,14 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     }
     
     return {
+      color: chartPalette,
       tooltip: { 
         trigger: 'axis', 
         axisPointer: { type: 'shadow' },
+        confine: true,
         backgroundColor: isDark ? '#1e293b' : '#fff',
         borderColor: isDark ? '#334155' : '#e2e8f0',
-        textStyle: { color: isDark ? '#f1f5f9' : '#1e293b', fontFamily: 'Inter', fontSize: 12 },
+        textStyle: tooltipTextStyle,
         formatter: (params: any) => `${params[0].name}: <b>${formatInterestRate(params[0].value)}%</b>`
       },
       grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
@@ -740,7 +761,6 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           barWidth: 30,
           data: selectedBonds.map(b => b.interestRate),
           itemStyle: { 
-            color: isDark ? '#5c6bc0' : '#3634B3',
             borderRadius: [4, 4, 0, 0] 
           },
           label: {
@@ -785,7 +805,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       return (
         <div className="w-full h-full flex items-center justify-center flex-col gap-2 text-text-muted text-xs p-4">
           <span className="font-bold">{fallbackMessage}</span>
-          <span className="text-[10px] text-text-muted/60">{errorMsg}</span>
+          <span className="text-xs text-text-muted/60">{errorMsg}</span>
         </div>
       );
     }
@@ -841,7 +861,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 key={b.id}
                 className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
                   b.code === primaryBond.code 
-                    ? 'bg-[#3634B3] border-[#3634B3] text-white' 
+                    ? 'bg-blue-600 border-blue-600 text-white' 
                     : 'bg-bg-base border-border-base text-text-base'
                 }`}
               >
@@ -862,14 +882,14 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             {!isSearching ? (
               <button 
                 onClick={() => setIsSearching(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-transparent border border-dashed border-border-base text-text-muted rounded-full hover:border-[#3634B3] hover:text-[#3634B3] transition-all"
+                className="flex items-center gap-2 px-4 py-2 bg-transparent border border-dashed border-border-base text-text-muted rounded-full hover:border-blue-600 hover:text-blue-600 transition-all"
               >
                 <Plus className="h-4 w-4" />
                 <span className="text-sm font-bold">{t('addBond')}</span>
               </button>
             ) : (
               <div className="relative">
-                <div className="flex items-center gap-2 px-4 py-1.5 bg-bg-base border border-[#3634B3] rounded-full">
+                <div className="flex items-center gap-2 px-4 py-1.5 bg-bg-base border border-blue-600 rounded-full">
                   <Search className="h-3.5 w-3.5 text-text-muted" />
                   <input
                     ref={searchInputRef}
@@ -901,10 +921,10 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                         className="w-full text-left px-4 py-3 hover:bg-bg-base flex items-center justify-between border-b border-border-base last:border-none group transition-colors"
                       >
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-text-base group-hover:text-[#3634B3] transition-colors">{bond.code}</span>
+                          <span className="text-sm font-bold text-text-base group-hover:text-blue-600 transition-colors">{bond.code}</span>
                           <span className="text-[10px] text-text-muted font-bold uppercase">{t('bond').toUpperCase()}</span>
                         </div>
-                        <Plus className="h-4 w-4 text-text-muted group-hover:text-[#3634B3] transition-all" />
+                        <Plus className="h-4 w-4 text-text-muted group-hover:text-blue-600 transition-all" />
                       </button>
                     ))}
                   </div>
@@ -921,7 +941,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
           {/* Timeline */}
           <div className="space-y-6">
-            <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase">{t('maturityTimeline')}</h4>
+            <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('maturityTimeline')}</h4>
             <div className="h-[120px] bg-bg-base/20 rounded-2xl p-4 transition-colors">
               {safeRenderChart(() => getTimelineOptions(), t('errorTimeline'))}
             </div>
@@ -931,7 +951,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
-                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase">{t('issueScale')}</h4>
+                <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('issueScale')}</h4>
                 <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitBillionVND')}</span>
               </div>
               <div className="h-[250px] transition-colors">
@@ -940,7 +960,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             </div>
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
-                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">{t('interestRate')}</h4>
+                <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('interestRate')}</h4>
                 <span className="text-[10px] text-text-muted font-bold tracking-tighter">%</span>
               </div>
               <div className="h-[250px] transition-colors">
@@ -951,21 +971,48 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
           {/* Detail Table */}
           <div className="space-y-6">
-            <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase">{t('detailedSpecs')}</h4>
+            <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('detailedSpecs')}</h4>
             <div className="rounded-2xl border border-border-base bg-bg-surface overflow-hidden shadow-sm transition-colors overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[600px]">
                 <tbody>
-                  {[
-                    { label: t('bondCode'), key: 'code' },
-                    { label: t('termMonths'), key: 'term', isTerm: true },
-                    { label: t('interestRate'), key: 'interestRate', isRate: true },
-                    { label: t('interestType'), key: 'interestType', isInterestType: true },
-                    { label: t('issueDate'), key: 'issueDate', isDate: true },
-                    { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                    { label: t('issuedValue'), key: 'issuedValue', isValue: true }
-                  ].map((row, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
-                      <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[20%]">{row.label}</td>
+                    {[
+                      { label: t('bondCode'), key: 'code' },
+                      { 
+                        label: (
+                          <div className="flex flex-col">
+                            <span className="whitespace-nowrap leading-none">{t('termMonths')}</span>
+                            <span className="whitespace-nowrap mt-1 leading-none">({t('monthUnit')})</span>
+                          </div>
+                        ), 
+                        key: 'term', 
+                        isTerm: true 
+                      },
+                      { 
+                        label: (
+                          <div className="flex flex-col">
+                            <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
+                            <span className="whitespace-nowrap mt-1 leading-none">(%)</span>
+                          </div>
+                        ), 
+                        key: 'interestRate', 
+                        isRate: true 
+                      },
+                      { label: t('interestType'), key: 'interestType', isInterestType: true },
+                      { label: t('issueDate'), key: 'issueDate', isDate: true },
+                      { label: t('maturityDate'), key: 'maturityDate', isDate: true },
+                      { 
+                        label: (
+                          <div className="flex flex-col">
+                            <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
+                            <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
+                          </div>
+                        ), 
+                        key: 'issuedValue', 
+                        isValue: true 
+                      }
+                    ].map((row, idx) => (
+                      <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
+                        <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[25%]">{row.label}</td>
                       {selectedBonds.map((b) => (
                         <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
                           {row.isRate ? formatNumber(b.interestRate, 2) : 

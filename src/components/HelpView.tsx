@@ -54,7 +54,7 @@ export default function HelpView({ onBack }: HelpViewProps) {
       {/* Sidebar */}
       <div className="w-80 bg-bg-surface border-r border-border-base flex flex-col pt-10 pb-10 px-4 shrink-0 transition-colors">
         <div className="mb-12 px-6">
-          <h2 className="text-xl font-bold text-[#3634B3] tracking-tight transition-colors">{t('helpCenter')}</h2>
+          <h2 className="text-xl font-bold text-blue-600 tracking-tight transition-colors">{t('helpCenter')}</h2>
           <p className="text-sm text-text-muted mt-1 font-medium transition-colors">{t('helpSubtitle')}</p>
         </div>
 
@@ -74,12 +74,12 @@ export default function HelpView({ onBack }: HelpViewProps) {
                 )}
               >
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-[#3634B3]" : "text-text-muted group-hover:text-text-base")} />
-                  <span className={cn("text-sm tracking-tight transition-colors whitespace-nowrap", isActive ? "text-[#3634B3] font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
+                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-blue-600" : "text-text-muted group-hover:text-text-base")} />
+                  <span className={cn("text-sm tracking-tight transition-colors whitespace-nowrap", isActive ? "text-blue-600 font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
                     {tab.label}
                   </span>
                 </div>
-                {isActive && <ChevronRight className="h-4 w-4 ml-auto text-[#3634B3]" />}
+                {isActive && <ChevronRight className="h-4 w-4 ml-auto text-blue-600" />}
               </button>
             );
           })}
@@ -211,7 +211,7 @@ function UserManualView() {
         <div className="animate-in fade-in slide-in-from-right-4 duration-500 transition-colors">
           <button 
             onClick={() => setSelectedGuide(null)}
-            className="flex items-center gap-2 text-sm font-bold text-text-muted hover:text-[#3634B3] mb-8 transition-colors group"
+            className="flex items-center gap-2 text-sm font-bold text-text-muted hover:text-blue-600 mb-8 transition-colors group"
           >
             <ArrowRight className="h-4 w-4 rotate-180 transition-transform group-hover:-translate-x-1" /> {t('backToGuides')}
           </button>
@@ -226,7 +226,7 @@ function UserManualView() {
           <div className="space-y-8 mb-12">
             {guide.content.steps.map((step, idx) => (
               <div key={idx} className="bg-bg-surface p-8 rounded-3xl border border-border-base shadow-sm flex gap-6 items-start transition-colors">
-                <div className="h-9 w-9 rounded-full bg-[#3634B3] text-white flex items-center justify-center font-bold text-base shrink-0 transition-colors">
+                <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-base shrink-0 transition-colors">
                   {idx + 1}
                 </div>
                 <div>
@@ -241,13 +241,13 @@ function UserManualView() {
 
           <div className="p-8 bg-[#3634B3]/5 rounded-3xl border border-[#3634B3]/10 transition-colors">
             <div className="flex items-center gap-3 mb-4">
-              <Play className="h-5 w-5 text-[#3634B3] fill-[#3634B3]" />
-              <h4 className="font-bold text-[#3634B3] transition-colors">{t('watchIllustrationVideoLabel')}</h4>
+              <Play className="h-5 w-5 text-blue-600 fill-blue-600" />
+              <h4 className="font-bold text-blue-600 transition-colors">{t('watchIllustrationVideoLabel')}</h4>
             </div>
             <p className="text-sm text-text-muted mb-6 transition-colors">
               {t('videoInstructionDetail').replace('{title}', guide.title)}
             </p>
-            <button className="px-6 py-3 bg-[#3634B3] text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:opacity-90 transition-all">
+            <button className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:opacity-90 transition-all">
               {t('startWatchingVideo')}
             </button>
           </div>
@@ -272,11 +272,11 @@ function UserManualView() {
             <div className={cn("h-12 w-12 rounded-xl flex items-center justify-center mb-6 transition-transform group-hover:scale-110 transition-colors", guide.color)}>
               <guide.icon className="h-6 w-6" />
             </div>
-            <h3 className="text-lg font-bold text-text-base mb-3 group-hover:text-[#3634B3] transition-colors">{guide.title}</h3>
+            <h3 className="text-lg font-bold text-text-base mb-3 group-hover:text-blue-600 transition-colors">{guide.title}</h3>
             <p className="text-sm text-text-muted leading-relaxed mb-6 transition-colors">
               {guide.description}
             </p>
-            <button className="flex items-center gap-2 text-sm font-bold text-[#3634B3] hover:gap-3 transition-all">
+            <button className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:gap-3 transition-all">
               {t('seeMore')} <ChevronRight className="h-4 w-4" />
             </button>
           </div>
@@ -284,14 +284,14 @@ function UserManualView() {
       </div>
 
       {/* Video Section */}
-      <div className="rounded-3xl overflow-hidden bg-[#3634B3] relative group shadow-2xl shadow-[#3634B3]/20 flex flex-col md:flex-row h-[400px] transition-colors">
+      <div className="rounded-3xl overflow-hidden bg-blue-600 relative group shadow-2xl shadow-blue-600/20 flex flex-col md:flex-row h-[400px] transition-colors">
         <div className="p-10 md:w-1/2 flex flex-col justify-center relative z-10">
-          <span className="text-[10px] font-black tracking-[0.2em] text-white/50 uppercase mb-4 transition-colors">{t('videoInstruction')}</span>
+          <span className="text-xs font-semibold tracking-widest text-white/50 uppercase mb-4 transition-colors">{t('videoInstruction')}</span>
           <h2 className="text-3xl font-bold text-white mb-6 leading-tight transition-colors">{t('gettingStartedVideoTitle')}</h2>
           <p className="text-white/70 text-sm mb-8 leading-relaxed font-medium transition-colors">
             {t('gettingStartedVideoDesc')}
           </p>
-          <button className="flex items-center justify-center gap-3 bg-white text-[#3634B3] px-8 py-4 rounded-xl font-bold text-sm hover:bg-gray-100 transition-all w-fit shadow-lg active:scale-95">
+          <button className="flex items-center justify-center gap-3 bg-white text-blue-600 px-8 py-4 rounded-xl font-bold text-sm hover:bg-gray-100 transition-all w-fit shadow-lg active:scale-95">
             <Play className="h-4 w-4 fill-current" /> {t('watchNow')}
           </button>
         </div>
@@ -301,7 +301,7 @@ function UserManualView() {
             alt="Dashboard Preview" 
             className="w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#3634B3] to-transparent transition-colors"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-transparent transition-colors"></div>
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="h-20 w-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30 group-hover:scale-110 transition-transform">
                 <Play className="h-8 w-8 text-white fill-current ml-1" />
@@ -426,7 +426,7 @@ function ContactSupportView() {
           </div>
           <h4 className="font-bold text-text-base mb-2 transition-colors">{t('supportHotline')}</h4>
           <p className="text-sm text-text-muted mb-4 transition-colors">{t('supportHours')}</p>
-          <p className="text-lg font-black text-[#3634B3] tracking-tight transition-colors">1900 6000</p>
+          <p className="text-lg font-bold text-blue-600 tracking-tight transition-colors">1900 6000</p>
         </div>
 
         <div className="bg-bg-surface p-8 rounded-2xl border border-border-base shadow-sm flex flex-col items-center text-center group transition-colors">

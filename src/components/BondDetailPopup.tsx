@@ -20,6 +20,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   
+  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
+
   const formatTerm = (rawTerm: any) => {
     if (!rawTerm || rawTerm === 'N/A') return 'N/A';
     const clean = String(rawTerm).replace(/tháng|months/gi, '').trim();
@@ -132,6 +134,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const principalData = sortedCashFlows.map(cf => cf.principalAmount);
 
     return {
+      color: chartPalette,
       tooltip: { 
         trigger: 'axis', 
         axisPointer: { type: 'shadow' },
@@ -157,8 +160,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         } 
       },
       series: [
-        { name: t('principal'), type: 'bar', stack: 'total', data: principalData, itemStyle: { color: isDark ? '#60a5fa' : '#3634B3' } },
-        { name: t('interest'), type: 'bar', stack: 'total', data: interestData, itemStyle: { color: '#ff7043' } }
+        { name: t('principal'), type: 'bar', stack: 'total', data: principalData, itemStyle: { } },
+        { name: t('interest'), type: 'bar', stack: 'total', data: interestData, itemStyle: { } }
       ]
     };
   };
@@ -209,7 +212,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
       >
         <div className="p-4 md:p-6 border-b border-border-base flex items-center justify-between gap-3 bg-bg-base/50 transition-colors">
           <div className="flex items-center gap-3 md:gap-4 min-w-0">
-            <div className="h-10 w-10 md:h-12 md:w-12 bg-[#3634B3] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-[#3634B3]/20 transition-colors shrink-0">
+            <div className="h-10 w-10 md:h-12 md:w-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-600/20 transition-colors shrink-0">
               <Activity className="h-6 w-6" />
             </div>
             <div>
@@ -252,7 +255,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                     <detail.icon className="h-4 w-4 text-text-muted group-hover:text-text-highlight transition-colors" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-0.5 transition-colors">{detail.label}</p>
+                    <p className="text-xs font-semibold text-text-muted/80 uppercase tracking-widest mb-0.5 transition-colors">{detail.label}</p>
                     <div className="flex items-center gap-2">
                       <p className={`text-sm font-bold leading-tight transition-colors ${detail.label === t('maturityDate') && maturityInfo?.isNear ? 'text-rose-600 dark:text-rose-400' : 'text-text-base'}`}>
                         {detail.value}
@@ -260,7 +263,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                       {detail.label === t('maturityDate') && maturityInfo?.isNear && (
                         <div className="flex items-center gap-1.5 px-2 py-0.5 bg-rose-50 dark:bg-rose-900/20 border border-rose-100 dark:border-rose-400/30 rounded-full text-rose-600 dark:text-rose-400 animate-pulse shadow-sm h-[18px]">
                           <AlertTriangle className="h-3 w-3 shrink-0" />
-                          <span className="text-[9px] font-black uppercase tracking-tighter shrink-0">{t('statusNear')} ({maturityInfo.days} {t('daysUnit').toLowerCase()})</span>
+                          <span className="text-xs font-bold uppercase tracking-tight shrink-0">{t('statusNear')} ({maturityInfo.days} {t('daysUnit').toLowerCase()})</span>
                         </div>
                       )}
                     </div>
@@ -301,7 +304,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
             <div className="mt-4 flex-1 bg-bg-surface rounded-2xl border border-border-base shadow-sm p-5 flex flex-col justify-center transition-colors">
               <div className="flex items-center gap-3 mb-3">
                 <Activity className="h-4 w-4 text-text-highlight" />
-                <p className="text-xs font-bold text-text-base uppercase tracking-wider transition-colors">{t('summary')}</p>
+                <p className="text-xs font-semibold text-text-base uppercase tracking-widest transition-colors">{t('summary')}</p>
               </div>
               <div className="flex-1 flex items-center">
                 <p className="text-xs text-text-muted leading-relaxed italic transition-colors">
