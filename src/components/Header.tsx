@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { getFireantToken, cleanTokenString } from '../utils/token';
+import Logo from './Logo';
 
 export type SearchSuggestion = {
   id: string;
@@ -266,13 +267,20 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
 
   return (
     <header className="h-16 bg-bg-surface border-b border-border-base flex items-center justify-between gap-2 px-3 md:px-6 sticky top-0 z-50 transition-colors duration-300">
-      <div className="flex items-center gap-2 md:gap-4 shrink-0">
-        <h1 
-          className="text-base md:text-xl font-bold text-text-highlight tracking-tight hover:cursor-pointer select-none transition-colors" 
+      <div className="flex items-center shrink-0">
+        <div 
+          className="flex items-center hover:cursor-pointer select-none group"
           onClick={onLogoClick}
         >
-          DASHBOARD
-        </h1>
+          <div className="flex items-center gap-6 md:gap-10">
+            <div className="scale-110 md:scale-125 origin-left">
+              <Logo />
+            </div>
+            <h1 className="text-lg md:text-xl font-black text-text-highlight tracking-tighter transition-colors hidden lg:block uppercase">
+              Dashboard
+            </h1>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-1 min-w-0 items-center justify-end gap-2 md:gap-4">

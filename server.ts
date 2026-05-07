@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import cookieSession from "cookie-session";
+import { GoogleGenAI } from "@google/genai";
 
 async function startServer() {
   const app = express();
@@ -133,6 +134,16 @@ async function startServer() {
           }
         } catch (apiErr: any) {
           console.log(`[News] REST API fetch failed: ${apiErr.message}`);
+          
+          // If 401 Unauthorized, the token is likely expired. Force a refresh and retry.
+          if (apiErr.response?.status === 401 && retryCount < 1) {
+            console.log("[News] Token expired (401). Forcing token refresh and retrying news fetch...");
+            token = await getFireantToken(true);
+            if (token) {
+              isRefreshingNews = false; // Reset so the retry isn't blocked
+              return refreshNews(retryCount + 1);
+            }
+          }
         }
       }
 
@@ -655,6 +666,46 @@ async function startServer() {
       return res.json(news || []);
     } catch (err) {
       return res.json(newsCache || []);
+    }
+  });
+
+  // AI Chat Route
+  app.post("/api/ai/chat", async (req, res) => {
+    const { messages, userMessage } = req.body;
+    
+    if (!process.env.GEMINI_API_KEY) {
+      console.error("[AI] GEMINI_API_KEY is not set in environment");
+      return res.status(500).json({ error: "AI service not configured" });
+    }
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      
+      // Build the prompt from history
+      const contents = [
+        ...messages.map((m: any) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        })),
+        {
+          role: 'user',
+          parts: [{ text: userMessage }]
+        }
+      ];
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: contents,
+        config: {
+          systemInstruction: "You are Sentinel AI Support, an expert in bond markets and financial data. Answer user questions about bond markets accurately and professionally. Use information from the user request history if available. If you don't know the answer, say you don't know and advise consulting a professional advisor. Keep answers concise."
+        }
+      });
+
+      const text = response.text;
+      res.json({ text });
+    } catch (error: any) {
+      console.error("[AI] Server Error:", error);
+      res.status(500).json({ error: "AI connection failed", details: error.message });
     }
   });
 

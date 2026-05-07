@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MessageSquare, X, Send, Bot, User, Loader2, Sparkles, Minimize2 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { useLanguage } from '../LanguageContext';
 
 interface Message {
@@ -36,24 +35,23 @@ export default function AIChatBot() {
     setIsTyping(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const chat = ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-            {
-                role: 'user',
-                parts: [
-                    { text: "Here is our chat history:\n" + messages.map(m => `${m.role}: ${m.content}`).join('\n') + `\n\nUser: ${userMessage}` }
-                ]
-            }
-        ],
-        config: {
-          systemInstruction: "You are Sentinel AI Support, an expert in bond markets and financial data. Answer user questions about bond markets accurately and professionally. Use information from the user request history if available. If you don't know the answer, say you don't know and advise consulting a professional advisor. Keep answers concise."
-        }
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: messages,
+          userMessage: userMessage,
+        }),
       });
 
-      const response = await chat;
-      const aiContent = response.text || t('chatBotError');
+      if (!response.ok) {
+        throw new Error('Failed to connect to AI server');
+      }
+
+      const data = await response.json();
+      const aiContent = data.text || t('chatBotError');
       
       setMessages(prev => [...prev, { role: 'assistant', content: aiContent }]);
     } catch (error) {

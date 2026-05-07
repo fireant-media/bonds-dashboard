@@ -45,17 +45,7 @@ export default function Sidebar({
   return (
     <aside className="w-full bg-bg-surface md:border-r border-border-base flex flex-col h-auto md:h-full overflow-hidden transition-colors duration-300">
       <div className={cn("p-3 md:p-6 transition-all duration-300 shrink-0", isOpen ? "w-full md:w-80" : "w-full md:w-[64px] md:px-3")}>
-        <div className={cn("flex items-center mb-3 md:mb-8", isOpen ? "justify-between" : "justify-center")}>
-          {isOpen && (
-            <div className="flex items-center gap-3 animate-in fade-in duration-300">
-              <div className="h-10 w-10 bg-[#3634B3] rounded-xl flex items-center justify-center text-white">
-                <LayoutDashboard className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-text-highlight tracking-tight transition-colors">FIREANT</p>
-              </div>
-            </div>
-          )}
+        <div className={cn("flex items-center mb-3 md:mb-8", isOpen ? "justify-end" : "justify-center")}>
           <button 
             onClick={onToggle}
             className="p-2 text-gray-400 hover:text-text-highlight hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg transition-colors"
