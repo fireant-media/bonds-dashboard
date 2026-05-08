@@ -35,7 +35,7 @@ const scopes = [
 
 const oidcAuthority =
   import.meta.env.VITE_OIDC_AUTHORITY?.trim() || 'https://accounts.fireant.vn';
-const oidcClientId = import.meta.env.VITE_OIDC_CLIENT_ID?.trim() || 'https://bonds.fireant.vn';
+const oidcClientId = import.meta.env.VITE_OIDC_CLIENT_ID?.trim() || 'fireant.bonds';
 const appBaseUrl =
   import.meta.env.VITE_APP_BASE_URL?.trim() || window.location.origin;
 const isPopupWindow = () => Boolean(window.opener && window.opener !== window);
