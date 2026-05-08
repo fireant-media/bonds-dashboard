@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { X, MessageSquareText, Loader2 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { sendChat } from '../api/ai';
+import { useAIStore } from '../store/aiStore';
 
 interface ChartPopupProps {
   title: string;
@@ -16,6 +17,7 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+  const { selectedModel, defaultModel } = useAIStore();
   const [insight, setInsight] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [isPortrait, setIsPortrait] = useState(false);
@@ -41,13 +43,6 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
     const generateInsight = async () => {
       setLoading(true);
       try {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey || apiKey === 'undefined' || apiKey === '') {
-          throw new Error('GEMINI_API_KEY is not configured');
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
-
         const prompt = `
           ${t('aiChartPromptRole')} 
           ${t('aiChartPromptQuestion').replace('{title}', title)}
@@ -57,11 +52,12 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
           ${t('aiChartPromptRequirements').replace('{language}', language === 'vi' ? 'Tiếng Việt' : 'English')}
         `;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: prompt,
+        const response = await sendChat({
+          userMessage: prompt,
+          messages: [],
+          model: selectedModel || defaultModel || undefined,
         });
-        
+
         setInsight(response.text || '');
       } catch (error) {
         console.error('Error generating chart insight:', error);
@@ -72,10 +68,10 @@ export default function ChartPopup({ title, option, dataSummary, onClose }: Char
     };
 
     generateInsight();
-  }, [title, dataSummary, language, t]);
+  }, [title, dataSummary, language, t, selectedModel, defaultModel]);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-100 flex items-center justify-center p-2 md:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
       <div className="bg-bg-surface rounded-[32px] w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-300 transition-colors">
         {/* Header */}
         <div className="px-4 md:px-8 py-4 md:py-6 border-b border-border-base flex items-center justify-between gap-3 bg-bg-surface sticky top-0 z-10 transition-colors">

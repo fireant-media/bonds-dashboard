@@ -1,4 +1,4 @@
-import { Bell, Palette, Key, ShieldCheck, Info, Save, Trash2, AlertCircle, CheckCircle2, RefreshCw, Loader2, ChevronDown, Fingerprint, Timer, Zap, Scale, Shield, ChevronRight, Mail, HelpCircle, Sun, Moon, Monitor } from 'lucide-react';
+import { Bell, Palette, Key, ShieldCheck, Info, Save, Trash2, AlertCircle, CheckCircle2, RefreshCw, Loader2, ChevronDown, Fingerprint, Timer, Zap, Scale, Shield, ChevronRight, Mail, HelpCircle, Sun, Moon, Monitor, Sparkles, Server } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -7,6 +7,8 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { Language } from '../translations';
 import SentinelFooter from './SentinelFooter';
+import { useAIStore } from '../store/aiStore';
+import { sendChat } from '../api/ai';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -77,7 +79,7 @@ export default function SettingsView() {
           {activeTab === 'notifications' && <NotificationSettings />}
           {activeTab === 'interface' && <InterfaceSettings />}
           {activeTab === 'token' && <TokenSettings />}
-          {activeTab === 'aiKey' && <AIKeySettings />}
+          {activeTab === 'aiKey' && <AIModelSettings />}
           {activeTab === 'security' && <AppSecuritySettings />}
           {activeTab === 'about' && <AboutSettings />}
           
@@ -527,110 +529,265 @@ function TokenSettings() {
   );
 }
 
-function AIKeySettings() {
-  const { t, language } = useLanguage();
-  const [apiKey, setApiKey] = useState('');
+function AIModelSettings() {
+  const { t } = useLanguage();
+  const {
+    configured,
+    baseUrl,
+    defaultModel,
+    defaultSystemPrompt,
+    models,
+    selectedModel,
+    systemPrompt,
+    isLoadingStatus,
+    isLoadingModels,
+    statusError,
+    modelsError,
+    refreshStatus,
+    refreshModels,
+    setSelectedModel,
+    setSystemPrompt,
+    resetSystemPrompt,
+  } = useAIStore();
+
+  const [draftPrompt, setDraftPrompt] = useState(systemPrompt);
   const [status, setStatus] = useState<'idle' | 'success' | 'error' | 'testing'>('idle');
   const [message, setMessage] = useState('');
-  const [showKey, setShowKey] = useState(false);
+  const [testReply, setTestReply] = useState<string>('');
 
   useEffect(() => {
-    const savedKey = localStorage.getItem('ai_api_key') || '';
-    setApiKey(savedKey);
-  }, []);
+    void refreshStatus();
+    void refreshModels(false);
+  }, [refreshStatus, refreshModels]);
 
-  const handleSave = () => {
-    if (!apiKey.trim()) {
+  useEffect(() => {
+    setDraftPrompt(systemPrompt);
+  }, [systemPrompt]);
+
+  const handleTest = async () => {
+    if (!configured) {
       setStatus('error');
-      setMessage(t('enterApiKeyToSave'));
+      setMessage(t('aiNotConfigured'));
       return;
     }
-    localStorage.setItem('ai_api_key', apiKey.trim());
+    setStatus('testing');
+    setMessage(t('aiTesting'));
+    setTestReply('');
+    try {
+      const res = await sendChat({
+        userMessage: t('aiTestPrompt'),
+        messages: [],
+        model: selectedModel || defaultModel,
+        systemPrompt: draftPrompt || defaultSystemPrompt,
+      });
+      setStatus('success');
+      setMessage(t('aiTestSuccess').replace('{model}', res.model));
+      setTestReply(res.text);
+    } catch (err: any) {
+      setStatus('error');
+      const detail = err?.response?.data?.details || err?.response?.data?.error || err?.message || 'Unknown error';
+      setMessage(`${t('aiTestFailed')}: ${detail}`);
+    }
+  };
+
+  const handleSave = () => {
+    setSystemPrompt(draftPrompt);
     setStatus('success');
-    setMessage(t('aiKeySaved'));
+    setMessage(t('aiPreferencesSaved'));
     setTimeout(() => setStatus('idle'), 3000);
   };
 
-  const handleDelete = () => {
-    localStorage.removeItem('ai_api_key');
-    setApiKey('');
-    setStatus('success');
-    setMessage(t('apiKeyRemoved'));
-    setTimeout(() => setStatus('idle'), 3000);
+  const handleResetPrompt = () => {
+    resetSystemPrompt();
+    setDraftPrompt(defaultSystemPrompt);
   };
+
+  const activeModelId = selectedModel || defaultModel;
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-      <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('aiKeyTitleSettings')}</h1>
+      <h1 className="text-2xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('aiModelTitle')}</h1>
+      <p className="text-sm text-text-muted mb-8 leading-relaxed">{t('aiModelSubtitle')}</p>
 
-      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 space-y-6 md:space-y-8 mt-6 transition-colors">
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">AI API KEY (GEMINI/OPENAI/...)</label>
-            <button 
-              onClick={() => setShowKey(!showKey)}
-              className="text-xs font-bold text-text-highlight hover:underline flex items-center gap-2 transition-colors"
-            >
-              {showKey ? t('hideKey') : t('showKey')} {t('apiKey')}
-            </button>
+      {/* Provider status */}
+      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mb-6 transition-colors">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+          <div className="flex items-start gap-4">
+            <div className={cn(
+              "h-12 w-12 rounded-xl flex items-center justify-center shrink-0",
+              configured ? "bg-emerald-500/10 text-emerald-500" : "bg-rose-500/10 text-rose-500",
+            )}>
+              <Server className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xl font-bold text-text-highlight mb-1 transition-colors">{t('aiProviderStatus')}</h3>
+              <p className="text-sm text-text-muted leading-relaxed transition-colors">
+                {isLoadingStatus
+                  ? t('aiCheckingStatus')
+                  : configured
+                  ? t('aiConfiguredOk')
+                  : t('aiNotConfigured')}
+              </p>
+              {statusError && (
+                <p className="text-xs font-semibold text-rose-500 mt-1">{statusError}</p>
+              )}
+            </div>
           </div>
-          <div className="relative">
-            <input
-              type={showKey ? "text" : "password"}
-              className="w-full p-4 bg-bg-base border border-border-base rounded-2xl text-sm font-mono text-text-base focus:ring-2 focus:ring-text-highlight/20 focus:border-text-highlight transition-all"
-              placeholder={t('aiKeyPlaceholder')}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-            <Zap className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-text-muted/30 transition-colors" />
-          </div>
+          <button
+            onClick={() => void refreshStatus()}
+            className="px-4 py-2.5 rounded-xl bg-bg-base hover:bg-bg-base/70 text-xs font-bold text-text-base flex items-center gap-2 transition-colors"
+          >
+            {isLoadingStatus ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {t('refresh')}
+          </button>
         </div>
 
-        {status !== 'idle' && (
-          <div className={cn(
-            "p-6 rounded-2xl flex items-start gap-4 transition-colors",
-            status === 'success' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
-          )}>
-            {status === 'success' ? <CheckCircle2 className="h-6 w-6 shrink-0" /> : <AlertCircle className="h-6 w-6 shrink-0" />}
-            <p className="text-sm font-bold">{message}</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <InfoTile label={t('aiProviderEndpoint')} value={baseUrl || '—'} />
+          <InfoTile label={t('aiServerDefaultModel')} value={defaultModel || '—'} />
+          <InfoTile
+            label={t('aiKeyState')}
+            value={configured ? t('aiKeyConfigured') : t('aiKeyMissing')}
+            valueClassName={configured ? 'text-emerald-500' : 'text-rose-500'}
+          />
+        </div>
+
+        <p className="text-xs text-text-muted/80 mt-6 leading-relaxed">
+          {t('aiKeyServerOnly')}
+        </p>
+      </div>
+
+      {/* Model picker */}
+      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mb-6 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-xl font-bold text-text-highlight mb-1 transition-colors">{t('aiModel')}</h3>
+            <p className="text-sm text-text-muted leading-relaxed">{t('aiModelDescription')}</p>
           </div>
+          <button
+            onClick={() => void refreshModels(true)}
+            className="text-xs font-bold text-text-highlight hover:underline flex items-center gap-2 transition-colors"
+          >
+            {isLoadingModels ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {t('aiRefreshModels')}
+          </button>
+        </div>
+
+        {modelsError && !models.length && (
+          <p className="text-xs font-semibold text-rose-500 mb-3">{modelsError}</p>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3 md:gap-4 pt-4">
-          <button
-            onClick={handleDelete}
-            className="w-full sm:w-auto px-8 py-4 bg-bg-base text-text-muted rounded-xl text-sm font-bold hover:bg-rose-500/10 hover:text-rose-500 transition-all flex items-center justify-center gap-2"
+        <div className="relative text-text-base">
+          <select
+            value={activeModelId}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            disabled={!models.length}
+            className="w-full h-12 bg-bg-base border border-border-base rounded-xl px-4 text-sm font-bold text-text-base appearance-none focus:ring-2 focus:ring-text-highlight/20 focus:border-text-highlight cursor-pointer transition-colors disabled:opacity-60"
           >
-            <Trash2 className="h-4 w-4" /> {t('delete')}
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-1 px-8 py-4 bg-text-highlight text-white rounded-xl text-sm font-bold hover:opacity-90 shadow-lg shadow-text-highlight/20 transition-all flex items-center justify-center gap-2"
-          >
-            <Save className="h-4 w-4" /> {t('save')} {t('apiKey')}
-          </button>
+            {models.length === 0 ? (
+              <option value="" className="bg-bg-surface">{t('aiNoModels')}</option>
+            ) : !activeModelId ? (
+              <option value="" className="bg-bg-surface">{t('aiPickModel')}</option>
+            ) : null}
+            {models.map((m) => (
+              <option key={m.id} value={m.id} className="bg-bg-surface">
+                {(m.label || m.id) + (m.id === defaultModel ? ` · ${t('aiDefault')}` : '')}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
         </div>
       </div>
 
+      {/* System prompt */}
+      <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mb-6 transition-colors">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-xl font-bold text-text-highlight mb-1 flex items-center gap-2 transition-colors">
+              <Sparkles className="h-4 w-4" /> {t('aiSystemPrompt')}
+            </h3>
+            <p className="text-sm text-text-muted leading-relaxed">{t('aiSystemPromptDesc')}</p>
+          </div>
+          <button
+            onClick={handleResetPrompt}
+            className="text-xs font-bold text-text-muted hover:text-text-highlight flex items-center gap-2 transition-colors"
+          >
+            <RefreshCw className="h-4 w-4" /> {t('aiResetPrompt')}
+          </button>
+        </div>
+        <textarea
+          value={draftPrompt}
+          onChange={(e) => setDraftPrompt(e.target.value)}
+          rows={8}
+          className="w-full p-4 bg-bg-base border border-border-base rounded-2xl text-sm text-text-base focus:ring-2 focus:ring-text-highlight/20 focus:border-text-highlight transition-all resize-y leading-relaxed"
+          placeholder={t('aiSystemPromptPlaceholder')}
+        />
+      </div>
+
+      {/* Status banner */}
+      {status !== 'idle' && (
+        <div className={cn(
+          "mb-6 p-6 rounded-2xl flex items-start gap-4 transition-colors",
+          status === 'success' ? 'bg-emerald-500/10 text-emerald-500' :
+          status === 'testing' ? 'bg-blue-500/10 text-blue-500' : 'bg-rose-500/10 text-rose-500',
+        )}>
+          {status === 'success' ? <CheckCircle2 className="h-6 w-6 shrink-0" /> :
+            status === 'testing' ? <Loader2 className="h-6 w-6 shrink-0 animate-spin" /> : <AlertCircle className="h-6 w-6 shrink-0" />}
+          <div className="min-w-0">
+            <p className="text-sm font-bold wrap-break-word">{message}</p>
+            {testReply && status === 'success' && (
+              <p className="text-xs mt-2 opacity-80 leading-relaxed whitespace-pre-wrap wrap-break-word">{testReply}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
+        <button
+          onClick={handleTest}
+          disabled={status === 'testing' || !configured}
+          className="w-full sm:w-auto px-8 py-4 bg-bg-base text-text-base rounded-xl text-sm font-bold hover:bg-bg-base/70 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          {status === 'testing' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+          {t('aiTestModel')}
+        </button>
+        <button
+          onClick={handleSave}
+          className="flex-1 px-8 py-4 bg-text-highlight text-white rounded-xl text-sm font-bold hover:opacity-90 shadow-lg shadow-text-highlight/20 transition-all flex items-center justify-center gap-2"
+        >
+          <Save className="h-4 w-4" /> {t('aiSavePreferences')}
+        </button>
+      </div>
+
+      {/* Tips */}
       <div className="mt-8 bg-text-highlight/5 rounded-2xl p-4 md:p-8 border border-text-highlight/10 transition-colors">
         <h4 className="text-sm font-bold text-text-highlight mb-4 flex items-center gap-2 transition-colors">
-          <Info className="h-4 w-4" /> {t('guide')}
+          <Info className="h-4 w-4" /> {t('aiTipsTitle')}
         </h4>
         <ul className="text-xs text-text-muted space-y-4 leading-relaxed transition-colors">
           <li className="flex gap-3">
-            <div className="h-5 w-5 rounded-full bg-text-highlight text-white flex items-center justify-center text-[10px] shrink-0 transition-colors">1</div>
-            <p>{t('aiGuideStep1')}</p>
+            <div className="h-5 w-5 rounded-full bg-text-highlight text-white flex items-center justify-center text-xs shrink-0 transition-colors">1</div>
+            <p>{t('aiTip1')}</p>
           </li>
           <li className="flex gap-3">
-            <div className="h-5 w-5 rounded-full bg-text-highlight text-white flex items-center justify-center text-[10px] shrink-0 transition-colors">2</div>
-            <p>{t('aiGuideStep2')}</p>
+            <div className="h-5 w-5 rounded-full bg-text-highlight text-white flex items-center justify-center text-xs shrink-0 transition-colors">2</div>
+            <p>{t('aiTip2')}</p>
           </li>
           <li className="flex gap-3">
-            <div className="h-5 w-5 rounded-full bg-text-highlight text-white flex items-center justify-center text-[10px] shrink-0 transition-colors">3</div>
-            <p>{t('aiGuideStep3')}</p>
+            <div className="h-5 w-5 rounded-full bg-text-highlight text-white flex items-center justify-center text-xs shrink-0 transition-colors">3</div>
+            <p>{t('aiTip3')}</p>
           </li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+function InfoTile({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
+  return (
+    <div className="bg-bg-base/50 border border-border-base rounded-xl p-4 min-w-0">
+      <p className="text-xs font-bold text-text-muted/80 uppercase tracking-widest mb-2 truncate">{label}</p>
+      <p className={cn("text-sm font-bold text-text-base font-mono break-all", valueClassName)}>{value}</p>
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { useLanguage } from './LanguageContext';
 import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
 import { getFireantToken, cleanTokenString } from './utils/token';
+import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
 
 const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'settings', 'help', 'login'];
 
@@ -34,8 +35,7 @@ export default function App() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, isLoading: authLoading, signIn, signOut } = useOidcAuth();
   
   // Derive activeTab from location.pathname
   const { activeTab, activeIndustry, ticker, newsId, bondCode } = (() => {
@@ -252,62 +252,33 @@ export default function App() {
   }, [bondCode]); // Removed selectedBond from dependency to prevent re-fetch flicker on close
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // Try to get session from server first (more reliable for real environments)
-        const response = await fetch('/api/auth/session');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            setUser(data.user);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch (err) {
-        console.error("Failed to check server session", err);
-      }
+    if (authLoading) return;
 
-      const storedUser = localStorage.getItem('sentinel_user');
-      if (storedUser) {
-        try {
-          setUser(JSON.parse(storedUser));
-        } catch (err) {
-          console.error("Failed to parse stored user", err);
-          localStorage.removeItem('sentinel_user');
-        }
-      }
-      setLoading(false);
-    };
+    if (!user) {
+      fetch('/api/auth/logout', { method: 'POST' }).catch(console.error);
+      return;
+    }
 
-    checkAuth();
-  }, []);
-
-  const handleLoginSuccess = (userData: any) => {
-    setUser(userData);
-    localStorage.setItem('sentinel_user', JSON.stringify(userData));
-    // Tell server about login
+    const profile = (user.profile || {}) as Record<string, unknown>;
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userData })
+      body: JSON.stringify({
+        userData: {
+          id: profile.sub ?? profile.sid ?? '',
+          email: profile.email ?? '',
+          name: profile.name ?? profile.preferred_username ?? profile.email ?? '',
+        },
+      }),
     }).catch(console.error);
-    
-    setActiveTab('overview');
-  };
+  }, [user, authLoading]);
 
   const handleLogout = async () => {
-    setUser(null);
-    localStorage.removeItem('sentinel_user');
-    // Tell server about logout
-    fetch('/api/auth/logout', { method: 'POST' }).catch(console.error);
-    setActiveTab('overview');
-  };
-
-  const handleUpdateUser = async (updatedData: any) => {
-    const newUser = { ...user, ...updatedData, updatedAt: new Date().toISOString() };
-    setUser(newUser);
-    localStorage.setItem('sentinel_user', JSON.stringify(newUser));
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('OIDC sign-out failed', error);
+    }
   };
 
   const handleSearchSelect = async (suggestion: SearchSuggestion) => {
@@ -453,7 +424,19 @@ export default function App() {
     navigate('/news');
   };
 
-  if (loading) {
+  if (location.pathname === '/signin-callback') {
+    return <SignInCallback />;
+  }
+
+  if (location.pathname === '/signout-callback') {
+    return <SignOutCallback />;
+  }
+
+  if (location.pathname === '/silent-renew-callback') {
+    return <SilentRenewCallback />;
+  }
+
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-blue-600">
         <div className="flex flex-col items-center gap-4">
@@ -465,7 +448,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+    return <LoginView onSignIn={signIn} isSigningIn={authLoading} />;
   }
 
   const isProfileMode = activeTab === 'profile' || activeTab === 'settings' || activeTab === 'help';
@@ -479,7 +462,6 @@ export default function App() {
         onLogoClick={() => setActiveTab('overview')}
         onLogout={handleLogout}
         onSearchSelect={handleSearchSelect}
-        user={user}
       />
       
       <div ref={appFrameRef} className="flex flex-col md:flex-row relative items-stretch h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden md:overflow-hidden">
@@ -543,11 +525,7 @@ export default function App() {
                     )
                   } />
                   <Route path="/profile" element={
-                    <ProfileView 
-                      onLogout={handleLogout} 
-                      user={user} 
-                      onUpdateUser={handleUpdateUser} 
-                    />
+                    <ProfileView onLogout={handleLogout} />
                   } />
                   <Route path="/settings" element={<SettingsView />} />
                   <Route path="/help" element={<HelpView onBack={() => navigate('/')} />} />

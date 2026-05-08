@@ -3,10 +3,131 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import cookieSession from "cookie-session";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// =============================================
+// OpenAI / AI Model Configuration
+// =============================================
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+
+// Default model is taken strictly from environment (no hardcoded fallback).
+// If OPENAI_DEFAULT_MODEL is not set, the user must pick a model in Settings.
+const DEFAULT_AI_MODEL = (process.env.OPENAI_DEFAULT_MODEL || "").trim();
+
+const DEFAULT_SYSTEM_PROMPT = `Bạn là Chuyên gia phân tích trái phiếu cấp cao.
+
+PHONG CÁCH PHẢN HỒI:
+1. SÚC TÍCH, TRỌNG TÂM: Chỉ trả lời đúng trọng tâm câu hỏi. Không chào hỏi rườm rà, không giải thích khái niệm trừ khi được hỏi.
+2. DỰA TRÊN DỮ LIỆU: Tập trung vào các con số, xu hướng và rủi ro thực tế.
+3. TRÌNH BÀY: Luôn sử dụng Markdown. Ưu tiên sử dụng BẢNG (table) cho dữ liệu so sánh, DANH SÁCH (list) cho các luận điểm. In đậm các số liệu quan trọng.
+4. THÔNG MINH: Kết nối các thông tin thị trường để đưa ra nhận định sắc bén.
+
+HẠN CHẾ: Không trả lời quá 3 đoạn văn. Hạn chế khoảng trống giữa các dòng.`;
+
+interface AIModelInfo {
+  id: string;
+  label?: string;
+  description?: string;
+}
+
+let cachedModels: AIModelInfo[] | null = null;
+let lastModelsFetch = 0;
+const MODELS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+const isChatModelId = (id: string): boolean => {
+  if (!id) return false;
+  const lower = id.toLowerCase();
+  // Filter out non-chat models (embeddings, audio, image, moderation, etc.)
+  if (
+    lower.includes("embedding") ||
+    lower.includes("whisper") ||
+    lower.includes("tts") ||
+    lower.includes("audio") ||
+    lower.includes("dall-e") ||
+    lower.includes("davinci") ||
+    lower.includes("babbage") ||
+    lower.includes("moderation") ||
+    lower.includes("transcribe") ||
+    lower.includes("realtime") ||
+    lower.includes("image")
+  ) {
+    return false;
+  }
+  return (
+    lower.startsWith("gpt-") ||
+    lower.startsWith("o1") ||
+    lower.startsWith("o3") ||
+    lower.startsWith("o4") ||
+    lower.startsWith("chatgpt")
+  );
+};
+
+const buildModelLabel = (id: string): string => {
+  return id
+    .split("-")
+    .map((part) => (part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(" ");
+};
+
+interface FetchModelsResult {
+  models: AIModelInfo[];
+  error: string | null;
+}
+
+async function fetchAvailableModels(force = false): Promise<FetchModelsResult> {
+  const now = Date.now();
+  if (!force && cachedModels && now - lastModelsFetch < MODELS_CACHE_TTL) {
+    return { models: cachedModels, error: null };
+  }
+
+  if (!OPENAI_API_KEY) {
+    return { models: [], error: "OPENAI_API_KEY is not configured on the server" };
+  }
+
+  try {
+    const response = await axios.get(`${OPENAI_BASE_URL}/models`, {
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Accept: "application/json",
+      },
+      timeout: 12000,
+      validateStatus: (status) => status < 500,
+    });
+
+    if (response.status !== 200 || !Array.isArray(response.data?.data)) {
+      const detail = response.data?.error?.message || `HTTP ${response.status}`;
+      console.warn(`[AI] Failed to fetch /models: ${detail}`);
+      return { models: [], error: detail };
+    }
+
+    const filtered: AIModelInfo[] = response.data.data
+      .map((m: any) => String(m.id || ""))
+      .filter(isChatModelId)
+      .map((id: string) => ({ id, label: buildModelLabel(id) }));
+
+    // Deduplicate while preserving order
+    const seen = new Set<string>();
+    const unique = filtered.filter((m) => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+
+    // Sort: prefer newer (higher version numbers) names first
+    unique.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }) * -1);
+
+    cachedModels = unique;
+    lastModelsFetch = now;
+    return { models: unique, error: null };
+  } catch (err: any) {
+    const detail = err?.response?.data?.error?.message || err?.message || "Unknown error";
+    console.warn(`[AI] Error fetching models: ${detail}`);
+    return { models: [], error: detail };
+  }
+}
 
 async function startServer() {
   const app = express();
@@ -14,11 +135,11 @@ async function startServer() {
 
   app.use(express.json());
 
-  app.use(cookieSession({
-    name: 'session',
-    keys: [process.env.SESSION_SECRET || 'sentinel-secret-key'],
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }));
+  // app.use(cookieSession({
+  //   name: 'session',
+  //   keys: [process.env.SESSION_SECRET || 'sentinel-secret-key'],
+  //   maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  // }));
 
   // Generic API Proxy for Fireant
   app.all("/api/fireant/*", async (req, res) => {
@@ -685,88 +806,397 @@ async function startServer() {
     }
   });
 
-  // AI Chat Route with persistence
+  // =============================================
+  // AI Endpoints (OpenAI-compatible)
+  // =============================================
+
+  // Status: tells frontend whether the server has a key configured (without exposing it)
+  app.get("/api/ai/status", (_req, res) => {
+    res.json({
+      configured: Boolean(OPENAI_API_KEY),
+      baseUrl: OPENAI_BASE_URL,
+      defaultModel: DEFAULT_AI_MODEL,
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    });
+  });
+
+  // Quick connectivity probe — useful to diagnose whether the server can reach
+  // OpenAI at all (DNS, firewall, proxy issues).
+  app.get("/api/ai/ping", async (_req, res) => {
+    if (!OPENAI_API_KEY) {
+      return res.status(503).json({ ok: false, error: "OPENAI_API_KEY not set" });
+    }
+    const startedAt = Date.now();
+    try {
+      const response = await axios.get(`${OPENAI_BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+        timeout: 15000,
+        validateStatus: (s) => s < 600,
+      });
+      const elapsed = Date.now() - startedAt;
+      console.log(`[AI] Ping ${OPENAI_BASE_URL} → ${response.status} in ${elapsed}ms`);
+      res.json({
+        ok: response.status === 200,
+        status: response.status,
+        elapsed,
+        baseUrl: OPENAI_BASE_URL,
+      });
+    } catch (err: any) {
+      const elapsed = Date.now() - startedAt;
+      console.error(`[AI] Ping failed in ${elapsed}ms code=${err.code}: ${err.message}`);
+      res.status(502).json({
+        ok: false,
+        elapsed,
+        code: err.code,
+        message: err.message,
+        baseUrl: OPENAI_BASE_URL,
+      });
+    }
+  });
+
+  // List available chat models for the picker
+  app.get("/api/ai/models", async (req, res) => {
+    if (!OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: "AI service not configured",
+        models: [],
+        defaultModel: DEFAULT_AI_MODEL,
+      });
+    }
+
+    const force = req.query.refresh === "1" || req.query.refresh === "true";
+    const result = await fetchAvailableModels(force);
+    res.json({
+      models: result.models,
+      defaultModel: DEFAULT_AI_MODEL,
+      error: result.error,
+    });
+  });
+
+  // OpenAI reasoning models (o1, o3, o4-...) require `developer` role instead
+  // of `system`, and don't accept temperature/top_p tuning.
+  const isReasoningModel = (modelId: string): boolean => {
+    const id = (modelId || "").toLowerCase();
+    return id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4");
+  };
+
+  // Build messages array (OpenAI chat format) given prior history + user message.
+  // For reasoning models, `system` is rewritten to `developer` to comply with
+  // their API contract.
+  // When `pageContext` is provided it is injected as a dedicated context block
+  // so the model can reference live page data without polluting the system prompt.
+  const buildChatMessages = (
+    history: Array<{ role: string; content: string }>,
+    userMessage: string,
+    systemPrompt: string,
+    modelId: string,
+    pageContext?: string,
+  ) => {
+    const sanitized = (history || [])
+      .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+      .slice(-20)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    const systemRole = isReasoningModel(modelId) ? "developer" : "system";
+
+    const messages: Array<{ role: string; content: string }> = [
+      { role: systemRole, content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
+      ...sanitized,
+    ];
+
+    // If the user attached live page context, inject it as a user/assistant pair
+    // right before the real user message so the model can reference it.
+    if (pageContext && typeof pageContext === "string" && pageContext.trim().length > 0) {
+      messages.push({
+        role: "user",
+        content: `[DỮ LIỆU TRANG HIỆN TẠI]\n${pageContext.trim()}\n[/DỮ LIỆU TRANG HIỆN TẠI]`,
+      });
+      messages.push({
+        role: "assistant",
+        content: "Tôi đã ghi nhận dữ liệu từ trang bạn đang xem. Hãy đặt câu hỏi.",
+      });
+    }
+
+    messages.push({ role: "user", content: userMessage });
+    return messages;
+  };
+
+  // Helper: safely access the cookie session. Returns `null` when the cookie
+  // has been cleared (e.g. after logout) — callers must treat history as
+  // ephemeral in that case instead of crashing.
+  const getSession = (req: express.Request): any | null => {
+    const s = (req as any).session;
+    return s && typeof s === "object" ? s : null;
+  };
+
+  const appendHistory = (session: any | null, userMessage: string, assistantText: string) => {
+    if (!session) return [];
+    if (!Array.isArray(session.chatHistory)) session.chatHistory = [];
+    session.chatHistory.push({ role: "user", content: userMessage });
+    session.chatHistory.push({ role: "assistant", content: assistantText });
+    if (session.chatHistory.length > 20) {
+      session.chatHistory = session.chatHistory.slice(-20);
+    }
+    return session.chatHistory;
+  };
+
+  // Non-streaming chat (kept for compatibility)
   app.post("/api/ai/chat", async (req, res) => {
-    const { messages = [], userMessage } = req.body;
-    const session = req.session as any;
-    
+    const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
+    const session = getSession(req);
+
     if (!userMessage) {
       return res.status(400).json({ error: "User message is required" });
     }
-    
-    // Support both naming conventions for compatibility across environments
-    const apiKey = process.env.GOOGLE_GENAI_API_KEY || process.env.GEMINI_API_KEY;
-    
-    if (!apiKey) {
-      console.error("[AI] API key is not set in environment (tried GOOGLE_GENAI_API_KEY and GEMINI_API_KEY)");
-      return res.status(500).json({ error: "AI service not configured" });
+
+    if (!OPENAI_API_KEY) {
+      return res.status(503).json({ error: "AI service not configured" });
     }
 
+    const targetModel = (typeof model === "string" && model.trim()) || DEFAULT_AI_MODEL;
+    if (!targetModel) {
+      return res.status(400).json({
+        error: "No AI model selected",
+        details: "Pass `model` in the request body or set OPENAI_DEFAULT_MODEL on the server.",
+      });
+    }
+    const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
+
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      
-      // Update session history
-      if (!session.chatHistory) {
-        session.chatHistory = [];
-      }
+      const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, targetModel, pageContext);
 
-      // Build the prompt from history
-      // Gemini history MUST start with 'user' role.
-      const chatHistory = messages
-        .filter((m: any, index: number) => {
-          if (index === 0 && m.role === 'assistant') return false;
-          return true;
-        })
-        .map((m: any) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }]
-        }));
+      console.log(`[AI] Chat request → model=${targetModel}, user=${session?.user?.email || "anonymous"}`);
 
-      const contents = [
-        ...chatHistory,
+      const response = await axios.post(
+        `${OPENAI_BASE_URL}/chat/completions`,
         {
-          role: 'user',
-          parts: [{ text: userMessage }]
-        }
-      ];
+          model: targetModel,
+          messages: chatMessages,
+          stream: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 60000,
+          validateStatus: (status) => status < 500,
+        },
+      );
 
-      console.log(`[AI] Sending request to Gemini for user: ${session.user?.email || 'Anonymous'}...`);
-      // Use gemini-3-flash-preview for better compliance and features
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview", 
-        contents: contents,
-        config: {
-          systemInstruction: "You are Sentinel AI Support, an expert in bond markets and financial data. Answer user questions about bond markets accurately and professionally. You have access to the user's identified profile if they are logged in. Use information from the user request history if available. If you don't know the answer, say you don't know and advise consulting a professional advisor. Keep answers concise."
-        }
-      });
-
-      if (!response.text) {
-        throw new Error("No response text from AI");
+      if (response.status !== 200) {
+        console.error(`[AI] OpenAI returned ${response.status}:`, response.data);
+        return res.status(response.status).json({
+          error: "AI provider error",
+          details: response.data?.error?.message || `HTTP ${response.status}`,
+        });
       }
 
-      const text = response.text;
-      
-      // Update persistent session history
-      session.chatHistory.push({ role: 'user', content: userMessage });
-      session.chatHistory.push({ role: 'assistant', content: text });
-      // Keep only last 20 messages to keep session cookie size small
-      if (session.chatHistory.length > 20) {
-        session.chatHistory = session.chatHistory.slice(-20);
-      }
+      const text = response.data?.choices?.[0]?.message?.content || "";
+      if (!text) throw new Error("No response text from AI provider");
 
-      console.log("[AI] Response received successfully");
-      res.json({ text, history: session.chatHistory });
+      const history = appendHistory(session, userMessage, text);
+      res.json({ text, model: targetModel, history });
     } catch (error: any) {
-      console.error("[AI] Error details:", error.message);
-      if (error.response?.data) {
-        console.error("[AI] API Response error:", JSON.stringify(error.response.data));
-      }
-      
-      res.status(500).json({ 
-        error: "AI connection failed", 
-        message: error.message,
-        details: error.response?.data?.error?.message || error.message
+      console.error("[AI] /chat error:", error.message);
+      res.status(500).json({
+        error: "AI connection failed",
+        details: error.response?.data?.error?.message || error.message,
       });
+    }
+  });
+
+  // Streaming chat (Server-Sent Events) — used by AIChatBot for live typing
+  app.post("/api/ai/chat/stream", async (req, res) => {
+    const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
+    const session = getSession(req);
+
+    if (!userMessage) {
+      return res.status(400).json({ error: "User message is required" });
+    }
+    if (!OPENAI_API_KEY) {
+      return res.status(503).json({ error: "AI service not configured" });
+    }
+
+    const targetModel = (typeof model === "string" && model.trim()) || DEFAULT_AI_MODEL;
+    if (!targetModel) {
+      return res.status(400).json({
+        error: "No AI model selected",
+        details: "Pass `model` in the request body or set OPENAI_DEFAULT_MODEL on the server.",
+      });
+    }
+    const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const sendEvent = (event: string, data: any) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // Force flush to bypass any intermediate buffering (compression
+      // middleware, dev proxies, etc.). `flush()` is added by libraries like
+      // `compression`; on bare Node sockets it's a no-op.
+      (res as any).flush?.();
+    };
+
+    // Use the abort signal so stopping from the browser also cancels the
+    // upstream request to OpenAI (no orphaned tokens billed).
+    //
+    // NOTE: We listen on `res` instead of `req`. In Express, `req.on("close")`
+    // can fire as soon as `express.json()` finishes reading the body, even
+    // though the underlying socket is still alive — that would abort our
+    // upstream fetch before it even starts. `res.on("close")` only fires when
+    // the response stream is closed; we additionally check `writableFinished`
+    // to ignore the natural close that follows our own `res.end()`.
+    let aborted = false;
+    const abortController = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) {
+        aborted = true;
+        abortController.abort();
+      }
+    });
+
+    try {
+      const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, targetModel, pageContext);
+      const startedAt = Date.now();
+      console.log(
+        `[AI] Stream request → model=${targetModel}, base=${OPENAI_BASE_URL}, key=${OPENAI_API_KEY ? `set(${OPENAI_API_KEY.length}ch)` : "MISSING"}, user=${session?.user?.email || "anonymous"}`,
+      );
+
+      // Use native fetch (Node 18+) instead of axios. axios's stream handling
+      // can buffer/swallow chunked SSE responses in some Node/version combos;
+      // fetch+ReadableStream is the OpenAI-recommended path.
+      const upstream = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          model: targetModel,
+          messages: chatMessages,
+          stream: true,
+        }),
+        signal: abortController.signal,
+      });
+
+      console.log(`[AI] Upstream connected in ${Date.now() - startedAt}ms (status=${upstream.status})`);
+
+      if (!upstream.ok) {
+        const errBody = await upstream.text().catch(() => "");
+        let parsed: any = null;
+        try { parsed = JSON.parse(errBody); } catch {}
+        const message = parsed?.error?.message || errBody.slice(0, 400) || `HTTP ${upstream.status}`;
+        console.error(`[AI] Upstream HTTP ${upstream.status}: ${message}`);
+        sendEvent("error", { message });
+        res.end();
+        return;
+      }
+
+      if (!upstream.body) {
+        console.error(`[AI] Upstream ${upstream.status} returned no body`);
+        sendEvent("error", { message: "OpenAI trả về body rỗng." });
+        res.end();
+        return;
+      }
+
+      sendEvent("start", { model: targetModel });
+
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let fullText = "";
+      let buffer = "";
+      let chunkCount = 0;
+      let deltaCount = 0;
+
+      while (true) {
+        if (aborted) {
+          try { await reader.cancel(); } catch { /* noop */ }
+          break;
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunkCount += 1;
+        const text = decoder.decode(value, { stream: true });
+        if (chunkCount === 1) {
+          const preview = text.slice(0, 200).replace(/\n/g, "\\n");
+          console.log(`[AI] First upstream chunk (${value.byteLength}B): ${preview}`);
+        }
+
+        // Normalize CRLF; some proxies emit `\r\n\r\n` between events.
+        buffer += text.replace(/\r\n/g, "\n");
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const lines = part.split("\n").filter((l) => l.startsWith("data:"));
+          for (const line of lines) {
+            const payload = line.replace(/^data:\s?/, "").trim();
+            if (!payload) continue;
+            if (payload === "[DONE]") continue;
+
+            try {
+              const json = JSON.parse(payload);
+              const delta = json.choices?.[0]?.delta?.content;
+              if (typeof delta === "string" && delta.length > 0) {
+                fullText += delta;
+                deltaCount += 1;
+                sendEvent("delta", { text: delta });
+              } else if (json.error) {
+                console.error(`[AI] Inline stream error:`, json.error);
+                sendEvent("error", { message: json.error.message || "Stream error" });
+              }
+            } catch {
+              // Ignore non-JSON keepalives
+            }
+          }
+        }
+      }
+
+      console.log(`[AI] Stream end → chunks=${chunkCount}, deltas=${deltaCount}, length=${fullText.length}`);
+
+      if (fullText) {
+        appendHistory(session, userMessage, fullText);
+        sendEvent("done", { text: fullText, model: targetModel });
+      } else if (!aborted) {
+        console.warn(`[AI] Stream finished with empty content for model=${targetModel}`);
+        sendEvent("error", {
+          message: `Mô hình ${targetModel} không trả về nội dung. Hãy thử mô hình khác hoặc kiểm tra system prompt.`,
+        });
+      }
+      res.end();
+    } catch (error: any) {
+      let detailedMessage = error?.message || "Unknown error";
+
+      // Map common low-level / fetch failures to friendlier hints.
+      const code = error?.code || error?.cause?.code;
+      if (code) {
+        const networkHints: Record<string, string> = {
+          ETIMEDOUT: "Yêu cầu tới OpenAI bị timeout. Mạng có thể đang chặn api.openai.com.",
+          ECONNREFUSED: "Không thể kết nối api.openai.com. Kiểm tra firewall/proxy.",
+          ECONNRESET: "Kết nối tới OpenAI bị ngắt giữa chừng.",
+          ENOTFOUND: "Không phân giải được DNS api.openai.com. Kiểm tra DNS/VPN.",
+          EAI_AGAIN: "DNS lookup tạm thời thất bại. Thử lại sau.",
+        };
+        detailedMessage = `${networkHints[code] || detailedMessage} (${code})`;
+      }
+
+      // fetch AbortError when the client closes the connection — silent.
+      if (error?.name === "AbortError" && aborted) {
+        console.log(`[AI] Stream aborted by client`);
+        res.end();
+        return;
+      }
+
+      console.error(`[AI] /chat/stream error code=${code || "n/a"}: ${detailedMessage}`);
+      sendEvent("error", { message: detailedMessage });
+      res.end();
     }
   });
 
@@ -775,9 +1205,18 @@ async function startServer() {
     res.json({ history: session?.chatHistory || [] });
   });
 
+  app.post("/api/ai/history/clear", (req, res) => {
+    const session = req.session as any;
+    if (session) session.chatHistory = [];
+    res.json({ success: true });
+  });
+
   app.post("/api/auth/login", (req, res) => {
     const { userData } = req.body;
-    (req.session as any).user = userData;
+    const session = getSession(req);
+    if (session) {
+      session.user = userData;
+    }
     res.json({ success: true, user: userData });
   });
 
@@ -793,6 +1232,7 @@ async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
+      root: process.cwd(),
       server: { middlewareMode: true },
       appType: "spa",
     });

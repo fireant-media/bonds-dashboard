@@ -4,6 +4,8 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { useAuthUser, useIsGoogleUser } from '../auth/authStore';
+import type { UserAccount } from '../models/users';
 import SentinelFooter from './SentinelFooter';
 
 function cn(...inputs: ClassValue[]) {
@@ -14,11 +16,10 @@ type ProfileTab = 'info' | 'security' | 'history';
 
 interface ProfileViewProps {
   onLogout: () => void;
-  user: any;
-  onUpdateUser: (data: any) => void;
 }
 
-export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileViewProps) {
+export default function ProfileView({ onLogout }: ProfileViewProps) {
+  const user = useAuthUser();
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -33,7 +34,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
 
   const menuItems = [
     { id: 'info', label: t('personalInfo'), icon: User },
-    { id: 'security', label: t('securitySettings'), icon: ShieldCheck },
+    // { id: 'security', label: t('securitySettings'), icon: ShieldCheck },
     { id: 'history', label: t('activityLog'), icon: History },
   ];
 
@@ -77,32 +78,39 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
       {/* Main Content */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar transition-colors">
         <div className="max-w-5xl min-w-0">
-          {activeTab === 'info' && <PersonalInfoView user={user} onUpdateUser={onUpdateUser} />}
-          {activeTab === 'security' && <SecuritySettingsView user={user} onUpdateUser={onUpdateUser} />}
+          {activeTab === 'info' && <PersonalInfoView user={user} />}
+          {activeTab === 'security' && <SecuritySettingsView />}
           {activeTab === 'history' && <ActivityLogView />}
         </div>
       </div>
     </div>
   );
-}function PersonalInfoView({ user, onUpdateUser }: { user: any; onUpdateUser: (data: any) => void }) {
+}
+
+function PersonalInfoView({ user }: { user: UserAccount | null }) {
   const { t } = useLanguage();
-  const isGoogleUser = user?.isGoogleUser === true;
+  const isGoogleUser = useIsGoogleUser();
+  const profileName = user?.profile?.name ?? '';
+  const profileEmail = user?.identityData?.email ?? '';
   const [formData, setFormData] = useState({
-    name: user?.name || 'Admin',
-    email: user?.email || "admin@test.com"
+    name: profileName,
+    email: profileEmail,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  useEffect(() => {
+    setFormData({
+      name: profileName,
+      email: profileEmail,
+    });
+  }, [profileName, profileEmail]);
+
   const handleSave = () => {
     if (isGoogleUser) return;
     setIsSaving(true);
-    // Simulate API delay
     setTimeout(() => {
-      onUpdateUser({
-        name: formData.name,
-        email: formData.email
-      });
+      console.warn('Profile update is read-only for OIDC accounts.');
       setIsSaving(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -125,11 +133,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
           <div className="flex flex-col md:flex-row gap-12">
             <div className="flex flex-col items-center gap-4">
               <div className="h-48 w-48 rounded-xl bg-bg-base/50 flex items-center justify-center border-2 border-dashed border-border-base relative group overflow-hidden transition-colors">
-                {user?.picture ? (
-                  <img src={user.picture} alt={user.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <User className="h-20 w-20 text-text-muted/40" />
-                )}
+                <User className="h-20 w-20 text-text-muted/40" />
                 {!isGoogleUser && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                     <Camera className="h-8 w-8 text-white" />
@@ -228,9 +232,9 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
   );
 }
 
-function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser: (data: any) => void }) {
+function SecuritySettingsView() {
   const { t } = useLanguage();
-  const isGoogleUser = user?.isGoogleUser === true;
+  const isGoogleUser = useIsGoogleUser();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -248,37 +252,31 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
 
   const handleUpdatePassword = () => {
     if (isGoogleUser) return;
-    const newErrors: {current?: boolean, new?: boolean, confirm?: boolean} = {};
-    
-    // Check current password (default to 123456 if none set)
-    const activePass = user?.password || '123456';
-    if (currentPassword !== activePass) {
-        newErrors.current = true;
-    }
+    const newErrors: { current?: boolean; new?: boolean; confirm?: boolean } = {};
 
-    // Check new password format
+    if (!currentPassword) {
+      newErrors.current = true;
+    }
     if (!validatePassword(newPassword)) {
-        newErrors.new = true;
+      newErrors.new = true;
     }
-
-    // Check confirm password
     if (confirmPassword !== newPassword || !confirmPassword) {
-        newErrors.confirm = true;
+      newErrors.confirm = true;
     }
 
     setErrors(newErrors);
 
     if (Object.keys(newErrors).length === 0) {
-        setIsSaving(true);
-        setTimeout(() => {
-            onUpdateUser({ password: newPassword });
-            setIsSaving(false);
-            setSaveSuccess(true);
-            setCurrentPassword('');
-            setNewPassword('');
-            setConfirmPassword('');
-            setTimeout(() => setSaveSuccess(false), 3000);
-        }, 1000);
+      setIsSaving(true);
+      setTimeout(() => {
+        console.warn('Password change must be done at the identity provider.');
+        setIsSaving(false);
+        setSaveSuccess(true);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }, 1000);
     }
   };
 

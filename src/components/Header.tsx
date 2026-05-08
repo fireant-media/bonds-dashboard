@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { getFireantToken, cleanTokenString } from '../utils/token';
+import { useAuthUser } from '../auth/authStore';
 import Logo from './Logo';
 
 export type SearchSuggestion = {
@@ -22,10 +23,9 @@ interface HeaderProps {
   onLogoClick: () => void;
   onLogout: () => void;
   onSearchSelect: (suggestion: SearchSuggestion) => void;
-  user: any;
 }
 
-export default function Header({ onProfileClick, onSettingsClick, onHelpClick, onLogoClick, onLogout, onSearchSelect, user }: HeaderProps) {
+export default function Header({ onProfileClick, onSettingsClick, onHelpClick, onLogoClick, onLogout, onSearchSelect }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,6 +34,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
   const [showDropdown, setShowDropdown] = useState(false);
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const authUser = useAuthUser();
 
   const getInitials = (name: string) => {
     if (!name) return 'A';
@@ -276,7 +277,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
             <div className="scale-110 md:scale-125 origin-left">
               <Logo />
             </div>
-            <h1 className="text-base md:text-lg font-bold text-text-highlight tracking-tight transition-colors hidden lg:block uppercase leading-none relative -top-[2px]">
+            <h1 className="text-base md:text-lg font-bold text-text-highlight tracking-tight transition-colors hidden lg:block uppercase leading-none relative">
               Bonds Dashboard
             </h1>
           </div>
@@ -336,14 +337,10 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
             className="flex items-center gap-3 p-1.5 hover:bg-bg-base rounded-lg transition-colors shrink-0"
           >
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-text-base leading-none">{user?.name || 'Admin User'}</p>
+              <p className="text-sm font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>
             </div>
             <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold overflow-hidden">
-              {user?.picture ? (
-                <img src={user.picture} alt={user.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                getInitials(user?.name)
-              )}
+              {getInitials(authUser?.profile?.name || '')}
             </div>
           </button>
 

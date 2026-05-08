@@ -1,79 +1,29 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, ShieldCheck, Apple, AlertCircle, LayoutGrid, BarChart4, BellRing, ClipboardList } from 'lucide-react';
-import { useTheme } from '../ThemeContext';
+import { motion } from 'framer-motion';
+import { ShieldCheck, AlertCircle, LayoutGrid, BarChart4, BellRing, ClipboardList } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
+import Logo from './Logo';
 
 interface LoginViewProps {
-  onLoginSuccess: (userData: any) => void;
+  onSignIn: () => Promise<void> | void;
+  isSigningIn?: boolean;
 }
 
-type AuthMode = 'login' | 'register';
-
-export default function LoginView({ onLoginSuccess }: LoginViewProps) {
-  const { effectiveTheme } = useTheme();
+export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
   const { t } = useLanguage();
-  const isDark = effectiveTheme === 'dark';
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const DEMO_EMAIL = 'admin@test.com';
-  const DEMO_PASSWORD = '123456';
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async () => {
     setError(null);
-    
-    if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
-      onLoginSuccess({ 
-        email: DEMO_EMAIL, 
-        name: 'Admin',
-        isGoogleUser: false
-      });
-    } else {
-      setError(t('invalidCredentials'));
+
+    try {
+      await onSignIn();
+    } catch (err) {
+      console.error('OIDC sign-in failed', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setError(`Sign in failed: ${message}`);
     }
   };
-
-  const handleRegister = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    
-    if (password !== confirmPassword) {
-      setError(t('confirmPasswordMismatch'));
-      return;
-    }
-
-    onLoginSuccess({ 
-      email, 
-      name: fullName || 'New User', 
-      isGoogleUser: false
-    });
-  };
-
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
-  const handleGoogleLogin = async () => {
-    setIsGoogleLoading(true);
-    setError(null);
-    // Simulate API delay
-    setTimeout(() => {
-      const userData = {
-        name: 'User (Google)',
-        isGoogleUser: true,
-        updatedAt: new Date().toISOString()
-      };
-      onLoginSuccess(userData);
-      setIsGoogleLoading(false);
-    }, 1000);
-  };
-
-  const isLogin = authMode === 'login';
 
   return (
     <div className="h-screen flex bg-bg-base font-sans text-text-base overflow-hidden relative transition-colors">
@@ -83,15 +33,11 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
         <div className="w-full max-w-[500px] p-6 lg:p-8 relative z-10 flex flex-col justify-between h-fit">
           <div className="relative">
             {/* 1. Header with Logo */}
-            <div className="flex items-center gap-2 mb-8 text-blue-600">
-              <div className="h-8 w-8 bg-white dark:bg-slate-800 rounded-lg flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shadow-sm transition-colors">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <span className="font-bold text-lg tracking-tight uppercase">FIREANT</span>
+            <div className='absolute -top-10 -left-1'>
+            <Logo />
             </div>
 
             <motion.div
-              key={authMode}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
@@ -163,206 +109,33 @@ export default function LoginView({ onLoginSuccess }: LoginViewProps) {
       {/* Right side - Form Panel */}
       <div className="flex-1 flex flex-col justify-center items-center p-4 lg:p-8 relative overflow-hidden transition-colors">
         <div className="w-full max-w-[540px] bg-bg-surface rounded-[32px] lg:rounded-[40px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.06)] p-8 lg:p-12 relative z-10 border border-border-base max-h-[85vh] h-fit overflow-y-auto no-scrollbar flex flex-col justify-center transition-colors">
-          <AnimatePresence mode="wait">
-            {isLogin ? (
-              <motion.div
-                key="login-form"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="mb-8 text-center">
-                  <p className="text-xs font-semibold text-blue-600 uppercase tracking-tight mb-2 transition-colors">{t('loginWelcome')}</p>
-                  <h2 className="text-xl font-bold text-text-base tracking-tight transition-colors">{t('loginAccount')}</h2>
-                </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+          >
+            <div className="text-center space-y-2">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-tight transition-colors">{t('loginWelcome')}</p>
+              <h2 className="text-xl font-bold text-text-base tracking-tight transition-colors">{t('loginAccount')}</h2>
+            </div>
 
-                <form onSubmit={handleLogin} className="space-y-5">
-                  {error && (
-                    <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900 shadow-sm rounded-xl flex items-center gap-2 text-rose-600 dark:text-rose-400 text-[10px] font-bold uppercase tracking-tight transition-colors">
-                      <AlertCircle className="h-4 w-4" />
-                      {error}
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('emailAddress')}</label>
-                    <div className="relative group">
-                      <input 
-                        type="email" 
-                        placeholder="name@company.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="w-full px-5 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                      <Mail className="absolute right-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted group-hover:text-text-base transition-colors" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('securePassword')}</label>
-                    <div className="relative group">
-                      <Lock className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input 
-                        type={showPassword ? 'text' : 'password'} 
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full px-12 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-5 top-1/2 -translate-y-1/2 p-1 hover:bg-bg-surface/50 rounded-lg transition-colors"
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4 text-text-muted" /> : <Eye className="h-4 w-4 text-text-muted" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between px-0.5">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input type="checkbox" className="w-3.5 h-3.5 rounded border-border-base text-blue-600 focus:ring-0 cursor-pointer bg-bg-base" />
-                      <span className="text-xs text-text-muted font-medium group-hover:text-text-base transition-colors tracking-tight">{t('rememberMe')}</span>
-                    </label>
-                    <button type="button" onClick={() => setAuthMode('register')} className="text-xs font-bold text-blue-600 hover:underline uppercase tracking-tight transition-colors">{t('forgotPassword')}</button>
-                  </div>
-
-                  <button type="submit" className="w-full py-3 bg-blue-600 hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all uppercase tracking-tight active:scale-[0.98]">
-                    {t('signIn')}
-                  </button>
-                </form>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="register-form"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="mb-7 text-center">
-                  <h2 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('registerAccount')}</h2>
-                </div>
-
-                <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-extrabold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('fullName')}</label>
-                      <div className="relative group">
-                        <input 
-                          type="text" 
-                          placeholder="Nguyen Van A"
-                          value={fullName}
-                          onChange={(e) => setFullName(e.target.value)}
-                          className="w-full px-5 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-extrabold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('email')}</label>
-                      <div className="relative group">
-                        <input 
-                          type="email" 
-                          placeholder="example@sentinel.com"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="w-full px-5 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('password')}</label>
-                    <div className="relative group">
-                      <Lock className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input 
-                        type={showPassword ? 'text' : 'password'} 
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full px-12 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-5 top-1/2 -translate-y-1/2 p-1 hover:bg-bg-surface/50 rounded-lg transition-colors"
-                      >
-                        <Eye className="h-4 w-4 text-text-muted" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('confirmPassword')}</label>
-                    <div className="relative group">
-                      <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input 
-                        type="password" 
-                        placeholder="••••••••"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full px-12 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 pt-0.5">
-                    <label className="flex items-start gap-3 cursor-pointer group">
-                      <input type="checkbox" className="mt-0.5 w-3.5 h-3.5 rounded border-border-base text-blue-600 focus:ring-0 cursor-pointer bg-bg-base" />
-                      <span className="text-xs text-text-muted font-medium leading-normal tracking-tight transition-colors">
-                        {t('agreeTerms')} <span className="font-bold text-text-base underline">{t('termsOfService')}</span>.
-                      </span>
-                    </label>
-                  </div>
-
-                  <button type="submit" className="w-full py-3 bg-blue-600 hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all uppercase tracking-tight active:scale-[0.98]">
-                    {t('createAccount')}
-                  </button>
-                </form>
-              </motion.div>
+            {error && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900 shadow-sm rounded-xl flex items-center gap-2 text-rose-600 dark:text-rose-400 text-xs font-bold uppercase tracking-tight transition-colors">
+                <AlertCircle className="h-4 w-4" />
+                {error}
+              </div>
             )}
-          </AnimatePresence>
 
-          <div className="space-y-4 mt-5">
-            <div className="relative py-1.5">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border-base transition-colors"></span>
-              </div>
-              <div className="relative flex justify-center text-[9px] uppercase">
-                <span className="bg-bg-surface px-3 text-text-muted font-bold tracking-tight transition-colors">{t('orContinueWith')}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={handleGoogleLogin}
-                disabled={isGoogleLoading}
-                className="flex items-center justify-center gap-2 py-2 border border-border-base rounded-xl hover:bg-bg-base transition-all active:scale-[0.98] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isGoogleLoading ? (
-                  <div className="h-3.5 w-3.5 border-2 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-                ) : (
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="h-3.5 w-3.5" />
-                )}
-                <span className="text-[10px] font-bold text-text-base tracking-tight transition-colors">
-                  {isGoogleLoading ? t('signingIn') || 'Signing in...' : t('googleAuth')}
-                </span>
-              </button>
-              <button className="flex items-center justify-center gap-2 py-2 border border-border-base rounded-xl hover:bg-bg-base transition-all active:scale-[0.98] transition-colors">
-                <Apple className="h-3.5 w-3.5 text-text-base" />
-                <span className="text-[10px] font-bold text-text-base tracking-tight transition-colors">{t('appleAuth')}</span>
-              </button>
-            </div>
-
-            <div className="text-center text-xs text-text-muted mt-4 tracking-tight font-medium transition-colors">
-              {isLogin ? (
-                <>{t('dontHaveAccount')} <button onClick={() => setAuthMode('register')} className="text-blue-600 font-bold hover:underline">{t('signUp')}</button></>
-              ) : (
-                <>{t('alreadyHaveAccount')} <button onClick={() => setAuthMode('login')} className="text-blue-600 font-bold hover:underline">{t('signIn')}</button></>
-              )}
-            </div>
-          </div>
+            <button
+              type="button"
+              onClick={handleLogin}
+              disabled={isSigningIn}
+              className="w-full py-3 bg-blue-600 hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 transition-all uppercase tracking-tight active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSigningIn ? (t('signingIn') || 'Signing in...') : t('signIn')}
+            </button>
+          </motion.div>
         </div>
       </div>
     </div>
