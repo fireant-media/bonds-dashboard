@@ -333,14 +333,6 @@ export default function AIChatBot() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-text-base truncate leading-tight">{t('chatBotTitle')}</h3>
-                  <div className="flex items-center gap-1.5">
-                    <div className={`h-1.5 w-1.5 rounded-full ${configured ? 'bg-green-500 animate-pulse' : 'bg-rose-500'}`} />
-                    <span className="text-xs text-text-muted font-medium uppercase tracking-wider leading-tight">
-                      {configured
-                        ? (activeModel || 'Online')
-                        : t('aiOffline')}
-                    </span>
-                  </div>
                 </div>
               </div>
 
