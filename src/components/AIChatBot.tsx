@@ -186,12 +186,14 @@ export default function AIChatBot() {
     }
   }, [messages]);
 
-  // Bootstrap AI status when chat opens for the first time
+  // Bootstrap AI status when chat opens for the first time.
+  // statusError is intentionally included so retries don't loop: once an error
+  // is set we stop auto-retrying (user can retry manually via Settings).
   useEffect(() => {
-    if (isOpen && !configured && !isLoadingStatus) {
+    if (isOpen && !configured && !isLoadingStatus && !statusError) {
       void refreshStatus();
     }
-  }, [isOpen, configured, isLoadingStatus, refreshStatus]);
+  }, [isOpen, configured, isLoadingStatus, statusError, refreshStatus]);
 
   // Reset context attachment when navigating away
   useEffect(() => {

@@ -27,6 +27,14 @@
       "destination": "/api/proxy.ts?path=:path*"
     },
     {
+      "source": "/api/ai/:path*",
+      "destination": "/api/ai.ts?path=:path*"
+    },
+    {
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth.ts?path=:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
