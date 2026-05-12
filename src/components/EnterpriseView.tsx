@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
@@ -43,6 +43,8 @@ export default function EnterpriseView({
   const [enterprisePage, setEnterprisePage] = useState(1);
   const [bondTermFilter, setBondTermFilter] = useState('All');
   const [bondInterestSort, setBondInterestSort] = useState('None');
+  const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
+  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [financialData, setFinancialData] = useState<any>(null);
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
@@ -90,6 +92,7 @@ export default function EnterpriseView({
       if (!selectedEnterprise) {
         setIssuerBonds([]);
         setBondPage(1);
+        setLoadingCashFlows(false);
         return;
       }
 
@@ -98,6 +101,7 @@ export default function EnterpriseView({
       setBondPage(1);
       setBondTermFilter('All');
       setBondInterestSort('None');
+      setCashFlowPeriod('year');
       try {
         const token = getFireantToken();
         const cleanToken = token ? cleanTokenString(token) : undefined;
@@ -135,6 +139,49 @@ export default function EnterpriseView({
             status: b.status
           }));
           setIssuerBonds(mappedBonds);
+
+          if (!cleanToken || mappedBonds.length === 0) return;
+
+          setLoadingCashFlows(true);
+
+          const fetchBondCashFlows = async (bond: Bond): Promise<Bond> => {
+            const cacheKey = `bond_cash_flows_${bond.code}`;
+            const cachedCashFlows = getCache(cacheKey);
+            if (cachedCashFlows) {
+              return { ...bond, cashFlows: cachedCashFlows };
+            }
+
+            const detailResponse = await fetch(`/api/fireant/bonds/${encodeURIComponent(bond.code)}`, {
+              headers
+            });
+
+            if (!detailResponse.ok) return bond;
+
+            const detailData = await detailResponse.json();
+            const cashFlows = Array.isArray(detailData.cashFlows)
+              ? detailData.cashFlows.map((cf: any) => ({
+                  paymentDate: cf.paymentDate,
+                  interestAmount: (cf.interestAmount || 0) / 1000000000,
+                  principalAmount: (cf.principalAmount || 0) / 1000000000,
+                  totalCashflow: (cf.totalCashflow || 0) / 1000000000,
+                  bondRate: cf.bondRate || 0
+                }))
+              : [];
+
+            setCache(cacheKey, cashFlows);
+            return { ...bond, cashFlows };
+          };
+
+          const detailedBonds: Bond[] = [];
+          const chunkSize = 8;
+          for (let i = 0; i < mappedBonds.length; i += chunkSize) {
+            const chunk = mappedBonds.slice(i, i + chunkSize);
+            const results = await Promise.allSettled(chunk.map(fetchBondCashFlows));
+            results.forEach((result, index) => {
+              detailedBonds.push(result.status === 'fulfilled' ? result.value : chunk[index]);
+            });
+            setIssuerBonds([...detailedBonds, ...mappedBonds.slice(i + chunkSize)]);
+          }
         } else {
           throw new Error(`${language === 'vi' ? 'Lỗi khi lấy dữ liệu trái phiếu:' : 'Error fetching bond data:'} ${response.status}`);
         }
@@ -147,6 +194,7 @@ export default function EnterpriseView({
         }
       } finally {
         setLoadingBonds(false);
+        setLoadingCashFlows(false);
       }
     };
 
@@ -549,6 +597,58 @@ export default function EnterpriseView({
   const sortedYears = Object.keys(maturityYearData).sort();
   const columnData = sortedYears.map(year => maturityYearData[year]);
 
+  const projectedCashFlowData = useMemo(() => {
+    const buckets = new Map<string, { label: string; interest: number; principal: number }>();
+
+    const ensureBucket = (date: Date) => {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const key = cashFlowPeriod === 'month'
+        ? `${year}-${String(month).padStart(2, '0')}`
+        : String(year);
+      const label = cashFlowPeriod === 'month' ? `T${month}/${year}` : String(year);
+
+      if (!buckets.has(key)) {
+        buckets.set(key, { label, interest: 0, principal: 0 });
+      }
+
+      return buckets.get(key)!;
+    };
+
+    enterpriseBonds.forEach((bond) => {
+      const cashFlows = Array.isArray(bond.cashFlows) ? bond.cashFlows : [];
+
+      cashFlows.forEach((cashFlow) => {
+        if (!cashFlow.paymentDate) return;
+
+        const paymentDate = new Date(cashFlow.paymentDate);
+        if (Number.isNaN(paymentDate.getTime())) return;
+
+        const bucket = ensureBucket(paymentDate);
+        bucket.interest += cashFlow.interestAmount || 0;
+        bucket.principal += cashFlow.principalAmount || 0;
+      });
+
+      if (cashFlows.length === 0 && bond.maturityDate && bond.listedValue) {
+        const maturityDate = new Date(bond.maturityDate);
+        if (!Number.isNaN(maturityDate.getTime())) {
+          const bucket = ensureBucket(maturityDate);
+          bucket.principal += bond.listedValue || 0;
+        }
+      }
+    });
+
+    const sortedEntries = Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const labels = sortedEntries.map(([, value]) => value.label);
+    const interest = sortedEntries.map(([, value]) => value.interest);
+    const principal = sortedEntries.map(([, value]) => value.principal);
+    const total = sortedEntries.map(([, value]) => value.interest + value.principal);
+
+    return { labels, interest, principal, total };
+  }, [enterpriseBonds, cashFlowPeriod]);
+
+  const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
+
   const pieOptions = {
     color: chartPalette,
     tooltip: { 
@@ -671,6 +771,70 @@ export default function EnterpriseView({
       },
       barWidth: '40%'
     }]
+  };
+
+  const projectedCashFlowOptions = {
+    color: chartPalette,
+    tooltip: {
+      trigger: 'axis',
+      confine: true,
+      axisPointer: { type: 'shadow' },
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        let content = `${params[0].name}<br/>`;
+        let total = 0;
+        params.forEach((param: any) => {
+          total += param.value || 0;
+          content += `${param.marker} ${param.seriesName}: ${formatNumber(param.value || 0, 2)} ${t('unitBillionVND')}<br/>`;
+        });
+        content += `<strong>${t('totalCashFlow')}: ${formatNumber(total, 2)} ${t('unitBillionVND')}</strong>`;
+        return content;
+      }
+    },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: legendStyle
+    },
+    grid: { top: '12%', bottom: '20%', left: '10%', right: '8%' },
+    xAxis: {
+      type: 'category',
+      data: projectedCashFlowData.labels,
+      axisLabel: {
+        ...axisLabelStyle,
+        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: t('unitBillionVND'),
+      nameTextStyle: chartTitleStyle,
+      splitLine: { show: false },
+      axisLabel: {
+        ...axisLabelStyle,
+        formatter: (value: number) => formatNumber(value, 0)
+      }
+    },
+    series: [
+      {
+        name: t('totalInterestPayable'),
+        type: 'bar',
+        stack: 'cashFlow',
+        data: projectedCashFlowData.interest,
+        itemStyle: { borderRadius: 0 },
+        barWidth: '45%'
+      },
+      {
+        name: t('totalPrincipalPayable'),
+        type: 'bar',
+        stack: 'cashFlow',
+        data: projectedCashFlowData.principal,
+        itemStyle: { borderRadius: 0 },
+        barWidth: '45%'
+      }
+    ]
   };
 
   if (loading) {
@@ -928,6 +1092,50 @@ export default function EnterpriseView({
             <h3 className="text-base font-semibold text-text-base/80 mb-4 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
             <ReactECharts option={columnOptions} style={{ height: '300px' }} />
           </div>
+        </div>
+
+        <div className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <h3 className="text-base font-semibold text-text-base/80 transition-colors">{t('projectedCashFlowChart')}</h3>
+            <div className="flex items-center gap-1 bg-bg-base border border-border-base rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setCashFlowPeriod('month')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                  cashFlowPeriod === 'month'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-text-base'
+                }`}
+              >
+                {t('month')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCashFlowPeriod('year')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                  cashFlowPeriod === 'year'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-text-muted hover:text-text-base'
+                }`}
+              >
+                {t('year')}
+              </button>
+            </div>
+          </div>
+          {loadingCashFlows && !hasProjectedCashFlowData ? (
+            <div className="h-80 flex items-center justify-center">
+              <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
+                <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                {t('loading')}
+              </div>
+            </div>
+          ) : hasProjectedCashFlowData ? (
+            <ReactECharts option={projectedCashFlowOptions} style={{ height: '360px' }} />
+          ) : (
+            <div className="h-80 flex items-center justify-center text-sm font-medium text-text-muted">
+              {t('noData')}
+            </div>
+          )}
         </div>
 
         {/* Bond List Table */}
