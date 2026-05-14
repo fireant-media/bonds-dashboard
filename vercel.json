@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.ts": {
+    "api/**/*.ts": {
       "maxDuration": 30
     }
   },
@@ -20,10 +20,6 @@
     {
       "source": "/api/news/:id",
       "destination": "/api/detail?id=:id"
-    },
-    {
-      "source": "/api/fireant/:path*",
-      "destination": "/api/proxy?path=:path*"
     },
     {
       "source": "/api/ai/:path*",
