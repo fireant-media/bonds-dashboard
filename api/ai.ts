@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
-import { OPENAI_API_KEY, OPENAI_BASE_URL, DEFAULT_AI_MODEL } from './_lib/config';
+import { OPENAI_API_KEY, OPENAI_BASE_URL, DEFAULT_AI_MODEL } from './_lib/config.js';
 
 export const config = {
   supportsResponseStreaming: true,

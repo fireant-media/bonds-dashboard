@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL, STATIC_FIREANT_URL } from './_lib/config';
+import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL, STATIC_FIREANT_URL } from './_lib/config.js';
 
 let cachedToken: string | null = null;
 let lastTokenFetch = 0;

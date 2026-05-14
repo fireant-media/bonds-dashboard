@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL } from './_lib/config';
+import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL } from './_lib/config.js';
 
 function getRequestToken(req: VercelRequest): string | null {
   const headerToken = req.headers.authorization;
