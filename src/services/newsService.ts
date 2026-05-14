@@ -1,5 +1,6 @@
 import { NewsItem } from '../types';
 import { cleanTokenString, getFireantToken } from '../utils/token';
+import { readJsonResponse } from '../utils/http';
 
 const NEWS_API_URL = '/api/news';
 const CACHE_KEY = 'fireant_news_cache';
@@ -192,7 +193,7 @@ export const fetchNewsDetail = async (id: string): Promise<NewsItem | null> => {
     });
     if (!response.ok) return null;
     
-    const data = await response.json();
+    const data = await readJsonResponse<any>(response, `News detail ${id}`);
     if (!data || data.error) return null;
 
     // 🔥 DEBUG LINK

@@ -1,4 +1,5 @@
 import { getFireantToken, cleanTokenString } from "../utils/token";
+import { readJsonResponse } from "../utils/http";
 
 export const FIREANT_PROXY_BASE = "/api/fireant";
 
@@ -55,7 +56,12 @@ export async function fireantRequest<T = unknown>(path: string, options: Fireant
     throw new FireantApiError(response.status, response.status === 401 ? "401" : `HTTP ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  try {
+    return await readJsonResponse<T>(response, `FireAnt API ${path}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : `Invalid response from ${path}`;
+    throw new FireantApiError(response.status, message);
+  }
 }
 
 export const fireantApi = {

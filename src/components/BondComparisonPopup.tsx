@@ -9,6 +9,7 @@ import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { readJsonResponse } from '../utils/http';
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
@@ -135,7 +136,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             // Fetch a larger window to get more symbols into the pool
             const response = await fetch('/api/fireant/bonds/stats/bonds/maturing-soon?days=3650', { headers });
             if (response.ok) {
-              const data = await response.json();
+              const data = await readJsonResponse<any[]>(response, 'Bond comparison pool');
               if (Array.isArray(data)) {
                 const fetchedBonds: Bond[] = data.map((b: any) => {
                   const normalizeVal = (val: number | undefined | null) => {
@@ -225,7 +226,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             // Try different endpoints for issuer bonds
             const issuerRes = await fetch(`/api/fireant/bonds/get-bonds-by-issuer?issuerSymbol=${normalizedSearch}`, { headers });
             if (issuerRes.ok) {
-              const data = await issuerRes.json();
+              const data = await readJsonResponse<any>(issuerRes, `Issuer search ${normalizedSearch}`);
               const issuerBonds = Array.isArray(data) ? data : (data.items || []);
               if (Array.isArray(issuerBonds)) {
                 const mappedIssuerBonds = issuerBonds.map((b: any) => {
@@ -279,7 +280,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         });
 
         if (response.ok) {
-          const data = await response.json();
+          const data = await readJsonResponse<any[]>(response, `Symbol search ${searchTerm}`);
           if (data && Array.isArray(data)) {
             const searchApiMatches = data.filter((s: any) => {
               const symType = String(s.symbolType || s.type || '').toLowerCase();

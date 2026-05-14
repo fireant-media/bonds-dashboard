@@ -19,6 +19,7 @@ import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { readJsonResponse } from '../utils/http';
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -116,7 +117,7 @@ export default function EnterpriseView({
         });
 
         if (response.ok) {
-          const data = await response.json();
+          const data = await readJsonResponse<any[]>(response, `Issuer bonds ${selectedEnterprise.ticker}`);
           const mappedBonds: Bond[] = data.map((b: any) => ({
             id: b.bondCode,
             code: b.bondCode,
@@ -154,7 +155,7 @@ export default function EnterpriseView({
 
             if (!detailResponse.ok) return bond;
 
-            const detailData = await detailResponse.json();
+            const detailData = await readJsonResponse<any>(detailResponse, `Bond detail ${bond.code}`);
             const cashFlows = Array.isArray(detailData.cashFlows)
               ? detailData.cashFlows.map((cf: any) => ({
                   paymentDate: cf.paymentDate,
@@ -228,7 +229,7 @@ export default function EnterpriseView({
         });
 
         if (response.ok) {
-          const quarters = await response.json();
+          const quarters = await readJsonResponse<any[]>(response, `Financial data ${symbol}`);
           if (Array.isArray(quarters) && quarters.length > 0) {
             // Helper to find the latest non-null value for a given field across quarters
             const findLatestValue = (field: string) => {
@@ -305,7 +306,7 @@ export default function EnterpriseView({
         });
 
         if (response.ok) {
-          const profile = await response.json();
+          const profile = await readJsonResponse<any>(response, `Enterprise profile ${symbol}`);
           setEnterpriseProfile(profile);
         }
       } catch (error) {
