@@ -53,7 +53,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                 {t('heroDesc')}
               </p>
 
-              {/* 4. Grid tính năng (2 cột x 2 hàng) */}
+              {/* 4. Grid t�nh nang (2 c?t x 2 h�ng) */}
               <div className="grid grid-cols-2 gap-3 mb-10">
                 {[
                   { icon: BarChart4, label: t('featureWatchlist') },
@@ -76,7 +76,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
           </div>
 
           <div className="space-y-5">
-            {/* 5. Khu vực dữ liệu realtime mini (3 card cùng 1 hàng) */}
+            {/* 5. Khu v?c d? li?u realtime mini (3 card c�ng 1 h�ng) */}
             <div className="grid grid-cols-3 gap-3">
               {[
                 { label: 'VNINDEX', val: '1,285.4', change: '+1.26%' },
@@ -97,7 +97,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
               ))}
             </div>
 
-            {/* 6. Footer trái dưới cùng */}
+            {/* 6. Footer tr�i du?i c�ng */}
             <div className="pt-6 border-t border-border-base flex items-center gap-3 transition-colors">
               <div className="h-1 w-8 bg-blue-600 rounded-full transition-colors"></div>
               <span className="text-xs font-bold text-blue-600 tracking-[0.4em] uppercase transition-colors">FIREANT FINANCE</span>

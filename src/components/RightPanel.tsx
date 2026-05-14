@@ -1,4 +1,4 @@
-import { Calendar, ChevronRight, Newspaper, TrendingUp, PanelRight, Settings } from 'lucide-react';
+import { Calendar, Newspaper } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
@@ -6,6 +6,7 @@ import { ExpiringBond, Bond } from '../types';
 import { formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { fireantApi } from '../api/fireant';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -14,6 +15,8 @@ function cn(...inputs: ClassValue[]) {
 interface RightPanelProps {
   isOpen: boolean;
   onToggle: () => void;
+  activePanelTab: 'maturity' | 'news';
+  setActivePanelTab: (tab: 'maturity' | 'news') => void;
   setSelectedBond: (bond: Bond | null) => void;
   setBondEnterpriseName: (name: string) => void;
   onSeeMoreMaturity?: () => void;
@@ -21,7 +24,6 @@ interface RightPanelProps {
   onSeeMoreNews: () => void;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
 import { NewsItem } from '../types';
 
 import { fetchNewsData, getCachedNews, getNewsLastUpdate } from '../services/newsService';
@@ -30,6 +32,8 @@ import { formatDate } from '../utils/format';
 export default function RightPanel({ 
   isOpen, 
   onToggle, 
+  activePanelTab,
+  setActivePanelTab,
   setSelectedBond, 
   setBondEnterpriseName,
   onSeeMoreMaturity,
@@ -45,6 +49,17 @@ export default function RightPanel({
   const [loadingNews, setLoadingNews] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const handlePanelTabClick = (tab: 'maturity' | 'news') => {
+    if (isOpen && activePanelTab === tab) {
+      onToggle();
+      return;
+    }
+
+    setActivePanelTab(tab);
+    if (!isOpen) {
+      onToggle();
+    }
+  };
 
   // Initialize from cache immediately
   useEffect(() => {
@@ -98,41 +113,23 @@ export default function RightPanel({
       setLoading(true);
       setError(null);
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
         const daysArr = [15, 30, 60, 90, 180];
         
         // Fetch all in parallel for better performance
-        const responses = await Promise.all(daysArr.map(days => {
-          const headers: any = {
-            'Accept': 'application/json'
-          };
-          if (cleanToken) {
-            headers['Authorization'] = `Bearer ${cleanToken}`;
-          }
-          
-          return fetch(`/api/fireant/bonds/stats/bonds/maturing-soon?days=${days}`, {
-            headers
-          });
-        }));
+        const responses = await Promise.all(daysArr.map(days => fireantApi.getMaturingSoon(days)));
 
         const allBonds: any[] = [];
         const seenCodes = new Set<string>();
 
-        for (const response of responses) {
-          if (response.ok) {
-            const data = await response.json();
-            if (Array.isArray(data)) {
-              for (const b of data) {
+        for (const data of responses) {
+          if (Array.isArray(data)) {
+            for (const b of data) {
                 if (!seenCodes.has(b.bondCode)) {
                   seenCodes.add(b.bondCode);
                   allBonds.push(b);
                 }
               }
             }
-          } else if (response.status === 401) {
-            throw new Error('401');
-          }
         }
 
         // Sort all found bonds by maturity date and take top 5
@@ -168,16 +165,11 @@ export default function RightPanel({
           for (const bond of mappedData) {
             if (bond.ticker && !currentENNames[bond.ticker]) {
               try {
-                const res = await fetch(`/api/fireant/symbols/${encodeURIComponent(bond.ticker)}/profile`, { 
-                  headers: cleanTokenString ? { 'Authorization': `Bearer ${cleanTokenString(getFireantToken() || '')}` } : {} 
-                });
-                if (res.ok) {
-                  const profile = await res.json();
+                  const profile = await fireantApi.getIssuerProfile(bond.ticker);
                   if (profile.internationalName) {
                     currentENNames[bond.ticker] = profile.internationalName;
                     hasUpdates = true;
                   }
-                }
               } catch (e) {}
             }
           }
@@ -231,34 +223,81 @@ export default function RightPanel({
   };
 
   return (
-    <aside className="w-full bg-bg-surface md:border-l border-border-base flex flex-col overflow-hidden transition-colors duration-300">
-      <div className={cn("p-3 md:p-6 transition-all duration-300 flex-1 flex flex-col", isOpen ? "w-full md:w-[320px]" : "w-full md:w-[64px] md:px-3")}>
-        <div className={cn("flex items-center mb-4 md:mb-8", isOpen ? "justify-between" : "justify-center")}>
-          <button 
-            onClick={onToggle}
-            className="p-2 text-text-muted hover:text-[#3634B3] hover:bg-bg-base rounded-lg transition-colors"
-            title={isOpen ? t('hideSidebar') : t('showSidebar')}
-          >
-            <PanelRight className={cn("h-5 w-5 transition-transform duration-300", !isOpen && "rotate-180")} />
-          </button>
-        </div>
+    <>
+    <div className="fixed right-0 top-20 z-50 hidden flex-col gap-2 lg:flex">
+      <button
+        type="button"
+        onClick={() => handlePanelTabClick('maturity')}
+        className={cn(
+          "flex h-12 w-12 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
+          isOpen && activePanelTab === 'maturity' && "bg-blue-500 text-white hover:text-white"
+        )}
+        title={t('upcomingBonds')}
+      >
+        <Calendar className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => handlePanelTabClick('news')}
+        className={cn(
+          "flex h-12 w-12 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
+          isOpen && activePanelTab === 'news' && "bg-blue-500 text-white hover:text-white"
+        )}
+        title={t('relatedNews')}
+      >
+        <Newspaper className="h-5 w-5" />
+      </button>
+    </div>
+
+    <aside className={cn(
+      "w-full bg-surface-bright lg:border-l border-border-base flex h-full flex-col overflow-hidden transition-colors duration-300",
+      !isOpen && "w-0 border-l-0"
+    )}>
+      <div className={cn("p-3 lg:p-4 transition-all duration-300 flex-1 min-h-0 flex flex-col", isOpen ? "w-full lg:w-64 lg:pr-14" : "w-0 p-0")}>
 
         {isOpen ? (
-          <div className="flex-1 flex flex-col space-y-6 md:space-y-8 animate-in fade-in duration-500">
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col space-y-5 animate-in fade-in duration-500">
+            <div className="grid grid-cols-2 gap-1 rounded bg-surface-container-low p-1 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setActivePanelTab('maturity')}
+                className={cn(
+                  "rounded-md px-2 py-2 text-xs font-bold transition-all active:scale-95",
+                  activePanelTab === 'maturity'
+                    ? "bg-surface-bright text-text-highlight shadow-sm"
+                    : "text-text-muted hover:text-text-base"
+                )}
+              >
+                Trái phiếu sắp đáo hạn
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePanelTab('news')}
+                className={cn(
+                  "rounded-md px-2 py-2 text-xs font-bold transition-all active:scale-95",
+                  activePanelTab === 'news'
+                    ? "bg-surface-bright text-text-highlight shadow-sm"
+                    : "text-text-muted hover:text-text-base"
+                )}
+              >
+                Tin tức
+              </button>
+            </div>
+
             {/* Expiring Bonds */}
-            <section>
+            {activePanelTab === 'maturity' && <section>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-text-base uppercase tracking-wider flex items-center gap-2 transition-colors">
                   <Calendar className="h-4 w-4 text-text-highlight" /> {t('upcomingBonds')}
                 </h3>
                 <button 
                   onClick={onSeeMoreMaturity}
-                  className="text-[10px] font-bold text-text-highlight hover:underline transition-colors"
+                  className="text-xs font-bold text-text-highlight hover:underline transition-colors cursor-pointer"
                 >
                   {t('seeMore')}
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:block md:space-y-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:block lg:space-y-3 gap-3">
                 {loading ? (
                   <div className="flex justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-text-highlight"></div>
@@ -295,13 +334,13 @@ export default function RightPanel({
                             status: t('active')
                           });
                         }}
-                        className="p-4 bg-bg-base/50 dark:bg-bg-base/20 rounded-xl border border-border-base hover:border-text-highlight/30 transition-all group cursor-pointer"
+                        className="p-4 bg-surface-container-low/60 rounded-lg border border-border-base hover:border-blue-500/30 transition-all group cursor-pointer active:scale-95"
                       >
                         <div className="flex justify-between items-start mb-2">
                           <span className="text-xs font-bold text-text-highlight transition-colors">{bond.code}</span>
                           <span className={cn(
                             "text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors",
-                            daysLeft <= 30 ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400" : "bg-[#3634B3]/5 text-[#3634B3]"
+                            daysLeft <= 30 ? "bg-red-500/10 text-red-400" : "bg-blue-600/10 text-blue-600"
                           )}>
                             {daysLeft} {t('daysUnit')}
                           </span>
@@ -327,21 +366,21 @@ export default function RightPanel({
                   <p className="text-xs text-text-muted text-center py-4 transition-colors">{t('noUpcomingBondsData')}</p>
                 )}
               </div>
-            </section>
+            </section>}
 
-            <section>
+            {activePanelTab === 'news' && <section>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-text-base uppercase tracking-wider flex items-center gap-2 transition-colors">
                   <Newspaper className="h-4 w-4 text-text-highlight" /> {t('relatedNews')}
                 </h3>
                 <button 
                   onClick={onSeeMoreNews}
-                  className="text-[10px] font-bold text-text-highlight hover:underline transition-colors"
+                  className="text-xs font-bold text-text-highlight hover:underline transition-colors cursor-pointer"
                 >
                   {t('seeMore')}
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:block md:space-y-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:block lg:space-y-4 gap-4">
                 {loadingNews ? (
                   <div className="flex justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-text-highlight"></div>
@@ -357,7 +396,7 @@ export default function RightPanel({
                     <div 
                       key={news.id} 
                       onClick={() => onSelectNews(news)}
-                      className="flex gap-3 group cursor-pointer"
+                      className="flex gap-3 group cursor-pointer rounded p-1 transition-colors hover:bg-surface-container-low"
                     >
                       <img 
                         src={news.image || `https://picsum.photos/seed/${news.id}/200/200`} 
@@ -385,16 +424,33 @@ export default function RightPanel({
                   <p className="text-xs text-text-muted text-center py-4 transition-colors">{t('noLatestNews')}</p>
                 )}
               </div>
-            </section>
+            </section>}
 
           </div>
         ) : (
-          <div className="flex flex-row md:flex-col items-center justify-center gap-8 mt-4 text-text-muted transition-colors">
-            <Calendar className="h-5 w-5" />
-            <Newspaper className="h-5 w-5" />
+          <div className="flex flex-col items-stretch justify-start gap-2 text-text-muted transition-colors">
+            <button
+              type="button"
+              onClick={() => handlePanelTabClick('maturity')}
+              className="min-h-24 rounded-lg border border-border-base bg-surface-container-low/60 px-2 py-3 text-xs font-bold uppercase leading-snug text-text-muted hover:bg-blue-500/10 hover:text-blue-600 transition-all active:scale-95"
+              title={t('upcomingBonds')}
+            >
+              <Calendar className="mx-auto mb-2 h-4 w-4" />
+              <span className="block text-center">{t('upcomingBonds')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePanelTabClick('news')}
+              className="min-h-24 rounded-lg border border-border-base bg-surface-container-low/60 px-2 py-3 text-xs font-bold uppercase leading-snug text-text-muted hover:bg-blue-500/10 hover:text-blue-600 transition-all active:scale-95"
+              title={t('relatedNews')}
+            >
+              <Newspaper className="mx-auto mb-2 h-4 w-4" />
+              <span className="block text-center">{t('relatedNews')}</span>
+            </button>
           </div>
         )}
       </div>
     </aside>
+    </>
   );
 }

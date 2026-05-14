@@ -2,12 +2,12 @@ import axios, { AxiosProgressEvent, AxiosRequestConfig } from "axios";
 import type { User } from "oidc-client";
 import { authManager } from "../auth/oidc";
 import { useAuthStore } from "../auth/authStore";
+import { APP_URL, FIREANT_BASE_URL, STATIC_FIREANT_URL } from "./config";
 
 const DEFAULT_ACCESS_TOKEN = import.meta.env.VITE_FIREANT_ACCESS_TOKEN || "";
 
-const STATIC_URL = "https://static.fireant.vn";
-const FIREANT_API_URL = "https://restv2.fireant.vn";
-const APP_URL = "http://localhost:3000";
+const STATIC_URL = STATIC_FIREANT_URL;
+const FIREANT_API_URL = FIREANT_BASE_URL;
 
 const baseConfig: AxiosRequestConfig = {
   timeout: 30000,

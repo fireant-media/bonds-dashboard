@@ -13,7 +13,6 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
@@ -24,7 +23,7 @@
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
     "express": "^4.21.2",
-    "google-auth-library": "^10.6.2",
+    "framer-motion": "^12.38.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "oidc-client": "^1.11.5",
@@ -34,6 +33,7 @@
     "react-router-dom": "^7.15.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
     "vite": "^6.2.0",
     "zustand": "^5.0.13"
   },
@@ -44,11 +44,10 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vercel/node": "^5.7.15",
-    "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   },
-  "packageManager": "yarn@4.12.0+sha512.f45ab632439a67f8bc759bf32ead036a1f413287b9042726b7cc4818b7b49e14e9423ba49b18f9e06ea4941c1ad062385b1d8760a8d5091a1a31e5f6219afca8"
+  "packageManager": "npm@11.6.4"
 }

@@ -13,6 +13,7 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
+import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 
 export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
@@ -150,30 +151,25 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const legendStyle = {
     fontSize: 12,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const categoryLabelStyle = {
     fontSize: 12,
     color: isDark ? '#e5e7eb' : '#333',
     fontWeight: 'bold' as const,
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const valueLabelStyle = {
     fontSize: 12,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
-  const tooltipTextStyle = {
-    fontSize: 12,
-    fontFamily: 'Inter',
-    fontWeight: 'normal' as const,
-    color: isDark ? '#e5e7eb' : '#333'
-  };
-
-  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
+  const tooltipTextStyle = getChartTooltip(isDark).textStyle;
+  const chartTooltip = getChartTooltip(isDark);
+  const chartPalette = CHART_PALETTE;
 
   const getKpis = () => {
     if (industryStats) {
@@ -224,6 +220,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     return {
       color: chartPalette,
       tooltip: { 
+        ...chartTooltip,
         trigger: 'axis',
         confine: true,
         textStyle: tooltipTextStyle,
@@ -301,6 +298,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     return {
       color: chartPalette,
       tooltip: { 
+        ...chartTooltip,
         trigger: 'item',
         confine: true,
         textStyle: tooltipTextStyle,
@@ -364,6 +362,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     return {
       color: chartPalette,
       tooltip: { 
+        ...chartTooltip,
         trigger: 'axis',
         confine: true,
         textStyle: tooltipTextStyle,
@@ -410,6 +409,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     return {
       color: chartPalette,
       tooltip: { 
+        ...chartTooltip,
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
         confine: true,
@@ -477,7 +477,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   if (loading) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
         <p className="text-text-muted font-medium">{t('loadingIndustryData')} {getIndustryLabel(industry)}...</p>
       </div>
@@ -486,7 +486,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   if (error) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -507,41 +507,41 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   }
 
   return (
-    <div className="space-y-6 transition-colors duration-300">
+    <div className="space-y-4 transition-colors duration-300">
       <div>
-        <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+        <h1 className="text-2xl font-bold text-blue-600 tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {kpis.map((kpi, idx) => (
-          <div key={idx} className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px]">
-            <p className="text-base font-semibold text-text-muted/80 mb-2">{kpi.label}</p>
-            <p className="text-3xl font-bold text-text-base mb-1 transition-colors">{kpi.value}</p>
+          <div key={idx} className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32">
+            <p className="text-sm font-semibold text-text-muted/80 mb-2">{kpi.label}</p>
+            <p className="text-3xl font-bold text-blue-600 mb-1 transition-colors">{kpi.value}</p>
             <p className="text-sm font-bold text-gray-400">{kpi.unit}</p>
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-12 gap-2">
+      <div className="grid grid-cols-12 gap-3">
         {/* Ranking - Double Height */}
         <div 
-          className="col-span-12 lg:col-span-6 bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm transition-colors"
+          className="col-span-12 lg:col-span-6 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
         >
-          <div className="mb-6">
-            <h3 className="text-base font-semibold text-text-base/80 text-center transition-colors">{t('debtRanking')}</h3>
+          <div className="mb-3">
+            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtRanking')}</h3>
             <p className="text-xs text-text-muted text-right mt-1">{t('unitBillion')}</p>
           </div>
           <ReactECharts option={rankingOptions} style={{ height: '570px' }} />
         </div>
 
-        <div className="col-span-12 lg:col-span-6 space-y-2">
+        <div className="col-span-12 lg:col-span-6 space-y-3">
           {/* Market Share */}
           <div 
-            className="bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm transition-colors"
+            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <div className="mb-6">
-              <h3 className="text-base font-semibold text-text-base/80 text-center transition-colors">{t('marketShare')}</h3>
+            <div className="mb-3">
+              <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('marketShare')}</h3>
               <p className="text-xs text-text-muted text-right mt-1">{t('unitPercent')}</p>
             </div>
             <ReactECharts option={marketShareOptions} style={{ height: '250px' }} />
@@ -549,10 +549,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
           {/* Interest Rates */}
           <div 
-            className="bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm transition-colors"
+            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <div className="mb-6">
-              <h3 className="text-base font-semibold text-text-base/80 text-center transition-colors">{t('industryInterest')}</h3>
+            <div className="mb-3">
+              <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('industryInterest')}</h3>
               <p className="text-xs text-text-muted text-right mt-1">{t('unitPercent')}</p>
             </div>
             <ReactECharts option={interestOptions} style={{ height: '200px' }} />
@@ -561,10 +561,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
         {/* Combined Chart */}
         <div 
-          className="col-span-12 bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm transition-colors"
+          className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
         >
           <div className="mb-2">
-            <h3 className="text-base font-semibold text-text-base/80 text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
           </div>
           <ReactECharts option={combinedOptions} style={{ height: '400px' }} />
         </div>

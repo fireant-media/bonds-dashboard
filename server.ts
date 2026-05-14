@@ -4,18 +4,29 @@ import path from "path";
 import axios from "axios";
 import cookieSession from "cookie-session";
 import dotenv from "dotenv";
+import {
+  FIREANT_ACCESS_TOKEN,
+  FIREANT_BASE_URL,
+  FIREANT_WEB_URL,
+  STATIC_FIREANT_URL,
+  DEFAULT_AI_MODEL,
+  OPENAI_API_KEY,
+  OPENAI_BASE_URL,
+} from "./api/_lib/config";
 
 dotenv.config();
 
 // =============================================
-// OpenAI / AI Model Configuration
+// FireAnt OpenAI-compatible Gateway Configuration
 // =============================================
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+const AI_API_KEY = OPENAI_API_KEY;
+const AI_BASE_URL = OPENAI_BASE_URL;
 
-// Default model is taken strictly from environment (no hardcoded fallback).
-// If OPENAI_DEFAULT_MODEL is not set, the user must pick a model in Settings.
-const DEFAULT_AI_MODEL = (process.env.OPENAI_DEFAULT_MODEL || "").trim();
+const getRequestAIKey = (req: express.Request): string => {
+  const headerToken = req.headers["x-fireant-access-token"];
+  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  return (rawToken || AI_API_KEY || "").replace(/^bearer\s+/i, "").trim();
+};
 
 const DEFAULT_SYSTEM_PROMPT = `Bạn là Chuyên gia phân tích trái phiếu cấp cao.
 
@@ -34,6 +45,7 @@ interface AIModelInfo {
 }
 
 let cachedModels: AIModelInfo[] | null = null;
+let cachedModelsKey = "";
 let lastModelsFetch = 0;
 const MODELS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
@@ -52,17 +64,14 @@ const isChatModelId = (id: string): boolean => {
     lower.includes("moderation") ||
     lower.includes("transcribe") ||
     lower.includes("realtime") ||
-    lower.includes("image")
+    lower.includes("image") ||
+    lower.includes("search") ||
+    lower.includes("codex") ||
+    lower.includes("deep-research")
   ) {
     return false;
   }
-  return (
-    lower.startsWith("gpt-") ||
-    lower.startsWith("o1") ||
-    lower.startsWith("o3") ||
-    lower.startsWith("o4") ||
-    lower.startsWith("chatgpt")
-  );
+  return true;
 };
 
 const buildModelLabel = (id: string): string => {
@@ -77,20 +86,20 @@ interface FetchModelsResult {
   error: string | null;
 }
 
-async function fetchAvailableModels(force = false): Promise<FetchModelsResult> {
+async function fetchAvailableModels(apiKey: string, force = false): Promise<FetchModelsResult> {
   const now = Date.now();
-  if (!force && cachedModels && now - lastModelsFetch < MODELS_CACHE_TTL) {
+  if (!force && cachedModels && cachedModelsKey === apiKey && now - lastModelsFetch < MODELS_CACHE_TTL) {
     return { models: cachedModels, error: null };
   }
 
-  if (!OPENAI_API_KEY) {
-    return { models: [], error: "OPENAI_API_KEY is not configured on the server" };
+  if (!apiKey) {
+    return { models: [], error: "OPENAI_API_KEY or VITE_FIREANT_ACCESS_TOKEN is not configured on the server" };
   }
 
   try {
-    const response = await axios.get(`${OPENAI_BASE_URL}/models`, {
+    const response = await axios.get(`${AI_BASE_URL}/models`, {
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
       },
       timeout: 12000,
@@ -120,6 +129,7 @@ async function fetchAvailableModels(force = false): Promise<FetchModelsResult> {
     unique.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }) * -1);
 
     cachedModels = unique;
+    cachedModelsKey = apiKey;
     lastModelsFetch = now;
     return { models: unique, error: null };
   } catch (err: any) {
@@ -146,9 +156,7 @@ async function startServer() {
     try {
       const targetPath = (req.params as any)[0];
       const query = new URLSearchParams(req.query as any).toString();
-      // Using betarest as requested by user for bond and profile data accuracy
-      const baseUrl = "https://betarest.fireant.vn";
-      const url = `${baseUrl}/${targetPath}${query ? `?${query}` : ""}`;
+      const url = `${FIREANT_BASE_URL}/${targetPath}${query ? `?${query}` : ""}`;
       
       console.log(`[Proxy] ${req.method} ${url}`);
       
@@ -166,8 +174,8 @@ async function startServer() {
           'Accept': 'application/json, text/plain, */*',
           'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://fireant.vn/',
-          'Origin': 'https://fireant.vn',
+          'Referer': `${FIREANT_WEB_URL}/`,
+          'Origin': FIREANT_WEB_URL,
           'X-Requested-With': 'XMLHttpRequest'
         };
         
@@ -218,10 +226,10 @@ async function startServer() {
     const now = Date.now();
     
     // Only use env var if it exists and we don't have a better one or are forced
-    if (process.env.FIREANT_ACCESS_TOKEN && !force) {
-      if (!fireantToken || fireantToken !== process.env.FIREANT_ACCESS_TOKEN) {
+    if (FIREANT_ACCESS_TOKEN && !force) {
+      if (!fireantToken || fireantToken !== FIREANT_ACCESS_TOKEN) {
         console.log("[Token] Adopting token from environment variable");
-        fireantToken = process.env.FIREANT_ACCESS_TOKEN;
+        fireantToken = FIREANT_ACCESS_TOKEN;
       }
       return fireantToken;
     }
@@ -233,7 +241,7 @@ async function startServer() {
 
     try {
       console.log(`[Token] Fetching new access token (force=${force}, reason=${force ? 'Retry/Expiry' : 'Initial'}, attempt=${retryCount + 1})...`);
-      const response = await axios.get('https://fireant.vn/bai-viet', {
+      const response = await axios.get(`${FIREANT_WEB_URL}/bai-viet`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Cache-Control': 'no-cache',
@@ -290,13 +298,13 @@ async function startServer() {
         const firstPost = newsStream?.posts?.[0];
         if (firstPost) {
           let fallbackImg = firstPost.images?.[0]?.imageUrl || 
-                            (firstPost.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${firstPost.images[0].imageID}` : null) ||
+                            (firstPost.images?.[0]?.imageID ? `${STATIC_FIREANT_URL}/News/Image/${firstPost.images[0].imageID}` : null) ||
                             firstPost.thumbnail ||
                             firstPost.linkImage;
           
           if (fallbackImg) {
             if (typeof fallbackImg === 'string' && fallbackImg.startsWith('/')) {
-              fallbackImg = `https://static.fireant.vn${fallbackImg}`;
+              fallbackImg = `${STATIC_FIREANT_URL}${fallbackImg}`;
             }
             globalFallbackImage = fallbackImg;
             console.log("[Token] Obtained global fallback image:", globalFallbackImage);
@@ -352,7 +360,7 @@ async function startServer() {
       if (token) {
         try {
           console.log("[News] Attempting to fetch via REST API...");
-          const apiResponse = await axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
+          const apiResponse = await axios.get(`${FIREANT_BASE_URL}/posts/get-posts-by-group`, {
             params: {
               groupID: 'NEWS_STREAM',
               offset: 0,
@@ -361,8 +369,8 @@ async function startServer() {
             headers: {
               'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'https://fireant.vn/',
-              'Origin': 'https://fireant.vn'
+              'Referer': `${FIREANT_WEB_URL}/`,
+              'Origin': FIREANT_WEB_URL
             },
             timeout: 15000,
             validateStatus: (status) => status < 500
@@ -391,7 +399,7 @@ async function startServer() {
       if (!posts) {
         console.log("[News] Falling back to HTML scraping...");
         try {
-          const response = await axios.get("https://fireant.vn/bai-viet", {
+          const response = await axios.get(`${FIREANT_WEB_URL}/bai-viet`, {
             timeout: 20000,
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -429,7 +437,7 @@ async function startServer() {
         
         const extractImage = (p: any) => {
           let img = p.images?.[0]?.imageUrl || 
-                    (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) ||
+                    (p.images?.[0]?.imageID ? `${STATIC_FIREANT_URL}/News/Image/${p.images[0].imageID}` : null) ||
                     p.thumbnail || 
                     p.linkImage;
           
@@ -444,7 +452,7 @@ async function startServer() {
 
           if (img && typeof img === 'string') {
             if (img.startsWith('//')) img = `https:${img}`;
-            else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
+            else if (img.startsWith('/')) img = `${STATIC_FIREANT_URL}${img}`;
           }
           return img;
         };
@@ -452,10 +460,10 @@ async function startServer() {
         let image = extractImage(post) || getFallbackImage(post.postID || 0);
         
         const allImages = (post.images || []).map((img: any) => {
-          let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
+          let url = img.imageUrl || (img.imageID ? `${STATIC_FIREANT_URL}/News/Image/${img.imageID}` : null);
           if (url && typeof url === 'string') {
             if (url.startsWith('//')) url = `https:${url}`;
-            else if (url.startsWith('/')) url = `https://static.fireant.vn${url}`;
+            else if (url.startsWith('/')) url = `${STATIC_FIREANT_URL}${url}`;
           }
           return url;
         }).filter(Boolean);
@@ -475,7 +483,7 @@ async function startServer() {
           image: image || globalFallbackImage,
           images: allImages,
           date: post.date,
-          url: `https://fireant.vn/bai-viet/${post.postID}`,
+          url: `${FIREANT_WEB_URL}/bai-viet/${post.postID}`,
           originalUrl: post.postSourceUrl || post.link || null,
           category: post.postGroup?.name || 'Market'
         };
@@ -508,10 +516,8 @@ async function startServer() {
     if (!postId) return res.status(400).json({ error: "Post ID is required" });
 
     const tryRestApi = async (token: string) => {
-      // Try both restv2 and betarest (betarest is often more accurate/accessible)
       const endpoints = [
-        `https://betarest.fireant.vn/posts/get-post?postID=${postId}`,
-        `https://restv2.fireant.vn/posts/get-post?postID=${postId}`
+        `${FIREANT_BASE_URL}/posts/get-post?postID=${postId}`,
       ];
 
       for (const endpoint of endpoints) {
@@ -523,8 +529,8 @@ async function startServer() {
               'Accept': 'application/json, text/plain, */*',
               'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Origin': 'https://fireant.vn',
-              'Referer': 'https://fireant.vn/'
+              'Origin': FIREANT_WEB_URL,
+              'Referer': `${FIREANT_WEB_URL}/`
             },
             validateStatus: (status) => status < 500
           });
@@ -577,7 +583,7 @@ async function startServer() {
         // Image extraction logic
         const extractImage = (p: any) => {
           let img = p.images?.[0]?.imageUrl || 
-                    (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) ||
+                    (p.images?.[0]?.imageID ? `${STATIC_FIREANT_URL}/News/Image/${p.images[0].imageID}` : null) ||
                     p.thumbnail || 
                     p.linkImage;
           
@@ -592,17 +598,17 @@ async function startServer() {
 
           if (img && typeof img === 'string') {
             if (img.startsWith('//')) img = `https:${img}`;
-            else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
+            else if (img.startsWith('/')) img = `${STATIC_FIREANT_URL}${img}`;
           }
           return img;
         };
 
         let image = extractImage(post) || getFallbackImage(postId);
         const allImages = (post.images || []).map((img: any) => {
-          let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
+          let url = img.imageUrl || (img.imageID ? `${STATIC_FIREANT_URL}/News/Image/${img.imageID}` : null);
           if (url && typeof url === 'string') {
             if (url.startsWith('//')) url = `https:${url}`;
-            else if (url.startsWith('/')) url = `https://static.fireant.vn${url}`;
+            else if (url.startsWith('/')) url = `${STATIC_FIREANT_URL}${url}`;
           }
           return url;
         }).filter(Boolean);
@@ -622,7 +628,7 @@ async function startServer() {
           image: image,
           images: allImages,
           date: post.date,
-          url: `https://fireant.vn/bai-viet/${post.postID}`,
+          url: `${FIREANT_WEB_URL}/bai-viet/${post.postID}`,
           originalUrl: post.postSourceUrl || post.link || null,
           category: post.postGroup?.name || 'Market'
         });
@@ -632,8 +638,8 @@ async function startServer() {
       console.log(`[News Detail] Falling back to scraping for post ${postId}...`);
       
       const scrapingUrls = [
-        `https://fireant.vn/bai-viet/${postId}`,
-        `https://fireant.vn/dashboard/bai-viet/${postId}`
+        `${FIREANT_WEB_URL}/bai-viet/${postId}`,
+        `${FIREANT_WEB_URL}/dashboard/bai-viet/${postId}`
       ];
 
       let scrapingResponse = null;
@@ -645,7 +651,7 @@ async function startServer() {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-              'Referer': 'https://fireant.vn/',
+              'Referer': `${FIREANT_WEB_URL}/`,
               'Cache-Control': 'no-cache'
             },
             validateStatus: (status) => status === 200
@@ -674,7 +680,7 @@ async function startServer() {
             
             const extractImage = (p: any) => {
               let img = p.images?.[0]?.imageUrl || 
-                        (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) ||
+                        (p.images?.[0]?.imageID ? `${STATIC_FIREANT_URL}/News/Image/${p.images[0].imageID}` : null) ||
                         p.thumbnail || 
                         p.linkImage;
               
@@ -689,7 +695,7 @@ async function startServer() {
 
               if (img && typeof img === 'string') {
                 if (img.startsWith('//')) img = `https:${img}`;
-                else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
+                else if (img.startsWith('/')) img = `${STATIC_FIREANT_URL}${img}`;
               }
               return img;
             };
@@ -717,7 +723,7 @@ async function startServer() {
               contentText = contentText.replace(/<img[^>]+(?:src|data-src|srcset)=["']([^"'\s>]+)["']/gi, (match: string, src: string) => {
                 let absoluteSrc = src;
                 if (src.startsWith('//')) absoluteSrc = `https:${src}`;
-                else if (src.startsWith('/')) absoluteSrc = `https://static.fireant.vn${src}`;
+                else if (src.startsWith('/')) absoluteSrc = `${STATIC_FIREANT_URL}${src}`;
                 
                 if (match.includes('data-src=')) {
                   return match.replace(/data-src=["'][^"']+["']/i, `src="${absoluteSrc}"`);
@@ -730,10 +736,10 @@ async function startServer() {
             }
 
             const allImages = (post.images || []).map((img: any) => {
-              let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
+              let url = img.imageUrl || (img.imageID ? `${STATIC_FIREANT_URL}/News/Image/${img.imageID}` : null);
               if (url && typeof url === 'string') {
                 if (url.startsWith('//')) url = `https:${url}`;
-                else if (url.startsWith('/')) url = `https://static.fireant.vn${url}`;
+                else if (url.startsWith('/')) url = `${STATIC_FIREANT_URL}${url}`;
               }
               return url;
             }).filter(Boolean);
@@ -766,7 +772,7 @@ async function startServer() {
               image: image,
               images: allImages,
               date: post.date,
-              url: `https://fireant.vn/bai-viet/${post.postID}`,
+              url: `${FIREANT_WEB_URL}/bai-viet/${post.postID}`,
               originalUrl: post.postSourceUrl || post.link || null,
               category: post.postGroup?.name || 'Market'
             });
@@ -807,39 +813,41 @@ async function startServer() {
   });
 
   // =============================================
-  // AI Endpoints (OpenAI-compatible)
+  // AI Endpoints (FireAnt OpenAI-compatible gateway)
   // =============================================
 
   // Status: tells frontend whether the server has a key configured (without exposing it)
-  app.get("/api/ai/status", (_req, res) => {
+  app.get("/api/ai/status", (req, res) => {
+    const apiKey = getRequestAIKey(req);
     res.json({
-      configured: Boolean(OPENAI_API_KEY),
-      baseUrl: OPENAI_BASE_URL,
+      configured: Boolean(apiKey),
+      baseUrl: AI_BASE_URL,
       defaultModel: DEFAULT_AI_MODEL,
       defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
     });
   });
 
   // Quick connectivity probe — useful to diagnose whether the server can reach
-  // OpenAI at all (DNS, firewall, proxy issues).
-  app.get("/api/ai/ping", async (_req, res) => {
-    if (!OPENAI_API_KEY) {
-      return res.status(503).json({ ok: false, error: "OPENAI_API_KEY not set" });
+  // the FireAnt AI gateway at all (DNS, firewall, proxy issues).
+  app.get("/api/ai/ping", async (req, res) => {
+    const apiKey = getRequestAIKey(req);
+    if (!apiKey) {
+      return res.status(503).json({ ok: false, error: "OPENAI_API_KEY or VITE_FIREANT_ACCESS_TOKEN not set" });
     }
     const startedAt = Date.now();
     try {
-      const response = await axios.get(`${OPENAI_BASE_URL}/models`, {
-        headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      const response = await axios.get(`${AI_BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
         timeout: 15000,
         validateStatus: (s) => s < 600,
       });
       const elapsed = Date.now() - startedAt;
-      console.log(`[AI] Ping ${OPENAI_BASE_URL} → ${response.status} in ${elapsed}ms`);
+      console.log(`[AI] Ping ${AI_BASE_URL} → ${response.status} in ${elapsed}ms`);
       res.json({
         ok: response.status === 200,
         status: response.status,
         elapsed,
-        baseUrl: OPENAI_BASE_URL,
+        baseUrl: AI_BASE_URL,
       });
     } catch (err: any) {
       const elapsed = Date.now() - startedAt;
@@ -849,15 +857,16 @@ async function startServer() {
         elapsed,
         code: err.code,
         message: err.message,
-        baseUrl: OPENAI_BASE_URL,
+        baseUrl: AI_BASE_URL,
       });
     }
   });
 
   // List available chat models for the picker
   app.get("/api/ai/models", async (req, res) => {
-    if (!OPENAI_API_KEY) {
-      return res.status(503).json({
+    const apiKey = getRequestAIKey(req);
+    if (!apiKey) {
+      return res.status(200).json({
         error: "AI service not configured",
         models: [],
         defaultModel: DEFAULT_AI_MODEL,
@@ -865,7 +874,7 @@ async function startServer() {
     }
 
     const force = req.query.refresh === "1" || req.query.refresh === "true";
-    const result = await fetchAvailableModels(force);
+    const result = await fetchAvailableModels(apiKey, force);
     res.json({
       models: result.models,
       defaultModel: DEFAULT_AI_MODEL,
@@ -873,14 +882,25 @@ async function startServer() {
     });
   });
 
-  // OpenAI reasoning models (o1, o3, o4-...) require `developer` role instead
+  // Reasoning models (o1, o3, o4-...) require `developer` role instead
   // of `system`, and don't accept temperature/top_p tuning.
   const isReasoningModel = (modelId: string): boolean => {
     const id = (modelId || "").toLowerCase();
     return id.startsWith("o1") || id.startsWith("o3") || id.startsWith("o4");
   };
 
-  // Build messages array (OpenAI chat format) given prior history + user message.
+  const isModelTierError = (message: string): boolean => {
+    const lower = (message || "").toLowerCase();
+    return lower.includes("not allowed") || lower.includes("user tier") || lower.includes("model_not_allowed");
+  };
+
+  const getCandidateModels = async (apiKey: string, requestedModel: string): Promise<string[]> => {
+    const result = await fetchAvailableModels(apiKey, true);
+    const models = result.models.map((item) => item.id).filter(Boolean);
+    return Array.from(new Set([requestedModel, ...models])).slice(0, 6);
+  };
+
+  // Build messages array (OpenAI-compatible chat format) given prior history + user message.
   // For reasoning models, `system` is rewritten to `developer` to comply with
   // their API contract.
   // When `pageContext` is provided it is injected as a dedicated context block
@@ -944,20 +964,25 @@ async function startServer() {
   app.post("/api/ai/chat", async (req, res) => {
     const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
     const session = getSession(req);
+    const apiKey = getRequestAIKey(req);
 
     if (!userMessage) {
       return res.status(400).json({ error: "User message is required" });
     }
 
-    if (!OPENAI_API_KEY) {
+    if (!apiKey) {
       return res.status(503).json({ error: "AI service not configured" });
     }
 
-    const targetModel = (typeof model === "string" && model.trim()) || DEFAULT_AI_MODEL;
+    let targetModel = (typeof model === "string" && model.trim()) || DEFAULT_AI_MODEL;
+    if (!targetModel) {
+      const result = await fetchAvailableModels(apiKey, true);
+      targetModel = result.models[0]?.id || "";
+    }
     if (!targetModel) {
       return res.status(400).json({
         error: "No AI model selected",
-        details: "Pass `model` in the request body or set OPENAI_DEFAULT_MODEL on the server.",
+        details: "Pass `model` in the request body or set FIREANT_AI_DEFAULT_MODEL on the server.",
       });
     }
     const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
@@ -968,7 +993,7 @@ async function startServer() {
       console.log(`[AI] Chat request → model=${targetModel}, user=${session?.user?.email || "anonymous"}`);
 
       const response = await axios.post(
-        `${OPENAI_BASE_URL}/chat/completions`,
+        `${AI_BASE_URL}/chat/completions`,
         {
           model: targetModel,
           messages: chatMessages,
@@ -976,7 +1001,7 @@ async function startServer() {
         },
         {
           headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           timeout: 60000,
@@ -985,7 +1010,7 @@ async function startServer() {
       );
 
       if (response.status !== 200) {
-        console.error(`[AI] OpenAI returned ${response.status}:`, response.data);
+        console.error(`[AI] FireAnt AI gateway returned ${response.status}:`, response.data);
         return res.status(response.status).json({
           error: "AI provider error",
           details: response.data?.error?.message || `HTTP ${response.status}`,
@@ -1010,19 +1035,24 @@ async function startServer() {
   app.post("/api/ai/chat/stream", async (req, res) => {
     const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
     const session = getSession(req);
+    const apiKey = getRequestAIKey(req);
 
     if (!userMessage) {
       return res.status(400).json({ error: "User message is required" });
     }
-    if (!OPENAI_API_KEY) {
+    if (!apiKey) {
       return res.status(503).json({ error: "AI service not configured" });
     }
 
-    const targetModel = (typeof model === "string" && model.trim()) || DEFAULT_AI_MODEL;
+    let targetModel = (typeof model === "string" && model.trim()) || DEFAULT_AI_MODEL;
+    if (!targetModel) {
+      const result = await fetchAvailableModels(apiKey, true);
+      targetModel = result.models[0]?.id || "";
+    }
     if (!targetModel) {
       return res.status(400).json({
         error: "No AI model selected",
-        details: "Pass `model` in the request body or set OPENAI_DEFAULT_MODEL on the server.",
+        details: "Pass `model` in the request body or set FIREANT_AI_DEFAULT_MODEL on the server.",
       });
     }
     const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
@@ -1043,7 +1073,7 @@ async function startServer() {
     };
 
     // Use the abort signal so stopping from the browser also cancels the
-    // upstream request to OpenAI (no orphaned tokens billed).
+    // upstream request to the FireAnt AI gateway.
     //
     // NOTE: We listen on `res` instead of `req`. In Express, `req.on("close")`
     // can fire as soon as `express.json()` finishes reading the body, even
@@ -1064,16 +1094,16 @@ async function startServer() {
       const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, targetModel, pageContext);
       const startedAt = Date.now();
       console.log(
-        `[AI] Stream request → model=${targetModel}, base=${OPENAI_BASE_URL}, key=${OPENAI_API_KEY ? `set(${OPENAI_API_KEY.length}ch)` : "MISSING"}, user=${session?.user?.email || "anonymous"}`,
+        `[AI] Stream request → model=${targetModel}, base=${AI_BASE_URL}, key=${apiKey ? `set(${apiKey.length}ch)` : "MISSING"}, user=${session?.user?.email || "anonymous"}`,
       );
 
       // Use native fetch (Node 18+) instead of axios. axios's stream handling
       // can buffer/swallow chunked SSE responses in some Node/version combos;
-      // fetch+ReadableStream is the OpenAI-recommended path.
-      const upstream = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
+      // fetch+ReadableStream gives the most reliable SSE behavior here.
+      const upstream = await fetch(`${AI_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
           Accept: "text/event-stream",
         },
@@ -1100,7 +1130,7 @@ async function startServer() {
 
       if (!upstream.body) {
         console.error(`[AI] Upstream ${upstream.status} returned no body`);
-        sendEvent("error", { message: "OpenAI trả về body rỗng." });
+        sendEvent("error", { message: "AI gateway trả về body rỗng." });
         res.end();
         return;
       }
@@ -1178,10 +1208,10 @@ async function startServer() {
       const code = error?.code || error?.cause?.code;
       if (code) {
         const networkHints: Record<string, string> = {
-          ETIMEDOUT: "Yêu cầu tới OpenAI bị timeout. Mạng có thể đang chặn api.openai.com.",
-          ECONNREFUSED: "Không thể kết nối api.openai.com. Kiểm tra firewall/proxy.",
-          ECONNRESET: "Kết nối tới OpenAI bị ngắt giữa chừng.",
-          ENOTFOUND: "Không phân giải được DNS api.openai.com. Kiểm tra DNS/VPN.",
+          ETIMEDOUT: "Yêu cầu tới AI gateway bị timeout. Mạng có thể đang chặn openai.fireant.vn.",
+          ECONNREFUSED: "Không thể kết nối openai.fireant.vn. Kiểm tra firewall/proxy.",
+          ECONNRESET: "Kết nối tới AI gateway bị ngắt giữa chừng.",
+          ENOTFOUND: "Không phân giải được DNS openai.fireant.vn. Kiểm tra DNS/VPN.",
           EAI_AGAIN: "DNS lookup tạm thời thất bại. Thử lại sau.",
         };
         detailedMessage = `${networkHints[code] || detailedMessage} (${code})`;
@@ -1256,3 +1286,5 @@ startServer().catch(err => {
   console.error("Failed to start server:", err);
   process.exit(1);
 });
+
+

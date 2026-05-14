@@ -6,6 +6,8 @@ import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } f
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
+import { fireantApi } from '../api/fireant';
+import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 
 interface BondDetailPopupProps {
   bond: Bond;
@@ -13,14 +15,13 @@ interface BondDetailPopupProps {
   onClose: () => void;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
-
 export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   
-  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
+  const chartPalette = CHART_PALETTE;
+  const chartTooltip = getChartTooltip(isDark);
 
   const formatTerm = (rawTerm: any) => {
     if (!rawTerm || rawTerm === 'N/A') return 'N/A';
@@ -45,19 +46,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
      */
     const fetchDetails = async () => {
       try {
-        const token = getFireantToken();
-        if (!token) throw new Error(t('missingToken'));
-
-        const cleanToken = cleanTokenString(token);
-        const response = await fetch(`/api/fireant/bonds/${bond.code}`, {
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+          const data = await fireantApi.getBond(bond.code);
           const detail = data.detail || {};
         const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
         const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
@@ -96,9 +85,6 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
             }))
           };
           setBondDetails(mappedDetails);
-        } else {
-          throw new Error(`${t('bondFetchError')}: ${response.status}`);
-        }
       } catch (error) {
         console.error('Error fetching bond details:', error);
         if (error instanceof Error && error.message.includes('401')) {
@@ -136,7 +122,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     return {
       color: chartPalette,
       tooltip: { 
-        trigger: 'axis', 
+        ...chartTooltip,
+        trigger: 'axis',
         axisPointer: { type: 'shadow' },
         formatter: (params: any) => {
           let res = `${params[0].name}<br/>`;

@@ -8,6 +8,7 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
+import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
@@ -55,7 +56,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
 
-  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
+  const chartPalette = CHART_PALETTE;
 
   const [comparisonBonds, setComparisonBonds] = useState<Bond[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -488,22 +489,18 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const legendStyle = {
     fontSize: 10,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const axisLabelStyle = {
     fontSize: 10,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
     fontWeight: 'bold'
   };
 
-  const tooltipTextStyle = {
-    fontSize: 10,
-    fontFamily: 'Inter',
-    fontWeight: 'normal' as const,
-    color: isDark ? '#f1f5f9' : '#1e293b'
-  };
+  const tooltipTextStyle = { ...getChartTooltip(isDark).textStyle, fontSize: 10 };
+  const chartTooltip = getChartTooltip(isDark);
 
   const getTimelineOptions = () => {
     if (!selectedBonds || selectedBonds.length === 0) {
@@ -565,6 +562,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     return {
       color: chartPalette,
       tooltip: {
+        ...chartTooltip,
         trigger: 'item',
         confine: true,
         textStyle: tooltipTextStyle,
@@ -583,7 +581,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           color: isDark ? '#888' : '#333',
           fontWeight: 'bold',
           margin: 15,
-          fontFamily: 'Inter'
+          fontFamily: 'Manrope'
         }
       },
       yAxis: { show: false, min: -1, max: 1 },
@@ -606,7 +604,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               formatter: '{b}',
               fontWeight: 'bold',
               fontSize: 10,
-              fontFamily: 'Inter',
+              fontFamily: 'Manrope',
               backgroundColor: d.isPrimary ? '#2563eb' : (isDark ? '#222' : '#f0f0f0'),
               color: d.isPrimary ? '#fff' : (isDark ? '#eee' : '#555'),
               padding: [4, 8],
@@ -635,10 +633,10 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     return {
       color: chartPalette,
       tooltip: { 
-        trigger: 'axis', 
+        ...chartTooltip,
+        trigger: 'axis',
         axisPointer: { type: 'shadow' },
         confine: true,
-        backgroundColor: isDark ? '#1e293b' : '#fff',
         borderColor: isDark ? '#334155' : '#e2e8f0',
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
@@ -658,7 +656,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                   <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
                   <span style="font-size: 11px;">${p.seriesName}</span>
                 </span>
-                <span style="font-weight: bold; font-family: 'JetBrains Mono';">
+                <span style="font-weight: bold; font-family: 'Manrope';">
                   ${formatValue(p.value)}${unit}
                 </span>
               </div>`;
@@ -732,10 +730,10 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     return {
       color: chartPalette,
       tooltip: { 
-        trigger: 'axis', 
+        ...chartTooltip,
+        trigger: 'axis',
         axisPointer: { type: 'shadow' },
         confine: true,
-        backgroundColor: isDark ? '#1e293b' : '#fff',
         borderColor: isDark ? '#334155' : '#e2e8f0',
         textStyle: tooltipTextStyle,
         formatter: (params: any) => `${params[0].name}: <b>${formatInterestRate(params[0].value)}%</b>`
@@ -768,7 +766,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             position: 'top',
             formatter: (params: any) => `${formatInterestRate(params.value)}%`,
             fontWeight: 'bold',
-            fontFamily: 'JetBrains Mono',
+            fontFamily: 'Manrope',
             fontSize: 11,
             color: isDark ? '#9ca3af' : '#64748b'
           }

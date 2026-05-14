@@ -23,8 +23,8 @@ interface MaturityListViewProps {
   setBondEnterpriseName: (name: string) => void;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
+import { fireantApi } from '../api/fireant';
 
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
   const { effectiveTheme } = useTheme();
@@ -56,25 +56,10 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       }
       setError(null);
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        
-        const headers: Record<string, string> = {
-          'Accept': 'application/json'
-        };
-
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        const response = await fetch(`/api/fireant/bonds/stats/bonds/maturing-soon?days=${selectedTimeRange}`, {
-          headers
-        });
+        const data = await fireantApi.getMaturingSoon(selectedTimeRange);
 
         if (!isMounted) return;
 
-        if (response.ok) {
-          const data = await response.json();
           if (Array.isArray(data)) {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
@@ -131,20 +116,14 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                           
                           // Step 1: If ticker is missing, fetch bond details to get issuerSymbol
                           if (!ticker) {
-                            const bondRes = await fetch(`/api/fireant/bonds/${encodeURIComponent(bond.code)}`, { headers });
-                            if (bondRes.ok) {
-                              const bondDetail = await bondRes.json();
-                              ticker = bondDetail.detail?.issuerSymbol;
-                            }
+                            const bondDetail = await fireantApi.getBond(bond.code);
+                            ticker = bondDetail.detail?.issuerSymbol;
                           }
 
                           // Step 2 & 3: Fetch profile and get internationalName
                           if (ticker) {
-                            const profileRes = await fetch(`/api/fireant/symbols/${encodeURIComponent(ticker)}/profile`, { headers });
-                            if (profileRes.ok) {
-                              const profile = await profileRes.json();
-                              return { code: bond.code, ticker, name: profile.internationalName };
-                            }
+                            const profile = await fireantApi.getIssuerProfile(ticker);
+                            return { code: bond.code, ticker, name: profile.internationalName };
                           }
                         } catch (e) {
                           console.error(`Failed to fetch EN name for ${bond.code}`, e);
@@ -188,12 +167,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               }
             }
           }
-        } else {
-          if (response.status === 401) {
-            throw new Error('401');
-          }
-          throw new Error(`${t('bondFetchError')}: ${response.status}`);
-        }
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching maturity bonds:', error);
@@ -259,13 +232,13 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   if (error) {
     return (
-      <div className="p-4 md:p-8 flex flex-col items-center justify-center min-h-[400px] text-center transition-colors">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 text-center transition-colors">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full mb-4">
           <AlertCircle className="h-12 w-12 text-red-500 dark:text-red-400" />
         </div>
         <h3 className="text-xl font-bold text-text-base mb-2 transition-colors">{t('failedToLoadData')}</h3>
-        <p className="text-text-muted max-w-sm mb-6 transition-colors">{error}</p>
-        <div className="flex gap-4">
+        <p className="text-text-muted max-w-sm mb-4 transition-colors">{error}</p>
+        <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
             className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
@@ -278,14 +251,14 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   }
 
   return (
-    <div className="p-0 md:p-6 animate-in fade-in duration-500 transition-colors">
+    <div className="p-0 md:p-4 animate-in fade-in duration-500 transition-colors">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
+        <h1 className="text-2xl font-bold text-blue-600 tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
       </div>
 
       {/* Time Range Selector */}
       <div className="flex justify-center mb-8 overflow-x-auto pb-1">
-        <div className="bg-bg-base p-1 rounded-2xl flex gap-1 transition-colors min-w-max">
+        <div className="bg-bg-base p-1 rounded-lg flex gap-1 transition-colors min-w-max">
           {[
             { label: t('range1Month'), days: 30 },
             { label: t('range3Months'), days: 90 },
@@ -316,8 +289,8 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       </div>
 
       {/* Filters */}
-      <div className="bg-bg-surface p-4 md:p-6 rounded-3xl shadow-sm border border-border-base mb-6 transition-colors">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="bg-bg-surface p-4 rounded-lg shadow-sm border border-border-base mb-4 transition-colors">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* Row 1 */}
           {/* Search Item */}
           <div className="relative">
@@ -330,7 +303,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-text-muted outline-none"
+              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-text-muted outline-none"
             />
           </div>
 
@@ -349,7 +322,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               <option value="default">{t('maturityDateSort')}</option>
               <option value="near">{t('nearest')}</option>
@@ -372,7 +345,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               <option value="default">{t('issuedValue')}</option>
               <option value="high">{t('highToLow')}</option>
@@ -390,7 +363,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setIndustryFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               {industries.map(ind => <option key={ind} value={ind}>{t(ind as any)}</option>)}
             </select>
@@ -405,7 +378,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setValueFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               {[t('allValues'), t('rangeLess100'), t('range100to500'), t('rangeMore500')].map(val => <option key={val} value={val}>{val}</option>)}
             </select>
@@ -420,7 +393,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setWarningFilter(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               {warningLevels.map(level => <option key={level} value={level}>{level}</option>)}
             </select>
@@ -429,7 +402,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       </div>
 
       {/* Table */}
-      <div className="bg-bg-surface rounded-3xl shadow-sm border border-border-base overflow-hidden transition-colors">
+      <div className="bg-bg-surface rounded-lg shadow-sm border border-border-base overflow-hidden transition-colors">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>

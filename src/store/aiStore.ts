@@ -56,13 +56,13 @@ export const useAIStore = create<AIState>()(
         try {
           const status = await getAIStatus();
           const current = get();
+          const gatewayChanged = current.baseUrl !== status.baseUrl;
           set({
             configured: status.configured,
             baseUrl: status.baseUrl,
             defaultModel: status.defaultModel,
             defaultSystemPrompt: status.defaultSystemPrompt,
-            // If user hasn't picked a model yet, default to server's
-            selectedModel: current.selectedModel || status.defaultModel,
+            selectedModel: status.defaultModel || (gatewayChanged ? "" : current.selectedModel),
             systemPrompt: current.systemPrompt || status.defaultSystemPrompt,
             isLoadingStatus: false,
           });
@@ -80,12 +80,10 @@ export const useAIStore = create<AIState>()(
           const data = await listAIModels(force);
           const current = get();
           const models = data.models || [];
-          // Ensure selected model is still valid; otherwise fall back to default
-          let selected = current.selectedModel;
-          if (selected && !models.find((m) => m.id === selected)) {
-            selected = data.defaultModel || models[0]?.id || selected;
-          }
-          if (!selected) selected = data.defaultModel || models[0]?.id || "";
+          const hasModel = (modelId: string) => models.some((m) => m.id === modelId);
+          const serverDefault = data.defaultModel && hasModel(data.defaultModel) ? data.defaultModel : "";
+          let selected = serverDefault || (current.selectedModel && hasModel(current.selectedModel) ? current.selectedModel : "");
+          if (!selected) selected = serverDefault || models[0]?.id || "";
           set({
             models,
             defaultModel: data.defaultModel || current.defaultModel,

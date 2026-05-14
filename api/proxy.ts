@@ -1,16 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
+import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL } from './_lib/config';
 
 let fireantToken: string | null = null;
 let lastTokenFetch = 0;
 
 async function getFireantToken(force = false) {
   const now = Date.now();
-  if (process.env.FIREANT_ACCESS_TOKEN && !force) return process.env.FIREANT_ACCESS_TOKEN;
+  if (FIREANT_ACCESS_TOKEN && !force) return FIREANT_ACCESS_TOKEN;
   if (!force && fireantToken && (now - lastTokenFetch < 15 * 60 * 1000)) return fireantToken;
 
   try {
-    const response = await axios.get('https://fireant.vn/bai-viet', {
+    const response = await axios.get(`${FIREANT_WEB_URL}/bai-viet`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -50,7 +51,7 @@ async function getFireantToken(force = false) {
   } catch (e) {
     console.error("Token fetch failed", (e as any).message);
   }
-  return fireantToken || process.env.FIREANT_ACCESS_TOKEN || null;
+  return fireantToken || FIREANT_ACCESS_TOKEN || null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -69,8 +70,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
   
   const queryString = queryObj.toString();
-  const baseUrl = "https://betarest.fireant.vn";
-  const url = `${baseUrl}/${path}${queryString ? `?${queryString}` : ""}`;
+  const url = `${FIREANT_BASE_URL}/${path}${queryString ? `?${queryString}` : ""}`;
 
   console.log(`[Vercel Proxy] ${req.method} ${url}`);
 
@@ -79,8 +79,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://fireant.vn/',
-      'Origin': 'https://fireant.vn',
+      'Referer': `${FIREANT_WEB_URL}/`,
+      'Origin': FIREANT_WEB_URL,
       'X-Requested-With': 'XMLHttpRequest'
     };
     

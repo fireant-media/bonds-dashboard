@@ -1,43 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
 @theme {
   --color-bg-base: var(--bg-base);
   --color-bg-surface: var(--bg-surface);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-bright: var(--surface-bright);
   --color-text-base: var(--text-base);
   --color-text-muted: var(--text-muted);
   --color-text-highlight: var(--text-highlight);
   --color-border-base: var(--border-base);
+  --font-sans: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
+  --font-data-mono: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
-  --bg-base: #f8f9fa;
+  --bg-base: #f8fafc;
   --bg-surface: #ffffff;
-  --text-base: #1c1e21;
-  --text-muted: #65676b;
-  --text-highlight: #2563eb; /* blue-600 */
-  --border-base: #e4e6eb;
+  --surface-container-low: #f1f5f9;
+  --surface-bright: #ffffff;
+  --text-base: #172033;
+  --text-muted: #64748b;
+  --text-highlight: #2563eb;
+  --border-base: #e2e8f0;
 }
 
 .dark {
-  --bg-base: #18191a;
-  --bg-surface: #242526;
-  --text-base: #e4e6eb;
-  --text-muted: #b0b3b8;
-  --text-highlight: #3b82f6; /* blue-500 */
-  --border-base: #3e4042;
+  --bg-base: #0f172a;
+  --bg-surface: #172033;
+  --surface-container-low: #111827;
+  --surface-bright: #1e293b;
+  --text-base: #e5edf7;
+  --text-muted: #94a3b8;
+  --text-highlight: #3b82f6;
+  --border-base: #334155;
 }
 
 @layer base {
   body {
-    @apply bg-bg-base text-text-base transition-colors duration-300;
+    @apply bg-bg-base text-text-base font-sans transition-colors duration-300;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
   
   .fireant-content p {
     @apply mb-4 leading-relaxed;
   }
   .fireant-content img {
-    @apply rounded-xl my-6 max-w-full h-auto mx-auto border border-border-base shadow-sm;
+    @apply rounded-lg my-6 max-w-full h-auto mx-auto border border-border-base shadow-sm;
   }
   .fireant-content h2, .fireant-content h3 {
     @apply font-bold mt-8 mb-4 text-lg md:text-xl text-text-base;
@@ -55,7 +65,7 @@
     @apply my-4 ml-6 list-disc space-y-2;
   }
   .fireant-content table {
-    @apply w-full border-collapse my-6 overflow-hidden rounded-xl border border-border-base;
+    @apply w-full border-collapse my-6 overflow-hidden rounded-lg border border-border-base;
   }
   .fireant-content th, .fireant-content td {
     @apply p-3 border-b border-border-base text-sm;

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Building2, Briefcase, ChevronDown, ChevronRight, PanelLeft, Calendar } from 'lucide-react';
+import { LayoutDashboard, Building2, Briefcase, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -18,17 +18,17 @@ interface SidebarProps {
   onEnterpriseTabClick: () => void;
 }
 
-export default function Sidebar({ 
-  activeTab, 
-  setActiveTab, 
-  activeIndustry, 
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  activeIndustry,
   setActiveIndustry,
   isOpen,
   onToggle,
   onEnterpriseTabClick
 }: SidebarProps) {
   const [isIndustryOpen, setIsIndustryOpen] = useState(false);
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
 
   const menuItems = [
     { id: 'overview', label: t('overview'), icon: LayoutDashboard },
@@ -43,46 +43,48 @@ export default function Sidebar({
   ];
 
   return (
-    <aside className="w-full bg-bg-surface md:border-r border-border-base flex flex-col h-auto md:h-full overflow-hidden transition-colors duration-300">
-      <div className={cn("p-3 md:p-6 transition-all duration-300 shrink-0", isOpen ? "w-full md:w-80" : "w-full md:w-16 md:px-3")}>
-        <div className={cn("flex items-center mb-3 md:mb-8", isOpen ? "justify-end" : "justify-center")}>
-          <button 
-            onClick={onToggle}
-            className="p-2 text-gray-400 hover:text-text-highlight hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg transition-colors"
-            title={isOpen ? t('hideSidebar') : t('showSidebar')}
-          >
-            <PanelLeft className={cn("h-5 w-5 transition-transform duration-300", !isOpen && "rotate-180")} />
-          </button>
-        </div>
-
-        <nav className="space-y-1">
+    <aside className="w-full bg-surface-bright lg:border-r border-border-base flex flex-col h-full overflow-hidden transition-colors duration-300">
+      <div className={cn("min-h-0 overflow-y-auto p-3 lg:p-4 transition-all duration-300", isOpen ? "w-full lg:w-64" : "w-full lg:w-14 lg:px-2")}>
+        <nav className={cn(isOpen ? "space-y-1" : "flex justify-center gap-2 lg:block lg:space-y-1")}>
           {menuItems.map((item) => (
             <div key={item.id}>
               <button
                 onClick={() => {
-                  if (!isOpen) {
-                    onToggle();
-                    return;
-                  }
                   if (item.hasSubmenu) {
+                    if (!isOpen) {
+                      onToggle();
+                      setIsIndustryOpen(true);
+                      setActiveTab('industry');
+                      return;
+                    }
                     setIsIndustryOpen(!isIndustryOpen);
                   } else if (item.id === 'enterprise') {
+                    if (activeTab === item.id && isOpen) {
+                      onToggle();
+                      return;
+                    }
+                    if (!isOpen) onToggle();
                     onEnterpriseTabClick();
                   } else {
+                    if (activeTab === item.id && isOpen) {
+                      onToggle();
+                      return;
+                    }
+                    if (!isOpen) onToggle();
                     setActiveTab(item.id);
                   }
                 }}
                 className={cn(
-                  "w-full flex items-center rounded-xl transition-all duration-200 group",
-                  isOpen ? "px-3 py-2.5 md:px-4 md:py-3 justify-between" : "p-3 justify-center",
+                  "w-full flex items-center rounded-lg transition-all duration-200 group active:scale-95",
+                  isOpen ? "px-3 py-2.5 justify-between" : "p-2.5 justify-center",
                   activeTab === item.id && !item.hasSubmenu
-                    ? "bg-blue-600/5 text-text-highlight font-semibold"
-                    : "text-text-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-text-highlight"
+                    ? "bg-blue-600/10 text-text-highlight font-semibold"
+                    : "text-text-muted hover:bg-surface-container-low hover:text-blue-600"
                 )}
                 title={!isOpen ? item.label : undefined}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id && !item.hasSubmenu ? "text-text-highlight" : "text-gray-400 group-hover:text-text-highlight")} />
+                  <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id && !item.hasSubmenu ? "text-text-highlight" : "text-text-muted group-hover:text-text-highlight")} />
                   {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id && !item.hasSubmenu ? "font-semibold" : "font-medium")}>{item.label}</span>}
                 </div>
                 {isOpen && item.hasSubmenu && (
@@ -94,7 +96,7 @@ export default function Sidebar({
               </button>
 
               {isOpen && item.hasSubmenu && isIndustryOpen && (
-                <div className="mt-1 ml-6 md:ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
+                <div className="mt-1 ml-6 lg:ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
                   {subIndustries.map((sub) => (
                     <button
                       key={sub.id}
@@ -104,8 +106,8 @@ export default function Sidebar({
                       className={cn(
                         "w-full text-left px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-between group whitespace-nowrap",
                         activeTab === 'industry' && activeIndustry === sub.id
-                          ? "text-text-highlight font-semibold bg-blue-600/5"
-                          : "text-text-muted hover:text-text-highlight hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                          ? "text-text-highlight font-semibold bg-blue-600/10"
+                          : "text-text-muted hover:text-blue-600 hover:bg-surface-container-low"
                       )}
                     >
                       {sub.label}

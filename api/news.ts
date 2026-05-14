@@ -1,16 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
+import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL, STATIC_FIREANT_URL } from './_lib/config';
 
 let cachedToken: string | null = null;
 let lastTokenFetch = 0;
 
 async function getFireantToken(force = false) {
   const now = Date.now();
-  if (process.env.FIREANT_ACCESS_TOKEN && !force) return process.env.FIREANT_ACCESS_TOKEN;
+  if (FIREANT_ACCESS_TOKEN && !force) return FIREANT_ACCESS_TOKEN;
   if (!force && cachedToken && (now - lastTokenFetch < 15 * 60 * 1000)) return cachedToken;
 
   try {
-    const response = await axios.get('https://fireant.vn/bai-viet', {
+    const response = await axios.get(`${FIREANT_WEB_URL}/bai-viet`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
@@ -32,7 +33,7 @@ async function getFireantToken(force = false) {
   } catch (e) {
     console.error("Token fetch failed in news API", (e as any).message);
   }
-  return cachedToken || process.env.FIREANT_ACCESS_TOKEN || null;
+  return cachedToken || FIREANT_ACCESS_TOKEN || null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -42,12 +43,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (token) {
       const fetchPostsRaw = async (authToken: string) => {
-        return axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
+        return axios.get(`${FIREANT_BASE_URL}/posts/get-posts-by-group`, {
           params: { groupID: 'NEWS_STREAM', offset: 0, limit: 40 },
           headers: {
             'Authorization': authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://fireant.vn/'
+            'Referer': `${FIREANT_WEB_URL}/`
           },
           timeout: 8000,
           validateStatus: (status) => status < 500
@@ -71,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const mappedNews = posts.map((post: any) => {
       const image = post.images?.[0]?.imageUrl || 
-                   (post.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${post.images[0].imageID}` : null) ||
+                   (post.images?.[0]?.imageID ? `${STATIC_FIREANT_URL}/News/Image/${post.images[0].imageID}` : null) ||
                    post.thumbnail || 
                    post.linkImage;
       

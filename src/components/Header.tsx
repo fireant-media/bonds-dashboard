@@ -1,10 +1,12 @@
-import { Search, Bell, LogOut, Settings, HelpCircle, UserCircle } from 'lucide-react';
+import { Search, LogOut, HelpCircle, UserCircle, Moon, Sun, Languages, X } from 'lucide-react';
 import { useState, useEffect, useRef, useId } from 'react';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
-import { getFireantToken, cleanTokenString } from '../utils/token';
 import { useAuthUser } from '../auth/authStore';
 import Logo from './Logo';
+import { fireantApi } from '../api/fireant';
+import { useTheme } from '../ThemeContext';
+import { Language } from '../translations';
 
 const HeaderAppLogo = () => {
   const id = useId();
@@ -54,22 +56,23 @@ export type SearchSuggestion = {
 
 interface HeaderProps {
   onProfileClick: () => void;
-  onSettingsClick: () => void;
   onHelpClick: () => void;
   onLogoClick: () => void;
   onLogout: () => void;
   onSearchSelect: (suggestion: SearchSuggestion) => void;
 }
 
-export default function Header({ onProfileClick, onSettingsClick, onHelpClick, onLogoClick, onLogout, onSearchSelect }: HeaderProps) {
+export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLogout, onSearchSelect }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const { t } = useLanguage();
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const { t, language, setLanguage } = useLanguage();
+  const { setTheme, effectiveTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const authUser = useAuthUser();
 
   const getInitials = (name: string) => {
@@ -89,21 +92,13 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
   }, []);
 
   useEffect(() => {
-    const loadSearchCaches = async () => {
+      const loadSearchCaches = async () => {
       const enterpriseCache = getCache('enterprise_list');
       const bondCache = getCache('comparison_pool_bonds');
-      const headers: Record<string, string> = { 'Accept': 'application/json' };
-      const token = getFireantToken();
-      const cleanToken = token ? cleanTokenString(token) : undefined;
-      if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
 
       if (!enterpriseCache) {
         try {
-          const enterpriseRes = await fetch('/api/fireant/bonds/stats/issuers/top-debt?top=200', {
-            headers
-          });
-          if (enterpriseRes.ok) {
-            const issuers = await enterpriseRes.json();
+            const issuers = await fireantApi.getTopDebtIssuers(200);
             if (Array.isArray(issuers)) {
               const mappedEnterprises = issuers.map((issuer: any) => ({
                 id: issuer.issuerSymbol,
@@ -115,9 +110,8 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
                 initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue || 0) / 1000000000,
                 remainingDebt: (issuer.totalRemainingDebt || 0) / 1000000000
               }));
-              setCache('enterprise_list', mappedEnterprises);
+                setCache('enterprise_list', mappedEnterprises);
             }
-          }
         } catch (error) {
           console.warn('Header failed to preload enterprise list', error);
         }
@@ -125,11 +119,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
 
       if (!bondCache) {
         try {
-          const bondsRes = await fetch('/api/fireant/bonds/stats/bonds/maturing-soon?days=3650', {
-            headers
-          });
-          if (bondsRes.ok) {
-            const bonds = await bondsRes.json();
+            const bonds = await fireantApi.getMaturingSoon(3650);
             if (Array.isArray(bonds)) {
               const mappedBonds = bonds.map((bond: any) => ({
                 id: String(bond.bondCode || bond.code || ''),
@@ -141,7 +131,6 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
                 setCache('comparison_pool_bonds', mappedBonds);
               }
             }
-          }
         } catch (error) {
           console.warn('Header failed to preload bond pool', error);
         }
@@ -162,12 +151,6 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
     const loadSuggestions = async () => {
       setIsSearching(true);
       const normalized = trimmed.toLowerCase();
-      const headers: Record<string, string> = {
-        'Accept': 'application/json'
-      };
-      const token = getFireantToken();
-      const cleanToken = token ? cleanTokenString(token) : undefined;
-      if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
 
       const suggestionMap = new Map<string, SearchSuggestion>();
       const addSuggestion = (suggestion: SearchSuggestion) => {
@@ -210,12 +193,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
       });
 
       try {
-        const response = await fetch(`/api/fireant/symbols/search?q=${encodeURIComponent(trimmed)}`, {
-          headers
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+          const data = await fireantApi.searchSymbols(trimmed);
           const items = Array.isArray(data)
             ? data
             : Array.isArray(data?.data)
@@ -253,7 +231,6 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
               addSuggestion(suggestion);
             }
           });
-        }
       } catch (error) {
         console.warn('Header search symbol lookup failed', error);
       }
@@ -262,11 +239,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
       const maybeBond = normalizedCode.length >= 3 && /[0-9]/.test(normalizedCode);
       if (maybeBond && !Array.from(suggestionMap.values()).some(s => s.type === 'bond' && s.code?.toUpperCase() === normalizedCode)) {
         try {
-          const response = await fetch(`/api/fireant/bonds/${encodeURIComponent(normalizedCode)}`, {
-            headers
-          });
-          if (response.ok) {
-            const bondData = await response.json();
+            const bondData = await fireantApi.getBond(normalizedCode);
             const issuerName = String(bondData?.issuerName || bondData?.issuerSymbol || '');
             addSuggestion({
               id: normalizedCode,
@@ -276,7 +249,6 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
               code: normalizedCode,
               enterpriseName: issuerName
             });
-          }
         } catch (error) {
           console.warn('Header exact bond lookup failed', error);
         }
@@ -299,30 +271,53 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
     setSearchQuery('');
     setSuggestions([]);
     setShowDropdown(false);
+    setMobileSearchOpen(false);
     onSearchSelect(suggestion);
   };
 
+  const toggleTheme = () => {
+    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
+  };
+
+  const toggleLanguage = () => {
+    setLanguage((language === 'vi' ? 'en' : 'vi') as Language);
+  };
+
   return (
-    <header className="h-16 bg-bg-surface border-b border-border-base flex items-center justify-between gap-2 px-3 md:px-6 sticky top-0 z-50 transition-colors duration-300">
-      <div className="flex items-center shrink-0">
+    <header className="relative h-16 shrink-0 bg-surface-bright border-b border-border-base flex items-center gap-3 px-3 md:px-6 sticky top-0 z-50 transition-colors duration-300 shadow-sm">
+      <div className="flex min-w-0 flex-1 items-center">
         <div 
-          className="flex items-center hover:cursor-pointer select-none group"
+          className="flex min-w-0 items-center hover:cursor-pointer select-none group"
           onClick={onLogoClick}
         >
-          <div className="flex items-end gap-6 md:gap-10">
-            <div className="flex items-center gap-2 scale-110 md:scale-125 origin-left">
+          <div className="flex min-w-0 items-end gap-3 md:gap-6 lg:gap-10">
+            <div className="flex shrink-0 items-center gap-2 origin-left">
               <HeaderAppLogo />
               <Logo />
             </div>
-            <h1 className="text-base md:text-lg font-bold text-text-highlight tracking-tight transition-colors hidden lg:block uppercase leading-none relative">
+            <h1 className="hidden min-w-0 truncate text-base font-bold text-text-highlight tracking-tight transition-colors md:block lg:text-lg uppercase leading-none relative">
               Bonds Dashboard
             </h1>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-1 min-w-0 items-center justify-end gap-2 md:gap-4">
-        <div ref={containerRef} className="relative flex-1 min-w-0 md:flex-none md:w-96 md:mr-4">
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setMobileSearchOpen(true);
+            setShowDropdown(true);
+            window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
+          }}
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95 md:hidden"
+          aria-label={t('searchPlaceholder')}
+          title={t('searchPlaceholder')}
+        >
+          <Search className="h-5 w-5" />
+        </button>
+
+        <div ref={containerRef} className="relative hidden w-full min-w-0 max-w-md md:block">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-text-muted" />
           </div>
@@ -334,12 +329,13 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
             }}
             onFocus={() => setShowDropdown(true)}
             type="text"
-            className="block w-full pl-10 pr-3 py-2 border border-border-base rounded-lg bg-bg-base text-sm text-text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-text-highlight focus:border-transparent transition-all"
+            aria-label={t('searchPlaceholder')}
+            className="block w-full pl-10 pr-3 py-2 border border-border-base rounded-lg bg-surface-container-low text-sm text-text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             placeholder={t('searchPlaceholder')}
           />
 
           {showDropdown && (suggestions.length > 0 || isSearching) && (
-            <div className="absolute left-0 right-0 mt-2 z-50 rounded-2xl border border-border-base bg-bg-surface shadow-xl max-h-80 md:max-h-96 overflow-y-auto">
+            <div className="absolute left-0 right-0 mt-2 z-50 rounded-lg border border-border-base bg-surface-bright shadow-lg max-h-80 md:max-h-96 overflow-y-auto">
               {isSearching && (
                 <div className="px-4 py-3 text-sm text-text-muted">{t('loading')}...</div>
               )}
@@ -350,31 +346,95 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
                 <button
                   key={`${suggestion.type}:${suggestion.id}`}
                   onClick={() => handleSelectSuggestion(suggestion)}
-                  className="w-full text-left px-4 py-3 hover:bg-bg-base transition-colors"
+                  className="w-full text-left px-4 py-3 hover:bg-surface-container-low transition-colors cursor-pointer"
                 >
                   <div className="text-sm font-semibold text-text-base">{suggestion.title}</div>
-                  <div className="text-xs text-text-muted">{suggestion.subtitle || (suggestion.type === 'bond' ? t('bond') : t('enterprise'))}</div>
+                  <div className="text-xs font-medium text-text-muted">{suggestion.subtitle || (suggestion.type === 'bond' ? t('bond') : t('enterprise'))}</div>
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        <button 
-          onClick={() => setShowNotifications(!showNotifications)}
-          className="p-2 text-text-muted hover:bg-bg-base rounded-full relative transition-colors shrink-0"
+        {mobileSearchOpen && (
+          <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-lg md:hidden">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-text-muted" />
+              </div>
+              <input
+                ref={mobileSearchInputRef}
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowDropdown(true);
+                }}
+                onFocus={() => setShowDropdown(true)}
+                type="text"
+                aria-label={t('searchPlaceholder')}
+                className="block w-full pl-10 pr-10 py-3 border border-border-base rounded-lg bg-surface-container-low text-sm text-text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder={t('searchPlaceholder')}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileSearchOpen(false);
+                  setShowDropdown(false);
+                }}
+                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-text-muted transition-colors hover:text-blue-600"
+                aria-label="Close search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {showDropdown && (suggestions.length > 0 || isSearching) && (
+              <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-border-base bg-surface-bright shadow-lg">
+                {isSearching && (
+                  <div className="px-4 py-3 text-sm text-text-muted">{t('loading')}...</div>
+                )}
+                {!isSearching && suggestions.length === 0 && searchQuery.trim().length > 0 && (
+                  <div className="px-4 py-3 text-sm text-text-muted">{t('noResults')}</div>
+                )}
+                {suggestions.map((suggestion) => (
+                  <button
+                    key={`${suggestion.type}:${suggestion.id}`}
+                    onClick={() => handleSelectSuggestion(suggestion)}
+                    className="w-full text-left px-4 py-3 hover:bg-surface-container-low transition-colors cursor-pointer"
+                  >
+                    <div className="text-sm font-semibold text-text-base">{suggestion.title}</div>
+                    <div className="text-xs font-medium text-text-muted">{suggestion.subtitle || (suggestion.type === 'bond' ? t('bond') : t('enterprise'))}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          onClick={toggleTheme}
+          className="p-2 text-text-muted hover:text-blue-600 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"
+          title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
         >
-          <Bell className="h-5 w-5" />
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full border-2 border-bg-surface"></span>
+          {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+        </button>
+
+        <button
+          onClick={toggleLanguage}
+          className="flex items-center gap-1.5 px-2.5 py-2 text-text-muted hover:text-blue-600 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"
+          title={t('uiLanguage')}
+        >
+          <Languages className="h-5 w-5" />
+          <span className="text-xs font-bold uppercase">{language}</span>
         </button>
 
         <div className="relative">
           <button 
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-3 p-1.5 hover:bg-bg-base rounded-lg transition-colors shrink-0"
+            className="flex items-center gap-3 p-1.5 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"
           >
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>
+              <p className="text-xs font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>
             </div>
             <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold overflow-hidden">
               {getInitials(authUser?.profile?.name || '')}
@@ -382,7 +442,7 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
           </button>
 
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-bg-surface rounded-xl shadow-xl border border-border-base py-2 z-50">
+            <div className="absolute right-0 mt-2 w-48 bg-surface-bright rounded shadow-lg border border-border-base py-2 z-50">
               <button 
                 onClick={() => {
                   onProfileClick();
@@ -391,15 +451,6 @@ export default function Header({ onProfileClick, onSettingsClick, onHelpClick, o
                 className="w-full px-4 py-2 text-sm text-text-base hover:bg-bg-base flex items-center gap-3 transition-colors"
               >
                 <UserCircle className="h-4 w-4" /> {t('profile')}
-              </button>
-              <button 
-                onClick={() => {
-                  onSettingsClick();
-                  setShowUserMenu(false);
-                }}
-                className="w-full px-4 py-2 text-sm text-text-base hover:bg-bg-base flex items-center gap-3 transition-colors"
-              >
-                <Settings className="h-4 w-4" /> {t('settings')}
               </button>
               <button 
                 onClick={() => {

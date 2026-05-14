@@ -1,13 +1,19 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
+import { OPENAI_API_KEY, OPENAI_BASE_URL, DEFAULT_AI_MODEL } from './_lib/config';
 
 export const config = {
   supportsResponseStreaming: true,
 };
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-const DEFAULT_AI_MODEL = (process.env.OPENAI_DEFAULT_MODEL || '').trim();
+const AI_API_KEY = OPENAI_API_KEY;
+const AI_BASE_URL = OPENAI_BASE_URL;
+
+const getRequestAIKey = (req: VercelRequest): string => {
+  const headerToken = req.headers['x-fireant-access-token'];
+  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  return (rawToken || AI_API_KEY || '').replace(/^bearer\s+/i, '').trim();
+};
 
 const DEFAULT_SYSTEM_PROMPT = `Bạn là Chuyên gia phân tích trái phiếu cấp cao.
 
@@ -25,6 +31,7 @@ interface AIModelInfo {
 }
 
 let cachedModels: AIModelInfo[] | null = null;
+let cachedModelsKey = '';
 let lastModelsFetch = 0;
 const MODELS_CACHE_TTL = 30 * 60 * 1000;
 
@@ -42,17 +49,14 @@ const isChatModelId = (id: string): boolean => {
     lower.includes('moderation') ||
     lower.includes('transcribe') ||
     lower.includes('realtime') ||
-    lower.includes('image')
+    lower.includes('image') ||
+    lower.includes('search') ||
+    lower.includes('codex') ||
+    lower.includes('deep-research')
   ) {
     return false;
   }
-  return (
-    lower.startsWith('gpt-') ||
-    lower.startsWith('o1') ||
-    lower.startsWith('o3') ||
-    lower.startsWith('o4') ||
-    lower.startsWith('chatgpt')
-  );
+  return true;
 };
 
 const buildModelLabel = (id: string): string =>
@@ -61,17 +65,17 @@ const buildModelLabel = (id: string): string =>
     .map((p) => (p.length <= 3 ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1)))
     .join(' ');
 
-async function fetchAvailableModels(force = false): Promise<{ models: AIModelInfo[]; error: string | null }> {
+async function fetchAvailableModels(apiKey: string, force = false): Promise<{ models: AIModelInfo[]; error: string | null }> {
   const now = Date.now();
-  if (!force && cachedModels && now - lastModelsFetch < MODELS_CACHE_TTL) {
+  if (!force && cachedModels && cachedModelsKey === apiKey && now - lastModelsFetch < MODELS_CACHE_TTL) {
     return { models: cachedModels, error: null };
   }
-  if (!OPENAI_API_KEY) {
-    return { models: [], error: 'OPENAI_API_KEY is not configured on the server' };
+  if (!apiKey) {
+    return { models: [], error: 'OPENAI_API_KEY or VITE_FIREANT_ACCESS_TOKEN is not configured on the server' };
   }
   try {
-    const response = await axios.get(`${OPENAI_BASE_URL}/models`, {
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, Accept: 'application/json' },
+    const response = await axios.get(`${AI_BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
       timeout: 12000,
       validateStatus: (s) => s < 500,
     });
@@ -90,6 +94,7 @@ async function fetchAvailableModels(force = false): Promise<{ models: AIModelInf
     });
     unique.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }) * -1);
     cachedModels = unique;
+    cachedModelsKey = apiKey;
     lastModelsFetch = now;
     return { models: unique, error: null };
   } catch (err: any) {
@@ -100,6 +105,17 @@ async function fetchAvailableModels(force = false): Promise<{ models: AIModelInf
 const isReasoningModel = (modelId: string): boolean => {
   const id = (modelId || '').toLowerCase();
   return id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4');
+};
+
+const isModelTierError = (message: string): boolean => {
+  const lower = (message || '').toLowerCase();
+  return lower.includes('not allowed') || lower.includes('user tier') || lower.includes('model_not_allowed');
+};
+
+const getCandidateModels = async (apiKey: string, requestedModel: string): Promise<string[]> => {
+  const result = await fetchAvailableModels(apiKey, true);
+  const models = result.models.map((model) => model.id).filter(Boolean);
+  return Array.from(new Set([requestedModel, ...models])).slice(0, 6);
 };
 
 const buildChatMessages = (
@@ -137,53 +153,74 @@ const buildChatMessages = (
 
 // ── Route handlers ──────────────────────────────────────────────────────────
 
-async function handleStatus(res: VercelResponse) {
+async function handleStatus(req: VercelRequest, res: VercelResponse) {
+  const apiKey = getRequestAIKey(req);
   res.json({
-    configured: Boolean(OPENAI_API_KEY),
-    baseUrl: OPENAI_BASE_URL,
+    configured: Boolean(apiKey),
+    baseUrl: AI_BASE_URL,
     defaultModel: DEFAULT_AI_MODEL,
     defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
   });
 }
 
 async function handleModels(req: VercelRequest, res: VercelResponse) {
-  if (!OPENAI_API_KEY) {
-    return res.status(503).json({ error: 'AI service not configured', models: [], defaultModel: DEFAULT_AI_MODEL });
+  const apiKey = getRequestAIKey(req);
+  if (!apiKey) {
+    return res.status(200).json({ error: 'AI service not configured', models: [], defaultModel: DEFAULT_AI_MODEL });
   }
   const force = req.query.refresh === '1' || req.query.refresh === 'true';
-  const result = await fetchAvailableModels(force);
+  const result = await fetchAvailableModels(apiKey, force);
   res.json({ models: result.models, defaultModel: DEFAULT_AI_MODEL, error: result.error });
 }
 
 async function handleChat(req: VercelRequest, res: VercelResponse) {
   const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
+  const apiKey = getRequestAIKey(req);
   if (!userMessage) return res.status(400).json({ error: 'User message is required' });
-  if (!OPENAI_API_KEY) return res.status(503).json({ error: 'AI service not configured' });
+  if (!apiKey) return res.status(503).json({ error: 'AI service not configured' });
 
-  const targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
+  let targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
+  if (!targetModel) {
+    const result = await fetchAvailableModels(apiKey, true);
+    targetModel = result.models[0]?.id || '';
+  }
   if (!targetModel) return res.status(400).json({ error: 'No AI model selected' });
   const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
 
   try {
-    const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, targetModel, pageContext);
-    const response = await axios.post(
-      `${OPENAI_BASE_URL}/chat/completions`,
-      { model: targetModel, messages: chatMessages, stream: false },
-      {
-        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-        timeout: 60000,
-        validateStatus: (s) => s < 500,
-      },
-    );
-    if (response.status !== 200) {
-      return res.status(response.status).json({
-        error: 'AI provider error',
-        details: response.data?.error?.message || `HTTP ${response.status}`,
-      });
+    const candidateModels = await getCandidateModels(apiKey, targetModel);
+    let lastDetail = '';
+
+    for (const candidateModel of candidateModels) {
+      const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, candidateModel, pageContext);
+      const response = await axios.post(
+        `${AI_BASE_URL}/chat/completions`,
+        { model: candidateModel, messages: chatMessages, stream: false },
+        {
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          timeout: 60000,
+          validateStatus: (s) => s < 500,
+        },
+      );
+      if (response.status === 200) {
+        const text = response.data?.choices?.[0]?.message?.content || '';
+        if (!text) throw new Error('No response text from AI provider');
+        return res.json({ text, model: candidateModel, history: [] });
+      }
+
+      lastDetail = response.data?.error?.message || `HTTP ${response.status}`;
+      if (!isModelTierError(lastDetail)) {
+        return res.status(response.status).json({
+          error: 'AI provider error',
+          details: lastDetail,
+        });
+      }
     }
-    const text = response.data?.choices?.[0]?.message?.content || '';
-    if (!text) throw new Error('No response text from AI provider');
-    res.json({ text, model: targetModel, history: [] });
+
+    return res.status(403).json({
+      error: 'AI provider error',
+      details: lastDetail || 'Không tìm thấy model AI phù hợp với tài khoản.',
+    });
   } catch (error: any) {
     res.status(500).json({ error: 'AI connection failed', details: error?.message });
   }
@@ -191,10 +228,15 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
 
 async function handleChatStream(req: VercelRequest, res: VercelResponse) {
   const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
+  const apiKey = getRequestAIKey(req);
   if (!userMessage) return res.status(400).json({ error: 'User message is required' });
-  if (!OPENAI_API_KEY) return res.status(503).json({ error: 'AI service not configured' });
+  if (!apiKey) return res.status(503).json({ error: 'AI service not configured' });
 
-  const targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
+  let targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
+  if (!targetModel) {
+    const result = await fetchAvailableModels(apiKey, true);
+    targetModel = result.models[0]?.id || '';
+  }
   if (!targetModel) return res.status(400).json({ error: 'No AI model selected' });
   const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
 
@@ -219,35 +261,54 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
   });
 
   try {
-    const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, targetModel, pageContext);
-    const upstream = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify({ model: targetModel, messages: chatMessages, stream: true }),
-      signal: abortController.signal,
-    });
+    const candidateModels = await getCandidateModels(apiKey, targetModel);
+    let upstream: Response | null = null;
+    let finalModel = targetModel;
+    let lastMessage = '';
 
-    if (!upstream.ok) {
-      const errBody = await upstream.text().catch(() => '');
+    for (const candidateModel of candidateModels) {
+      const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, candidateModel, pageContext);
+      const candidate = await fetch(`${AI_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify({ model: candidateModel, messages: chatMessages, stream: true }),
+        signal: abortController.signal,
+      });
+
+      if (candidate.ok) {
+        upstream = candidate;
+        finalModel = candidateModel;
+        break;
+      }
+
+      const errBody = await candidate.text().catch(() => '');
       let parsed: any = null;
       try { parsed = JSON.parse(errBody); } catch {}
-      const message = parsed?.error?.message || errBody.slice(0, 400) || `HTTP ${upstream.status}`;
-      sendEvent('error', { message });
+      lastMessage = parsed?.error?.message || errBody.slice(0, 400) || `HTTP ${candidate.status}`;
+      if (!isModelTierError(lastMessage)) {
+        sendEvent('error', { message: lastMessage });
+        res.end();
+        return;
+      }
+    }
+
+    if (!upstream) {
+      sendEvent('error', { message: lastMessage || 'Không tìm thấy model AI phù hợp với tài khoản.' });
       res.end();
       return;
     }
 
     if (!upstream.body) {
-      sendEvent('error', { message: 'OpenAI trả về body rỗng.' });
+      sendEvent('error', { message: 'AI gateway trả về body rỗng.' });
       res.end();
       return;
     }
 
-    sendEvent('start', { model: targetModel });
+    sendEvent('start', { model: finalModel });
 
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder('utf-8');
@@ -285,10 +346,10 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
     }
 
     if (fullText) {
-      sendEvent('done', { text: fullText, model: targetModel });
+      sendEvent('done', { text: fullText, model: finalModel });
     } else if (!aborted) {
       sendEvent('error', {
-        message: `Mô hình ${targetModel} không trả về nội dung. Hãy thử mô hình khác.`,
+        message: `Mô hình ${finalModel} không trả về nội dung. Hãy thử mô hình khác.`,
       });
     }
     res.end();
@@ -296,9 +357,9 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
     if (error?.name === 'AbortError' && aborted) { res.end(); return; }
     const code = error?.code || error?.cause?.code;
     const networkHints: Record<string, string> = {
-      ETIMEDOUT: 'Yêu cầu tới OpenAI bị timeout.',
-      ECONNREFUSED: 'Không thể kết nối api.openai.com.',
-      ENOTFOUND: 'Không phân giải được DNS api.openai.com.',
+      ETIMEDOUT: 'Yêu cầu tới AI gateway bị timeout.',
+      ECONNREFUSED: 'Không thể kết nối openai.fireant.vn.',
+      ENOTFOUND: 'Không phân giải được DNS openai.fireant.vn.',
     };
     const message = (code && networkHints[code]) || error?.message || 'Unknown error';
     sendEvent('error', { message });
@@ -306,12 +367,13 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-async function handlePing(res: VercelResponse) {
-  if (!OPENAI_API_KEY) return res.status(503).json({ ok: false, error: 'OPENAI_API_KEY not set' });
+async function handlePing(req: VercelRequest, res: VercelResponse) {
+  const apiKey = getRequestAIKey(req);
+  if (!apiKey) return res.status(503).json({ ok: false, error: 'OPENAI_API_KEY or VITE_FIREANT_ACCESS_TOKEN not set' });
   const startedAt = Date.now();
   try {
-    const response = await axios.get(`${OPENAI_BASE_URL}/models`, {
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+    const response = await axios.get(`${AI_BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
       timeout: 15000,
       validateStatus: (s) => s < 600,
     });
@@ -327,9 +389,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const pathParam = req.query.path;
   const subPath = (Array.isArray(pathParam) ? pathParam.join('/') : (pathParam as string) || '').replace(/^\//, '');
 
-  if (req.method === 'GET' && subPath === 'status') return handleStatus(res);
+  if (req.method === 'GET' && subPath === 'status') return handleStatus(req, res);
   if (req.method === 'GET' && subPath === 'models') return handleModels(req, res);
-  if (req.method === 'GET' && subPath === 'ping') return handlePing(res);
+  if (req.method === 'GET' && subPath === 'ping') return handlePing(req, res);
   if (req.method === 'GET' && subPath === 'history') return res.json({ history: [] });
 
   if (req.method === 'POST' && subPath === 'chat') return handleChat(req, res);
@@ -338,3 +400,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   return res.status(404).json({ error: `AI route not found: ${subPath}` });
 }
+
+

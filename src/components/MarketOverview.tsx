@@ -26,10 +26,62 @@ interface ProjectedCashFlowBucket {
   principal: number;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
-import { Banknote, BarChart3, Hash, Wallet } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
+import { fireantApi } from '../api/fireant';
+import { Card, MetricCard } from './ui/Card';
+import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+
+interface MarketOverviewPayload {
+  topDebtData: TopDebtIssuer[];
+  issuerStatsData: TopDebtIssuer[];
+  topInterestData: any[];
+  industryData: IndustryData[];
+}
+
+let marketOverviewPromise: Promise<MarketOverviewPayload> | null = null;
+
+const loadMarketOverviewData = async (): Promise<MarketOverviewPayload> => {
+  const cachedOverview = getCache('market_overview');
+  if (cachedOverview) return cachedOverview;
+
+  if (!marketOverviewPromise) {
+    marketOverviewPromise = (async () => {
+      const [topDebtRaw, highYieldRaw, industriesRaw] = await Promise.all([
+        (async () => {
+          const cachedTopDebt = getCache('top_debt_200');
+          if (cachedTopDebt) return cachedTopDebt;
+          const data = await fireantApi.getTopDebtIssuers(200);
+          setCache('top_debt_200', data);
+          return data;
+        })(),
+        fireantApi.getHighYieldBonds(10).catch((error) => {
+          console.error('Interest fetch error', error);
+          return [];
+        }),
+        fireantApi.getIndustries(1000, 1).catch((error) => {
+          console.error('Industry fetch error', error);
+          return [];
+        }),
+      ]);
+
+      const issuerStatsData = Array.isArray(topDebtRaw) ? topDebtRaw : [];
+      const payload: MarketOverviewPayload = {
+        topDebtData: issuerStatsData.slice(0, 10),
+        issuerStatsData,
+        topInterestData: Array.isArray(highYieldRaw) ? highYieldRaw : [],
+        industryData: Array.isArray(industriesRaw) ? industriesRaw : [],
+      };
+
+      setCache('market_overview', payload);
+      return payload;
+    })().finally(() => {
+      marketOverviewPromise = null;
+    });
+  }
+
+  return marketOverviewPromise;
+};
 
 export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
@@ -49,37 +101,32 @@ export default function MarketOverview() {
 
   // Common styles for consistency
   const chartColors = {
-    primary: isDark ? '#3b82f6' : '#2563eb', // blue-500 : blue-600
+    primary: isDark ? '#3b82f6' : '#2563eb',
     secondary: isDark ? '#94a3b8' : '#64748b', // slate-400 : slate-500
   };
 
   const legendStyle = {
     fontSize: 12,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const categoryLabelStyle = {
     fontSize: 12,
     color: isDark ? '#e5e7eb' : '#333',
     fontWeight: 'bold' as const,
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const valueLabelStyle = {
     fontSize: 12,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
-  const tooltipTextStyle = {
-    fontSize: 12,
-    fontFamily: 'Inter',
-    fontWeight: 'normal' as const,
-    color: isDark ? '#e5e7eb' : '#333'
-  };
-
-  const chartPalette = ['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926'];
+  const tooltipTextStyle = getChartTooltip(isDark).textStyle;
+  const chartTooltip = getChartTooltip(isDark);
+  const chartPalette = CHART_PALETTE;
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);
@@ -136,111 +183,37 @@ export default function MarketOverview() {
     {
       label: t('totalBondCodes'),
       value: formatNumber(marketKpis.bondCount, 0),
-      unit: t('bondCodeUnit'),
-      icon: Hash
+      unit: t('bondCodeUnit')
     },
     {
       label: t('totalIssuedVolume'),
       value: formatNumber(marketKpis.issuedVolume, 0),
-      unit: t('bondunits'),
-      icon: BarChart3
+      unit: t('bondunits')
     },
     {
       label: t('totalIssuedValueTitle'),
       value: formatNumber(marketKpis.issuedValue / 1000000000, 2),
-      unit: t('unitBillionVND'),
-      icon: Banknote
+      unit: t('unitBillionVND')
     },
     {
       label: t('totalRemainingDebt'),
       value: formatNumber(marketKpis.remainingDebt / 1000000000, 2),
-      unit: t('unitBillionVND'),
-      icon: Wallet
+      unit: t('unitBillionVND')
     }
   ];
 
   useEffect(() => {
     let isMounted = true;
     const fetchData = async () => {
-      if (!cachedData) {
-        setLoading(true);
-      }
       setError(null);
+      if (!cachedData) setLoading(true);
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        const headers: any = {
-          'Accept': 'application/json'
-        };
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        let currentDebt = topDebtData;
-        let currentIssuerStats = issuerStatsData;
-        let currentInterest = topInterestData;
-        let currentIndustry = industryData;
-
-        // Use Promise.all to fetch but handle results individually as they resolve
-        const fetchTopDebt = async () => {
-          try {
-            let data = getCache('top_debt_200');
-            if (!data) {
-              const res = await fetch('/api/fireant/bonds/stats/issuers/top-debt?top=200', { headers });
-              if (res.ok) {
-                data = await res.json();
-                setCache('top_debt_200', data);
-              } else if (res.status === 401) throw new Error('401');
-            }
-
-            if (isMounted && Array.isArray(data)) {
-              const top10 = data.slice(0, 10);
-              setIssuerStatsData(data);
-              setTopDebtData(top10);
-              currentIssuerStats = data;
-              currentDebt = top10;
-            }
-          } catch (e) { console.error('Debt fetch error', e); }
-        };
-
-        const fetchHighYield = async () => {
-          try {
-            const res = await fetch('/api/fireant/bonds/stats/bonds/high-yield?top=10', { headers });
-            if (res.ok) {
-              const data = await res.json();
-              if (isMounted && Array.isArray(data)) {
-                setTopInterestData(data);
-                currentInterest = data;
-              }
-            } else if (res.status === 401) throw new Error('401');
-          } catch (e) { console.error('Interest fetch error', e); }
-        };
-
-        const fetchIndustries = async () => {
-          try {
-            const res = await fetch('/api/fireant/bonds/stats/industries?top=1000&level=1', { headers });
-            if (res.ok) {
-              const data = await res.json();
-              if (isMounted && Array.isArray(data)) {
-                setIndustryData(data);
-                currentIndustry = data;
-              }
-            } else if (res.status === 401) throw new Error('401');
-          } catch (e) { console.error('Industry fetch error', e); }
-        };
-
-        await Promise.all([fetchTopDebt(), fetchHighYield(), fetchIndustries()]);
-
+        const data = await loadMarketOverviewData();
         if (!isMounted) return;
-
-        // Final cache update after all are done
-        setCache('market_overview', {
-          topDebtData: currentDebt,
-          issuerStatsData: currentIssuerStats,
-          topInterestData: currentInterest,
-          industryData: currentIndustry
-        });
-
+        setTopDebtData(data.topDebtData);
+        setIssuerStatsData(data.issuerStatsData);
+        setTopInterestData(data.topInterestData);
+        setIndustryData(data.industryData);
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching market data:', error);
@@ -270,15 +243,6 @@ export default function MarketOverview() {
         return;
       }
 
-      const token = getFireantToken();
-      const cleanToken = token ? cleanTokenString(token) : undefined;
-      const headers: Record<string, string> = {
-        'Accept': 'application/json'
-      };
-      if (cleanToken) {
-        headers['Authorization'] = `Bearer ${cleanToken}`;
-      }
-
       setLoadingCashFlows(true);
 
       try {
@@ -292,9 +256,7 @@ export default function MarketOverview() {
           const chunk = issuerSymbols.slice(i, i + issuerChunkSize);
           const results = await Promise.allSettled(
             chunk.map(async (symbol) => {
-              const response = await fetch(`/api/fireant/bonds/issuer/${encodeURIComponent(symbol)}`, { headers });
-              if (!response.ok) return [];
-              const data = await response.json();
+              const data = await fireantApi.getIssuerBonds(symbol);
               return Array.isArray(data) ? data : [];
             })
           );
@@ -350,10 +312,7 @@ export default function MarketOverview() {
                 return { bond, cashFlows: cachedCashFlows };
               }
 
-              const detailResponse = await fetch(`/api/fireant/bonds/${encodeURIComponent(code)}`, { headers });
-              if (!detailResponse.ok) return { bond, cashFlows: [] };
-
-              const detailData = await detailResponse.json();
+              const detailData = await fireantApi.getBond(code);
               const cashFlows = Array.isArray(detailData.cashFlows)
                 ? detailData.cashFlows.map((cashFlow: any) => ({
                     paymentDate: cashFlow.paymentDate,
@@ -440,7 +399,8 @@ export default function MarketOverview() {
   const topDebtOptions = {
     color: chartPalette,
     tooltip: { 
-      trigger: 'axis', 
+      ...chartTooltip,
+      trigger: 'axis',
       axisPointer: { type: 'shadow' },
       confine: true,
       textStyle: tooltipTextStyle,
@@ -496,6 +456,7 @@ export default function MarketOverview() {
   const topInterestOptions = {
     color: chartPalette,
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
       confine: true,
       textStyle: tooltipTextStyle,
@@ -534,6 +495,7 @@ export default function MarketOverview() {
   const debtLotsOptions = {
     color: chartPalette,
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
       confine: true,
       textStyle: tooltipTextStyle,
@@ -605,6 +567,7 @@ export default function MarketOverview() {
   const industryValueOptions = {
     color: chartPalette,
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
       confine: true,
       textStyle: tooltipTextStyle,
@@ -656,6 +619,7 @@ export default function MarketOverview() {
   const industryVolumeOptions = {
     color: chartPalette,
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
       confine: true,
       textStyle: tooltipTextStyle,
@@ -703,6 +667,7 @@ export default function MarketOverview() {
   const projectedCashFlowOptions = {
     color: chartPalette,
     tooltip: {
+      ...chartTooltip,
       trigger: 'axis',
       confine: true,
       axisPointer: { type: 'shadow' },
@@ -761,7 +726,7 @@ export default function MarketOverview() {
 
   if (loading) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
         <p className="text-text-muted font-medium">{t('loadingMarketData')}</p>
       </div>
@@ -770,7 +735,7 @@ export default function MarketOverview() {
 
   if (error) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -781,7 +746,7 @@ export default function MarketOverview() {
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors cursor-pointer"
           >
             {t('tryAgain')}
           </button>
@@ -791,108 +756,83 @@ export default function MarketOverview() {
   }
 
   return (
-    <div className="space-y-2 transition-colors duration-300">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-bold text-text-base tracking-tight">{t('marketOverview')}</h1>
+    <div className="min-w-0 space-y-3 transition-colors duration-300">
+      <div className="flex min-w-0 items-center justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-blue-600 tracking-tight break-words">{t('marketOverview')}</h1>
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-2">
-        <div className="col-span-12 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-          {kpiCards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <div key={card.label} className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-2 min-w-0">
-                    <p className="text-xs font-semibold uppercase text-text-muted/80">{card.label}</p>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-text-base">{card.value}</p>
-                      <p className="text-xs font-medium text-text-muted mt-1">{card.unit}</p>
-                    </div>
-                  </div>
-                  <div className="h-10 w-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      <div className="grid min-w-0 grid-cols-12 gap-3">
+        <div className="col-span-12 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {kpiCards.map((card) => (
+            <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} />
+          ))}
         </div>
 
-        {/* Top 10 Debt - Double Height */}
-        <div 
-          className="col-span-12 lg:col-span-6 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2">
-            <h3 className="text-base font-semibold text-text-base/80 text-center">{t('top10Debt')}</h3>
-            <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: Tỷ VNĐ</p>
+        <Card className="col-span-12 p-3 md:p-4 lg:col-span-6 flex flex-col min-h-screen">
+          <div className="mb-2 min-w-0">
+            <h3 className="text-sm md:text-base font-semibold text-blue-600 leading-snug break-words">{t('top10Debt')}</h3>
+            <p className="mt-1 text-xs font-medium text-text-muted/80 tracking-wider">{t('unitBillion')}</p>
           </div>
-          <ReactECharts option={topDebtOptions} style={{ height: '500px' }} />
-        </div>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <ReactECharts option={topDebtOptions} style={{ height: '100%', width: '100%' }} />
+          </div>
+        </Card>
 
-        <div className="col-span-12 lg:col-span-6 space-y-2">
-          {/* Top 10 Interest Rates */}
-          <div 
-            className="bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-          >
-            <div className="mb-2">
-              <h3 className="text-base font-semibold text-text-base/80 text-center">{t('top10Interest')}</h3>
-              <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: %</p>
+        <div className="col-span-12 space-y-3 lg:col-span-6 flex flex-col min-h-screen">
+          <Card className="p-3 md:p-4 flex flex-col flex-1">
+            <div className="mb-2 min-w-0">
+              <h3 className="text-sm md:text-base font-semibold text-blue-600 leading-snug break-words">{t('top10Interest')}</h3>
+              <p className="mt-1 text-xs font-medium text-text-muted/80 tracking-wider">{t('unitPercent')}</p>
             </div>
-            <ReactECharts option={topInterestOptions} style={{ height: '250px' }} />
-          </div>
-
-          {/* Debt & Lots Relationship */}
-          <div 
-            className="bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-          >
-            <h3 className="text-base font-semibold text-text-base/80 text-center mb-2">{t('debtAndLots')}</h3>
-            <ReactECharts option={debtLotsOptions} style={{ height: '250px' }} />
-          </div>
-        </div>
-
-        {/* Industry Value - Full Width */}
-        <div 
-          className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2">
-            <h3 className="text-base font-semibold text-text-base/80 text-center">{t('valueByIndustry')}</h3>
-            <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: Tỷ USD</p>
-          </div>
-          <ReactECharts option={industryValueOptions} style={{ height: '350px' }} />
-        </div>
-
-        {/* Industry Volume - Full Width */}
-        <div 
-          className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2">
-            <h3 className="text-base font-semibold text-text-base/80 text-center">{t('volumeByIndustry')}</h3>
-            <p className="text-xs font-normal text-text-muted/80 text-right mt-1 tracking-wider">Đơn vị: Nghìn trái phiếu</p>
-          </div>
-          <ReactECharts option={industryVolumeOptions} style={{ height: '350px' }} />
-        </div>
-
-        {/* Projected Cash Flow - Full Width */}
-        <div 
-          className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-            <div className="hidden md:block w-32"></div>
-            <div className="text-center">
-              <h3 className="text-base font-semibold text-text-base/80">{t('expectedCashFlow')}</h3>
-              <p className="text-xs font-normal text-text-muted/80 mt-1 tracking-wider">Đơn vị: Tỷ VNĐ</p>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <ReactECharts option={topInterestOptions} style={{ height: '100%', width: '100%' }} />
             </div>
-            <div className="flex w-full md:w-32 items-center justify-center md:justify-end">
-              <div className="flex rounded-lg border border-border-base bg-bg-base p-1">
+          </Card>
+
+          <Card className="p-3 md:p-4 flex flex-col flex-1">
+            <h3 className="mb-2 text-sm md:text-base font-semibold text-blue-600 leading-snug break-words">{t('debtAndLots')}</h3>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <ReactECharts option={debtLotsOptions} style={{ height: '100%', width: '100%' }} />
+            </div>
+          </Card>
+        </div>
+
+        <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
+          <div className="mb-2 min-w-0">
+            <h3 className="text-sm md:text-base font-semibold text-blue-600 leading-snug break-words">{t('valueByIndustry')}</h3>
+            <p className="mt-1 text-xs font-medium text-text-muted/80 tracking-wider">{t('unitBillion')}</p>
+          </div>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <ReactECharts option={industryValueOptions} style={{ height: '100%', width: '100%' }} />
+          </div>
+        </Card>
+
+        <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
+          <div className="mb-2 min-w-0">
+            <h3 className="text-sm md:text-base font-semibold text-blue-600 leading-snug break-words">{t('volumeByIndustry')}</h3>
+            <p className="mt-1 text-xs font-medium text-text-muted/80 tracking-wider">{t('unitThousand')}</p>
+          </div>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <ReactECharts option={industryVolumeOptions} style={{ height: '100%', width: '100%' }} />
+          </div>
+        </Card>
+
+        <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
+          <div className="mb-2 flex min-w-0 flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <h3 className="text-sm md:text-base font-semibold text-blue-600 leading-snug break-words">{t('expectedCashFlow')}</h3>
+              <p className="mt-1 text-xs font-medium text-text-muted/80 tracking-wider">{t('unitBillion')}</p>
+            </div>
+            <div className="flex shrink-0 items-center">
+              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                 {(['month', 'year'] as const).map((period) => (
                   <button
                     key={period}
                     type="button"
                     onClick={() => setCashFlowPeriod(period)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                       cashFlowPeriod === period
                         ? 'bg-blue-600 text-white'
                         : 'text-text-muted hover:text-text-base'
@@ -904,21 +844,21 @@ export default function MarketOverview() {
               </div>
             </div>
           </div>
-          <div className="min-h-96">
-            {loadingCashFlows && !hasProjectedCashFlowData ? (
-              <div className="h-96 flex flex-col items-center justify-center gap-3">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-                <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
-              </div>
-            ) : hasProjectedCashFlowData ? (
-              <ReactECharts option={projectedCashFlowOptions} style={{ height: '400px' }} />
-            ) : (
-              <div className="h-96 flex items-center justify-center">
-                <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
-              </div>
-            )}
-          </div>
-        </div>
+          {loadingCashFlows && !hasProjectedCashFlowData ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3">
+              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
+              <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
+            </div>
+          ) : hasProjectedCashFlowData ? (
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <ReactECharts option={projectedCashFlowOptions} style={{ height: '100%', width: '100%' }} />
+            </div>
+          ) : (
+            <div className="flex flex-1 items-center justify-center">
+              <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );

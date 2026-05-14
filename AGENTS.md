@@ -25,11 +25,11 @@
 # Chart Styling Guidelines
 
 - **Color Palette**: Use the following palette for all charts (ECharts/D3):
-    `['#4D93F9', '#F56B2D', '#23C68E', '#F55A5A', '#F8B011', '#9974F8', '#F05DA8', '#14C6E4', '#7279F5', '#94D926']`
+    `['#3fb1e3', '#6be6c1', '#626c91', '#a0a7e6', '#c4ebad', '#96dee8']`
 - **Color Ordering**:
     - Use colors sequentially based on series index.
-    - Series 1 (Index 0) -> `#4D93F9`
-    - Series 2 (Index 1) -> `#F56B2D`
+    - Series 1 (Index 0) -> `#3fb1e3`
+    - Series 2 (Index 1) -> `#6be6c1`
     - And so on.
     - If the number of series exceeds the palette size, loop back to the beginning.
 - **Fixed Assignment**: Colors must remain fixed for each series across renders. Do not use random color assignment.

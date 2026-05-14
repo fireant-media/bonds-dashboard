@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
@@ -11,7 +11,6 @@ import NewsListView from './components/NewsListView';
 import NewsDetailView from './components/NewsDetailView';
 import BondDetailPopup from './components/BondDetailPopup';
 import ProfileView from './components/ProfileView';
-import SettingsView from './components/SettingsView';
 import LoginView from './components/LoginView';
 import HelpView from './components/HelpView';
 import AIChatBot from './components/AIChatBot';
@@ -19,10 +18,11 @@ import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { useLanguage } from './LanguageContext';
 import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
-import { getFireantToken, cleanTokenString } from './utils/token';
 import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
+import { fireantApi } from './api/fireant';
+import { Calendar, Menu, Newspaper } from 'lucide-react';
 
-const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'settings', 'help', 'login'];
+const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'login'];
 
 const isBondCode = (s: string) => {
   if (!s) return false;
@@ -73,7 +73,6 @@ export default function App() {
     }
     
     if (currentPath === '/profile') return { activeTab: 'profile', bondCode: urlBondCode };
-    if (currentPath === '/settings') return { activeTab: 'settings', bondCode: urlBondCode };
     if (currentPath === '/help') return { activeTab: 'help', bondCode: urlBondCode };
     
     // If it's a direct bond link and no background
@@ -88,6 +87,8 @@ export default function App() {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<'maturity' | 'news'>('maturity');
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
@@ -102,7 +103,6 @@ export default function App() {
       case 'maturity-list': navigate('/maturity'); break;
       case 'news-list': navigate('/news'); break;
       case 'profile': navigate('/profile'); break;
-      case 'settings': navigate('/settings'); break;
       case 'help': navigate('/help'); break;
       default: navigate('/');
     }
@@ -130,6 +130,34 @@ export default function App() {
 
   const appFrameRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleRightPanelTabClick = (tab: 'maturity' | 'news') => {
+    if (isRightPanelOpen && rightPanelTab === tab) {
+      setIsRightPanelOpen(false);
+      return;
+    }
+
+    setRightPanelTab(tab);
+    setIsRightPanelOpen(true);
+  };
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1023px)');
+    const syncPanels = (event: MediaQueryList | MediaQueryListEvent) => {
+      setIsMobileLayout(event.matches);
+      if (event.matches) {
+        setIsSidebarOpen(false);
+        setIsRightPanelOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+        setIsRightPanelOpen(true);
+      }
+    };
+
+    syncPanels(mediaQuery);
+    mediaQuery.addEventListener('change', syncPanels);
+    return () => mediaQuery.removeEventListener('change', syncPanels);
+  }, []);
 
   useEffect(() => {
     // Reset scroll position only when the main logical view changes
@@ -198,23 +226,15 @@ export default function App() {
     if (bondCode && (!selectedBond || selectedBond.code !== bondCode)) {
       const fetchBond = async () => {
         try {
-          const token = getFireantToken();
-          const cleanToken = token ? cleanTokenString(token) : undefined;
-          const headers: Record<string, string> = { 'Accept': 'application/json' };
-          if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
-
-          const response = await fetch(`/api/fireant/bonds/${encodeURIComponent(bondCode)}`, { headers });
-          if (response.ok) {
-            const data = await response.json();
+            const data = await fireantApi.getBond(bondCode);
             const detail = data.detail || {};
             const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
             const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
 
             let enterpriseName = detail.issuerSymbol || '';
             try {
-              const profileRes = await fetch(`/api/fireant/symbols/${encodeURIComponent(detail.issuerSymbol)}/profile`, { headers });
-              if (profileRes.ok) {
-                const profile = await profileRes.json();
+              if (detail.issuerSymbol) {
+                const profile = await fireantApi.getIssuerProfile(detail.issuerSymbol);
                 enterpriseName = profile.internationalName || profile.name || detail.issuerSymbol;
               }
             } catch (err) {}
@@ -240,7 +260,6 @@ export default function App() {
             };
             setSelectedBond(fullBond);
             setBondEnterpriseName(enterpriseName);
-          }
         } catch (error) {
           console.error("Error fetching bond from URL:", error);
         }
@@ -303,17 +322,7 @@ export default function App() {
 
     // For bond selection, fetch full details first
     try {
-      const token = getFireantToken();
-      const cleanToken = token ? cleanTokenString(token) : undefined;
-      const headers: Record<string, string> = { 'Accept': 'application/json' };
-      if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
-
-      const response = await fetch(`/api/fireant/bonds/${encodeURIComponent(suggestion.code || suggestion.id)}`, {
-        headers
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+        const data = await fireantApi.getBond(suggestion.code || suggestion.id);
         const detail = data.detail || {};
         const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
         const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
@@ -322,13 +331,8 @@ export default function App() {
         let enterpriseName = suggestion.enterpriseName || suggestion.subtitle || '';
         if (!enterpriseName && detail.issuerSymbol) {
           try {
-            const profileRes = await fetch(`/api/fireant/symbols/${encodeURIComponent(detail.issuerSymbol)}/profile`, {
-              headers
-            });
-            if (profileRes.ok) {
-              const profile = await profileRes.json();
+              const profile = await fireantApi.getIssuerProfile(detail.issuerSymbol);
               enterpriseName = profile.internationalName || profile.name || detail.issuerSymbol;
-            }
           } catch (error) {
             console.warn('Failed to fetch enterprise name for bond:', error);
             enterpriseName = detail.issuerSymbol || '';
@@ -369,26 +373,6 @@ export default function App() {
         setSelectedBond(fullBond);
         setBondEnterpriseName(enterpriseName);
         navigate(`/${fullBond.code}`, { state: { backgroundLocation: location } });
-      } else {
-        // Fallback to minimal bond object if API fails
-        const bond: Bond = {
-          id: suggestion.code || suggestion.id,
-          code: suggestion.code || suggestion.id,
-          enterpriseId: suggestion.ticker || suggestion.enterpriseName || '',
-          term: '',
-          interestRate: 0,
-          listedVolume: 0,
-          issuedValue: 0,
-          listedValue: 0,
-          issueDate: '',
-          maturityDate: '',
-          interestType: '',
-          status: ''
-        };
-        setSelectedBond(bond);
-        setBondEnterpriseName(suggestion.enterpriseName || suggestion.subtitle || '');
-        navigate(`/${bond.code}`, { state: { backgroundLocation: location } });
-      }
     } catch (error) {
       console.error('Error fetching bond details for search selection:', error);
       // Fallback to minimal bond object
@@ -438,7 +422,7 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-blue-600">
+      <div className="min-h-screen flex items-center justify-center bg-bg-base">
         <div className="flex flex-col items-center gap-4">
           <div className="h-12 w-12 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
           <p className="text-white/60 font-bold uppercase tracking-widest text-xs">{t('authenticating')}</p>
@@ -451,24 +435,34 @@ export default function App() {
     return <LoginView onSignIn={signIn} isSigningIn={authLoading} />;
   }
 
-  const isProfileMode = activeTab === 'profile' || activeTab === 'settings' || activeTab === 'help';
+  const isProfileMode = activeTab === 'profile' || activeTab === 'help';
 
   return (
-    <div className="min-h-screen bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300">
+    <div className="h-screen overflow-hidden bg-surface-container-low font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
       <Header 
         onProfileClick={() => setActiveTab('profile')} 
-        onSettingsClick={() => setActiveTab('settings')}
         onHelpClick={() => setActiveTab('help')}
         onLogoClick={() => setActiveTab('overview')}
         onLogout={handleLogout}
         onSearchSelect={handleSearchSelect}
       />
       
-      <div ref={appFrameRef} className="flex flex-col md:flex-row relative items-stretch h-[calc(100vh-64px)] overflow-y-auto overflow-x-hidden md:overflow-hidden">
+      <div ref={appFrameRef} className="flex flex-1 min-h-0 flex-col lg:flex-row relative items-stretch overflow-hidden">
         {!isProfileMode && (
+          <>
+          {isSidebarOpen && (
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 top-16 z-40 bg-black/20 lg:hidden"
+              aria-label={t('hideSidebar')}
+            />
+          )}
           <div className={cn(
-            "transition-all duration-300 ease-in-out shrink-0 border-b md:border-b-0 md:border-r border-border-base bg-bg-surface",
-            isSidebarOpen ? "w-full md:w-80" : "w-full md:w-16"
+            "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright",
+            isSidebarOpen
+              ? "fixed bottom-0 left-0 top-16 z-50 w-72 max-w-full border-r shadow-xl lg:static lg:z-auto lg:w-64 lg:shadow-none"
+              : "hidden lg:block lg:w-14 lg:border-r"
           )}>
             <Sidebar 
               activeTab={activeTab} 
@@ -480,22 +474,62 @@ export default function App() {
               onEnterpriseTabClick={handleEnterpriseTabClick} 
             />
           </div>
+          </>
         )}
         
         {/* Unified Scroll Container for Center + Right Panel */}
-        <div 
-          ref={scrollContainerRef}
+        <div
           className={cn(
             "flex-1 min-w-0 transition-all duration-300",
-            isProfileMode ? "h-full overflow-hidden" : "h-auto md:h-full overflow-visible md:overflow-y-auto md:overflow-x-hidden"
+            isProfileMode ? "h-full overflow-hidden" : "h-full overflow-hidden"
           )}
         >
           <div className={cn(
-            "flex flex-col md:flex-row items-stretch transition-all duration-300",
-            !isProfileMode ? "min-h-full bg-bg-base/30" : "h-full"
+            "flex h-full min-h-0 flex-col lg:flex-row items-stretch transition-all duration-300",
+            !isProfileMode ? "min-h-full bg-surface-container-low" : "h-full"
           )}>
-            <main className="flex-1 min-h-fit transition-all duration-300 min-w-0">
-              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-[1600px] mx-auto py-4 px-3 md:py-6 md:px-6 w-full")}>
+            {!isProfileMode && isMobileLayout && (
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-base bg-surface-bright px-3 py-2 lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95"
+                  aria-label={t('showSidebar')}
+                  title={t('showSidebar')}
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRightPanelTabClick('maturity')}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95",
+                      isRightPanelOpen && rightPanelTab === 'maturity' && "bg-blue-500 text-white hover:text-white"
+                    )}
+                    title={t('upcomingBonds')}
+                  >
+                    <Calendar className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRightPanelTabClick('news')}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95",
+                      isRightPanelOpen && rightPanelTab === 'news' && "bg-blue-500 text-white hover:text-white"
+                    )}
+                    title={t('relatedNews')}
+                  >
+                    <Newspaper className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            )}
+            <main
+              ref={scrollContainerRef}
+              className="flex-1 min-h-0 transition-all duration-300 min-w-0 overflow-y-auto overflow-x-hidden"
+            >
+              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-screen-2xl mx-auto py-3 px-2 md:py-4 md:px-4 w-full")}>
                 <Routes location={location.state?.backgroundLocation || location}>
                   <Route path="/" element={<MarketOverview />} />
                   <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
@@ -527,7 +561,7 @@ export default function App() {
                   <Route path="/profile" element={
                     <ProfileView onLogout={handleLogout} />
                   } />
-                  <Route path="/settings" element={<SettingsView />} />
+                  <Route path="/settings" element={<Navigate to="/" replace />} />
                   <Route path="/help" element={<HelpView onBack={() => navigate('/')} />} />
                   <Route path="/:bondCode" element={<MarketOverview />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
@@ -535,14 +569,27 @@ export default function App() {
               </div>
             </main>
 
-            {!isProfileMode && (
+            {!isProfileMode && (!isMobileLayout || isRightPanelOpen) && (
+              <>
+              {isRightPanelOpen && isMobileLayout && (
+                <button
+                  type="button"
+                  onClick={() => setIsRightPanelOpen(false)}
+                  className="fixed inset-0 top-16 z-30 bg-black/20 lg:hidden"
+                  aria-label={t('hideSidebar')}
+                />
+              )}
               <div className={cn(
-                "transition-all duration-300 ease-in-out shrink-0 border-t md:border-t-0 md:border-l border-border-base bg-bg-surface",
-                isRightPanelOpen ? "w-full md:w-80" : "w-full md:w-16"
+                "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright",
+                isRightPanelOpen
+                  ? "fixed bottom-0 right-0 top-16 z-40 w-80 max-w-full border-l shadow-xl lg:static lg:z-auto lg:w-64 lg:shadow-none"
+                  : "w-0 border-0"
               )}>
                 <RightPanel 
                   isOpen={isRightPanelOpen}
                   onToggle={() => setIsRightPanelOpen(!isRightPanelOpen)}
+                  activePanelTab={rightPanelTab}
+                  setActivePanelTab={setRightPanelTab}
                   setSelectedBond={handleSetSelectedBond}
                   setBondEnterpriseName={setBondEnterpriseName}
                   onSeeMoreMaturity={() => setActiveTab('maturity-list')}
@@ -550,6 +597,7 @@ export default function App() {
                   onSeeMoreNews={handleSeeMoreNews}
                 />
               </div>
+              </>
             )}
           </div>
         </div>

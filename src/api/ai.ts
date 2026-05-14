@@ -1,4 +1,5 @@
 import axios from "axios";
+import { cleanTokenString, getFireantToken } from "../utils/token";
 
 export interface AIModelInfo {
   id: string;
@@ -39,8 +40,14 @@ export interface ChatResponse {
   history: ChatMessage[];
 }
 
+function buildAIHeaders(): Record<string, string> {
+  const token = getFireantToken();
+  return token ? { "X-Fireant-Access-Token": cleanTokenString(token) } : {};
+}
+
 export async function getAIStatus(): Promise<AIStatus> {
   const { data } = await axios.get<AIStatus>("/api/ai/status", {
+    headers: buildAIHeaders(),
     timeout: 8000,
   });
   return data;
@@ -48,6 +55,7 @@ export async function getAIStatus(): Promise<AIStatus> {
 
 export async function listAIModels(refresh = false): Promise<AIModelsResponse> {
   const { data } = await axios.get<AIModelsResponse>("/api/ai/models", {
+    headers: buildAIHeaders(),
     timeout: 15000,
     params: refresh ? { refresh: 1 } : undefined,
     validateStatus: (status) => status < 600,
@@ -57,13 +65,14 @@ export async function listAIModels(refresh = false): Promise<AIModelsResponse> {
 
 export async function sendChat(payload: ChatRequest): Promise<ChatResponse> {
   const { data } = await axios.post<ChatResponse>("/api/ai/chat", payload, {
+    headers: buildAIHeaders(),
     timeout: 60000,
   });
   return data;
 }
 
 export async function clearChatHistory(): Promise<void> {
-  await axios.post("/api/ai/history/clear", {}, { timeout: 8000 });
+  await axios.post("/api/ai/history/clear", {}, { headers: buildAIHeaders(), timeout: 8000 });
 }
 
 export interface StreamHandlers {
@@ -87,6 +96,7 @@ export async function streamChat(
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      ...buildAIHeaders(),
     },
     body: JSON.stringify(payload),
     signal: handlers.signal,
