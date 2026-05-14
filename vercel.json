@@ -1,33 +1,53 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 30
+  "builds": [
+    {
+      "src": "api/*.ts",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 30
+      }
+    },
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
     }
-  },
+  ],
   "rewrites": [
     {
       "source": "/api/health/fireant",
-      "destination": "/api/health-fireant"
+      "destination": "/api/health-fireant.ts"
+    },
+    {
+      "source": "/api/proxy",
+      "destination": "/api/proxy.ts"
+    },
+    {
+      "source": "/api/fireant/:path*",
+      "destination": "/api/proxy.ts?path=:path*"
+    },
+    {
+      "source": "/api/fa/:path*",
+      "destination": "/api/proxy.ts?path=:path*"
     },
     {
       "source": "/api/news",
-      "destination": "/api/news"
+      "destination": "/api/news.ts"
     },
     {
       "source": "/api/news/:id",
-      "destination": "/api/detail?id=:id"
+      "destination": "/api/detail.ts?id=:id"
     },
     {
       "source": "/api/ai/:path*",
-      "destination": "/api/ai?path=:path*"
+      "destination": "/api/ai.ts?path=:path*"
     },
     {
       "source": "/api/auth/:path*",
-      "destination": "/api/auth?path=:path*"
+      "destination": "/api/auth.ts?path=:path*"
     },
     {
       "source": "/(.*)",
