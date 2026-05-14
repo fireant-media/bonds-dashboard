@@ -11,27 +11,27 @@
   "rewrites": [
     {
       "source": "/api/health/fireant",
-      "destination": "/api/health-fireant.ts"
+      "destination": "/api/health-fireant"
     },
     {
       "source": "/api/news",
-      "destination": "/api/news.ts"
+      "destination": "/api/news"
     },
     {
       "source": "/api/news/:id",
-      "destination": "/api/detail.ts?id=:id"
+      "destination": "/api/detail?id=:id"
     },
     {
       "source": "/api/fireant/:path*",
-      "destination": "/api/proxy.ts?path=:path*"
+      "destination": "/api/proxy?path=:path*"
     },
     {
       "source": "/api/ai/:path*",
-      "destination": "/api/ai.ts?path=:path*"
+      "destination": "/api/ai?path=:path*"
     },
     {
       "source": "/api/auth/:path*",
-      "destination": "/api/auth.ts?path=:path*"
+      "destination": "/api/auth?path=:path*"
     },
     {
       "source": "/(.*)",
