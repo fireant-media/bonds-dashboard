@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import axios from 'axios';
 import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL } from './_lib/config';
 
 function getRequestToken(req: VercelRequest): string | null {
@@ -20,16 +19,20 @@ async function probe(path: string, token: string | null) {
   }
 
   try {
-    const response = await axios.get(`${FIREANT_BASE_URL}${path}`, {
+    const response = await fetch(`${FIREANT_BASE_URL}${path}`, {
       headers,
-      timeout: 15000,
-      validateStatus: () => true,
+      signal: AbortSignal.timeout(15000),
     });
 
     return {
       status: response.status,
       ok: response.status >= 200 && response.status < 300,
-      bodyType: Array.isArray(response.data) ? 'array' : typeof response.data,
+      bodyType: (() => {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) return 'json';
+        if (contentType.includes('text/html')) return 'html';
+        return contentType || 'unknown';
+      })(),
     };
   } catch (error: any) {
     return {
