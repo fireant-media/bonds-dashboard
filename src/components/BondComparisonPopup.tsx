@@ -10,6 +10,7 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
+import { buildFireantUrl } from '../api/fireant';
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
@@ -134,7 +135,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
 
             // Fetch a larger window to get more symbols into the pool
-            const response = await fetch('/api/fa/bonds/stats/bonds/maturing-soon?days=3650', { headers });
+            const response = await fetch(buildFireantUrl('bonds/stats/bonds/maturing-soon', { days: 3650 }), { cache: 'no-store', headers });
             if (response.ok) {
               const data = await readJsonResponse<any[]>(response, 'Bond comparison pool');
               if (Array.isArray(data)) {
@@ -224,7 +225,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         if (normalizedSearch.length >= 2 && normalizedSearch.length <= 5) {
           try {
             // Try different endpoints for issuer bonds
-            const issuerRes = await fetch(`/api/fa/bonds/get-bonds-by-issuer?issuerSymbol=${normalizedSearch}`, { headers });
+            const issuerRes = await fetch(buildFireantUrl('bonds/get-bonds-by-issuer', { issuerSymbol: normalizedSearch }), { cache: 'no-store', headers });
             if (issuerRes.ok) {
               const data = await readJsonResponse<any>(issuerRes, `Issuer search ${normalizedSearch}`);
               const issuerBonds = Array.isArray(data) ? data : (data.items || []);
@@ -275,7 +276,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           }
         }
 
-        const response = await fetch(`/api/fa/symbols/search?q=${encodeURIComponent(searchTerm)}`, {
+        const response = await fetch(buildFireantUrl('symbols/search', { q: searchTerm }), {
+          cache: 'no-store',
           headers
         });
 
@@ -378,7 +380,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       
       const cleanToken = cleanTokenString(token);
       
-      const detailRes = await fetch(`/api/fa/bonds/${bond.code}`, {
+      const detailRes = await fetch(buildFireantUrl(`bonds/${bond.code}`), {
+        cache: 'no-store',
         headers: {
           'Accept': 'application/json',
           'Authorization': `Bearer ${cleanToken}`
@@ -389,7 +392,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
       if (detailRes.ok) {
         try {
-          const data = await detailRes.json();
+          const data = await readJsonResponse<any>(detailRes, `Bond comparison detail ${bond.code}`);
           console.log('[BondComparisonPopup] API response data:', data);
           
           const b = data.detail || data;

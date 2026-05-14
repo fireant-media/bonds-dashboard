@@ -20,6 +20,7 @@ import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
+import { buildFireantUrl } from '../api/fireant';
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -112,7 +113,8 @@ export default function EnterpriseView({
           headers['Authorization'] = `Bearer ${cleanToken}`;
         }
 
-        const response = await fetch(`/api/fa/bonds/issuer/${selectedEnterprise.ticker}`, {
+        const response = await fetch(buildFireantUrl(`bonds/issuer/${selectedEnterprise.ticker}`), {
+          cache: 'no-store',
           headers
         });
 
@@ -149,7 +151,8 @@ export default function EnterpriseView({
               return { ...bond, cashFlows: cachedCashFlows };
             }
 
-            const detailResponse = await fetch(`/api/fa/bonds/${encodeURIComponent(bond.code)}`, {
+            const detailResponse = await fetch(buildFireantUrl(`bonds/${encodeURIComponent(bond.code)}`), {
+              cache: 'no-store',
               headers
             });
 
@@ -221,7 +224,8 @@ export default function EnterpriseView({
         const symbol = selectedEnterprise.ticker;
 
         // Fetch multiple quarters to handle null values by falling back to previous periods
-        const response = await fetch(`/api/fa/symbols/${encodeURIComponent(symbol)}/financial-data?type=Q&count=4`, {
+        const response = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(symbol)}/financial-data`, { type: 'Q', count: 4 }), {
+          cache: 'no-store',
           headers: {
             'Accept': 'application/json',
             'Authorization': `Bearer ${cleanToken}`
@@ -298,7 +302,8 @@ export default function EnterpriseView({
         if (!token) return;
 
         const cleanToken = cleanTokenString(token);
-        const response = await fetch(`/api/fa/symbols/${encodeURIComponent(symbol)}/profile`, {
+        const response = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(symbol)}/profile`), {
+          cache: 'no-store',
           headers: {
             'Accept': 'application/json',
             'Authorization': `Bearer ${cleanToken}`
@@ -339,7 +344,7 @@ export default function EnterpriseView({
         // Fetch top debtors
         let issuers = getCache('top_debt_200');
         if (!issuers) {
-          const issuersRes = await fetch('/api/fa/bonds/stats/issuers/top-debt?top=200', { headers });
+          const issuersRes = await fetch(buildFireantUrl('bonds/stats/issuers/top-debt', { top: 200 }), { cache: 'no-store', headers });
           if (issuersRes.ok) {
             issuers = await issuersRes.json();
             setCache('top_debt_200', issuers);
@@ -387,7 +392,7 @@ export default function EnterpriseView({
 
           const industryBatches = await Promise.all(icbCodes.map(async (code) => {
              try {
-               const res = await fetch(`/api/fa/icb/${code}/symbols`, { headers });
+               const res = await fetch(buildFireantUrl(`icb/${code}/symbols`), { cache: 'no-store', headers });
                if (res.ok) {
                  const symbols = await res.json();
                  return { code, symbols };
@@ -431,7 +436,7 @@ export default function EnterpriseView({
                 const results = await Promise.all(
                   chunk.map(async (ticker) => {
                     try {
-                      const res = await fetch(`/api/fa/symbols/${encodeURIComponent(ticker)}/profile`, { headers });
+                      const res = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(ticker)}/profile`), { cache: 'no-store', headers });
                       if (res.ok) {
                         const profile = await res.json();
                         return { ticker, name: profile.internationalName };

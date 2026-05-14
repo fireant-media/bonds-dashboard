@@ -13,6 +13,10 @@ function getRequestToken(req: VercelRequest): string | null {
 }
 
 function sendUpstreamResponse(res: VercelResponse, status: number, data: unknown) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+
   if (data === undefined) {
     return res.status(status).json({});
   }

@@ -1,7 +1,7 @@
 import { getFireantToken, cleanTokenString } from "../utils/token";
 import { readJsonResponse } from "../utils/http";
 
-export const FIREANT_PROXY_BASE = "/api/fa";
+export const FIREANT_PROXY_BASE = "/api/proxy";
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -35,20 +35,21 @@ export function buildFireantHeaders(extra?: HeadersInit): Headers {
 export function buildFireantUrl(path: string, query?: Record<string, QueryValue>) {
   const normalizedPath = path.replace(/^\/+/, "");
   const params = new URLSearchParams();
+  params.set("path", normalizedPath);
 
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value === null || value === undefined) return;
     params.set(key, String(value));
   });
 
-  const qs = params.toString();
-  return `${FIREANT_PROXY_BASE}/${normalizedPath}${qs ? `?${qs}` : ""}`;
+  return `${FIREANT_PROXY_BASE}?${params.toString()}`;
 }
 
 export async function fireantRequest<T = unknown>(path: string, options: FireantRequestOptions = {}): Promise<T> {
   const { query, headers, ...requestOptions } = options;
   const response = await fetch(buildFireantUrl(path, query), {
     ...requestOptions,
+    cache: "no-store",
     headers: buildFireantHeaders(headers),
   });
 

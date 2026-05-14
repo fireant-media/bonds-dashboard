@@ -14,6 +14,7 @@ import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { buildFireantUrl } from '../api/fireant';
 
 export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
@@ -44,14 +45,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         }
 
         // Fetch Industry Stats
-        let statsUrl = '/api/fa/bonds/stats/industries?top=10&level=2';
+        let statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
         let targetName = 'Ngân hàng';
         
         if (industry === 'Securities') {
-          statsUrl = '/api/fa/bonds/stats/industries?top=20&level=4';
+          statsUrl = buildFireantUrl('bonds/stats/industries', { top: 20, level: 4 });
           targetName = 'Công ty chứng khoán';
         } else if (industry === 'RealEstate') {
-          statsUrl = '/api/fa/bonds/stats/industries?top=10&level=2';
+          statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
           targetName = 'Bất động sản';
         }
 
@@ -65,7 +66,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         // Fetch each part independently for better responsiveness
         const fetchStats = async () => {
           try {
-            const res = await fetch(statsUrl, { headers });
+            const res = await fetch(statsUrl, { cache: 'no-store', headers });
             if (res.ok) {
               const data = await res.json();
               const stats = data.find((item: any) => item.icbName === targetName) || null;
@@ -82,14 +83,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             // Re-use common debt cache if available
             let topDebt = getCache('top_debt_200');
             if (!topDebt) {
-              const topDebtRes = await fetch('/api/fa/bonds/stats/issuers/top-debt?top=200', { headers });
+              const topDebtRes = await fetch(buildFireantUrl('bonds/stats/issuers/top-debt', { top: 200 }), { cache: 'no-store', headers });
               if (topDebtRes.ok) {
                 topDebt = await topDebtRes.json();
                 setCache('top_debt_200', topDebt);
               } else if (topDebtRes.status === 401) throw new Error('401');
             }
 
-            const symbolsRes = await fetch(`/api/fa/icb/${icbCode}/symbols`, { headers });
+            const symbolsRes = await fetch(buildFireantUrl(`icb/${icbCode}/symbols`), { cache: 'no-store', headers });
             if (symbolsRes.ok && topDebt) {
               const symbols = await symbolsRes.json();
               const ranking = topDebt
