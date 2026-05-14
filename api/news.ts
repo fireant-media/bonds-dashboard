@@ -5,6 +5,14 @@ import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL, STATIC_FIREANT
 let cachedToken: string | null = null;
 let lastTokenFetch = 0;
 
+function getRequestToken(req: VercelRequest): string | null {
+  const headerToken = req.headers.authorization;
+  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  if (!rawToken) return null;
+  const token = rawToken.replace(/^bearer\s+/i, '').trim();
+  return token || null;
+}
+
 async function getFireantToken(force = false) {
   const now = Date.now();
   if (FIREANT_ACCESS_TOKEN && !force) return FIREANT_ACCESS_TOKEN;
@@ -38,7 +46,7 @@ async function getFireantToken(force = false) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    const token = await getFireantToken();
+    const token = getRequestToken(req) || await getFireantToken();
     let posts = null;
 
     if (token) {

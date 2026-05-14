@@ -5,6 +5,14 @@ import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL } from './_lib/
 let fireantToken: string | null = null;
 let lastTokenFetch = 0;
 
+function getRequestToken(req: VercelRequest): string | null {
+  const headerToken = req.headers.authorization;
+  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  if (!rawToken) return null;
+  const token = rawToken.replace(/^bearer\s+/i, '').trim();
+  return token || null;
+}
+
 async function getFireantToken(force = false) {
   const now = Date.now();
   if (FIREANT_ACCESS_TOKEN && !force) return FIREANT_ACCESS_TOKEN;
@@ -99,7 +107,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   try {
-    let token = await getFireantToken();
+    let token = getRequestToken(req) || await getFireantToken();
     let response = await fetchWithToken(token);
     
     // If 401, try refreshing the token once

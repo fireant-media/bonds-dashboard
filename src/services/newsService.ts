@@ -1,4 +1,5 @@
 import { NewsItem } from '../types';
+import { cleanTokenString, getFireantToken } from '../utils/token';
 
 const NEWS_API_URL = '/api/news';
 const CACHE_KEY = 'fireant_news_cache';
@@ -56,9 +57,24 @@ const extractFirstImageFromContent = (html: string) => {
   return match ? match[1] : null;
 };
 
+const buildNewsHeaders = () => {
+  const token = getFireantToken();
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${cleanTokenString(token)}`;
+  }
+
+  return headers;
+};
+
 export const fetchNewsData = async (): Promise<NewsItem[]> => {
   try {
-    const response = await fetch(NEWS_API_URL);
+    const response = await fetch(NEWS_API_URL, {
+      headers: buildNewsHeaders(),
+    });
     if (!response.ok) {
       console.warn('Network response for news was not ok, checking cache...');
       const cached = getCachedNews();
@@ -171,7 +187,9 @@ export const fetchNewsData = async (): Promise<NewsItem[]> => {
 
 export const fetchNewsDetail = async (id: string): Promise<NewsItem | null> => {
   try {
-    const response = await fetch(`${NEWS_API_URL}/${id}`);
+    const response = await fetch(`${NEWS_API_URL}/${id}`, {
+      headers: buildNewsHeaders(),
+    });
     if (!response.ok) return null;
     
     const data = await response.json();
