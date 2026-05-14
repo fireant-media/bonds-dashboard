@@ -44,14 +44,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         }
 
         // Fetch Industry Stats
-        let statsUrl = '/api/fireant/bonds/stats/industries?top=10&level=2';
+        let statsUrl = '/api/fa/bonds/stats/industries?top=10&level=2';
         let targetName = 'Ngân hàng';
         
         if (industry === 'Securities') {
-          statsUrl = '/api/fireant/bonds/stats/industries?top=20&level=4';
+          statsUrl = '/api/fa/bonds/stats/industries?top=20&level=4';
           targetName = 'Công ty chứng khoán';
         } else if (industry === 'RealEstate') {
-          statsUrl = '/api/fireant/bonds/stats/industries?top=10&level=2';
+          statsUrl = '/api/fa/bonds/stats/industries?top=10&level=2';
           targetName = 'Bất động sản';
         }
 
@@ -82,14 +82,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             // Re-use common debt cache if available
             let topDebt = getCache('top_debt_200');
             if (!topDebt) {
-              const topDebtRes = await fetch('/api/fireant/bonds/stats/issuers/top-debt?top=200', { headers });
+              const topDebtRes = await fetch('/api/fa/bonds/stats/issuers/top-debt?top=200', { headers });
               if (topDebtRes.ok) {
                 topDebt = await topDebtRes.json();
                 setCache('top_debt_200', topDebt);
               } else if (topDebtRes.status === 401) throw new Error('401');
             }
 
-            const symbolsRes = await fetch(`/api/fireant/icb/${icbCode}/symbols`, { headers });
+            const symbolsRes = await fetch(`/api/fa/icb/${icbCode}/symbols`, { headers });
             if (symbolsRes.ok && topDebt) {
               const symbols = await symbolsRes.json();
               const ranking = topDebt

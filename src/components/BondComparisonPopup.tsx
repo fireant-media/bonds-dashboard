@@ -134,7 +134,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
 
             // Fetch a larger window to get more symbols into the pool
-            const response = await fetch('/api/fireant/bonds/stats/bonds/maturing-soon?days=3650', { headers });
+            const response = await fetch('/api/fa/bonds/stats/bonds/maturing-soon?days=3650', { headers });
             if (response.ok) {
               const data = await readJsonResponse<any[]>(response, 'Bond comparison pool');
               if (Array.isArray(data)) {
@@ -224,7 +224,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         if (normalizedSearch.length >= 2 && normalizedSearch.length <= 5) {
           try {
             // Try different endpoints for issuer bonds
-            const issuerRes = await fetch(`/api/fireant/bonds/get-bonds-by-issuer?issuerSymbol=${normalizedSearch}`, { headers });
+            const issuerRes = await fetch(`/api/fa/bonds/get-bonds-by-issuer?issuerSymbol=${normalizedSearch}`, { headers });
             if (issuerRes.ok) {
               const data = await readJsonResponse<any>(issuerRes, `Issuer search ${normalizedSearch}`);
               const issuerBonds = Array.isArray(data) ? data : (data.items || []);
@@ -275,7 +275,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           }
         }
 
-        const response = await fetch(`/api/fireant/symbols/search?q=${encodeURIComponent(searchTerm)}`, {
+        const response = await fetch(`/api/fa/symbols/search?q=${encodeURIComponent(searchTerm)}`, {
           headers
         });
 
@@ -378,7 +378,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       
       const cleanToken = cleanTokenString(token);
       
-      const detailRes = await fetch(`/api/fireant/bonds/${bond.code}`, {
+      const detailRes = await fetch(`/api/fa/bonds/${bond.code}`, {
         headers: {
           'Accept': 'application/json',
           'Authorization': `Bearer ${cleanToken}`

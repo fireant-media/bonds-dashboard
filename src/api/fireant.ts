@@ -1,7 +1,7 @@
 import { getFireantToken, cleanTokenString } from "../utils/token";
 import { readJsonResponse } from "../utils/http";
 
-export const FIREANT_PROXY_BASE = "/api/fireant";
+export const FIREANT_PROXY_BASE = "/api/fa";
 
 type QueryValue = string | number | boolean | null | undefined;
 
