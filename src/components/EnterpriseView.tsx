@@ -139,6 +139,7 @@ export default function EnterpriseView({
             status: b.status
           }));
           setIssuerBonds(mappedBonds);
+          setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, mappedBonds);
 
           if (!cleanToken || mappedBonds.length === 0) return;
 
@@ -181,7 +182,9 @@ export default function EnterpriseView({
             results.forEach((result, index) => {
               detailedBonds.push(result.status === 'fulfilled' ? result.value : chunk[index]);
             });
-            setIssuerBonds([...detailedBonds, ...mappedBonds.slice(i + chunkSize)]);
+            const nextBonds = [...detailedBonds, ...mappedBonds.slice(i + chunkSize)];
+            setIssuerBonds(nextBonds);
+            setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, nextBonds);
           }
         } else {
           throw new Error(`${language === 'vi' ? 'Lỗi khi lấy dữ liệu trái phiếu:' : 'Error fetching bond data:'} ${response.status}`);
@@ -269,6 +272,7 @@ export default function EnterpriseView({
             });
 
             setFinancialData(consolidatedData);
+            setCache(`enterprise_financial_${symbol}`, consolidatedData);
           } else {
             console.warn(`No financial values found for ${symbol}`);
           }
@@ -313,6 +317,7 @@ export default function EnterpriseView({
         if (response.ok) {
           const profile = await readJsonResponse<any>(response, `Enterprise profile ${symbol}`);
           setEnterpriseProfile(profile);
+          setCache(`enterprise_profile_${symbol}`, profile);
         }
       } catch (error) {
         console.error('Error fetching enterprise profile:', error);

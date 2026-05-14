@@ -32,13 +32,14 @@ interface AIState {
 }
 
 const STORAGE_KEY = "sentinel_ai_preferences";
+const CLIENT_FALLBACK_AI_MODEL = "gpt-4o-mini";
 
 export const useAIStore = create<AIState>()(
   persist(
     (set, get) => ({
       configured: false,
       baseUrl: "",
-      defaultModel: "",
+      defaultModel: CLIENT_FALLBACK_AI_MODEL,
       defaultSystemPrompt: "",
 
       models: [],
@@ -60,9 +61,9 @@ export const useAIStore = create<AIState>()(
           set({
             configured: status.configured,
             baseUrl: status.baseUrl,
-            defaultModel: status.defaultModel,
+            defaultModel: status.defaultModel || current.defaultModel || CLIENT_FALLBACK_AI_MODEL,
             defaultSystemPrompt: status.defaultSystemPrompt,
-            selectedModel: status.defaultModel || (gatewayChanged ? "" : current.selectedModel),
+            selectedModel: status.defaultModel || current.defaultModel || (gatewayChanged ? "" : current.selectedModel) || CLIENT_FALLBACK_AI_MODEL,
             systemPrompt: current.systemPrompt || status.defaultSystemPrompt,
             isLoadingStatus: false,
           });
@@ -81,12 +82,15 @@ export const useAIStore = create<AIState>()(
           const current = get();
           const models = data.models || [];
           const hasModel = (modelId: string) => models.some((m) => m.id === modelId);
-          const serverDefault = data.defaultModel && hasModel(data.defaultModel) ? data.defaultModel : "";
-          let selected = serverDefault || (current.selectedModel && hasModel(current.selectedModel) ? current.selectedModel : "");
-          if (!selected) selected = serverDefault || models[0]?.id || "";
+          const serverDefault = data.defaultModel || current.defaultModel || CLIENT_FALLBACK_AI_MODEL;
+          const selected =
+            (serverDefault && (models.length === 0 || hasModel(serverDefault)) ? serverDefault : "") ||
+            (current.selectedModel && hasModel(current.selectedModel) ? current.selectedModel : "") ||
+            models[0]?.id ||
+            "";
           set({
             models,
-            defaultModel: data.defaultModel || current.defaultModel,
+            defaultModel: serverDefault,
             selectedModel: selected,
             isLoadingModels: false,
             modelsError: data.error || null,

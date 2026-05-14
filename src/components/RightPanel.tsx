@@ -22,6 +22,7 @@ interface RightPanelProps {
   onSeeMoreMaturity?: () => void;
   onSelectNews: (news: NewsItem) => void;
   onSeeMoreNews: () => void;
+  newsSymbol?: string | null;
 }
 
 import { NewsItem } from '../types';
@@ -38,7 +39,8 @@ export default function RightPanel({
   setBondEnterpriseName,
   onSeeMoreMaturity,
   onSelectNews,
-  onSeeMoreNews
+  onSeeMoreNews,
+  newsSymbol
 }: RightPanelProps) {
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
@@ -63,11 +65,13 @@ export default function RightPanel({
 
   // Initialize from cache immediately
   useEffect(() => {
-    const cached = getCachedNews();
+    const cached = getCachedNews(newsSymbol);
     if (cached) {
       setNewsList(cached);
+    } else {
+      setNewsList([]);
     }
-  }, []);
+  }, [newsSymbol]);
 
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(() => {
     try {
@@ -83,7 +87,7 @@ export default function RightPanel({
   useEffect(() => {
     const fetchNews = async (force = false) => {
       // Cooldown check: Only fetch if forced or > 2 minutes since last update
-      const lastUpdate = getNewsLastUpdate();
+      const lastUpdate = getNewsLastUpdate(newsSymbol);
       const now = Date.now();
       if (!force && lastUpdate && now - lastUpdate < 120000) {
         return;
@@ -97,7 +101,7 @@ export default function RightPanel({
       
       setNewsError(null);
       try {
-        const data = await fetchNewsData();
+        const data = await fetchNewsData(newsSymbol);
         setNewsList(data);
       } catch (err) {
         console.error('Error fetching news:', err);
@@ -209,7 +213,7 @@ export default function RightPanel({
       const newsInterval = setInterval(fetchNews, 300000); // 5 minutes
       return () => clearInterval(newsInterval);
     }
-  }, [isOpen, t]);
+  }, [isOpen, t, newsSymbol]);
 
   const calculateDaysLeft = (maturityDate: string) => {
     if (!maturityDate) return 0;
@@ -393,32 +397,35 @@ export default function RightPanel({
                   </div>
                 ) : newsList.length > 0 ? (
                   newsList.slice(0, 5).map((news) => (
-                    <div 
-                      key={news.id} 
-                      onClick={() => onSelectNews(news)}
+                    <a
+                      key={news.id}
+                      href={news.originalUrl || news.url || '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="flex gap-3 group cursor-pointer rounded p-1 transition-colors hover:bg-surface-container-low"
                     >
-                      <img 
-                        src={news.image || `https://picsum.photos/seed/${news.id}/200/200`} 
+                      {news.image ? <img 
+                        src={news.image} 
                         alt={news.title} 
                         className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
                         referrerPolicy="no-referrer"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           // fallback ảnh random nếu ảnh chính lỗi
-                          if (!target.src.includes('picsum.photos')) {
-                          target.src = `https://picsum.photos/seed/${news.id}/200/200`;
-                          }
+                          target.style.display = 'none';
                         }}
-                      />
+                      /> : (
+                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
+                          <Newspaper className="h-5 w-5" />
+                        </div>
+                      )}
                       <div className="space-y-1">
-                        <span className="text-[10px] font-bold text-text-highlight uppercase tracking-wider transition-colors">{news.source}</span>
                         <h4 className="text-xs font-bold text-text-base leading-snug group-hover:text-text-highlight transition-colors line-clamp-2">
                           {news.title}
                         </h4>
                         <p className="text-[10px] text-text-muted font-medium transition-colors">{formatDate(news.date)}</p>
                       </div>
-                    </div>
+                    </a>
                   ))
                 ) : (
                   <p className="text-xs text-text-muted text-center py-4 transition-colors">{t('noLatestNews')}</p>

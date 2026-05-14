@@ -38,10 +38,6 @@
       "destination": "/api/news.ts"
     },
     {
-      "source": "/api/news/:id",
-      "destination": "/api/detail.ts?id=:id"
-    },
-    {
       "source": "/api/ai/:path*",
       "destination": "/api/ai.ts?path=:path*"
     },

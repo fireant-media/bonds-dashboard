@@ -524,10 +524,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         ))}
       </div>
 
-      <div className="grid grid-cols-12 gap-3">
+      <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {/* Ranking - Double Height */}
         <div 
-          className="col-span-12 lg:col-span-6 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+          className="col-span-12 lg:col-span-6 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col"
         >
           <div className="mb-3">
             <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtRanking')}</h3>
@@ -536,27 +536,27 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           <ReactECharts option={rankingOptions} style={{ height: '570px' }} />
         </div>
 
-        <div className="col-span-12 lg:col-span-6 space-y-3">
+        <div className="col-span-12 lg:col-span-6 flex flex-col gap-3 h-full">
           {/* Market Share */}
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
             <div className="mb-3">
               <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('marketShare')}</h3>
               <p className="text-xs text-text-muted text-right mt-1">{t('unitPercent')}</p>
             </div>
-            <ReactECharts option={marketShareOptions} style={{ height: '250px' }} />
+            <ReactECharts option={marketShareOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '250px' }} />
           </div>
 
           {/* Interest Rates */}
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
             <div className="mb-3">
               <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('industryInterest')}</h3>
               <p className="text-xs text-text-muted text-right mt-1">{t('unitPercent')}</p>
             </div>
-            <ReactECharts option={interestOptions} style={{ height: '200px' }} />
+            <ReactECharts option={interestOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '200px' }} />
           </div>
         </div>
 

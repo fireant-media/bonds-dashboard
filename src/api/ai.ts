@@ -110,8 +110,18 @@ export async function streamChat(
     } catch {
       /* noop */
     }
-    handlers.onError?.(detail);
-    throw new Error(detail);
+
+    try {
+      const fallback = await sendChat(payload);
+      handlers.onStart?.({ model: fallback.model });
+      handlers.onDelta(fallback.text);
+      handlers.onDone?.({ text: fallback.text, model: fallback.model });
+      return;
+    } catch (fallbackError: any) {
+      const fallbackDetail = fallbackError?.response?.data?.details || fallbackError?.response?.data?.error || fallbackError?.message;
+      handlers.onError?.(fallbackDetail || detail);
+      throw new Error(fallbackDetail || detail);
+    }
   }
 
   const reader = response.body.getReader();

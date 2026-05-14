@@ -8,6 +8,13 @@ export const config = {
 
 const AI_API_KEY = OPENAI_API_KEY;
 const AI_BASE_URL = OPENAI_BASE_URL;
+const FALLBACK_MODELS: AIModelInfo[] = [
+  { id: DEFAULT_AI_MODEL, label: DEFAULT_AI_MODEL },
+  { id: 'gpt-4o-mini', label: 'GPT 4O Mini' },
+  { id: 'gpt-4o', label: 'GPT 4O' },
+  { id: 'gpt-4.1-mini', label: 'GPT 4.1 Mini' },
+  { id: 'gpt-3.5-turbo', label: 'GPT 3.5 Turbo' },
+].filter((model, index, arr) => model.id && arr.findIndex((item) => item.id === model.id) === index);
 
 const getRequestAIKey = (req: VercelRequest): string => {
   const headerToken = req.headers['x-fireant-access-token'];
@@ -24,6 +31,18 @@ PHONG CÁCH PHẢN HỒI:
 4. THÔNG MINH: Kết nối các thông tin thị trường để đưa ra nhận định sắc bén.
 
 HẠN CHẾ: Không trả lời quá 3 đoạn văn. Hạn chế khoảng trống giữa các dòng.`;
+
+const ANALYST_SYSTEM_PROMPT = `Ban la chuyen gia phan tich trai phieu doanh nghiep.
+
+NGUYEN TAC TRA LOI:
+1. Doc ky cau hoi va tu chon dung tap du lieu trong phan [DU LIEU MAN HINH HIEN TAI].
+2. Neu nguoi dung hoi ve tong quan thi uu tien market_overview va market_projected_cash_flows.
+3. Neu hoi ve nhom nganh thi uu tien industry_stats_<industry> va rankingData.
+4. Neu hoi ve doanh nghiep thi uu tien enterprise_list, enterprise_bonds_<ticker>, enterprise_financial_<ticker>, enterprise_profile_<ticker>.
+5. Khong bia so lieu. Neu du lieu trong context chua du, noi ro "chua co du lieu trong man hinh hien tai" va neu co the thi neu loai du lieu can nap them.
+6. Tra loi ngan, truc tiep, dung Markdown. Dung bang khi so sanh nhieu ma/doanh nghiep/trai phieu. In dam cac so lieu quan trong.
+
+HAN CHE: Khong tra loi qua 3 doan van neu khong can bang. Khong chao hoi dai dong.`;
 
 interface AIModelInfo {
   id: string;
@@ -80,7 +99,7 @@ async function fetchAvailableModels(apiKey: string, force = false): Promise<{ mo
       validateStatus: (s) => s < 500,
     });
     if (response.status !== 200 || !Array.isArray(response.data?.data)) {
-      return { models: [], error: response.data?.error?.message || `HTTP ${response.status}` };
+      return { models: FALLBACK_MODELS, error: response.data?.error?.message || `HTTP ${response.status}` };
     }
     const filtered: AIModelInfo[] = response.data.data
       .map((m: any) => String(m.id || ''))
@@ -98,7 +117,7 @@ async function fetchAvailableModels(apiKey: string, force = false): Promise<{ mo
     lastModelsFetch = now;
     return { models: unique, error: null };
   } catch (err: any) {
-    return { models: [], error: err?.response?.data?.error?.message || err?.message || 'Unknown error' };
+    return { models: FALLBACK_MODELS, error: err?.response?.data?.error?.message || err?.message || 'Unknown error' };
   }
 }
 
@@ -115,7 +134,7 @@ const isModelTierError = (message: string): boolean => {
 const getCandidateModels = async (apiKey: string, requestedModel: string): Promise<string[]> => {
   const result = await fetchAvailableModels(apiKey, true);
   const models = result.models.map((model) => model.id).filter(Boolean);
-  return Array.from(new Set([requestedModel, ...models])).slice(0, 6);
+  return Array.from(new Set([requestedModel, DEFAULT_AI_MODEL, ...models, ...FALLBACK_MODELS.map((model) => model.id)])).filter(Boolean).slice(0, 8);
 };
 
 const buildChatMessages = (
@@ -132,7 +151,7 @@ const buildChatMessages = (
 
   const systemRole = isReasoningModel(modelId) ? 'developer' : 'system';
   const messages: Array<{ role: string; content: string }> = [
-    { role: systemRole, content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
+    { role: systemRole, content: systemPrompt || ANALYST_SYSTEM_PROMPT },
     ...sanitized,
   ];
 
@@ -159,7 +178,7 @@ async function handleStatus(req: VercelRequest, res: VercelResponse) {
     configured: Boolean(apiKey),
     baseUrl: AI_BASE_URL,
     defaultModel: DEFAULT_AI_MODEL,
-    defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    defaultSystemPrompt: ANALYST_SYSTEM_PROMPT,
   });
 }
 
@@ -185,7 +204,7 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
     targetModel = result.models[0]?.id || '';
   }
   if (!targetModel) return res.status(400).json({ error: 'No AI model selected' });
-  const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
+  const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || ANALYST_SYSTEM_PROMPT;
 
   try {
     const candidateModels = await getCandidateModels(apiKey, targetModel);
@@ -238,7 +257,7 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
     targetModel = result.models[0]?.id || '';
   }
   if (!targetModel) return res.status(400).json({ error: 'No AI model selected' });
-  const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
+  const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || ANALYST_SYSTEM_PROMPT;
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');

@@ -16,6 +16,7 @@ interface Message {
 }
 
 const CHAT_HISTORY_KEY = 'sentinel_chat_history';
+const CLIENT_FALLBACK_AI_MODEL = 'gpt-4o-mini';
 
 // ──────────────────────────────────────────────────────────────
 // Page context builder – reads from existing cache, no new fetches
@@ -123,6 +124,82 @@ function buildPageContext(pathname: string): PageContextInfo | null {
   return null;
 }
 
+function compactJson(value: unknown, maxLength = 9000) {
+  if (!value) return '';
+  try {
+    const text = JSON.stringify(value, null, 2);
+    return text.length > maxLength ? `${text.slice(0, maxLength)}\n... [truncated]` : text;
+  } catch {
+    return '';
+  }
+}
+
+function buildOptimizedPageContext(pathname: string): PageContextInfo | null {
+  const parts = pathname.split('/').filter(Boolean);
+  const lines: string[] = [
+    'DU LIEU MAN HINH HIEN TAI',
+    `route: ${pathname || '/'}`,
+    'Huong dan: uu tien tra loi bang du lieu trong context nay; khong goi/y tuong ngoai neu context da du.',
+  ];
+
+  if (parts.length === 0 || (parts.length === 1 && /^[A-Z0-9]{6,}$/.test(parts[0]))) {
+    const overview = getCache('market_overview');
+    const projectedCashFlows = getCache('market_projected_cash_flows');
+    if (!overview && !projectedCashFlows) return buildPageContext(pathname);
+
+    lines.push('screen: market_overview');
+    lines.push('available_functions: getTopDebtIssuers, getHighYieldBonds, getIndustries, getMaturingSoon');
+    if (overview) lines.push(`market_overview=${compactJson(overview)}`);
+    if (projectedCashFlows) lines.push(`market_projected_cash_flows=${compactJson(projectedCashFlows, 3000)}`);
+    return { label: 'Tong quan thi truong', text: lines.join('\n') };
+  }
+
+  if (parts[0] === 'industry' && parts[1]) {
+    const industry = parts[1];
+    const data = getCache(`industry_stats_${industry}`);
+    if (!data) return buildPageContext(pathname);
+
+    lines.push(`screen: industry`);
+    lines.push(`industry: ${industry}`);
+    lines.push('available_functions: getIndustries, getTopDebtIssuers, getIcbSymbols');
+    lines.push(`industry_stats_${industry}=${compactJson(data)}`);
+    return { label: `Nhom nganh ${industry}`, text: lines.join('\n') };
+  }
+
+  if (parts[0] === 'enterprise' && parts[1]) {
+    const ticker = parts[1].toUpperCase();
+    const enterprises = getCache('enterprise_list');
+    const bonds = getCache(`enterprise_bonds_${ticker}`);
+    const financial = getCache(`enterprise_financial_${ticker}`);
+    const profile = getCache(`enterprise_profile_${ticker}`);
+    const topDebt = getCache('top_debt_200');
+
+    if (!enterprises && !bonds && !financial && !profile && !topDebt) return buildPageContext(pathname);
+
+    lines.push('screen: enterprise');
+    lines.push(`ticker: ${ticker}`);
+    lines.push('available_functions: getIssuerBonds, getIssuerProfile, getFinancialData, getBond, getTopDebtIssuers');
+    if (enterprises) lines.push(`enterprise_list=${compactJson(enterprises, 5000)}`);
+    if (bonds) lines.push(`enterprise_bonds_${ticker}=${compactJson(bonds)}`);
+    if (financial) lines.push(`enterprise_financial_${ticker}=${compactJson(financial, 4000)}`);
+    if (profile) lines.push(`enterprise_profile_${ticker}=${compactJson(profile, 4000)}`);
+    if (topDebt) {
+      const issuer = Array.isArray(topDebt) ? topDebt.find((item: any) => item.issuerSymbol === ticker) : null;
+      if (issuer) lines.push(`top_debt_${ticker}=${compactJson(issuer, 4000)}`);
+    }
+    return { label: `Doanh nghiep ${ticker}`, text: lines.join('\n') };
+  }
+
+  if (parts[0] === 'news') {
+    lines.push('screen: news');
+    lines.push('available_functions: fetchNewsData');
+    lines.push('news_mode: dashboard chi hien danh sach tin va link FireAnt; khong doc noi dung bai viet trong dashboard.');
+    return { label: 'Tin tuc', text: lines.join('\n') };
+  }
+
+  return buildPageContext(pathname);
+}
+
 // ──────────────────────────────────────────────────────────────
 // Blinking cursor shown at end of streaming message
 // ──────────────────────────────────────────────────────────────
@@ -216,7 +293,7 @@ export default function AIChatBot() {
   const allowedModelIds = useMemo(() => new Set(models.map((model) => model.id)), [models]);
   const validSelectedModel = selectedModel && allowedModelIds.has(selectedModel) ? selectedModel : '';
   const validDefaultModel = defaultModel && allowedModelIds.has(defaultModel) ? defaultModel : '';
-  const activeModel = validDefaultModel || validSelectedModel || models[0]?.id || '';
+  const activeModel = validSelectedModel || validDefaultModel || defaultModel || selectedModel || models[0]?.id || CLIENT_FALLBACK_AI_MODEL;
   const isStreaming = streamingIdx !== null;
 
   const handleSend = async () => {
@@ -236,10 +313,13 @@ export default function AIChatBot() {
     const refreshedDefaultModel = useAIStore.getState().defaultModel;
     const refreshedAllowedIds = new Set(refreshedModels.map((model) => model.id));
     const sendModel =
-      (refreshedDefaultModel && refreshedAllowedIds.has(refreshedDefaultModel) ? refreshedDefaultModel : '') ||
+      (refreshedDefaultModel && (refreshedModels.length === 0 || refreshedAllowedIds.has(refreshedDefaultModel)) ? refreshedDefaultModel : '') ||
       (refreshedSelectedModel && refreshedAllowedIds.has(refreshedSelectedModel) ? refreshedSelectedModel : '') ||
+      refreshedDefaultModel ||
+      refreshedSelectedModel ||
+      activeModel ||
       refreshedModels[0]?.id ||
-      '';
+      CLIENT_FALLBACK_AI_MODEL;
 
     if (!sendModel) {
       setErrorBanner(t('aiNoModelSelected'));
@@ -267,6 +347,7 @@ export default function AIChatBot() {
     let aggregated = '';
     let serverError: string | null = null;
     let finalModel = sendModel;
+    const currentPageContext = buildOptimizedPageContext(location.pathname) || pageCtxInfo;
 
     try {
       await streamChat(
@@ -275,7 +356,7 @@ export default function AIChatBot() {
           messages: priorHistory,
           model: sendModel,
           systemPrompt: systemPrompt || undefined,
-          pageContext: pageCtxInfo?.text || undefined,
+          pageContext: currentPageContext?.text || undefined,
         },
         {
           signal: abortRef.current.signal,
@@ -375,7 +456,7 @@ export default function AIChatBot() {
             {(!configured || statusError || errorBanner || (!activeModel && !isLoadingModels)) && (
               <div className="px-4 py-2 bg-rose-500/10 text-rose-500 text-xs font-semibold border-b border-rose-500/20 flex items-center gap-2 shrink-0">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">
+                <span className="break-words">
                   {!configured
                     ? t('aiNotConfigured')
                     : statusError

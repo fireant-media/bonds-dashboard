@@ -8,7 +8,6 @@ import IndustryView from './components/IndustryView';
 import EnterpriseView from './components/EnterpriseView';
 import MaturityListView from './components/MaturityListView';
 import NewsListView from './components/NewsListView';
-import NewsDetailView from './components/NewsDetailView';
 import BondDetailPopup from './components/BondDetailPopup';
 import ProfileView from './components/ProfileView';
 import LoginView from './components/LoginView';
@@ -38,7 +37,7 @@ export default function App() {
   const { user, isLoading: authLoading, signIn, signOut } = useOidcAuth();
   
   // Derive activeTab from location.pathname
-  const { activeTab, activeIndustry, ticker, newsId, bondCode } = (() => {
+  const { activeTab, activeIndustry, ticker, bondCode } = (() => {
     // If we have a background location (from state), use that to determine the active tab
     const currentPath = location.state?.backgroundLocation?.pathname || location.pathname;
     const parts = currentPath.split('/').filter(Boolean);
@@ -68,9 +67,7 @@ export default function App() {
     if (currentPath === '/maturity') return { activeTab: 'maturity-list', bondCode: urlBondCode };
     if (currentPath === '/news-list' || currentPath === '/news') return { activeTab: 'news-list', bondCode: urlBondCode };
     
-    if (currentPath.startsWith('/news/')) {
-      return { activeTab: 'news-detail', newsId: parts[1], bondCode: urlBondCode };
-    }
+    if (currentPath.startsWith('/news/')) return { activeTab: 'news-list', bondCode: urlBondCode };
     
     if (currentPath === '/profile') return { activeTab: 'profile', bondCode: urlBondCode };
     if (currentPath === '/help') return { activeTab: 'help', bondCode: urlBondCode };
@@ -84,7 +81,6 @@ export default function App() {
   })();
 
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
-  const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
@@ -168,7 +164,7 @@ export default function App() {
     if (appFrameRef.current) {
       appFrameRef.current.scrollTo({ top: 0, behavior: 'instant' });
     }
-  }, [activeTab, activeIndustry, ticker, newsId]);
+  }, [activeTab, activeIndustry, ticker]);
 
   const handleSetSelectedEnterprise = (enterprise: Enterprise | null) => {
     if (enterprise) {
@@ -203,23 +199,6 @@ export default function App() {
       setSelectedEnterprise(null);
     }
   }, [activeTab, ticker, selectedEnterprise]);
-
-  // Sync selectedNews with URL newsId
-  useEffect(() => {
-    if (activeTab === 'news-detail' && newsId && (!selectedNews || selectedNews.id !== newsId)) {
-      setSelectedNews({
-        id: newsId,
-        title: '',
-        summary: '',
-        source: '',
-        date: '',
-        image: '',
-        content: '',
-        author: '',
-        url: ''
-      });
-    }
-  }, [activeTab, newsId, selectedNews]);
 
   // Sync selectedBond from URL bondCode
   useEffect(() => {
@@ -401,7 +380,9 @@ export default function App() {
   };
 
   const handleSelectNews = (news: NewsItem) => {
-    navigate(`/news/${news.id}`);
+    const url = news.originalUrl || news.url;
+    if (!url || url === '#') return;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleSeeMoreNews = () => {
@@ -548,16 +529,7 @@ export default function App() {
                     />
                   } />
                   <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
-                  <Route path="/news/:id" element={
-                    selectedNews ? (
-                      <NewsDetailView 
-                        news={selectedNews} 
-                        onBack={handleSeeMoreNews} 
-                      />
-                    ) : (
-                      <Navigate to="/news" replace />
-                    )
-                  } />
+                  <Route path="/news/:id" element={<Navigate to="/news" replace />} />
                   <Route path="/profile" element={
                     <ProfileView onLogout={handleLogout} />
                   } />
@@ -595,6 +567,7 @@ export default function App() {
                   onSeeMoreMaturity={() => setActiveTab('maturity-list')}
                   onSelectNews={handleSelectNews}
                   onSeeMoreNews={handleSeeMoreNews}
+                  newsSymbol={activeTab === 'enterprise' ? ticker : null}
                 />
               </div>
               </>
