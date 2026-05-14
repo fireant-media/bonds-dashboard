@@ -13,6 +13,23 @@ function getRequestToken(req: VercelRequest): string | null {
   return token || null;
 }
 
+function sendUpstreamResponse(res: VercelResponse, status: number, data: unknown) {
+  if (data === undefined) {
+    return res.status(status).json({});
+  }
+
+  if (typeof data === 'string') {
+    try {
+      return res.status(status).json(JSON.parse(data));
+    } catch {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.status(status).send(data);
+    }
+  }
+
+  return res.status(status).json(data);
+}
+
 async function getFireantToken(force = false) {
   const now = Date.now();
   if (FIREANT_ACCESS_TOKEN && !force) return FIREANT_ACCESS_TOKEN;
@@ -102,7 +119,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers,
       data: req.body,
       timeout: 20000,
-      validateStatus: (status) => status < 500
+      validateStatus: () => true
     });
   };
 
@@ -119,9 +136,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
     
-    return res.status(response.status).json(response.data);
+    return sendUpstreamResponse(res, response.status, response.data);
   } catch (error: any) {
-    console.error(`[Vercel Proxy Error] ${path}:`, error.message);
-    return res.status(500).json({ error: "Failed to proxy request", message: error.message });
+    console.error(`[Vercel Proxy Error] ${path}:`, error?.stack || error?.message || error);
+    return res.status(500).json({
+      error: "Failed to proxy request",
+      message: error?.message || "Unknown error",
+    });
   }
 }

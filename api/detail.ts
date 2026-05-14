@@ -87,7 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!post) {
-      return res.status(404).json({ error: "Post not found" });
+      return res.status(404).json({ error: "Post not found", message: "Upstream FireAnt news detail API returned no usable data" });
     }
 
     const image = post.images?.[0]?.imageUrl || 
@@ -110,6 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       date: post.date
     });
   } catch (error: any) {
-    res.status(500).json({ error: "Internal server error", message: error.message });
+    console.error("[Detail API Error]", error?.stack || error?.message || error);
+    res.status(500).json({ error: "Internal server error", message: error?.message || "Unknown error" });
   }
 }

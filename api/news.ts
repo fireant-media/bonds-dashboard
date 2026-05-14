@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (!posts || !Array.isArray(posts)) {
-      return res.status(500).json({ error: "Could not fetch news" });
+      return res.status(502).json({ error: "Could not fetch news", message: "Upstream FireAnt news API returned no usable data" });
     }
 
     const mappedNews = posts.map((post: any) => {
@@ -96,6 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json(mappedNews);
   } catch (error: any) {
-    res.status(500).json({ error: "Internal server error", message: error.message });
+    console.error("[News API Error]", error?.stack || error?.message || error);
+    res.status(500).json({ error: "Internal server error", message: error?.message || "Unknown error" });
   }
 }

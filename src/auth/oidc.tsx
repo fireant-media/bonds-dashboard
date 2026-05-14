@@ -7,6 +7,7 @@ import {
 } from 'oidc-client';
 import { useAuthStore } from './authStore';
 import { getUserAccount } from '../api/users';
+import { removeFireantToken, setFireantToken } from '../utils/token';
 
 const scopes = [
   'openid',
@@ -103,11 +104,17 @@ export const bootstrapAuth = (): Promise<void> => {
       const user = await authManager.getUser();
       setUser(user ?? null);
       if (user) {
+        if (user.access_token) {
+          setFireantToken(user.access_token);
+        }
         await refreshUserAccount();
+      } else {
+        removeFireantToken();
       }
     } catch (error) {
       console.error('Failed to bootstrap OIDC user', error);
       setUser(null);
+      removeFireantToken();
     } finally {
       setLoading(false);
     }
@@ -115,12 +122,16 @@ export const bootstrapAuth = (): Promise<void> => {
 
   authManager.events.addUserLoaded((user) => {
     useAuthStore.getState().setUser(user);
+    if (user?.access_token) {
+      setFireantToken(user.access_token);
+    }
     void refreshUserAccount();
   });
   authManager.events.addUserUnloaded(() => {
     const store = useAuthStore.getState();
     store.setUser(null);
     store.setAccount(null);
+    removeFireantToken();
   });
   authManager.events.addAccessTokenExpired(() => {
     authManager.removeUser().catch((error) => {
@@ -129,6 +140,7 @@ export const bootstrapAuth = (): Promise<void> => {
     const store = useAuthStore.getState();
     store.setUser(null);
     store.setAccount(null);
+    removeFireantToken();
   });
   authManager.events.addSilentRenewError((error) => {
     console.warn('Silent renew error', error);
@@ -175,6 +187,7 @@ export const useOidcAuth = () => {
       } catch (err) {
         console.error('Failed to remove user after sign-out', err);
       }
+      removeFireantToken();
       useAuthStore.getState().reset();
     }
   }, []);
@@ -233,6 +246,7 @@ export function SignOutCallback() {
       } catch (error) {
         console.error('Sign-out callback failed', error);
       } finally {
+        removeFireantToken();
         useAuthStore.getState().reset();
         navigate('/', { replace: true });
       }

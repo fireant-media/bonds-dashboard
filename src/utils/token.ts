@@ -1,11 +1,17 @@
 /**
  * Utility to manage the Fireant Access Token.
- * Prioritizes token from localStorage, then falls back to environment variable.
+ * Prioritizes token from the current OIDC session, then localStorage,
+ * then falls back to environment variable.
  */
+
+import { getStoredAccessToken } from '../auth/authStore';
 
 const TOKEN_KEY = 'fireant_access_token';
 
 export const getFireantToken = (): string | null => {
+  const sessionToken = getStoredAccessToken();
+  if (sessionToken && sessionToken.trim().length > 10) return sessionToken.trim();
+
   // Check localStorage first
   const localToken = localStorage.getItem(TOKEN_KEY);
   if (localToken && localToken.trim().length > 10) return localToken.trim();
