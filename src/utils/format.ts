@@ -5,15 +5,15 @@
  * - Nếu là số nguyên: không hiển thị phần thập phân
  * - Nếu là số thập phân: hiển thị tối đa 2 chữ số sau dấu phẩy
  */
-export const formatNumber = (num: number | undefined | null, decimals: number = 2): string => {
+export const formatNumber = (num: number | string | undefined | null, decimals: number = 2): string => {
   if (num === undefined || num === null) return '0';
   
-  // Kiểm tra nếu là số nguyên
-  const isInteger = num % 1 === 0;
+  const numberValue = Number(num);
+  if (!Number.isFinite(numberValue)) return '0';
   
-  return num.toLocaleString('vi-VN', {
-    minimumFractionDigits: isInteger ? 0 : 0,
-    maximumFractionDigits: isInteger ? 0 : decimals,
+  return numberValue.toLocaleString('vi-VN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Math.max(0, decimals),
   });
 };
 

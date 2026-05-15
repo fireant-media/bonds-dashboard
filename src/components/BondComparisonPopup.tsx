@@ -11,6 +11,8 @@ import { getCache, setCache } from '../utils/cache';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
+import { ExportExcelButton } from './ui/ExportExcelButton';
+import { exportRowsToExcel } from '../utils/excel';
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
@@ -67,6 +69,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const [searching, setSearching] = useState(false);
   const [allBondsPool, setAllBondsPool] = useState<Bond[]>([]);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Validate selectedBonds to prevent render errors
@@ -792,6 +795,52 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     return formatted;
   };
 
+  const comparisonRows = [
+    { key: 'code', label: t('bondCode'), value: (bond: Bond) => bond.code },
+    { key: 'term', label: t('termMonths'), value: (bond: Bond) => bond.term.replace(/[^0-9]/g, '') },
+    { key: 'interestRate', label: t('interestRate'), value: (bond: Bond) => `${formatNumber(bond.interestRate, 2)}%` },
+    {
+      key: 'interestType',
+      label: t('interestType'),
+      value: (bond: Bond) => (['Fixed', 'Cố định'].includes(bond.interestType)
+        ? t('fixed')
+        : ['Floating', 'Thả nổi', 'Thả Nổi'].includes(bond.interestType)
+          ? t('floating')
+          : bond.interestType),
+    },
+    { key: 'issueDate', label: t('issueDate'), value: (bond: Bond) => formatDate(bond.issueDate) },
+    { key: 'maturityDate', label: t('maturityDate'), value: (bond: Bond) => formatDate(bond.maturityDate) },
+    {
+      key: 'issuedValue',
+      label: t('issuedValue'),
+      value: (bond: Bond) => formatValue(bond.issuedValue),
+    },
+  ];
+
+  const handleExportComparison = async () => {
+    if (selectedBonds.length === 0) return;
+
+    setExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+        exportRowsToExcel({
+        fileNameBase: 'Bond_Comparison',
+        sheetName: t('bondComparisonTitle'),
+        rows: comparisonRows,
+        columns: [
+          { header: 'Thông tin', value: (row) => row.label },
+          ...selectedBonds.map((bond) => ({
+            header: bond.code,
+            value: (row: (typeof comparisonRows)[number]) => row.value(bond),
+          })),
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   // Safe wrapper for chart rendering with error boundary
   const safeRenderChart = (optionsGetter: () => any, fallbackMessage: string = 'Display Error') => {
     try {
@@ -973,61 +1022,19 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
           {/* Detail Table */}
           <div className="space-y-6">
-            <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('detailedSpecs')}</h4>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('detailedSpecs')}</h4>
+              <ExportExcelButton loading={exportLoading} onClick={handleExportComparison} />
+            </div>
             <div className="rounded-2xl border border-border-base bg-bg-surface overflow-hidden shadow-sm transition-colors overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[600px]">
                 <tbody>
-                    {[
-                      { label: t('bondCode'), key: 'code' },
-                      { 
-                        label: (
-                          <div className="flex flex-col">
-                            <span className="whitespace-nowrap leading-none">{t('termMonths')}</span>
-                            <span className="whitespace-nowrap mt-1 leading-none">({t('monthUnit')})</span>
-                          </div>
-                        ), 
-                        key: 'term', 
-                        isTerm: true 
-                      },
-                      { 
-                        label: (
-                          <div className="flex flex-col">
-                            <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
-                            <span className="whitespace-nowrap mt-1 leading-none">(%)</span>
-                          </div>
-                        ), 
-                        key: 'interestRate', 
-                        isRate: true 
-                      },
-                      { label: t('interestType'), key: 'interestType', isInterestType: true },
-                      { label: t('issueDate'), key: 'issueDate', isDate: true },
-                      { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                      { 
-                        label: (
-                          <div className="flex flex-col">
-                            <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
-                            <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
-                          </div>
-                        ), 
-                        key: 'issuedValue', 
-                        isValue: true 
-                      }
-                    ].map((row, idx) => (
+                    {comparisonRows.map((row, idx) => (
                       <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
-                        <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[25%]">{row.label}</td>
+                        <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[25%] whitespace-nowrap">{row.label}</td>
                       {selectedBonds.map((b) => (
-                        <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
-                          {row.isRate ? formatNumber(b.interestRate, 2) : 
-                           row.isValue ? formatValue(b.issuedValue) :
-                           row.isTerm ? b.term.replace(/[^0-9]/g, '') :
-                           row.isDate ? formatDate((b as any)[row.key]) :
-                           row.isInterestType 
-                            ? (['Fixed', 'Cố định'].includes(b.interestType) 
-                                ? t('fixed') 
-                                : ['Floating', 'Thả nổi', 'Thả Nổi'].includes(b.interestType) 
-                                ? t('floating') 
-                                : b.interestType) :
-                           (b as any)[row.key]}
+                        <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors whitespace-nowrap">
+                          {row.value(b)}
                         </td>
                       ))}
                     </tr>

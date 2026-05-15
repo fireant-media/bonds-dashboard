@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { IndustryType } from '../types';
 import { TrendingUp, Activity, PieChart, BarChart3, Info } from 'lucide-react';
@@ -14,18 +14,53 @@ import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
-import { buildFireantUrl } from '../api/fireant';
+import { buildFireantUrl, fireantApi } from '../api/fireant';
+
+interface ProjectedCashFlowBucket {
+  label: string;
+  interest: number;
+  principal: number;
+}
 
 export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const cacheKey = `industry_stats_${industry}`;
   const cachedData = getCache(cacheKey);
   const [industryStats, setIndustryStats] = useState<any>(cachedData?.industryStats || null);
   const [rankingData, setRankingData] = useState<any[]>(cachedData?.rankingData || []);
+  const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
+  const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(
+    getCache(`industry_projected_cash_flows_${industry}`) || {}
+  );
+  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
+
+  const industryConfig = useMemo(() => {
+    let statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
+    let targetName = 'Ngân hàng';
+    let icbCode = '3010';
+
+    if (industry === 'Securities') {
+      statsUrl = buildFireantUrl('bonds/stats/industries', { top: 20, level: 4 });
+      targetName = 'Công ty chứng khoán';
+      icbCode = '30202005';
+    } else if (industry === 'RealEstate') {
+      statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
+      targetName = 'Bất động sản';
+      icbCode = '3510';
+    }
+
+    return { statsUrl, targetName, icbCode };
+  }, [industry]);
+
+  useEffect(() => {
+    setCashFlowPeriod('year');
+    setProjectedCashFlowBuckets(getCache(`industry_projected_cash_flows_${industry}`) || {});
+    setLoadingCashFlows(false);
+  }, [industry]);
 
   useEffect(() => {
     let isMounted = true;
@@ -45,20 +80,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         }
 
         // Fetch Industry Stats
-        let statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
-        let targetName = 'Ngân hàng';
-        
-        if (industry === 'Securities') {
-          statsUrl = buildFireantUrl('bonds/stats/industries', { top: 20, level: 4 });
-          targetName = 'Công ty chứng khoán';
-        } else if (industry === 'RealEstate') {
-          statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
-          targetName = 'Bất động sản';
-        }
-
-        let icbCode = '3010';
-        if (industry === 'Securities') icbCode = '30202005';
-        else if (industry === 'RealEstate') icbCode = '3510';
+        const statsUrl = industryConfig.statsUrl;
+        const targetName = industryConfig.targetName;
+        const icbCode = industryConfig.icbCode;
 
         let newStats = industryStats;
         let newRanking = rankingData;
@@ -130,7 +154,164 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
     fetchAllData();
     return () => { isMounted = false; };
-  }, [industry]);
+  }, [industry, industryConfig]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchProjectedCashFlows = async () => {
+      const cashFlowCacheKey = `industry_projected_cash_flows_${industry}`;
+      const cached = getCache(cashFlowCacheKey);
+      if (cached && Object.keys(cached).length > 0) {
+        setProjectedCashFlowBuckets(cached);
+        return;
+      }
+
+      setLoadingCashFlows(true);
+
+      try {
+        const token = getFireantToken();
+        const cleanToken = token ? cleanTokenString(token) : undefined;
+        const headers: any = {
+          Accept: 'application/json',
+        };
+        if (cleanToken) {
+          headers.Authorization = `Bearer ${cleanToken}`;
+        }
+
+        const symbolsRes = await fetch(buildFireantUrl(`icb/${industryConfig.icbCode}/symbols`), {
+          cache: 'no-store',
+          headers,
+        });
+
+        if (!symbolsRes.ok) {
+          if (symbolsRes.status === 401) throw new Error('401');
+          return;
+        }
+
+        const symbolsRaw = await symbolsRes.json();
+        const issuerSymbols = Array.from(new Set((Array.isArray(symbolsRaw) ? symbolsRaw : []).filter(Boolean)));
+        const bondsByCode = new Map<string, any>();
+        const issuerChunkSize = 6;
+
+        for (let i = 0; i < issuerSymbols.length; i += issuerChunkSize) {
+          if (!isMounted) return;
+
+          const chunk = issuerSymbols.slice(i, i + issuerChunkSize);
+          const results = await Promise.allSettled(
+            chunk.map(async (symbol) => {
+              const data = await fireantApi.getIssuerBonds(symbol);
+              return Array.isArray(data) ? data : [];
+            })
+          );
+
+          results.forEach((result) => {
+            if (result.status !== 'fulfilled') return;
+            result.value.forEach((bond: any) => {
+              const code = bond.bondCode || bond.code;
+              if (code) bondsByCode.set(String(code), bond);
+            });
+          });
+        }
+
+        const buckets = new Map<string, ProjectedCashFlowBucket>();
+        const ensureBucket = (dateString: string) => {
+          const keyInfo = getDateKey(dateString, 'month');
+          if (!keyInfo) return null;
+
+          if (!buckets.has(keyInfo.bucketKey)) {
+            buckets.set(keyInfo.bucketKey, { label: keyInfo.label, interest: 0, principal: 0 });
+          }
+
+          return buckets.get(keyInfo.bucketKey)!;
+        };
+
+        const addCashFlows = (cashFlows: any[]) => {
+          cashFlows.forEach((cashFlow) => {
+            if (!cashFlow?.paymentDate) return;
+
+            const bucket = ensureBucket(cashFlow.paymentDate);
+            if (!bucket) return;
+
+            bucket.interest += toBillionVnd(cashFlow.interestAmount);
+            bucket.principal += toBillionVnd(cashFlow.principalAmount);
+          });
+        };
+
+        const bonds = Array.from(bondsByCode.values());
+        const bondChunkSize = 10;
+
+        for (let i = 0; i < bonds.length; i += bondChunkSize) {
+          if (!isMounted) return;
+
+          const chunk = bonds.slice(i, i + bondChunkSize);
+          const results = await Promise.allSettled(
+            chunk.map(async (bond) => {
+              const code = bond.bondCode || bond.code;
+              if (!code) return { bond, cashFlows: [] };
+
+              const bondCacheKey = `bond_cash_flows_${code}`;
+              const cachedCashFlows = getCache(bondCacheKey);
+              if (Array.isArray(cachedCashFlows)) {
+                return { bond, cashFlows: cachedCashFlows };
+              }
+
+              const detailData = await fireantApi.getBond(code);
+              const cashFlows = Array.isArray(detailData.cashFlows)
+                ? detailData.cashFlows.map((cashFlow: any) => ({
+                    paymentDate: cashFlow.paymentDate,
+                    interestAmount: toBillionVnd(cashFlow.interestAmount),
+                    principalAmount: toBillionVnd(cashFlow.principalAmount),
+                  }))
+                : [];
+
+              setCache(bondCacheKey, cashFlows);
+              return { bond, cashFlows };
+            })
+          );
+
+          results.forEach((result) => {
+            if (result.status !== 'fulfilled') return;
+
+            const cashFlows = result.value.cashFlows;
+            if (cashFlows.length > 0) {
+              addCashFlows(cashFlows);
+              return;
+            }
+
+            const bond = result.value.bond;
+            const fallbackDate = bond.maturityDate || bond.paymentDate;
+            const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
+            if (!fallbackDate || !fallbackPrincipal) return;
+
+            const bucket = ensureBucket(fallbackDate);
+            if (bucket) bucket.principal += toBillionVnd(fallbackPrincipal);
+          });
+
+          if (isMounted) {
+            const partialBuckets = Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
+            setProjectedCashFlowBuckets(partialBuckets);
+          }
+        }
+
+        if (!isMounted) return;
+
+        const finalBuckets = Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
+        setProjectedCashFlowBuckets(finalBuckets);
+        setCache(cashFlowCacheKey, finalBuckets);
+      } catch (error) {
+        console.error('Industry projected cash flow fetch error', error);
+      } finally {
+        if (isMounted) setLoadingCashFlows(false);
+      }
+    };
+
+    fetchProjectedCashFlows();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [industry, industryConfig]);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
@@ -171,38 +352,69 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const tooltipTextStyle = getChartTooltip(isDark).textStyle;
   const chartTooltip = getChartTooltip(isDark);
   const chartPalette = CHART_PALETTE;
+  const chartTitleStyle = {
+    fontSize: 10,
+    color: isDark ? '#e5e7eb' : '#374151',
+    fontWeight: 'bold' as const,
+    fontFamily: 'Manrope',
+  };
+  const getDateKey = (dateString: string, period: 'month' | 'year') => {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const sortKey = `${year}-${String(month).padStart(2, '0')}`;
+
+    return {
+      sortKey,
+      bucketKey: period === 'month' ? sortKey : String(year),
+      label: period === 'month' ? `T${month}/${year}` : String(year)
+    };
+  };
+
+  const toNumber = (value: unknown) => {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : 0;
+  };
+
+  const toBillionVnd = (value: unknown) => {
+    const numberValue = toNumber(value);
+    if (!numberValue) return 0;
+    return Math.abs(numberValue) > 1000000 ? numberValue / 1000000000 : numberValue;
+  };
 
   const getKpis = () => {
     if (industryStats) {
       return [
         { 
           label: t('issuedVolumeTitle'), 
-          value: formatNumber(Math.round(industryStats.totalIssuedVolume / 1000000), 0), 
-          unit: t('unitMillionShares') 
+          value: formatNumber(industryStats.totalIssuedVolume, 0), 
+          unit: t('bondunits') 
         },
         { 
           label: t('totalIssuedValueTitle'), 
-          value: formatNumber(Math.round(industryStats.totalIssuedValue / 1000000000), 0), 
+          value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2), 
           unit: t('unitBillionVND') 
         },
         { 
           label: t('initialDebtFull'), 
-          value: formatNumber(Math.round(industryStats.totalDebtFull / 1000000000), 0), 
+          value: formatNumber(industryStats.totalDebtFull / 1000000000, 2), 
           unit: t('unitBillionVND') 
         },
         { 
           label: t('listedVolume'), 
-          value: formatNumber(Math.round(industryStats.totalCurrentListedVolume / 1000000), 0), 
-          unit: t('unitMillionShares') 
+          value: formatNumber(industryStats.totalCurrentListedVolume, 0), 
+          unit: t('bondunits') 
         },
         { 
           label: t('listedValueTitle'), 
-          value: formatNumber(Math.round(industryStats.totalCurrentListedValue / 1000000000), 0), 
+          value: formatNumber(industryStats.totalCurrentListedValue / 1000000000, 2), 
           unit: t('unitBillionVND') 
         },
         { 
           label: t('remainingDebtTitle'), 
-          value: formatNumber(Math.round(industryStats.totalRemainingDebt / 1000000000), 0), 
+          value: formatNumber(industryStats.totalRemainingDebt / 1000000000, 2), 
           unit: t('unitBillionVND') 
         },
       ];
@@ -237,6 +449,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         type: 'value', 
         splitLine: { show: false },
         interval: interval,
+        name: t('unitBillionVND'),
+        nameTextStyle: chartTitleStyle,
         axisLabel: { 
           ...valueLabelStyle,
           formatter: (value: number) => formatNumber(value, 0)
@@ -248,7 +462,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         axisLabel: categoryLabelStyle 
       },
       series: [{
-        name: `${t('remainingDebtTitle')} (${t('unitBillionVND')})`,
+        name: t('remainingDebtTitle'),
         type: 'bar',
         data: displayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)),
         itemStyle: { borderRadius: [0, 4, 4, 0] },
@@ -380,6 +594,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       yAxis: { 
         type: 'value',
         splitLine: { show: false },
+        name: t('unitPercentLabel'),
+        nameTextStyle: chartTitleStyle,
         axisLabel: valueLabelStyle 
       },
       series: [{
@@ -436,8 +652,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         { 
           type: 'value', 
           name: t('unitBillionVND'), 
+          nameTextStyle: chartTitleStyle,
           splitLine: { show: false },
-          nameTextStyle: { ...valueLabelStyle, align: 'right', padding: [0, 0, 0, 40] },
           axisLabel: {
             ...valueLabelStyle,
             formatter: (value: number) => formatNumber(value, 0)
@@ -475,6 +691,101 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   };
 
   const combinedOptions = getCombinedOptions();
+
+  const projectedCashFlowData = useMemo(() => {
+    const buckets = new Map<string, ProjectedCashFlowBucket>();
+
+    Object.entries(projectedCashFlowBuckets).forEach(([key, value]) => {
+      const keyInfo = getDateKey(`${key}-01`, cashFlowPeriod);
+      if (!keyInfo) return;
+
+      if (!buckets.has(keyInfo.bucketKey)) {
+        buckets.set(keyInfo.bucketKey, { label: keyInfo.label, interest: 0, principal: 0 });
+      }
+
+      const bucket = buckets.get(keyInfo.bucketKey)!;
+      bucket.interest += value.interest || 0;
+      bucket.principal += value.principal || 0;
+    });
+
+    const sortedEntries = Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const labels = sortedEntries.map(([, value]) => value.label);
+    const interest = sortedEntries.map(([, value]) => value.interest);
+    const principal = sortedEntries.map(([, value]) => value.principal);
+    const total = sortedEntries.map(([, value]) => value.interest + value.principal);
+
+    return { labels, interest, principal, total };
+  }, [projectedCashFlowBuckets, cashFlowPeriod]);
+
+  const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
+  const projectedCashFlowTitle = language === 'vi'
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? 'tháng' : 'năm'}`
+    : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+
+  const projectedCashFlowOptions = {
+    color: chartPalette,
+    tooltip: {
+      ...chartTooltip,
+      trigger: 'axis',
+      confine: true,
+      axisPointer: { type: 'shadow' },
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        let content = `${params[0].name}<br/>`;
+        let total = 0;
+        params.forEach((param: any) => {
+          total += param.value || 0;
+          content += `${param.marker} ${param.seriesName}: ${formatNumber(param.value || 0, 2)} ${t('unitBillionVND')}<br/>`;
+        });
+        content += `<strong>${t('totalCashFlow')}: ${formatNumber(total, 2)} ${t('unitBillionVND')}</strong>`;
+        return content;
+      }
+    },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: legendStyle
+    },
+    grid: { top: '12%', bottom: '20%', left: '10%', right: '8%' },
+    xAxis: {
+      type: 'category',
+      data: projectedCashFlowData.labels,
+      axisLabel: {
+        ...categoryLabelStyle,
+        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
+      }
+    },
+    yAxis: {
+      type: 'value',
+      name: t('unitBillionVND'),
+      nameTextStyle: chartTitleStyle,
+      splitLine: { show: false },
+      axisLabel: {
+        ...valueLabelStyle,
+        formatter: (value: number) => formatNumber(value, 0)
+      }
+    },
+    series: [
+      {
+        name: t('totalInterestPayable'),
+        type: 'bar',
+        stack: 'cashFlow',
+        data: projectedCashFlowData.interest,
+        itemStyle: { borderRadius: 0 },
+        barWidth: '45%'
+      },
+      {
+        name: t('totalPrincipalPayable'),
+        type: 'bar',
+        stack: 'cashFlow',
+        data: projectedCashFlowData.principal,
+        itemStyle: { borderRadius: 0 },
+        barWidth: '45%'
+      }
+    ]
+  };
 
   if (loading) {
     return (
@@ -531,7 +842,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         >
           <div className="mb-3">
             <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtRanking')}</h3>
-            <p className="text-xs text-text-muted text-right mt-1">{t('unitBillion')}</p>
           </div>
           <ReactECharts option={rankingOptions} style={{ height: '570px' }} />
         </div>
@@ -541,10 +851,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
-            <div className="mb-3">
-              <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('marketShare')}</h3>
-              <p className="text-xs text-text-muted text-right mt-1">{t('unitPercent')}</p>
-            </div>
+          <div className="mb-3">
+            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('marketShare')}</h3>
+          </div>
             <ReactECharts option={marketShareOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '250px' }} />
           </div>
 
@@ -552,10 +861,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
-            <div className="mb-3">
-              <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('industryInterest')}</h3>
-              <p className="text-xs text-text-muted text-right mt-1">{t('unitPercent')}</p>
-            </div>
+          <div className="mb-3">
+            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('industryInterest')}</h3>
+          </div>
             <ReactECharts option={interestOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '200px' }} />
           </div>
         </div>
@@ -568,6 +876,44 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
           </div>
           <ReactECharts option={combinedOptions} style={{ height: '400px' }} />
+        </div>
+
+        <div className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
+          <div className="mb-2 flex min-w-0 flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{projectedCashFlowTitle}</h3>
+            </div>
+            <div className="flex shrink-0 items-center">
+              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                {(['month', 'year'] as const).map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => setCashFlowPeriod(period)}
+                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                      cashFlowPeriod === period
+                        ? 'bg-blue-600 text-white'
+                        : 'text-text-muted hover:text-text-base'
+                    }`}
+                  >
+                    {period === 'month' ? t('month') : t('year')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {loadingCashFlows && !hasProjectedCashFlowData ? (
+            <div className="flex min-h-80 flex-col items-center justify-center gap-3">
+              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
+              <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
+            </div>
+          ) : hasProjectedCashFlowData ? (
+            <ReactECharts option={projectedCashFlowOptions} style={{ height: '420px' }} />
+          ) : (
+            <div className="flex min-h-80 items-center justify-center">
+              <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

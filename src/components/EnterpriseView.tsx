@@ -21,6 +21,8 @@ import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
+import { ExportExcelButton } from './ui/ExportExcelButton';
+import { exportRowsToExcel } from '../utils/excel';
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -51,6 +53,7 @@ export default function EnterpriseView({
   const [financialData, setFinancialData] = useState<any>(null);
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
   const bondsPerPage = 10;
   const enterprisesPerPage = 10;
 
@@ -656,6 +659,74 @@ export default function EnterpriseView({
   }, [enterpriseBonds, cashFlowPeriod]);
 
   const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
+  const projectedCashFlowTitle = language === 'vi'
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? 'tháng' : 'năm'}`
+    : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+
+  const handleExportEnterprises = async () => {
+    setExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: 'Enterprise_List',
+        sheetName: t('enterprise'),
+        rows: sortedEnterprises,
+        columns: [
+          { header: t('ticker'), value: (enterprise) => enterprise.ticker },
+          { header: t('issuerName'), value: (enterprise) => language === 'en' && enterpriseNamesEN[enterprise.ticker] ? enterpriseNamesEN[enterprise.ticker] : t(enterprise.name as any, enterprise.ticker) },
+          { header: t('bondCodeCount'), value: (enterprise) => formatNumber(enterprise.bondCount, 0) },
+          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (enterprise) => formatNumber(enterprise.issuedValue, 2) },
+          { header: `${t('remainingDebtTitle')} (${t('unitBillionVND')})`, value: (enterprise) => formatNumber(enterprise.remainingDebt, 2) },
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleExportBonds = async () => {
+    if (!selectedEnterprise) return;
+
+    setExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: `Bond_List_${selectedEnterprise.ticker}`,
+        sheetName: t('bondList'),
+        rows: filteredSortedBonds,
+        columns: [
+          { header: t('bondCode'), value: (bond) => bond.code },
+          { header: `${t('term')} (${t('monthUnit')})`, value: (bond) => bond.term },
+          { header: t('issueDate'), value: (bond) => formatDate(bond.issueDate) },
+          { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
+          { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => `${formatInterestRate(bond.interestRate)}%` },
+          {
+            header: t('interestType'),
+            value: (bond) => (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed'))
+              ? t('fixed')
+              : (bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating'))
+                ? t('floating')
+                : bond.interestType,
+          },
+          { header: t('listedVolume'), value: (bond) => formatNumber(bond.listedVolume || 0, 0) },
+          { header: `${t('totalIssuedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
+          { header: `${t('listedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue || 0, 2) },
+          {
+            header: t('status'),
+            value: (bond) => (bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active'))
+              ? t('active')
+              : (bond.status?.toLowerCase().includes('hết hiệu lực') || bond.status?.toLowerCase().includes('inactive'))
+                ? t('inactive')
+                : bond.status,
+          },
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   const pieOptions = {
     color: chartPalette,
@@ -736,8 +807,6 @@ export default function EnterpriseView({
     grid: { top: '15%', bottom: '20%', left: '15%', right: '10%' },
     xAxis: { 
       name: `${t('term')} (${t('monthUnit')})`, 
-      nameLocation: 'middle', 
-      nameGap: 25, 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: axisLabelStyle 
@@ -1109,7 +1178,7 @@ export default function EnterpriseView({
 
         <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-            <h3 className="text-base font-semibold text-blue-600 transition-colors">{t('projectedCashFlowChart')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 transition-colors">{projectedCashFlowTitle}</h3>
             <div className="flex items-center gap-1 bg-bg-base border border-border-base rounded-lg p-1">
               <button
                 type="button"
@@ -1153,13 +1222,14 @@ export default function EnterpriseView({
 
         {/* Bond List Table */}
         <div className="bg-bg-surface rounded-lg border border-border-base shadow-sm overflow-hidden transition-colors">
-          <div className="p-4 border-b border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-4 border-b border-border-base flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h3 className="text-sm font-bold text-blue-600 uppercase tracking-wider transition-colors">{t('bondList')}</h3>
-            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <div className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
+              <ExportExcelButton loading={exportLoading} onClick={handleExportBonds} />
               <div className="relative">
                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 <select 
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
                   value={bondTermFilter}
                   onChange={(e) => setBondTermFilter(e.target.value)}
                 >
@@ -1172,7 +1242,7 @@ export default function EnterpriseView({
               <div className="relative">
                 <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 <select 
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
                   value={bondInterestSort}
                   onChange={(e) => setBondInterestSort(e.target.value)}
                 >
@@ -1374,10 +1444,11 @@ export default function EnterpriseView({
 
   return (
     <div className="p-0 md:p-4 space-y-4 transition-colors">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl md:text-3xl font-bold text-blue-600 tracking-tight transition-colors">{t('enterprise')}</h2>
         </div>
+        <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
       </div>
 
       {/* Filters */}

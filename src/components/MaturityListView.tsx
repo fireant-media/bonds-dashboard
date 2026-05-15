@@ -6,6 +6,8 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { ExportExcelButton } from './ui/ExportExcelButton';
+import { exportRowsToExcel } from '../utils/excel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -40,6 +42,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const [industryFilter, setIndustryFilter] = useState(t('allIndustries'));
   const [warningFilter, setWarningFilter] = useState(t('allStatuses'));
   const [valueFilter, setValueFilter] = useState(t('allValues'));
+  const [exportLoading, setExportLoading] = useState(false);
   const [sortType, setSortType] = useState<'default' | 'maturity-near' | 'maturity-far' | 'value-high' | 'value-low'>('default');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -230,6 +233,28 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const industries = [t('allIndustries'), ...new Set(bonds.map(b => b.industry).filter(Boolean) as string[])];
   const warningLevels = [t('allStatuses'), t('statusVeryNear'), t('statusNear'), t('statusMonitor'), t('statusMediumTerm'), t('statusLongTerm')];
 
+  const handleExportExcel = async () => {
+    setExportLoading(true);
+    try {
+      exportRowsToExcel({
+        fileNameBase: 'Maturity_List',
+        sheetName: t('maturityTitle'),
+        rows: sortedBonds,
+        columns: [
+          { header: t('bondCode'), value: (bond) => bond.code },
+          { header: t('enterprise'), value: (bond) => language === 'en' && bond.ticker && enterpriseNamesEN[bond.ticker] ? enterpriseNamesEN[bond.ticker] : t(bond.issuerName as any, bond.ticker) },
+          { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
+          { header: `${t('daysLeftLabel')} (${t('daysUnit')})`, value: (bond) => bond.daysLeft },
+          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue, 2) },
+          { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => `${formatInterestRate(bond.interestRate)}%` },
+          { header: t('situation'), value: (bond) => getWarningStatus(bond.daysLeft).label },
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-96 text-center transition-colors">
@@ -252,8 +277,9 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   return (
     <div className="p-0 md:p-4 animate-in fade-in duration-500 transition-colors">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-blue-600 tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
+      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-bold text-blue-600 tracking-tight transition-colors">{t('maturityTitle')}</h1>
+        <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
       </div>
 
       {/* Time Range Selector */}

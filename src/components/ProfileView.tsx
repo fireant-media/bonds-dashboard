@@ -7,6 +7,8 @@ import { useLanguage } from '../LanguageContext';
 import { useAuthUser, useIsGoogleUser } from '../auth/authStore';
 import type { UserAccount } from '../models/users';
 import SentinelFooter from './SentinelFooter';
+import { ExportExcelButton } from './ui/ExportExcelButton';
+import { exportRowsToExcel } from '../utils/excel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -235,12 +237,38 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
 function SecuritySettingsView() {
   const { t } = useLanguage();
   const isGoogleUser = useIsGoogleUser();
+  const [sessionsExportLoading, setSessionsExportLoading] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<{current?: boolean, new?: boolean, confirm?: boolean}>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const sessionRows = [
+    { browserDevice: t('browserChrome'), location: t('hanoiVN'), time: t('current'), status: t('activeStatus'), ip: 'IP: 14.232.xxx.xxx' },
+    { browserDevice: 'iPhone 15 Pro', location: t('hanoiVN'), time: t('twoHoursAgo'), status: t('validStatus'), ip: 'Sentinel App v2.4' },
+  ];
+
+  const handleExportSessions = async () => {
+    setSessionsExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: 'Current_Sessions',
+        sheetName: t('currentSessions'),
+        rows: sessionRows,
+        columns: [
+          { header: t('browserDevice'), value: (row) => row.browserDevice },
+          { header: t('location'), value: (row) => row.location },
+          { header: t('time'), value: (row) => row.time },
+          { header: t('status'), value: (row) => row.status },
+        ],
+      });
+    } finally {
+      setSessionsExportLoading(false);
+    }
+  };
 
   const validatePassword = (pass: string) => {
     if (pass.length < 6) return false;
@@ -393,10 +421,13 @@ function SecuritySettingsView() {
         </div>
 
         <div className="lg:col-span-3">
-             <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mt-6 transition-colors">
+            <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mt-6 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
                     <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('currentSessions')}</h3>
-                    <button className="text-xs font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
+                    <div className="flex items-center gap-3">
+                      <ExportExcelButton loading={sessionsExportLoading} onClick={handleExportSessions} />
+                      <button className="text-xs font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
+                    </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -410,42 +441,26 @@ function SecuritySettingsView() {
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-border-base">
-                             <tr className="transition-colors hover:bg-bg-base/50">
+                             {sessionRows.map((session) => (
+                             <tr key={session.browserDevice} className="transition-colors hover:bg-bg-base/50">
                                  <td className="py-6 px-2">
                                      <div className="flex items-center gap-4">
                                          <div className="h-10 w-10 bg-bg-base rounded-lg flex items-center justify-center transition-colors">
-                                             <Monitor className="h-5 w-5 text-text-muted" />
+                                             {session.browserDevice.includes('iPhone') ? <Smartphone className="h-5 w-5 text-text-muted" /> : <Monitor className="h-5 w-5 text-text-muted" />}
                                          </div>
                                          <div>
-                                             <p className="text-sm font-bold text-text-base transition-colors">{t('browserChrome')}</p>
-                                             <p className="text-xs text-text-muted transition-colors">IP: 14.232.xxx.xxx</p>
+                                             <p className="text-sm font-bold text-text-base transition-colors">{session.browserDevice}</p>
+                                             <p className="text-xs text-text-muted transition-colors">{session.ip}</p>
                                          </div>
                                      </div>
                                  </td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('hanoiVN')}</td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('current')}</td>
+                                 <td className="text-sm text-text-muted px-2 transition-colors">{session.location}</td>
+                                 <td className="text-sm text-text-muted px-2 transition-colors">{session.time}</td>
                                  <td className="text-right px-2">
-                                     <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-500 text-xs font-bold rounded uppercase transition-colors">{t('activeStatus')}</span>
+                                     <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-500 text-xs font-bold rounded uppercase transition-colors">{session.status}</span>
                                  </td>
                              </tr>
-                             <tr className="transition-colors hover:bg-bg-base/50">
-                                 <td className="py-6 px-2">
-                                     <div className="flex items-center gap-4">
-                                         <div className="h-10 w-10 bg-bg-base rounded-lg flex items-center justify-center transition-colors">
-                                             <Smartphone className="h-5 w-5 text-text-muted" />
-                                         </div>
-                                         <div>
-                                             <p className="text-sm font-bold text-text-base transition-colors">iPhone 15 Pro</p>
-                                             <p className="text-xs text-text-muted transition-colors">Sentinel App v2.4</p>
-                                         </div>
-                                     </div>
-                                 </td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('hanoiVN')}</td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('twoHoursAgo')}</td>
-                                 <td className="text-right px-2">
-                                     <span className="px-2 py-1 bg-bg-base text-text-muted text-xs font-bold rounded uppercase transition-colors">{t('validStatus')}</span>
-                                 </td>
-                             </tr>
+                             ))}
                          </tbody>
                     </table>
                 </div>
@@ -460,6 +475,7 @@ function SecuritySettingsView() {
 
 function ActivityLogView() {
   const { t } = useLanguage();
+  const [activityExportLoading, setActivityExportLoading] = useState(false);
   const activities = [
     { time: '14:23:45 12/10/2023', action: t('loginSuccess'), ip: '113.190.23.45', device: 'Chrome / macOS', status: 'success' },
     { time: '09:12:02 12/10/2023', action: t('pinChange'), ip: '113.190.23.45', device: 'Chrome / macOS', status: 'warning' },
@@ -467,6 +483,27 @@ function ActivityLogView() {
     { time: '22:44:55 11/10/2023', action: t('withdrawRequest'), ip: '172.16.0.44', device: 'iPhone 15 Pro', status: 'success' },
     { time: '08:30:00 11/10/2023', action: t('loginFailed'), ip: '42.112.56.78', device: 'Firefox / Windows', status: 'error' },
   ];
+
+  const handleExportActivities = async () => {
+    setActivityExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: 'Activity_Log',
+        sheetName: t('activityLog'),
+        rows: activities,
+        columns: [
+          { header: t('time'), value: (row) => row.time },
+          { header: t('activities'), value: (row) => row.action },
+          { header: t('ipAddress'), value: (row) => row.ip },
+          { header: t('devices'), value: (row) => row.device },
+        ],
+      });
+    } finally {
+      setActivityExportLoading(false);
+    }
+  };
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
@@ -495,6 +532,10 @@ function ActivityLogView() {
       </div>
 
       <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
+        <div className="flex flex-col gap-3 px-4 py-4 md:px-8 md:py-6 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('activityLog')}</h3>
+          <ExportExcelButton loading={activityExportLoading} onClick={handleExportActivities} />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">
             <thead>
