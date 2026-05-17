@@ -1,4 +1,4 @@
-import { LayoutDashboard, Building2, Briefcase, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Building2, Briefcase, Bookmark, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -34,6 +34,7 @@ export default function Sidebar({
     { id: 'overview', label: t('overview'), icon: LayoutDashboard },
     { id: 'industry', label: t('industry'), icon: Building2, hasSubmenu: true },
     { id: 'enterprise', label: t('enterprise'), icon: Briefcase },
+    { id: 'watchlist', label: t('watchList'), icon: Bookmark },
   ];
 
   const subIndustries = [

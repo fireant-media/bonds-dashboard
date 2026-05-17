@@ -8,6 +8,7 @@ import IndustryView from './components/IndustryView';
 import EnterpriseView from './components/EnterpriseView';
 import MaturityListView from './components/MaturityListView';
 import NewsListView from './components/NewsListView';
+import WatchlistView from './components/WatchlistView';
 import BondDetailPopup from './components/BondDetailPopup';
 import ProfileView from './components/ProfileView';
 import LoginView from './components/LoginView';
@@ -21,7 +22,7 @@ import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } fro
 import { fireantApi } from './api/fireant';
 import { Calendar, Menu, Newspaper } from 'lucide-react';
 
-const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'login'];
+const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
 
 const isBondCode = (s: string) => {
   if (!s) return false;
@@ -66,6 +67,7 @@ export default function App() {
     
     if (currentPath === '/maturity') return { activeTab: 'maturity-list', bondCode: urlBondCode };
     if (currentPath === '/news-list' || currentPath === '/news') return { activeTab: 'news-list', bondCode: urlBondCode };
+    if (currentPath === '/watchlist') return { activeTab: 'watchlist', bondCode: urlBondCode };
     
     if (currentPath.startsWith('/news/')) return { activeTab: 'news-list', bondCode: urlBondCode };
     
@@ -98,6 +100,7 @@ export default function App() {
       case 'enterprise': navigate('/enterprise'); break;
       case 'maturity-list': navigate('/maturity'); break;
       case 'news-list': navigate('/news'); break;
+      case 'watchlist': navigate('/watchlist'); break;
       case 'profile': navigate('/profile'); break;
       case 'help': navigate('/help'); break;
       default: navigate('/');
@@ -530,6 +533,12 @@ export default function App() {
                   } />
                   <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
                   <Route path="/news/:id" element={<Navigate to="/news" replace />} />
+                  <Route path="/watchlist" element={
+                    <WatchlistView
+                      setSelectedBond={handleSetSelectedBond}
+                      setBondEnterpriseName={setBondEnterpriseName}
+                    />
+                  } />
                   <Route path="/profile" element={
                     <ProfileView onLogout={handleLogout} />
                   } />

@@ -168,7 +168,7 @@ export const translations = {
     compact: 'Nén',
     
     // Right Panel
-    watchList: 'Danh mục quan sát',
+    watchList: 'Danh mục đang theo dõi',
     upcomingMaturity: 'Sắp đáo hạn',
     seeMore: 'Xem thêm',
     

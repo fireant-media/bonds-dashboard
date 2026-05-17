@@ -72,6 +72,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
   const { t, language, setLanguage } = useLanguage();
   const { setTheme, effectiveTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const authUser = useAuthUser();
 
@@ -82,8 +83,12 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (containerRef.current && !containerRef.current.contains(target)) {
         setShowDropdown(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(target)) {
+        setShowUserMenu(false);
       }
     };
 
@@ -428,7 +433,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
           <span className="text-xs font-bold uppercase">{language}</span>
         </button>
 
-        <div className="relative">
+        <div ref={userMenuRef} className="relative">
           <button 
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center gap-3 p-1.5 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"

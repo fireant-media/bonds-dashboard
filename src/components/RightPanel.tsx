@@ -1,9 +1,9 @@
-import { Calendar, Newspaper } from 'lucide-react';
+import { ArrowRight, Calendar, Newspaper } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
 import { ExpiringBond, Bond } from '../types';
-import { formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
+import { formatInterestRate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { fireantApi } from '../api/fireant';
@@ -30,6 +30,68 @@ import { NewsItem } from '../types';
 import { fetchNewsData, getCachedNews, getNewsLastUpdate } from '../services/newsService';
 import { formatDate } from '../utils/format';
 
+function NewsThumbnail({ news }: { news: NewsItem }) {
+  const [hasError, setHasError] = useState(false);
+  const [resolvedImage, setResolvedImage] = useState<string>(news.image || news.images?.[0] || '');
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+    setResolvedImage(news.image || news.images?.[0] || '');
+  }, [news.id, news.image, news.images]);
+
+  useEffect(() => {
+    if (resolvedImage || hasError || loadingDetail || !news.id) return;
+
+    let cancelled = false;
+    const resolveFromDetail = async () => {
+      setLoadingDetail(true);
+      try {
+        const response = await fetch(`/api/news/${encodeURIComponent(news.id)}`, {
+          cache: 'no-store',
+        });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (cancelled) return;
+
+        const finalImage = data?.image || data?.images?.[0] || '';
+        if (finalImage) {
+          setResolvedImage(finalImage);
+        }
+      } catch (error) {
+        console.warn('Failed to resolve news thumbnail image', error);
+      }
+      finally {
+        if (!cancelled) setLoadingDetail(false);
+      }
+    };
+
+    resolveFromDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasError, loadingDetail, news.id, resolvedImage]);
+
+  if (!resolvedImage || hasError) {
+    return (
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
+        <Newspaper className="h-5 w-5" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={resolvedImage}
+      alt={news.title}
+      className="h-14 w-14 shrink-0 rounded-lg object-cover"
+      referrerPolicy="no-referrer"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export default function RightPanel({ 
   isOpen, 
   onToggle, 
@@ -51,6 +113,7 @@ export default function RightPanel({
   const [loadingNews, setLoadingNews] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const formatDaysLeft = (daysLeft: number) => `${daysLeft} ${t('daysUnit')}`;
   const handlePanelTabClick = (tab: 'maturity' | 'news') => {
     if (isOpen && activePanelTab === tab) {
       onToggle();
@@ -117,46 +180,45 @@ export default function RightPanel({
       setLoading(true);
       setError(null);
       try {
-        const daysArr = [15, 30, 60, 90, 180];
-        
-        // Fetch all in parallel for better performance
-        const responses = await Promise.all(daysArr.map(days => fireantApi.getMaturingSoon(days)));
-
+        const data = await fireantApi.getMaturingSoon(3650);
         const allBonds: any[] = [];
         const seenCodes = new Set<string>();
 
-        for (const data of responses) {
-          if (Array.isArray(data)) {
-            for (const b of data) {
-                if (!seenCodes.has(b.bondCode)) {
-                  seenCodes.add(b.bondCode);
-                  allBonds.push(b);
-                }
-              }
+        if (Array.isArray(data)) {
+          for (const b of data) {
+            const bondCode = String(b.bondCode || b.code || '');
+            if (!bondCode || seenCodes.has(bondCode)) {
+              continue;
             }
+            seenCodes.add(bondCode);
+            allBonds.push(b);
+          }
         }
 
-        // Sort all found bonds by maturity date and take top 5
+        // Sort all found bonds by maturity date and take top 10
         const sortedBonds = allBonds
           .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
-          .slice(0, 5);
+          .slice(0, 10);
 
-        const mappedData: ExpiringBond[] = sortedBonds.map((b: any) => ({
-        id: b.bondCode,
-        code: b.bondCode,
-        ticker: b.issuerSymbol || b.bondCode.substring(0, 3),
-        maturityDate: b.maturityDate?.split('T')[0] || '',
-        interestRate: b.bondRate || b.interestRate || 0,
-        listedVolume: b.currentListedVolume || b.listedVolume || 0,
-        issuerName: b.issuerName,
-        term: (b.tenorPeriod || b.term) ? `${b.tenorPeriod || b.term} ${t('monthUnit')}` : 'N/A',
-        issueDate: (b.issueDate || b.releaseDate) ? (b.issueDate || b.releaseDate).split('T')[0] : 'N/A',
-        interestType: normalizeInterestType(
-          b.bondRateType || b.interestRateType || b.interestType || '',
-          b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-          []
-        ) || 'N/A'
-      }));
+        const mappedData: ExpiringBond[] = sortedBonds.map((b: any) => {
+          const bondCode = String(b.bondCode || b.code || '');
+          return {
+            id: bondCode,
+            code: bondCode,
+            ticker: b.issuerSymbol || bondCode.substring(0, 3),
+            maturityDate: b.maturityDate?.split('T')[0] || '',
+            interestRate: b.bondRate || b.interestRate || 0,
+            listedVolume: b.currentListedVolume || b.listedVolume || 0,
+            issuerName: b.issuerName,
+            term: (b.tenorPeriod || b.term) ? `${b.tenorPeriod || b.term} ${t('monthUnit')}` : 'N/A',
+            issueDate: (b.issueDate || b.releaseDate) ? (b.issueDate || b.releaseDate).split('T')[0] : 'N/A',
+            interestType: normalizeInterestType(
+              b.bondRateType || b.interestRateType || b.interestType || '',
+              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+              []
+            ) || 'N/A'
+          };
+        });
 
       setExpiringBonds(mappedData);
 
@@ -228,28 +290,28 @@ export default function RightPanel({
 
   return (
     <>
-    <div className="fixed right-0 top-20 z-50 hidden flex-col gap-2 lg:flex">
+    <div className="fixed right-0 top-20 z-50 hidden flex-col gap-1.5 lg:flex">
       <button
         type="button"
         onClick={() => handlePanelTabClick('maturity')}
         className={cn(
-          "flex h-12 w-12 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
+          "flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
           isOpen && activePanelTab === 'maturity' && "bg-blue-500 text-white hover:text-white"
         )}
         title={t('upcomingBonds')}
       >
-        <Calendar className="h-5 w-5" />
+        <Calendar className="h-4 w-4" />
       </button>
       <button
         type="button"
         onClick={() => handlePanelTabClick('news')}
         className={cn(
-          "flex h-12 w-12 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
+          "flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
           isOpen && activePanelTab === 'news' && "bg-blue-500 text-white hover:text-white"
         )}
         title={t('relatedNews')}
       >
-        <Newspaper className="h-5 w-5" />
+        <Newspaper className="h-4 w-4" />
       </button>
     </div>
 
@@ -257,10 +319,10 @@ export default function RightPanel({
       "w-full bg-surface-bright lg:border-l border-border-base flex h-full flex-col overflow-hidden transition-colors duration-300",
       !isOpen && "w-0 border-l-0"
     )}>
-      <div className={cn("p-3 lg:p-4 transition-all duration-300 flex-1 min-h-0 flex flex-col", isOpen ? "w-full lg:w-64 lg:pr-14" : "w-0 p-0")}>
+      <div className={cn("p-3 lg:p-2 transition-all duration-300 flex-1 min-h-0 flex flex-col", isOpen ? "w-full lg:w-64 lg:pr-10" : "w-0 p-0")}>
 
         {isOpen ? (
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col space-y-5 animate-in fade-in duration-500">
+          <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto flex flex-col space-y-5 animate-in fade-in duration-500">
             <div className="grid grid-cols-2 gap-1 rounded bg-surface-container-low p-1 lg:hidden">
               <button
                 type="button"
@@ -292,16 +354,10 @@ export default function RightPanel({
             {activePanelTab === 'maturity' && <section>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-text-base uppercase tracking-wider flex items-center gap-2 transition-colors">
-                  <Calendar className="h-4 w-4 text-text-highlight" /> {t('upcomingBonds')}
+                  {t('upcomingBonds')}
                 </h3>
-                <button 
-                  onClick={onSeeMoreMaturity}
-                  className="text-xs font-bold text-text-highlight hover:underline transition-colors cursor-pointer"
-                >
-                  {t('seeMore')}
-                </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:block lg:space-y-3 gap-3">
+              <div className="flex flex-col gap-3 pr-1">
                 {loading ? (
                   <div className="flex justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-text-highlight"></div>
@@ -337,30 +393,36 @@ export default function RightPanel({
                             interestType: bond.interestType || 'N/A',
                             status: t('active')
                           });
-                        }}
-                        className="p-4 bg-surface-container-low/60 rounded-lg border border-border-base hover:border-blue-500/30 transition-all group cursor-pointer active:scale-95"
+                      }}
+                        className="p-3 bg-surface-container-low/60 rounded-lg border border-border-base hover:border-blue-500/30 transition-all group cursor-pointer active:scale-95"
                       >
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-xs font-bold text-text-highlight transition-colors">{bond.code}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 whitespace-nowrap text-xs font-bold leading-none text-text-highlight transition-colors">
+                            {bond.code}
+                          </span>
                           <span className={cn(
-                            "text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors",
-                            daysLeft <= 30 ? "bg-red-500/10 text-red-400" : "bg-blue-600/10 text-blue-600"
+                            "shrink-0 rounded border border-border-base bg-surface-container-low px-2 py-1 text-xs font-semibold leading-none transition-colors",
+                            "text-red-500"
                           )}>
-                            {daysLeft} {t('daysUnit')}
+                            {formatDaysLeft(daysLeft)}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 gap-y-2">
-                          <div>
-                            <p className="text-[10px] text-text-muted uppercase font-semibold transition-colors">{t('volume')}</p>
-                            <p className="text-xs font-bold text-text-base transition-colors">{formatNumber(bond.listedVolume, 0)}</p>
+                        <div className="mt-2 space-y-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-semibold normal-case text-text-muted transition-colors">
+                              {t('interestRate')}
+                            </span>
+                            <span className="text-xs font-semibold text-text-base transition-colors">
+                              {formatInterestRate(bond.interestRate)}%
+                            </span>
                           </div>
-                          <div className="text-right">
-                            <p className="text-[10px] text-text-muted uppercase font-semibold transition-colors">{t('interestRate')}</p>
-                            <p className="text-xs font-bold text-green-600 dark:text-green-500 transition-colors">{formatInterestRate(bond.interestRate)}%</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-text-muted uppercase font-semibold transition-colors">{t('maturityDate')}</p>
-                            <p className="text-xs font-bold text-text-base transition-colors">{formatDate(bond.maturityDate)}</p>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-semibold normal-case text-text-muted transition-colors">
+                              {t('maturityDate')}
+                            </span>
+                            <span className="text-xs font-semibold text-text-base transition-colors">
+                              {formatDate(bond.maturityDate)}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -370,21 +432,23 @@ export default function RightPanel({
                   <p className="text-xs text-text-muted text-center py-4 transition-colors">{t('noUpcomingBondsData')}</p>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={onSeeMoreMaturity}
+                className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-text-highlight transition-colors hover:underline cursor-pointer"
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+                {t('seeMore')}
+              </button>
             </section>}
 
             {activePanelTab === 'news' && <section>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-text-base uppercase tracking-wider flex items-center gap-2 transition-colors">
-                  <Newspaper className="h-4 w-4 text-text-highlight" /> {t('relatedNews')}
+                  {t('relatedNews')}
                 </h3>
-                <button 
-                  onClick={onSeeMoreNews}
-                  className="text-xs font-bold text-text-highlight hover:underline transition-colors cursor-pointer"
-                >
-                  {t('seeMore')}
-                </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:block lg:space-y-4 gap-4">
+              <div className="flex flex-col gap-3 pr-1">
                 {loadingNews ? (
                   <div className="flex justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-text-highlight"></div>
@@ -396,34 +460,19 @@ export default function RightPanel({
                     </p>
                   </div>
                 ) : newsList.length > 0 ? (
-                  newsList.slice(0, 5).map((news) => (
+                  newsList.slice(0, 50).map((news) => (
                     <a
                       key={news.id}
                       href={news.originalUrl || news.url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex gap-3 group cursor-pointer rounded p-1 transition-colors hover:bg-surface-container-low"
+                      className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-surface-container-low group cursor-pointer"
                     >
-                      {news.image ? <img 
-                        src={news.image} 
-                        alt={news.title} 
-                        className="h-16 w-16 rounded-lg object-cover flex-shrink-0"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          // fallback ảnh random nếu ảnh chính lỗi
-                          target.style.display = 'none';
-                        }}
-                      /> : (
-                        <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
-                          <Newspaper className="h-5 w-5" />
-                        </div>
-                      )}
-                      <div className="space-y-1">
+                      <NewsThumbnail news={news} />
+                      <div className="min-w-0 flex-1">
                         <h4 className="text-xs font-bold text-text-base leading-snug group-hover:text-text-highlight transition-colors line-clamp-2">
                           {news.title}
                         </h4>
-                        <p className="text-[10px] text-text-muted font-medium transition-colors">{formatDate(news.date)}</p>
                       </div>
                     </a>
                   ))
