@@ -126,7 +126,7 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
       {isGoogleUser && (
         <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900 rounded-xl flex items-center gap-3 text-blue-600 text-xs font-bold transition-colors">
           <ShieldCheck className="h-5 w-5" />
-          <span>Tài khoản Google đang được sử dụng. Thông tin cá nhân được đồng bộ từ Google và không thể thay đổi tại đây.</span>
+          <span>{t('googleProfileReadOnly')}</span>
         </div>
       )}
 
@@ -324,7 +324,7 @@ function SecuritySettingsView() {
             {isGoogleUser && (
               <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900 rounded-xl flex items-center gap-3 text-amber-700 dark:text-amber-500 text-xs font-bold transition-colors">
                 <AlertCircle className="h-5 w-5" />
-                <span>Tính năng đổi mật khẩu bị vô hiệu hóa khi đăng nhập bằng Google. Vui lòng quản lý mật khẩu trong cài đặt tài khoản Google của bạn.</span>
+                <span>{t('googlePasswordDisabled')}</span>
               </div>
             )}
 

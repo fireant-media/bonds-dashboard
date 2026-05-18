@@ -719,7 +719,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
   const projectedCashFlowTitle = language === 'vi'
-    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? 'tháng' : 'năm'}`
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
 
   const projectedCashFlowOptions = {
@@ -821,7 +821,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   return (
     <div className="space-y-4 transition-colors duration-300">
       <div>
-        <h1 className="text-2xl font-bold text-blue-600 tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+        <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 
       {/* KPI Cards */}
@@ -829,7 +829,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         {kpis.map((kpi, idx) => (
           <div key={idx} className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32">
             <p className="text-sm font-semibold text-text-muted/80 mb-2">{kpi.label}</p>
-            <p className="text-3xl font-bold text-blue-600 mb-1 transition-colors">{kpi.value}</p>
+            <p className="text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors">{kpi.value}</p>
             <p className="text-sm font-bold text-gray-400">{kpi.unit}</p>
           </div>
         ))}
@@ -841,7 +841,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           className="col-span-12 lg:col-span-6 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col"
         >
           <div className="mb-3">
-            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtRanking')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('debtRanking')}</h3>
           </div>
           <ReactECharts option={rankingOptions} style={{ height: '570px' }} />
         </div>
@@ -852,7 +852,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
           <div className="mb-3">
-            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('marketShare')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('marketShare')}</h3>
           </div>
             <ReactECharts option={marketShareOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '250px' }} />
           </div>
@@ -862,7 +862,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
           <div className="mb-3">
-            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('industryInterest')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('industryInterest')}</h3>
           </div>
             <ReactECharts option={interestOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '200px' }} />
           </div>
@@ -873,17 +873,18 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
         >
           <div className="mb-2">
-            <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
           </div>
           <ReactECharts option={combinedOptions} style={{ height: '400px' }} />
         </div>
 
         <div className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
-          <div className="mb-2 flex min-w-0 flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
+            <div className="hidden md:block" />
             <div className="min-w-0">
-              <h3 className="text-base font-semibold text-blue-600 text-center transition-colors">{projectedCashFlowTitle}</h3>
+              <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{projectedCashFlowTitle}</h3>
             </div>
-            <div className="flex shrink-0 items-center">
+            <div className="flex shrink-0 items-center justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                 {(['month', 'year'] as const).map((period) => (
                   <button

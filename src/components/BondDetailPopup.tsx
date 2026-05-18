@@ -33,15 +33,15 @@ function isModelTierError(message: string): boolean {
   return lower.includes('not allowed') || lower.includes('user tier') || lower.includes('model_not_allowed');
 }
 
-function extractAiError(err: unknown): string {
-  if (!err || typeof err !== 'object') return 'Không thể tạo nhận xét AI';
+function extractAiError(err: unknown, fallback: string): string {
+  if (!err || typeof err !== 'object') return fallback;
   const anyErr = err as any;
-  return anyErr?.response?.data?.details || anyErr?.response?.data?.error || anyErr?.message || 'Không thể tạo nhận xét AI';
+  return anyErr?.response?.data?.details || anyErr?.response?.data?.error || anyErr?.message || fallback;
 }
 
 export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const chartPalette = CHART_PALETTE;
   const chartTooltip = getChartTooltip(isDark);
@@ -72,7 +72,10 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
   const formatTerm = (rawTerm: any) => {
     if (!rawTerm || rawTerm === 'N/A') return 'N/A';
-    const clean = String(rawTerm).replace(/thang|months/gi, '').trim();
+    const clean = String(rawTerm)
+      .replace(/(tháng|thang|months?)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
     return `${clean} ${t('monthUnit')}`;
   };
 
@@ -206,27 +209,42 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     const rawType = String(currentBond.interestType || '').toLowerCase();
     const interestTypeLabel = rawType.includes('cố định') || rawType.includes('fixed')
-      ? 'lãi suất cố định'
+      ? (language === 'en' ? 'fixed interest rate' : 'lãi suất cố định')
       : rawType.includes('thả nổi') || rawType.includes('floating')
-        ? 'lãi suất thả nổi'
-        : currentBond.interestType || 'không xác định';
+        ? (language === 'en' ? 'floating interest rate' : 'lãi suất thả nổi')
+        : currentBond.interestType || (language === 'en' ? 'unknown' : 'không xác định');
 
-    return [
-      'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp.',
-      'Viết đúng 2 câu, bằng tiếng Việt, ngắn gọn, không bullet, không tiêu đề, không dùng câu chung chung.',
-      'Nhận xét bắt buộc phải dựa trên các dữ liệu sau: lãi suất, loại lãi suất, thời gian đến đáo hạn, trạng thái trái phiếu.',
-      'Không dùng các cụm như: "cần tiếp tục theo dõi", "cấu trúc cân bằng", "mức hấp dẫn thực tế", "nên cân nhắc".',
-      `Mã trái phiếu: ${currentBond.code}`,
-      `Doanh nghiệp phát hành: ${enterpriseName || currentBond.enterpriseId || 'N/A'}`,
-      `Lãi suất: ${formatInterestRate(currentBond.interestRate)}%`,
-      `Loại lãi suất: ${interestTypeLabel}`,
-      `Ngày phát hành: ${currentBond.issueDate || 'N/A'}`,
-      `Ngày đáo hạn: ${currentBond.maturityDate || 'N/A'}`,
-      `Số ngày đến đáo hạn: ${daysToMaturity ?? 'N/A'}`,
-      `Trạng thái: ${currentBond.status || 'N/A'}`,
-      `Giá trị niêm yết: ${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`,
-    ].join('\n');
-  }, [currentBond, enterpriseName, t]);
+    return language === 'en'
+      ? [
+        'You are a corporate bond analyst.',
+        'Write exactly 2 concise English sentences, with no bullets and no heading.',
+        'The insight must be based on: interest rate, interest type, time to maturity, and bond status.',
+        `Bond code: ${currentBond.code}`,
+        `Issuer: ${enterpriseName || currentBond.enterpriseId || 'N/A'}`,
+        `Interest rate: ${formatInterestRate(currentBond.interestRate)}%`,
+        `Interest type: ${interestTypeLabel}`,
+        `Issue date: ${currentBond.issueDate || 'N/A'}`,
+        `Maturity date: ${currentBond.maturityDate || 'N/A'}`,
+        `Days to maturity: ${daysToMaturity ?? 'N/A'}`,
+        `Status: ${currentBond.status || 'N/A'}`,
+        `Listed value: ${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`,
+      ].join('\n')
+      : [
+        'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp.',
+        'Viết đúng 2 câu, bằng tiếng Việt, ngắn gọn, không bullet, không tiêu đề, không dùng câu chung chung.',
+        'Nhận xét bắt buộc phải dựa trên các dữ liệu sau: lãi suất, loại lãi suất, thời gian đến đáo hạn, trạng thái trái phiếu.',
+        'Không dùng các cụm như: "cần tiếp tục theo dõi", "cấu trúc cân bằng", "mức hấp dẫn thực tế", "nên cân nhắc".',
+        `Mã trái phiếu: ${currentBond.code}`,
+        `Doanh nghiệp phát hành: ${enterpriseName || currentBond.enterpriseId || 'N/A'}`,
+        `Lãi suất: ${formatInterestRate(currentBond.interestRate)}%`,
+        `Loại lãi suất: ${interestTypeLabel}`,
+        `Ngày phát hành: ${currentBond.issueDate || 'N/A'}`,
+        `Ngày đáo hạn: ${currentBond.maturityDate || 'N/A'}`,
+        `Số ngày đến đáo hạn: ${daysToMaturity ?? 'N/A'}`,
+        `Trạng thái: ${currentBond.status || 'N/A'}`,
+        `Giá trị niêm yết: ${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`,
+      ].join('\n');
+  }, [currentBond, enterpriseName, language, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -234,7 +252,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     const sendWithModel = async (modelId: string) =>
       sendChat({
-        userMessage: 'Hãy viết nhận xét ngắn gọn dựa trên dữ liệu trái phiếu được cung cấp, bám sát số liệu cụ thể.',
+        userMessage: language === 'en'
+          ? 'Write a concise insight based on the provided bond data and keep it grounded in the specific figures.'
+          : 'Hãy viết nhận xét ngắn gọn dựa trên dữ liệu trái phiếu được cung cấp, bám sát số liệu cụ thể.',
         model: modelId,
         systemPrompt: systemPrompt || defaultSystemPrompt || undefined,
         messages: [],
@@ -266,12 +286,12 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         const text = response.text.trim().replace(/\s+/g, ' ');
         if (!text) {
           setAiCommentary('');
-          setAiError('AI trả về nội dung rỗng');
+          setAiError(t('aiEmptyResponse'));
           return;
         }
         setAiCommentary(text);
       } catch (err) {
-        const errorMessage = extractAiError(err);
+        const errorMessage = extractAiError(err, t('aiCannotGenerateInsight'));
         const normalized = errorMessage.toLowerCase();
 
         if (isModelTierError(normalized)) {
@@ -292,7 +312,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
               const text = retryResponse.text.trim().replace(/\s+/g, ' ');
               if (!text) {
                 setAiCommentary('');
-                setAiError('AI trả về nội dung rỗng');
+                setAiError(t('aiEmptyResponse'));
                 return;
               }
               setAiCommentary(text);
@@ -300,7 +320,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
             } catch (retryErr) {
               if (cancelled || requestId !== aiRequestIdRef.current) return;
               setAiCommentary('');
-              setAiError(extractAiError(retryErr));
+              setAiError(extractAiError(retryErr, t('aiCannotGenerateInsight')));
               return;
             }
           }
@@ -333,9 +353,11 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     isLoadingModels,
     isLoadingStatus,
     loading,
+    language,
     refreshModels,
     statusError,
     systemPrompt,
+    t,
   ]);
 
   const getCashFlowOptions = () => {
@@ -494,22 +516,22 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
             <div className="mt-3 min-h-0 flex-1 rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-colors">
               <div className="mb-4 flex items-center gap-2">
                 <Activity className="h-4 w-4 text-text-highlight" />
-                <p className="text-xs font-semibold uppercase tracking-widest text-text-base">Nhận xét</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-text-base">{t('aiInsightTitle')}</p>
               </div>
               <div className="flex min-h-0 flex-1 items-center">
                 {aiLoading ? (
                   <div className="flex items-center gap-3 text-text-muted">
                     <LoaderCircle className="h-4 w-4 animate-spin text-blue-600" />
-                    <p className="text-xs font-medium uppercase tracking-widest">Đang tạo nhận xét...</p>
+                    <p className="text-xs font-medium uppercase tracking-widest">{t('aiGeneratingInsight')}</p>
                   </div>
                 ) : aiError ? (
                   <div className="space-y-2">
                     <p className="text-sm font-bold text-red-600">{aiError}</p>
-                    <p className="text-xs text-text-muted">AI không tạo được nhận xét cho mã trái phiếu này.</p>
+                    <p className="text-xs text-text-muted">{t('aiInsightFailedDetail')}</p>
                   </div>
                 ) : (
                   <p className="whitespace-pre-wrap text-sm leading-6 italic text-text-muted transition-colors">
-                    {aiCommentary || 'Chưa có nhận xét cho mã trái phiếu này.'}
+                    {aiCommentary || t('aiNoInsight')}
                   </p>
                 )}
               </div>
@@ -528,7 +550,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                   : 'inline-flex rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-blue-700'
               }
             >
-              {isTracked ? 'Đã theo dõi' : 'Theo dõi'}
+              {isTracked ? t('followed') : t('follow')}
             </button>
           </div>
 
@@ -538,13 +560,13 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
               onClick={onClose}
               className="inline-flex items-center justify-center rounded-xl border border-border-base bg-bg-surface px-4 py-2 text-xs font-bold uppercase tracking-widest text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
             >
-              Hủy
+              {t('cancel')}
             </button>
             <button
               type="button"
               className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-colors hover:bg-blue-700"
             >
-              Giao dịch
+              {t('trade')}
             </button>
           </div>
         </div>

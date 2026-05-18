@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, Component, ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
-import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2 } from 'lucide-react';
+import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2, Bookmark } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import { formatNumber, formatInterestRate, formatDate, normalizeInterestType } from '../utils/format';
@@ -13,6 +13,9 @@ import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
+import { upsertWatchlistItem } from '../utils/watchlist';
+
+const MAX_SELECTED_BONDS = 4;
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
@@ -70,6 +73,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const [allBondsPool, setAllBondsPool] = useState<Bond[]>([]);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
+  const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
+  const [watchlistSelections, setWatchlistSelections] = useState<Record<string, boolean>>({});
+  const [watchlistMessage, setWatchlistMessage] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Validate selectedBonds to prevent render errors
@@ -86,6 +92,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   const validatedComparisonBonds = comparisonBonds.filter(validateBond);
   const selectedBonds = [primaryBond, ...validatedComparisonBonds].filter(validateBond);
+  const canAddMoreBonds = selectedBonds.length < MAX_SELECTED_BONDS;
+  const selectedWatchlistCount = selectedBonds.filter((bond) => watchlistSelections[bond.code]).length;
+  const allWatchlistSelected = selectedBonds.length > 0 && selectedWatchlistCount === selectedBonds.length;
   
   useEffect(() => {
     // Log any invalid bonds that were filtered out
@@ -101,6 +110,33 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       searchInputRef.current.focus();
     }
   }, [isSearching]);
+
+  useEffect(() => {
+    if (!canAddMoreBonds && isSearching) {
+      setIsSearching(false);
+      setSearchTerm('');
+      setSuggestions([]);
+    }
+  }, [canAddMoreBonds, isSearching]);
+
+  useEffect(() => {
+    if (!showWatchlistPicker) return;
+
+    setWatchlistSelections((prev) => {
+      const next: Record<string, boolean> = {};
+      selectedBonds.forEach((bond) => {
+        next[bond.code] = prev[bond.code] ?? true;
+      });
+      return next;
+    });
+  }, [showWatchlistPicker, selectedBonds.length]);
+
+  useEffect(() => {
+    if (!watchlistMessage) return;
+
+    const timeout = window.setTimeout(() => setWatchlistMessage(''), 2500);
+    return () => window.clearTimeout(timeout);
+  }, [watchlistMessage]);
 
   // Load initial pool of bonds from cache or fetch if empty
   useEffect(() => {
@@ -338,6 +374,23 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   const handleAddBond = async (bond: Bond) => {
     console.log('[BondComparisonPopup] Attempting to add bond:', bond.code, bond);
+
+    if (!canAddMoreBonds) {
+      setIsSearching(false);
+      setSearchTerm('');
+      setSuggestions([]);
+      return;
+    }
+
+    const addComparisonBond = (nextBond: Bond) => {
+      setComparisonBonds(prev => {
+        const current = [primaryBond, ...prev].filter(validateBond);
+        if (current.length >= MAX_SELECTED_BONDS || current.some(item => item.code === nextBond.code)) {
+          return prev;
+        }
+        return [...prev, nextBond];
+      });
+    };
     
     try {
       // If the bond is from pool, it already has data
@@ -346,7 +399,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         // Validate maturityDate before adding
         const date = new Date(bond.maturityDate);
         if (!isNaN(date.getTime())) {
-          setComparisonBonds(prev => [...prev, bond]);
+          addComparisonBond(bond);
         } else {
           // Fallback to today if date is invalid
           const validBond = {
@@ -354,7 +407,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             maturityDate: new Date().toISOString().split('T')[0]
           };
           console.log('[BondComparisonPopup] Fixed invalid date:', validBond);
-          setComparisonBonds(prev => [...prev, validBond]);
+          addComparisonBond(validBond);
         }
         setIsSearching(false);
         setSearchTerm('');
@@ -374,7 +427,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           ...bond,
           maturityDate: new Date().toISOString().split('T')[0]
         };
-        setComparisonBonds(prev => [...prev, validBond]);
+        addComparisonBond(validBond);
         setIsSearching(false);
         setSearchTerm('');
         setSuggestions([]);
@@ -444,7 +497,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           };
           
           console.log('[BondComparisonPopup] Adding full bond:', fullBond);
-          setComparisonBonds(prev => [...prev, fullBond]);
+          addComparisonBond(fullBond);
         } catch (parseError) {
           console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
           // If we can't parse it as a valid bond, don't add it
@@ -460,7 +513,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         ...bond,
         maturityDate: new Date().toISOString().split('T')[0]
       };
-      setComparisonBonds(prev => [...prev, validBond]);
+      addComparisonBond(validBond);
     } finally {
       setIsSearching(false);
       setSearchTerm('');
@@ -484,6 +537,41 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     setComparisonBonds([]);
     setIsSearching(false);
     setSearchTerm('');
+  };
+
+  const handleOpenWatchlistPicker = () => {
+    setWatchlistSelections(
+      selectedBonds.reduce<Record<string, boolean>>((acc, bond) => {
+        acc[bond.code] = true;
+        return acc;
+      }, {})
+    );
+    setShowWatchlistPicker(true);
+  };
+
+  const handleToggleAllWatchlist = () => {
+    const nextChecked = !allWatchlistSelected;
+    setWatchlistSelections(
+      selectedBonds.reduce<Record<string, boolean>>((acc, bond) => {
+        acc[bond.code] = nextChecked;
+        return acc;
+      }, {})
+    );
+  };
+
+  const handleSaveWatchlist = () => {
+    const bondsToSave = selectedBonds.filter((bond) => watchlistSelections[bond.code]);
+
+    bondsToSave.forEach((bond) => {
+      upsertWatchlistItem({
+        ...bond,
+        issuerName: bond.enterpriseId || bond.code,
+        ticker: bond.enterpriseId || '',
+      });
+    });
+
+    setShowWatchlistPicker(false);
+    setWatchlistMessage(t('addToWatchlistSuccess'));
   };
 
   const chartColors = {
@@ -829,7 +917,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         sheetName: t('bondComparisonTitle'),
         rows: comparisonRows,
         columns: [
-          { header: 'Thông tin', value: (row) => row.label },
+          { header: t('information'), value: (row) => row.label },
           ...selectedBonds.map((bond) => ({
             header: bond.code,
             value: (row: (typeof comparisonRows)[number]) => row.value(bond),
@@ -868,9 +956,15 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       onClick={onClose}
     >
       <div 
-        className="bg-bg-surface w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col transition-colors"
+        className="relative bg-bg-surface w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col transition-colors"
         onClick={(e) => e.stopPropagation()}
       >
+        {watchlistMessage && (
+          <div className="absolute right-6 top-6 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg">
+            {watchlistMessage}
+          </div>
+        )}
+
         {/* Header */}
         <div className="p-6 border-b border-border-base flex items-center justify-between transition-colors">
           <div className="flex items-center gap-6">
@@ -932,11 +1026,12 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             
             {!isSearching ? (
               <button 
-                onClick={() => setIsSearching(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-transparent border border-dashed border-border-base text-text-muted rounded-full hover:border-blue-600 hover:text-blue-600 transition-all"
+                onClick={() => canAddMoreBonds && setIsSearching(true)}
+                disabled={!canAddMoreBonds}
+                className="flex items-center gap-2 px-4 py-2 bg-transparent border border-dashed border-border-base text-text-muted rounded-full transition-all hover:border-blue-600 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border-base disabled:hover:text-text-muted"
               >
                 <Plus className="h-4 w-4" />
-                <span className="text-sm font-bold">{t('addBond')}</span>
+                <span className="text-sm font-bold">{canAddMoreBonds ? t('addBond') : t('maxFourBonds')}</span>
               </button>
             ) : (
               <div className="relative">
@@ -1044,6 +1139,101 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             </div>
           </div>
         </div>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-border-base bg-bg-base/40 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            type="button"
+            onClick={handleOpenWatchlistPicker}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-blue-700"
+          >
+            <span>{t('follow')}</span>
+          </button>
+
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex items-center justify-center rounded-xl border border-border-base bg-bg-surface px-4 py-2 text-xs font-bold uppercase tracking-wider text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+            >
+              {t('cancel')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-lg shadow-blue-600/20 transition-colors hover:bg-blue-700"
+            >
+              {t('trade')}
+            </button>
+          </div>
+        </div>
+
+        {showWatchlistPicker && (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+            onClick={() => setShowWatchlistPicker(false)}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border border-border-base bg-bg-surface p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h4 className="text-base font-bold text-text-base">{t('selectBondsToWatch')}</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowWatchlistPicker(false)}
+                  className="rounded-full p-2 text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                  aria-label={t('close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold text-text-base transition-colors hover:bg-bg-base">
+                  <input
+                    type="checkbox"
+                    checked={allWatchlistSelected}
+                    onChange={handleToggleAllWatchlist}
+                    className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>{t('selectAll')}</span>
+                </label>
+
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {selectedBonds.map((bond) => (
+                    <label
+                      key={bond.code}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold text-text-base transition-colors hover:bg-bg-base"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(watchlistSelections[bond.code])}
+                        onChange={() => {
+                          setWatchlistSelections((prev) => ({
+                            ...prev,
+                            [bond.code]: !prev[bond.code],
+                          }));
+                        }}
+                        className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{bond.code}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveWatchlist}
+                  disabled={selectedWatchlistCount === 0}
+                  className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('save')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

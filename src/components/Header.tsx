@@ -300,9 +300,6 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
               <HeaderAppLogo />
               <Logo />
             </div>
-            <h1 className="hidden min-w-0 truncate text-base font-bold text-text-highlight tracking-tight transition-colors md:block lg:text-lg uppercase leading-none relative">
-              Bonds Dashboard
-            </h1>
           </div>
         </div>
       </div>

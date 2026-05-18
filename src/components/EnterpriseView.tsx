@@ -660,7 +660,7 @@ export default function EnterpriseView({
 
   const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
   const projectedCashFlowTitle = language === 'vi'
-    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? 'tháng' : 'năm'}`
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
 
   const handleExportEnterprises = async () => {
@@ -961,7 +961,7 @@ export default function EnterpriseView({
 
         <div className="flex items-start justify-between">
           <div className="space-y-2">
-            <h2 className="text-4xl font-bold text-blue-600 tracking-tight">
+            <h2 className="text-4xl font-bold text-blue-600 dark:text-white tracking-tight">
               {language === 'en' && enterpriseProfile?.internationalName 
                 ? enterpriseProfile.internationalName 
                 : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
@@ -1128,22 +1128,22 @@ export default function EnterpriseView({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
                 <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('bondCodeCount')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 mb-1 transition-colors whitespace-nowrap">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
+                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
                 <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
               </div>
               <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
                 <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('totalIssuedValueTitle')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
+                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
                 <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
               </div>
               <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
                 <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('initialDebtFull')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
+                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
                 <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
               </div>
               <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
                 <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('remainingDebtTitle')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
+                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
                 <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
               </div>
             </div>
@@ -1153,33 +1153,34 @@ export default function EnterpriseView({
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 mb-3 text-center transition-colors">{t('bondStructureByTerm')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByTerm')}</h3>
             <ReactECharts option={pieOptions} style={{ height: '320px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 mb-3 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
             <ReactECharts option={interestTypePieOptions} style={{ height: '300px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 mb-3 text-center transition-colors">{t('interestRateVsTerm')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('interestRateVsTerm')}</h3>
             <ReactECharts option={bubbleOptions} style={{ height: '300px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 mb-3 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
+            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
             <ReactECharts option={columnOptions} style={{ height: '300px' }} />
           </div>
         </div>
 
         <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-            <h3 className="text-base font-semibold text-blue-600 transition-colors">{projectedCashFlowTitle}</h3>
-            <div className="flex items-center gap-1 bg-bg-base border border-border-base rounded-lg p-1">
+          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-center">
+            <div className="hidden sm:block" />
+            <h3 className="text-center text-base font-semibold text-blue-600 dark:text-white transition-colors">{projectedCashFlowTitle}</h3>
+            <div className="flex items-center justify-center gap-1 justify-self-center bg-bg-base border border-border-base rounded-lg p-1 sm:justify-self-end">
               <button
                 type="button"
                 onClick={() => setCashFlowPeriod('month')}
@@ -1223,7 +1224,7 @@ export default function EnterpriseView({
         {/* Bond List Table */}
         <div className="bg-bg-surface rounded-lg border border-border-base shadow-sm overflow-hidden transition-colors">
           <div className="p-4 border-b border-border-base flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <h3 className="text-sm font-bold text-blue-600 uppercase tracking-wider transition-colors">{t('bondList')}</h3>
+            <h3 className="text-sm font-bold text-blue-600 dark:text-white uppercase tracking-wider transition-colors">{t('bondList')}</h3>
             <div className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
               <ExportExcelButton loading={exportLoading} onClick={handleExportBonds} />
               <div className="relative">
@@ -1302,13 +1303,13 @@ export default function EnterpriseView({
                     <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className="text-xs font-bold text-text-highlight group-hover:underline">{bond.code}</span>
                     </td>
-                    <td className="px-6 py-4 text-left">
+                    <td className="px-6 py-4 text-center">
                       <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
                     </td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-right transition-colors">{formatDate(bond.issueDate)}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-right transition-colors">{formatDate(bond.maturityDate)}</td>
+                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.issueDate)}</td>
+                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.maturityDate)}</td>
                     <td className="px-6 py-4 text-xs font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
-                    <td className={`px-6 py-4 text-xs font-bold whitespace-nowrap text-left transition-colors ${
+                    <td className={`px-6 py-4 text-xs font-bold whitespace-nowrap text-center transition-colors ${
                       bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed') ? 'text-blue-600' : 'text-orange-600'
                     }`}>
                       {(bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -1317,7 +1318,7 @@ export default function EnterpriseView({
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
                     <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-left">
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
                         bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
                       }`}>
@@ -1446,7 +1447,7 @@ export default function EnterpriseView({
     <div className="p-0 md:p-4 space-y-4 transition-colors">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-blue-600 tracking-tight transition-colors">{t('enterprise')}</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('enterprise')}</h2>
         </div>
         <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
       </div>
@@ -1523,15 +1524,15 @@ export default function EnterpriseView({
                 <div className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-bg-base p-3">
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-text-muted/80">{t('bondCodeCount')}</p>
-                    <p className="mt-1 text-sm font-bold text-text-base">{formatNumber(enterprise.bondCount, 0)}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.bondCount, 0)}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-text-muted/80">{t('issuedValue')}</p>
-                    <p className="mt-1 text-sm font-bold text-text-base">{formatNumber(enterprise.issuedValue, 2)}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.issuedValue, 2)}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-text-muted/80">{t('remainingDebtTitle')}</p>
-                    <p className="mt-1 text-sm font-bold text-blue-600">{formatNumber(enterprise.remainingDebt, 2)}</p>
+                    <p className="mt-1 text-sm font-bold text-blue-600 dark:text-white">{formatNumber(enterprise.remainingDebt, 2)}</p>
                   </div>
                 </div>
               </button>

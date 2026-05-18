@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, Bookmark, Calendar, TrendingUp, Building2, Trash2 } from 'lucide-react';
+import { Building2, Trash2 } from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItem, type WatchlistItem } from '../utils/watchlist';
+import { fireantApi } from '../api/fireant';
+import { getCache } from '../utils/cache';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -13,7 +15,7 @@ function cn(...inputs: ClassValue[]) {
 
 interface WatchlistBond extends WatchlistItem {
   daysLeft: number;
-  statusLabel: string;
+  industry?: string;
 }
 
 interface WatchlistViewProps {
@@ -21,31 +23,38 @@ interface WatchlistViewProps {
   setBondEnterpriseName: (name: string) => void;
 }
 
-function getStatusMeta(daysLeft: number) {
-  if (daysLeft <= 30) {
+function getStatusMeta(daysLeft: number, t: (key: any, ticker?: string) => string) {
+  if (daysLeft < 30) {
     return {
-      label: 'Sắp đáo hạn',
-      classes: 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-400/30',
+      label: t('statusVeryNear'),
+      color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30',
     };
   }
 
   if (daysLeft <= 90) {
     return {
-      label: 'Theo dõi',
-      classes: 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/20 dark:text-orange-400 dark:border-orange-400/30',
+      label: t('statusNear'),
+      color: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-400/30',
     };
   }
 
   if (daysLeft <= 180) {
     return {
-      label: 'Ổn định',
-      classes: 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-400/30',
+      label: t('statusMonitor'),
+      color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-400/30',
+    };
+  }
+
+  if (daysLeft <= 270) {
+    return {
+      label: t('statusMediumTerm'),
+      color: 'bg-blue-600/5 text-blue-600 border-blue-600/10',
     };
   }
 
   return {
-    label: 'Dài hạn',
-    classes: 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-400/30',
+    label: t('statusLongTerm'),
+    color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30',
   };
 }
 
@@ -60,7 +69,6 @@ function toWatchlistBond(item: WatchlistItem): WatchlistBond | null {
   const daysLeft = maturity
     ? Math.max(0, Math.ceil((maturity.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
     : 0;
-  const status = getStatusMeta(daysLeft);
 
   return {
     id: code,
@@ -78,13 +86,21 @@ function toWatchlistBond(item: WatchlistItem): WatchlistBond | null {
     interestType: String(item.interestType || ''),
     status: String(item.status || ''),
     daysLeft,
-    statusLabel: status.label,
+    industry: String((item as WatchlistItem & { industry?: string }).industry || ''),
     addedAt: item.addedAt || Date.now(),
   };
 }
 
+function needsIssuerLookup(bond: WatchlistBond) {
+  const issuerName = String(bond.issuerName || '').trim();
+  const ticker = String(bond.ticker || bond.enterpriseId || '').trim();
+  const industry = String(bond.industry || '').trim();
+
+  return !industry || !issuerName || issuerName === bond.code || issuerName === ticker;
+}
+
 export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }: WatchlistViewProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [bonds, setBonds] = useState<WatchlistBond[]>([]);
 
   useEffect(() => {
@@ -99,10 +115,117 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     return onWatchlistUpdated(refresh);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string; name?: string }>;
+    const bondsWithCachedIndustry = bonds.map((bond) => {
+      if (bond.industry) return bond;
+
+      const ticker = bond.ticker || bond.enterpriseId;
+      const enterprise = enterpriseList.find((item) => item.ticker === ticker);
+      return enterprise?.industry ? { ...bond, industry: enterprise.industry } : bond;
+    });
+    const hasCachedIndustryUpdates = bondsWithCachedIndustry.some((bond, index) => bond.industry !== bonds[index]?.industry);
+    const bondsToLookup = bondsWithCachedIndustry.filter(needsIssuerLookup);
+
+    if (bondsToLookup.length === 0) {
+      if (hasCachedIndustryUpdates) setBonds(bondsWithCachedIndustry);
+      return;
+    }
+
+    const enrichIssuerNames = async () => {
+      const updates = await Promise.all(
+        bondsToLookup.map(async (bond) => {
+          try {
+            const bondData = await fireantApi.getBond(bond.code);
+            const detail = bondData?.detail || bondData || {};
+            const issuerSymbol = String(detail.issuerSymbol || bond.enterpriseId || bond.ticker || '').trim();
+            let industry = String(
+              detail.infoObj?.icbNameLv2 ||
+              detail.infoObj?.icbNameLv1 ||
+              detail.icbNameLv2 ||
+              detail.industry ||
+              bond.industry ||
+              ''
+            ).trim();
+            let issuerName = String(
+              detail.issuerName ||
+              detail.companyName ||
+              detail.organizationName ||
+              ''
+            ).trim();
+
+            if (issuerSymbol) {
+              try {
+                const profile = await fireantApi.getIssuerProfile(issuerSymbol);
+                issuerName = String(
+                  language === 'en'
+                    ? profile.internationalName || profile.name || profile.companyName || issuerName || ''
+                    : profile.name || profile.companyName || profile.internationalName || issuerName || ''
+                ).trim();
+                industry = String(
+                  industry ||
+                  profile.icbNameLv2 ||
+                  profile.icbNameLv1 ||
+                  profile.industryName ||
+                  profile.industry ||
+                  ''
+                ).trim();
+              } catch (profileError) {
+                console.warn(`Failed to fetch issuer profile for ${issuerSymbol}`, profileError);
+              }
+            }
+
+            const nextIssuerName = issuerName && issuerName !== bond.code && issuerName !== issuerSymbol ? issuerName : bond.issuerName;
+            const nextIndustry = industry || bond.industry || '';
+
+            if ((!nextIssuerName || nextIssuerName === bond.code || nextIssuerName === issuerSymbol) && !nextIndustry) return null;
+            if (nextIssuerName === bond.issuerName && nextIndustry === bond.industry && issuerSymbol === (bond.ticker || bond.enterpriseId)) return null;
+
+            return {
+              code: bond.code,
+              issuerName: nextIssuerName,
+              ticker: issuerSymbol || bond.ticker,
+              enterpriseId: issuerSymbol || bond.enterpriseId,
+              industry: nextIndustry,
+            };
+          } catch (error) {
+            console.warn(`Failed to fetch issuer name for ${bond.code}`, error);
+            return null;
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      const validUpdates = updates.filter(Boolean) as Array<{
+        code: string;
+        issuerName: string;
+        ticker: string;
+        enterpriseId: string;
+        industry: string;
+      }>;
+
+      if (validUpdates.length === 0 && !hasCachedIndustryUpdates) return;
+
+      setBonds((current) => current.map((bond) => {
+        const cached = bondsWithCachedIndustry.find((item) => item.code === bond.code);
+        const update = validUpdates.find((item) => item.code === bond.code);
+        return update ? { ...bond, ...cached, ...update } : { ...bond, ...cached };
+      }));
+    };
+
+    void enrichIssuerNames();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bonds, language]);
+
   const summary = useMemo(() => {
     const total = bonds.length;
-    const urgent = bonds.filter((bond) => bond.daysLeft <= 30).length;
-    const next90 = bonds.filter((bond) => bond.daysLeft > 30 && bond.daysLeft <= 90).length;
+    const urgent = bonds.filter((bond) => bond.daysLeft < 30).length;
+    const next90 = bonds.filter((bond) => bond.daysLeft >= 30 && bond.daysLeft <= 90).length;
     return { total, urgent, next90 };
   }, [bonds]);
 
@@ -118,130 +241,128 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   return (
     <div className="animate-in fade-in duration-500">
       <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-blue-600">
-            <Bookmark className="h-5 w-5" />
-            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">{t('watchList')}</p>
-          </div>
-          <h1 className="text-2xl font-bold text-text-base tracking-tight">{t('watchList')}</h1>
-          <p className="max-w-2xl text-sm font-medium text-text-muted">
-            Danh sách các mã trái phiếu đang được theo dõi để mở nhanh chi tiết khi cần xem thông tin sâu hơn.
-          </p>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-text-base">{t('watchList')}</h1>
         </div>
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-border-base bg-bg-surface px-4 py-3 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">Tổng mã</p>
-            <p className="mt-2 text-xl font-bold text-text-base">{summary.total}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">{t('totalTrackedBonds')}</p>
+            <p className="mt-2 text-xl font-bold text-text-base dark:text-white">{summary.total}</p>
           </div>
           <div className="rounded-2xl border border-border-base bg-bg-surface px-4 py-3 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">Cần chú ý</p>
-            <p className="mt-2 text-xl font-bold text-red-600">{summary.urgent}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">{t('maturityWarning')}</p>
+            <p className="mt-2 text-xl font-bold text-red-600 dark:text-white">{summary.urgent}</p>
           </div>
           <div className="rounded-2xl border border-border-base bg-bg-surface px-4 py-3 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">90 ngày tới</p>
-            <p className="mt-2 text-xl font-bold text-orange-600">{summary.next90}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">{t('maturityNext90')}</p>
+            <p className="mt-2 text-xl font-bold text-orange-600 dark:text-white">{summary.next90}</p>
           </div>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-sm">
+      <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-sm transition-colors">
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-bg-base/60">
-              <tr className="border-b border-border-base">
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                  Mã trái phiếu
+          <table className="w-full min-w-[920px] text-left border-collapse">
+            <thead>
+              <tr className="bg-blue-600 text-white transition-colors">
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {t('bondCode')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                  Tổ chức phát hành
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {t('issuerName')}
                 </th>
-                <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                  <div className="flex flex-col items-end">
-                    <span>Lãi suất</span>
-                    <span className="mt-1 text-xs font-semibold normal-case tracking-normal text-text-muted/80">(%/năm)</span>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  <div className="flex flex-col items-center">
+                    <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                  Ngày đáo hạn
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {t('maturityDate')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                  Trạng thái
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {t('situation')}
+                </th>
+                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {t('action')}
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border-base">
+
+            <tbody className="divide-y divide-border-base transition-colors">
               {bonds.length > 0 ? (
                 bonds.map((bond, index) => {
-                  const status = getStatusMeta(bond.daysLeft);
+                  const status = getStatusMeta(bond.daysLeft, t);
                   return (
                     <tr
                       key={bond.code}
                       onClick={() => handleOpenBond(bond)}
                       className={cn(
-                        'cursor-pointer transition-colors hover:bg-blue-50/60 dark:hover:bg-blue-900/10',
-                        index % 2 === 1 && 'bg-bg-base/20'
+                        'cursor-pointer transition-colors group',
+                        index % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface',
+                        'hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
                       )}
                     >
-                      <td className="px-6 py-5">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
-                            <BadgeCheck className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-text-base hover:text-blue-600">{bond.code}</p>
-                            <p className="truncate text-xs font-medium text-text-muted">Theo dõi</p>
-                          </div>
+                      <td className="px-6 py-5 whitespace-nowrap text-center border-none">
+                        <span className="text-sm font-bold text-text-highlight group-hover:underline transition-colors">{bond.code}</span>
+                      </td>
+
+                      <td className="px-6 py-5 text-left border-none">
+                        <div className="max-w-[300px]">
+                          <p className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
+                            {t(bond.issuerName as any, bond.ticker)}
+                          </p>
+                          {bond.industry && (
+                            <p className="text-[10px] text-text-muted font-semibold group-hover:text-text-highlight transition-colors">
+                              {t(bond.industry as any)}
+                            </p>
+                          )}
                         </div>
                       </td>
-                      <td className="px-6 py-5">
-                        <div className="max-w-sm min-w-0">
-                          <p className="truncate text-sm font-semibold text-text-base">{bond.issuerName}</p>
-                          <p className="truncate text-xs font-medium text-text-muted">{bond.enterpriseId || bond.ticker || '-'}</p>
-                        </div>
+
+                      <td className="px-6 py-5 whitespace-nowrap text-sm font-bold text-green-600 dark:text-green-500 text-center border-none transition-colors">
+                        {formatInterestRate(bond.interestRate)}%
                       </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="inline-flex items-center gap-1.5 text-sm font-bold text-blue-600">
-                          <TrendingUp className="h-4 w-4" />
-                          <span>{formatInterestRate(bond.interestRate)}%</span>
-                        </div>
+
+                      <td className="px-6 py-5 whitespace-nowrap text-sm font-bold text-text-muted text-center border-none group-hover:text-text-highlight transition-colors">
+                        {formatDate(bond.maturityDate)}
                       </td>
-                      <td className="px-6 py-5 text-right">
-                        <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-text-muted">
-                          <Calendar className="h-4 w-4 shrink-0" />
-                          <span>{formatDate(bond.maturityDate)}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex flex-col items-start gap-2">
-                          <span className={cn('inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider', status.classes)}>
-                            {bond.statusLabel}
+
+                      <td className="px-6 py-5 whitespace-nowrap text-center border-none">
+                        <div className="flex flex-col items-center gap-2">
+                          <span className={cn('inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold uppercase transition-colors', status.color)}>
+                            {status.label}
                           </span>
-                          <div className="flex items-center gap-2">
-                            <p className="text-xs font-medium text-text-muted">Còn {bond.daysLeft} ngày</p>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleRemoveBond(bond);
-                              }}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border-base text-text-muted transition-colors hover:text-red-600 hover:border-red-200 hover:bg-red-50"
-                              title="Bỏ theo dõi"
-                              aria-label="Bỏ theo dõi"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          <p className="text-[10px] font-bold text-text-muted tracking-wider transition-colors group-hover:text-text-highlight">
+                            {t('remainingPrefix')} {bond.daysLeft} {t('daysUnit').toLowerCase()}
+                          </p>
                         </div>
+                      </td>
+
+                      <td className="px-6 py-5 whitespace-nowrap text-center border-none">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleRemoveBond(bond);
+                          }}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-base text-text-muted transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                          title={t('delete')}
+                          aria-label={t('delete')}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-14 text-center">
+                  <td colSpan={6} className="px-6 py-12 text-center">
                     <div className="flex flex-col items-center gap-3 text-text-muted">
                       <Building2 className="h-8 w-8" />
-                      <p className="text-sm font-bold uppercase tracking-widest">{t('noBondsFound')}</p>
+                      <p className="text-sm font-bold uppercase transition-colors">{t('noBondsFound')}</p>
                     </div>
                   </td>
                 </tr>

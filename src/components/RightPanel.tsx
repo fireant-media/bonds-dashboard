@@ -334,7 +334,7 @@ export default function RightPanel({
                     : "text-text-muted hover:text-text-base"
                 )}
               >
-                Trái phiếu sắp đáo hạn
+                {t('upcomingBonds')}
               </button>
               <button
                 type="button"
@@ -346,7 +346,7 @@ export default function RightPanel({
                     : "text-text-muted hover:text-text-base"
                 )}
               >
-                Tin tức
+                {t('news')}
               </button>
             </div>
 

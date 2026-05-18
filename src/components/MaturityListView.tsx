@@ -278,7 +278,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   return (
     <div className="p-0 md:p-4 animate-in fade-in duration-500 transition-colors">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold text-blue-600 tracking-tight transition-colors">{t('maturityTitle')}</h1>
+        <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('maturityTitle')}</h1>
         <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
       </div>
 
@@ -484,27 +484,27 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                       )}
                     >
                       <td className="px-6 py-5 whitespace-nowrap text-left border-none">
-                        <span className="text-xs font-bold text-text-highlight group-hover:underline transition-colors">{bond.code}</span>
+                        <span className="text-sm font-bold text-text-highlight group-hover:underline transition-colors">{bond.code}</span>
                       </td>
                       <td className="px-6 py-5 text-left border-none">
-                        <div className="max-w-[200px]">
-                          <p className="text-xs font-bold text-text-base truncate group-hover:text-text-highlight transition-colors">
+                        <div className="max-w-[300px]">
+                          <p className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
                             {language === 'en' && bond.ticker && enterpriseNamesEN[bond.ticker] 
                               ? enterpriseNamesEN[bond.ticker] 
                               : t(bond.issuerName as any, bond.ticker)}
                           </p>
-                          <p className="text-xs text-text-muted truncate font-semibold group-hover:text-text-highlight transition-colors">
+                          <p className="text-[10px] text-text-muted font-semibold group-hover:text-text-highlight transition-colors">
                             {t(bond.industry as any)}
                           </p>
                         </div>
                       </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-xs font-bold text-text-muted text-right border-none group-hover:text-text-highlight transition-colors">
+                      <td className="px-6 py-5 whitespace-nowrap text-sm font-bold text-text-muted text-center border-none group-hover:text-text-highlight transition-colors">
                         {formatDate(bond.maturityDate)}
                       </td>
                       <td className="px-6 py-5 whitespace-nowrap text-right border-none">
                         <div className="flex items-center gap-1 justify-end">
                           <span className={cn(
-                            "px-2 py-1 rounded-lg text-xs font-bold transition-colors",
+                            "px-2 py-1 rounded-lg text-sm font-bold transition-colors",
                             status.color,
                             "group-hover:text-text-highlight group-hover:bg-white/50"
                           )}>
@@ -512,14 +512,14 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                           </span>
                         </div>
                       </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-xs font-bold text-text-base text-right border-none group-hover:text-text-highlight transition-colors">
+                      <td className="px-6 py-5 whitespace-nowrap text-sm font-bold text-text-base text-right border-none group-hover:text-text-highlight transition-colors">
                         {formatNumber(bond.listedValue, 2)}
                       </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-xs font-bold text-green-600 dark:text-green-500 text-right border-none transition-colors">
+                      <td className="px-6 py-5 whitespace-nowrap text-sm font-bold text-green-600 dark:text-green-500 text-right border-none transition-colors">
                         {formatInterestRate(bond.interestRate)}%
                       </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-left border-none">
-                        <span className={cn("px-3 py-1 rounded-full text-xs font-bold uppercase border transition-colors", status.color)}>
+                      <td className="px-6 py-5 whitespace-nowrap text-center border-none">
+                        <span className={cn("px-3 py-1 rounded-full text-sm font-bold uppercase border transition-colors", status.color)}>
                           {status.label}
                         </span>
                       </td>
