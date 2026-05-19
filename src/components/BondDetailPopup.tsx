@@ -364,11 +364,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           </div>
 
           <div className="col-span-12 flex min-h-0 flex-col bg-bg-base/30 p-4 transition-colors lg:col-span-7 md:p-5">
-            <div className="mb-3">
-              <h3 className="text-center text-base font-bold tracking-tight text-text-base transition-colors">
+              <h3 className="text-left text-base font-bold tracking-tight text-text-base transition-colors">
                 {t('expectedCashFlow')}
               </h3>
-            </div>
 
             <div className="flex h-80 items-center justify-center transition-colors">
               {loading ? (
@@ -403,7 +401,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                       <tr key={item.label} className="border-b border-border-base/60 last:border-b-0">
                         <td className="w-2/3 px-3 py-2">
                           <div className="flex min-w-0 items-center gap-2">
-                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-bg-base/70 text-text-muted">
+                            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-bg-base/70 text-text-muted">
                               <item.icon className="h-3 w-3" />
                             </div>
                             <span className="truncate text-xs font-semibold text-text-base">
@@ -412,7 +410,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                           </div>
                         </td>
 
-                        <td className={`w-1/3 px-3 py-2 text-right text-xs font-semibold ${item.meta.className}`}>
+                        <td className={`w-1/3 px-3 py-2 text-center text-xs font-semibold ${item.meta.className}`}>
                           {item.meta.label}
                         </td>
                       </tr>
