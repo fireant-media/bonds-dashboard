@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import {
   X,
@@ -9,7 +9,9 @@ import {
   Briefcase,
   AlertTriangle,
   ArrowLeftRight,
-  LoaderCircle,
+  Gauge,
+  Landmark,
+  ShieldCheck,
 } from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
@@ -17,8 +19,6 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
 import { fireantApi } from '../api/fireant';
-import { sendChat } from '../api/ai';
-import { useAIStore } from '../store/aiStore';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { isBondTracked, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
 
@@ -28,47 +28,18 @@ interface BondDetailPopupProps {
   onClose: () => void;
 }
 
-function isModelTierError(message: string): boolean {
-  const lower = (message || '').toLowerCase();
-  return lower.includes('not allowed') || lower.includes('user tier') || lower.includes('model_not_allowed');
-}
-
-function extractAiError(err: unknown, fallback: string): string {
-  if (!err || typeof err !== 'object') return fallback;
-  const anyErr = err as any;
-  return anyErr?.response?.data?.details || anyErr?.response?.data?.error || anyErr?.message || fallback;
-}
-
 export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const chartPalette = CHART_PALETTE;
   const chartTooltip = getChartTooltip(isDark);
-  const {
-    configured,
-    selectedModel,
-    defaultModel,
-    models,
-    systemPrompt,
-    defaultSystemPrompt,
-    isLoadingStatus,
-    isLoadingModels,
-    statusError,
-    refreshStatus,
-    refreshModels,
-  } = useAIStore();
 
   const [bondDetails, setBondDetails] = useState<Bond | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
-  const [aiCommentary, setAiCommentary] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
   const [isTracked, setIsTracked] = useState(false);
-  const aiRequestIdRef = useRef(0);
-  const refreshedModelsOnOpenRef = useRef(false);
 
   const formatTerm = (rawTerm: any) => {
     if (!rawTerm || rawTerm === 'N/A') return 'N/A';
@@ -148,26 +119,10 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   }, [bond, t]);
 
   useEffect(() => {
-    if (!configured && !isLoadingStatus && !statusError) {
-      void refreshStatus();
-    }
-  }, [configured, isLoadingStatus, refreshStatus, statusError]);
-
-  useEffect(() => {
-    if (!configured || isLoadingModels || refreshedModelsOnOpenRef.current) return;
-    refreshedModelsOnOpenRef.current = true;
-    void refreshModels(true);
-  }, [configured, isLoadingModels, refreshModels]);
-
-  useEffect(() => {
     setIsTracked(isBondTracked(bond.code));
   }, [bond.code]);
 
   const currentBond = bondDetails || bond;
-  const allowedModelIds = useMemo(() => new Set(models.map((model) => model.id)), [models]);
-  const validSelectedModel = selectedModel && allowedModelIds.has(selectedModel) ? selectedModel : '';
-  const validDefaultModel = defaultModel && allowedModelIds.has(defaultModel) ? defaultModel : '';
-  const activeModel = validSelectedModel || validDefaultModel || defaultModel || selectedModel || models[0]?.id || '';
 
   const maturityInfo = useMemo(() => {
     if (!currentBond.maturityDate) return null;
@@ -175,7 +130,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const diffDays = Math.ceil((maturity.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return { days: diffDays, isNear: diffDays >= 0 && diffDays <= 90 };
+    return { days: Math.max(diffDays, 0), isNear: diffDays >= 0 && diffDays <= 90 };
   }, [currentBond.maturityDate]);
 
   const details = useMemo(() => {
@@ -202,163 +157,83 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     ];
   }, [currentBond, enterpriseName, t]);
 
-  const aiPrompt = useMemo(() => {
-    const daysToMaturity = currentBond.maturityDate
-      ? Math.ceil((new Date(currentBond.maturityDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-      : null;
-
-    const rawType = String(currentBond.interestType || '').toLowerCase();
-    const interestTypeLabel = rawType.includes('cố định') || rawType.includes('fixed')
-      ? (language === 'en' ? 'fixed interest rate' : 'lãi suất cố định')
-      : rawType.includes('thả nổi') || rawType.includes('floating')
-        ? (language === 'en' ? 'floating interest rate' : 'lãi suất thả nổi')
-        : currentBond.interestType || (language === 'en' ? 'unknown' : 'không xác định');
-
-    return language === 'en'
-      ? [
-        'You are a corporate bond analyst.',
-        'Write exactly 2 concise English sentences, with no bullets and no heading.',
-        'The insight must be based on: interest rate, interest type, time to maturity, and bond status.',
-        `Bond code: ${currentBond.code}`,
-        `Issuer: ${enterpriseName || currentBond.enterpriseId || 'N/A'}`,
-        `Interest rate: ${formatInterestRate(currentBond.interestRate)}%`,
-        `Interest type: ${interestTypeLabel}`,
-        `Issue date: ${currentBond.issueDate || 'N/A'}`,
-        `Maturity date: ${currentBond.maturityDate || 'N/A'}`,
-        `Days to maturity: ${daysToMaturity ?? 'N/A'}`,
-        `Status: ${currentBond.status || 'N/A'}`,
-        `Listed value: ${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`,
-      ].join('\n')
-      : [
-        'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp.',
-        'Viết đúng 2 câu, bằng tiếng Việt, ngắn gọn, không bullet, không tiêu đề, không dùng câu chung chung.',
-        'Nhận xét bắt buộc phải dựa trên các dữ liệu sau: lãi suất, loại lãi suất, thời gian đến đáo hạn, trạng thái trái phiếu.',
-        'Không dùng các cụm như: "cần tiếp tục theo dõi", "cấu trúc cân bằng", "mức hấp dẫn thực tế", "nên cân nhắc".',
-        `Mã trái phiếu: ${currentBond.code}`,
-        `Doanh nghiệp phát hành: ${enterpriseName || currentBond.enterpriseId || 'N/A'}`,
-        `Lãi suất: ${formatInterestRate(currentBond.interestRate)}%`,
-        `Loại lãi suất: ${interestTypeLabel}`,
-        `Ngày phát hành: ${currentBond.issueDate || 'N/A'}`,
-        `Ngày đáo hạn: ${currentBond.maturityDate || 'N/A'}`,
-        `Số ngày đến đáo hạn: ${daysToMaturity ?? 'N/A'}`,
-        `Trạng thái: ${currentBond.status || 'N/A'}`,
-        `Giá trị niêm yết: ${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`,
-      ].join('\n');
-  }, [currentBond, enterpriseName, language, t]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const requestId = ++aiRequestIdRef.current;
-
-    const sendWithModel = async (modelId: string) =>
-      sendChat({
-        userMessage: language === 'en'
-          ? 'Write a concise insight based on the provided bond data and keep it grounded in the specific figures.'
-          : 'Hãy viết nhận xét ngắn gọn dựa trên dữ liệu trái phiếu được cung cấp, bám sát số liệu cụ thể.',
-        model: modelId,
-        systemPrompt: systemPrompt || defaultSystemPrompt || undefined,
-        messages: [],
-        pageContext: aiPrompt,
-      });
-
-    const generate = async () => {
-      if (loading || isLoadingStatus || isLoadingModels) return;
-
-      if (!configured) {
-        setAiCommentary('');
-        setAiError(statusError || 'AI service is not configured');
-        return;
+  const quickAnalysis = useMemo(() => {
+    const getLevelMeta = (
+      level: 'high' | 'medium' | 'low' | 'large' | 'small' | 'unknown',
+      tone: 'dangerHigh' | 'dangerLow' | 'neutral' = 'neutral',
+    ) => {
+      if (level === 'high') {
+        return {
+          label: t('levelHigh'),
+          className: 'text-rose-600 dark:text-rose-400',
+        };
       }
-
-      if (!activeModel) {
-        setAiCommentary('');
-        setAiError('No AI model selected');
-        return;
+      if (level === 'medium') {
+        return {
+          label: t('levelMedium'),
+          className: 'text-amber-600 dark:text-amber-400',
+        };
       }
-
-      setAiLoading(true);
-      setAiError(null);
-
-      try {
-        const response = await sendWithModel(activeModel);
-        if (cancelled || requestId !== aiRequestIdRef.current) return;
-
-        const text = response.text.trim().replace(/\s+/g, ' ');
-        if (!text) {
-          setAiCommentary('');
-          setAiError(t('aiEmptyResponse'));
-          return;
-        }
-        setAiCommentary(text);
-      } catch (err) {
-        const errorMessage = extractAiError(err, t('aiCannotGenerateInsight'));
-        const normalized = errorMessage.toLowerCase();
-
-        if (isModelTierError(normalized)) {
-          await refreshModels(true);
-          const refreshed = useAIStore.getState();
-          const refreshedAllowedIds = new Set(refreshed.models.map((model) => model.id));
-          const retryModel =
-            (refreshed.selectedModel && refreshedAllowedIds.has(refreshed.selectedModel) ? refreshed.selectedModel : '') ||
-            (refreshed.defaultModel && refreshedAllowedIds.has(refreshed.defaultModel) ? refreshed.defaultModel : '') ||
-            refreshed.models[0]?.id ||
-            '';
-
-          if (retryModel && retryModel !== activeModel) {
-            try {
-              const retryResponse = await sendWithModel(retryModel);
-              if (cancelled || requestId !== aiRequestIdRef.current) return;
-
-              const text = retryResponse.text.trim().replace(/\s+/g, ' ');
-              if (!text) {
-                setAiCommentary('');
-                setAiError(t('aiEmptyResponse'));
-                return;
-              }
-              setAiCommentary(text);
-              return;
-            } catch (retryErr) {
-              if (cancelled || requestId !== aiRequestIdRef.current) return;
-              setAiCommentary('');
-              setAiError(extractAiError(retryErr, t('aiCannotGenerateInsight')));
-              return;
-            }
-          }
-        }
-
-        if (!cancelled && requestId === aiRequestIdRef.current) {
-          setAiCommentary('');
-          setAiError(errorMessage);
-        }
-      } finally {
-        if (!cancelled && requestId === aiRequestIdRef.current) {
-          setAiLoading(false);
-        }
+      if (level === 'small') {
+        return {
+          label: t('levelSmall'),
+          className: 'text-orange-400 dark:text-orange-300',
+        };
       }
+      if (level === 'low') {
+        return {
+          label: t('levelLow'),
+          className: 'text-emerald-600 dark:text-emerald-400',
+        };
+      }
+      if (level === 'large') {
+        return {
+          label: t('levelLarge'),
+          className: 'text-blue-600 dark:text-blue-400',
+        };
+      }
+      return {
+        label: '-',
+        className: 'text-text-muted',
+      };
     };
 
-    if (!loading) {
-      setAiCommentary('');
-      generate();
-    }
+    const daysLeft = maturityInfo?.days;
+    const riskLevel = daysLeft === undefined ? 'unknown' : daysLeft <= 30 ? 'high' : daysLeft <= 180 ? 'medium' : 'low';
+    const listedValue = Number(currentBond.listedValue || 0);
+    const liquidityLevel = listedValue < 100 ? 'low' : listedValue < 1000 ? 'medium' : 'high';
+    const interestRate = Number(currentBond.interestRate || 0);
+    const interestRateLevel = interestRate < 7 ? 'low' : interestRate < 10 ? 'medium' : 'high';
+    const issuedValue = Number(currentBond.issuedValue || 0);
+    const issueScaleLevel = issuedValue < 500 ? 'small' : issuedValue < 5000 ? 'medium' : 'large';
 
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeModel,
-    aiPrompt,
-    configured,
-    defaultSystemPrompt,
-    isLoadingModels,
-    isLoadingStatus,
-    loading,
-    language,
-    refreshModels,
-    statusError,
-    systemPrompt,
-    t,
-  ]);
+    return [
+      {
+        label: t('riskLevel'),
+        evidence: daysLeft === undefined ? '-' : `${daysLeft} ${t('daysUnit').toLowerCase()}`,
+        icon: ShieldCheck,
+        meta: getLevelMeta(riskLevel, 'dangerHigh'),
+      },
+      {
+        label: t('liquidityLevel'),
+        evidence: `${formatNumber(listedValue, 2)} ${t('unitBillionShort')}`,
+        icon: Gauge,
+        meta: getLevelMeta(liquidityLevel, 'dangerLow'),
+      },
+      {
+        label: t('interestRateLevel'),
+        evidence: `${formatInterestRate(interestRate)}%`,
+        icon: TrendingUp,
+        meta: getLevelMeta(interestRateLevel),
+      },
+      {
+        label: t('issueScaleLevel'),
+        evidence: `${formatNumber(issuedValue, 2)} ${t('unitBillionShort')}`,
+        icon: Landmark,
+        meta: getLevelMeta(issueScaleLevel),
+      },
+    ];
+  }, [currentBond, maturityInfo?.days, t]);
 
   const getCashFlowOptions = () => {
     if (!bondDetails?.cashFlows) return {};
@@ -513,27 +388,37 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
               )}
             </div>
 
-            <div className="mt-3 min-h-0 flex-1 rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-colors">
-              <div className="mb-4 flex items-center gap-2">
-                <Activity className="h-4 w-4 text-text-highlight" />
-                <p className="text-xs font-semibold uppercase tracking-widest text-text-base">{t('aiInsightTitle')}</p>
+            <div className="mt-3 rounded-xl border border-border-base/60 bg-bg-surface/80 p-3 transition-colors">
+              <div className="mb-2 flex items-center gap-2">
+                <Activity className="h-3 w-3 text-blue-600" />
+                <p className="text-xs font-semibold uppercase tracking-widest text-text-base">
+                  {t('quickAnalysisTitle')}
+                </p>
               </div>
-              <div className="flex min-h-0 flex-1 items-center">
-                {aiLoading ? (
-                  <div className="flex items-center gap-3 text-text-muted">
-                    <LoaderCircle className="h-4 w-4 animate-spin text-blue-600" />
-                    <p className="text-xs font-medium uppercase tracking-widest">{t('aiGeneratingInsight')}</p>
-                  </div>
-                ) : aiError ? (
-                  <div className="space-y-2">
-                    <p className="text-sm font-bold text-red-600">{aiError}</p>
-                    <p className="text-xs text-text-muted">{t('aiInsightFailedDetail')}</p>
-                  </div>
-                ) : (
-                  <p className="whitespace-pre-wrap text-sm leading-6 italic text-text-muted transition-colors">
-                    {aiCommentary || t('aiNoInsight')}
-                  </p>
-                )}
+
+              <div className="overflow-hidden rounded-lg border border-border-base/60 bg-bg-surface/60">
+                <table className="w-full table-fixed text-left">
+                  <tbody>
+                    {quickAnalysis.map((item) => (
+                      <tr key={item.label} className="border-b border-border-base/60 last:border-b-0">
+                        <td className="w-2/3 px-3 py-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-bg-base/70 text-text-muted">
+                              <item.icon className="h-3 w-3" />
+                            </div>
+                            <span className="truncate text-xs font-semibold text-text-base">
+                              {item.label}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className={`w-1/3 px-3 py-2 text-right text-xs font-semibold ${item.meta.className}`}>
+                          {item.meta.label}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
