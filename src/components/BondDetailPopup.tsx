@@ -40,6 +40,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   const [error, setError] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
   const [isTracked, setIsTracked] = useState(false);
+  const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('month');
 
   const formatTerm = (rawTerm: any) => {
     if (!rawTerm || rawTerm === 'N/A') return 'N/A';
@@ -124,6 +125,15 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
   const currentBond = bondDetails || bond;
 
+  const parseTermMonths = (rawTerm: any) => {
+    if (rawTerm === undefined || rawTerm === null) return undefined;
+    const value = String(rawTerm)
+      .replace(/(tháng|thang|months?)/gi, '')
+      .trim();
+    const match = value.match(/-?\d+(\.\d+)?/);
+    return match ? Number(match[0]) : undefined;
+  };
+
   const maturityInfo = useMemo(() => {
     if (!currentBond.maturityDate) return null;
     const maturity = new Date(currentBond.maturityDate);
@@ -199,26 +209,31 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     };
 
     const daysLeft = maturityInfo?.days;
-    const riskLevel = daysLeft === undefined ? 'unknown' : daysLeft <= 30 ? 'high' : daysLeft <= 180 ? 'medium' : 'low';
-    const listedValue = Number(currentBond.listedValue || 0);
-    const liquidityLevel = listedValue < 100 ? 'low' : listedValue < 1000 ? 'medium' : 'high';
+    const maturityPressure =
+      daysLeft === undefined ? 'unknown' : daysLeft < 90 ? 'high' : daysLeft <= 180 ? 'medium' : 'low';
     const interestRate = Number(currentBond.interestRate || 0);
-    const interestRateLevel = interestRate < 7 ? 'low' : interestRate < 10 ? 'medium' : 'high';
+    const termMonths = parseTermMonths(currentBond.term) ?? 0;
+    const interestRateLevel =
+      termMonths <= 36
+        ? interestRate < 8
+          ? 'low'
+          : interestRate <= 10
+          ? 'medium'
+          : 'high'
+        : interestRate < 10
+        ? 'low'
+        : interestRate <= 12
+        ? 'medium'
+        : 'high';
     const issuedValue = Number(currentBond.issuedValue || 0);
-    const issueScaleLevel = issuedValue < 500 ? 'small' : issuedValue < 5000 ? 'medium' : 'large';
+    const issueScaleLevel = issuedValue < 300 ? 'small' : issuedValue <= 1000 ? 'medium' : 'large';
 
     return [
       {
         label: t('riskLevel'),
         evidence: daysLeft === undefined ? '-' : `${daysLeft} ${t('daysUnit').toLowerCase()}`,
         icon: ShieldCheck,
-        meta: getLevelMeta(riskLevel, 'dangerHigh'),
-      },
-      {
-        label: t('liquidityLevel'),
-        evidence: `${formatNumber(listedValue, 2)} ${t('unitBillionShort')}`,
-        icon: Gauge,
-        meta: getLevelMeta(liquidityLevel, 'dangerLow'),
+        meta: getLevelMeta(maturityPressure, 'dangerHigh'),
       },
       {
         label: t('interestRateLevel'),
@@ -240,10 +255,52 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const sortedCashFlows = [...bondDetails.cashFlows].sort(
       (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime(),
     );
-    const dates = sortedCashFlows.map((cf) => {
+
+    const groupedCashFlows = new Map<
+      string,
+      {
+        label: string;
+        sortValue: number;
+        principalAmount: number;
+        interestAmount: number;
+      }
+    >();
+
+    sortedCashFlows.forEach((cf) => {
       const date = new Date(cf.paymentDate);
-      return `T${date.getMonth() + 1}/${date.getFullYear()}`;
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      const key = cashFlowPeriod === 'month' ? `${year}-${String(month + 1).padStart(2, '0')}` : String(year);
+      const label = cashFlowPeriod === 'month' ? `T${month + 1}/${year}` : String(year);
+      const sortValue = cashFlowPeriod === 'month' ? year * 100 + month : year;
+      const existing = groupedCashFlows.get(key);
+
+      if (existing) {
+        existing.principalAmount += cf.principalAmount || 0;
+        existing.interestAmount += cf.interestAmount || 0;
+        return;
+      }
+
+      groupedCashFlows.set(key, {
+        label,
+        sortValue,
+        principalAmount: cf.principalAmount || 0,
+        interestAmount: cf.interestAmount || 0,
+      });
     });
+
+    const cashFlowData = Array.from(groupedCashFlows.values()).sort((a, b) => a.sortValue - b.sortValue);
+    const dates = cashFlowData.map((cf) => cf.label);
+    const categoryCount = cashFlowData.length;
+    const barWidth = categoryCount <= 1 ? 24 : categoryCount <= 3 ? 20 : categoryCount <= 6 ? 16 : 12;
+    const barMaxWidth = categoryCount <= 1 ? 30 : categoryCount <= 3 ? 24 : categoryCount <= 6 ? 20 : 16;
+
+    const baseBarSeries = {
+      type: 'bar',
+      stack: 'total',
+      barWidth,
+      barMaxWidth,
+    };
 
     return {
       color: chartPalette,
@@ -269,9 +326,11 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         type: 'value',
         axisLabel: { fontSize: 10, formatter: (value: number) => formatNumber(value, 0) },
       },
+      barCategoryGap: '50%',
+      barGap: '0%',
       series: [
-        { name: t('principal'), type: 'bar', stack: 'total', data: sortedCashFlows.map((cf) => cf.principalAmount) },
-        { name: t('interest'), type: 'bar', stack: 'total', data: sortedCashFlows.map((cf) => cf.interestAmount) },
+        { ...baseBarSeries, name: t('principal'), data: cashFlowData.map((cf) => cf.principalAmount) },
+        { ...baseBarSeries, name: t('interest'), data: cashFlowData.map((cf) => cf.interestAmount) },
       ],
     };
   };
@@ -364,9 +423,28 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           </div>
 
           <div className="col-span-12 flex min-h-0 flex-col bg-bg-base/30 p-4 transition-colors lg:col-span-7 md:p-5">
+            <div className="flex items-start justify-between gap-3">
               <h3 className="text-left text-base font-bold tracking-tight text-text-base transition-colors">
-                {t('expectedCashFlow')}
+                {cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
               </h3>
+
+              <div className="inline-flex shrink-0 rounded-xl border border-border-base bg-bg-surface p-1">
+                {(['month', 'year'] as const).map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => setCashFlowPeriod(period)}
+                    className={
+                      cashFlowPeriod === period
+                        ? 'rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors'
+                        : 'rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-bg-base hover:text-text-base'
+                    }
+                  >
+                    {period === 'month' ? t('month') : t('year')}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="flex h-80 items-center justify-center transition-colors">
               {loading ? (
