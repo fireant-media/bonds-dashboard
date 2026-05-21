@@ -239,10 +239,10 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   };
 
   return (
-    <div className="animate-in fade-in duration-500">
-      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+    <div className="min-w-0 space-y-3 transition-colors duration-300">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text-base">{t('watchList')}</h1>
+          <h1 className="text-2xl font-bold text-blue-600 dark:text-white transition-colors">{t('watchList')}</h1>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

@@ -944,7 +944,7 @@ export default function MarketOverview() {
         <Card className="col-span-12 p-3 md:p-4 lg:col-span-6 flex flex-col min-h-screen">
           <div className="mb-2 flex min-w-0 flex-col gap-2">
             <div className="min-w-0 text-center">
-              <h3 className="text-sm md:text-base font-semibold text-blue-600 dark:text-white leading-snug break-words">{topIssuerMetricTitle}</h3>
+              <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">{topIssuerMetricTitle}</h3>
             </div>
             <div className="flex justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
@@ -999,7 +999,7 @@ export default function MarketOverview() {
           <Card className="p-3 md:p-4 flex flex-col flex-1">
             <div className="mb-2 flex min-w-0 flex-col gap-2">
               <div className="min-w-0 text-center">
-                <h3 className="text-sm md:text-base font-semibold text-blue-600 dark:text-white leading-snug break-words">{topInterestChartTitle}</h3>
+                <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">{topInterestChartTitle}</h3>
               </div>
               <div className="flex justify-end">
                 <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
@@ -1051,7 +1051,7 @@ export default function MarketOverview() {
           </Card>
 
           <Card className="p-3 md:p-4 flex flex-col flex-1">
-            <h3 className="mb-2 text-sm md:text-base font-semibold text-blue-600 dark:text-white text-center leading-snug break-words">{t('debtAndLots')}</h3>
+            <h3 className="mb-2 text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('debtAndLots')}</h3>
             <div className="flex-1 min-w-0 overflow-hidden">
               <ReactECharts option={debtLotsOptions} style={{ height: '100%', width: '100%' }} />
             </div>
@@ -1060,7 +1060,7 @@ export default function MarketOverview() {
 
         <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
           <div className="mb-2 min-w-0">
-            <h3 className="text-sm md:text-base font-semibold text-blue-600 dark:text-white text-center leading-snug break-words">{t('valueByIndustry')}</h3>
+            <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('valueByIndustry')}</h3>
           </div>
           <div className="flex-1 min-w-0 overflow-hidden">
             <ReactECharts option={industryValueOptions} style={{ height: '500px' }} />
@@ -1069,7 +1069,7 @@ export default function MarketOverview() {
 
         <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
           <div className="mb-2 min-w-0">
-            <h3 className="text-sm md:text-base font-semibold text-blue-600 dark:text-white text-center leading-snug break-words">{t('volumeByIndustry')}</h3>
+            <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('volumeByIndustry')}</h3>
           </div>
           <div className="flex-1 min-w-0 overflow-hidden">
             <ReactECharts option={industryVolumeOptions} style={{ height: '500px' }} />
@@ -1080,7 +1080,7 @@ export default function MarketOverview() {
           <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
             <div className="hidden md:block" />
             <div className="min-w-0">
-              <h3 className="text-sm md:text-base font-semibold text-blue-600 dark:text-white text-center leading-snug break-words">{projectedCashFlowTitle}</h3>
+              <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{projectedCashFlowTitle}</h3>
             </div>
             <div className="flex shrink-0 items-center justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">

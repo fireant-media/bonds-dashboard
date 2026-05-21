@@ -98,7 +98,7 @@ export const translations = {
     // Sidebar
     overview: 'Tổng quan thị trường',
     industry: 'Nhóm ngành',
-    enterprise: 'Doanh nghiệp',
+    enterprise: 'Tổ chức phát hành',
     maturityList: 'Danh sách đáo hạn',
     news: 'Tin tức',
     favorites: 'Danh mục theo dõi',
@@ -395,6 +395,7 @@ export const translations = {
     others: 'Khác',
     // ICB Industry Names (for dynamic translations)
     financialsIndustry: 'Tài chính',
+    financialsOtherIndustry: 'Tài chính khác',
     bankingIndustry: 'Ngân hàng',
     securitiesIndustry: 'Chứng khoán',
     realEstateIndustry: 'Bất động sản',
@@ -415,7 +416,7 @@ export const translations = {
     infrastructureServicesIndustry: 'Các dịch vụ hạ tầng',
     energyIndustry: 'Năng lượng',
     personalHouseholdGoodsIndustry: 'Hàng cá nhân & Gia đình',
-    healthcareIndustry: 'Dược phẩm & Y tế',
+    healthcareIndustry: 'Chăm sóc sức khỏe',
     travelLeisureIndustry: 'Du lịch & Giải trí',
     mediaIndustry: 'Phương tiện truyền thông',
     chemicalsIndustry: 'Hóa chất',
@@ -582,7 +583,7 @@ export const translations = {
     unitThousandShares: 'Nghìn TP',
     
     // Enterprise View Specific
-    enterpriseDetail: 'Chi tiết doanh nghiệp',
+    enterpriseDetail: 'Chi tiết tổ chức phát hành',
     bondCodeCount: 'Số lượng mã trái phiếu',
     unitBondCode: 'Mã',
     bondStructureByTerm: 'Cơ cấu mã trái phiếu theo kỳ hạn',
@@ -604,7 +605,7 @@ export const translations = {
     lowest: 'Thấp nhất',
     bondList: 'Danh sách mã trái phiếu',
     loadingBondsMessage: 'Đang tải dữ liệu trái phiếu...',
-    enterpriseList: 'Danh sách doanh nghiệp',
+    enterpriseList: 'Danh sách tổ chức phát hành',
     loadingEnterprisesMessage: 'Đang tải dữ liệu doanh nghiệp...',
     searchPlaceholderEnterprises: 'Tìm kiếm tên doanh nghiệp hoặc mã chứng khoán',
     fixed: 'Cố định',
@@ -916,7 +917,7 @@ export const translations = {
     // Sidebar
     overview: 'Market Overview',
     industry: 'Industries',
-    enterprise: 'Enterprises',
+    enterprise: 'Issuers',
     maturityList: 'Maturity List',
     news: 'News',
     favorites: 'Watchlist',
@@ -1213,6 +1214,7 @@ export const translations = {
     others: 'Others',
     // ICB Industry Names (for dynamic translations)
     financialsIndustry: 'Financial Services',
+    financialsOtherIndustry: 'Other Financials',
     bankingIndustry: 'Banking',
     securitiesIndustry: 'Securities',
     realEstateIndustry: 'Real Estate',
@@ -1399,7 +1401,7 @@ export const translations = {
     unitThousandShares: 'thousand bonds',
 
     // Enterprise View Specific
-    enterpriseDetail: 'Enterprise Detail',
+    enterpriseDetail: 'Issuer Detail',
     bondCodeCount: 'Number of Bond Codes',
     unitBondCode: 'Codes',
     bondStructureByTerm: 'Bond Structure by Term',
@@ -1421,7 +1423,7 @@ export const translations = {
     lowest: 'Lowest',
     bondList: 'Bond List',
     loadingBondsMessage: 'Loading bond data...',
-    enterpriseList: 'Enterprise List',
+    enterpriseList: 'Issuer List',
     loadingEnterprisesMessage: 'Loading enterprise data...',
     searchPlaceholderEnterprises: 'Search enterprise name or ticker',
     fixed: 'Fixed',

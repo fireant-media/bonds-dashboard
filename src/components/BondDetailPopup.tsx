@@ -20,7 +20,7 @@ import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
 import { fireantApi } from '../api/fireant';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
-import { isBondTracked, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
+import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
 
 interface BondDetailPopupProps {
   bond: Bond;
@@ -53,7 +53,6 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
-    setIsTracked(isBondTracked(bond.code));
 
     const fetchDetails = async () => {
       try {
@@ -114,14 +113,17 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     fetchDetails();
 
+    const refreshTrackedState = () => {
+      setIsTracked(isBondTracked(bond.code));
+    };
+    refreshTrackedState();
+    const unsubscribe = onWatchlistUpdated(refreshTrackedState);
+
     return () => {
       document.body.style.overflow = 'unset';
+      unsubscribe();
     };
   }, [bond, t]);
-
-  useEffect(() => {
-    setIsTracked(isBondTracked(bond.code));
-  }, [bond.code]);
 
   const currentBond = bondDetails || bond;
 

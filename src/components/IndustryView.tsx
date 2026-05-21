@@ -9,12 +9,12 @@ interface IndustryViewProps {
   industry: IndustryType;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
 import { Settings } from 'lucide-react';
-import { getCache, setCache } from '../utils/cache';
+import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
-import { buildFireantUrl, fireantApi } from '../api/fireant';
+import { CHART_PALETTE, getAdaptiveBarWidth, getChartTooltip } from '../utils/chart';
+import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
+import { loadIndustryBondGroupData } from '../services/industryBondData';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -26,119 +26,44 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
-  const cacheKey = `industry_stats_${industry}`;
+  const cacheKey = `industry_bond_group_v2_${industry}`;
   const cachedData = getCache(cacheKey);
   const [industryStats, setIndustryStats] = useState<any>(cachedData?.industryStats || null);
-  const [rankingData, setRankingData] = useState<any[]>(cachedData?.rankingData || []);
+  const [rankingData, setRankingData] = useState<any[]>(cachedData?.issuerSummaries || cachedData?.rankingData || []);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(
-    getCache(`industry_projected_cash_flows_${industry}`) || {}
+    cachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {}
   );
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
 
-  const industryConfig = useMemo(() => {
-    let statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
-    let targetName = 'Ngân hàng';
-    let icbCode = '3010';
-
-    if (industry === 'Securities') {
-      statsUrl = buildFireantUrl('bonds/stats/industries', { top: 20, level: 4 });
-      targetName = 'Công ty chứng khoán';
-      icbCode = '30202005';
-    } else if (industry === 'RealEstate') {
-      statsUrl = buildFireantUrl('bonds/stats/industries', { top: 10, level: 2 });
-      targetName = 'Bất động sản';
-      icbCode = '3510';
-    }
-
-    return { statsUrl, targetName, icbCode };
-  }, [industry]);
-
   useEffect(() => {
     setCashFlowPeriod('year');
-    setProjectedCashFlowBuckets(getCache(`industry_projected_cash_flows_${industry}`) || {});
+    setProjectedCashFlowBuckets(cachedData?.projectedCashFlowBuckets || {});
     setLoadingCashFlows(false);
-  }, [industry]);
+  }, [industry, cachedData]);
 
   useEffect(() => {
     let isMounted = true;
-    const fetchAllData = async () => {
+
+    const fetchIndustryData = async () => {
       if (!cachedData) {
         setLoading(true);
+        setLoadingCashFlows(true);
+        setIndustryStats(null);
+        setRankingData([]);
       }
+
       setError(null);
+
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        const headers: any = {
-          'Accept': 'application/json'
-        };
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        // Fetch Industry Stats
-        const statsUrl = industryConfig.statsUrl;
-        const targetName = industryConfig.targetName;
-        const icbCode = industryConfig.icbCode;
-
-        let newStats = industryStats;
-        let newRanking = rankingData;
-
-        // Fetch each part independently for better responsiveness
-        const fetchStats = async () => {
-          try {
-            const res = await fetch(statsUrl, { cache: 'no-store', headers });
-            if (res.ok) {
-              const data = await res.json();
-              const stats = data.find((item: any) => item.icbName === targetName) || null;
-              if (isMounted && stats) {
-                setIndustryStats(stats);
-                newStats = stats;
-              }
-            } else if (res.status === 401) throw new Error('401');
-          } catch (e) { console.error('Stats fetch error', e); }
-        };
-
-        const fetchRanking = async () => {
-          try {
-            // Re-use common debt cache if available
-            let topDebt = getCache('top_debt_200');
-            if (!topDebt) {
-              const topDebtRes = await fetch(buildFireantUrl('bonds/stats/issuers/top-debt', { top: 200 }), { cache: 'no-store', headers });
-              if (topDebtRes.ok) {
-                topDebt = await topDebtRes.json();
-                setCache('top_debt_200', topDebt);
-              } else if (topDebtRes.status === 401) throw new Error('401');
-            }
-
-            const symbolsRes = await fetch(buildFireantUrl(`icb/${icbCode}/symbols`), { cache: 'no-store', headers });
-            if (symbolsRes.ok && topDebt) {
-              const symbols = await symbolsRes.json();
-              const ranking = topDebt
-                .filter((item: any) => symbols.includes(item.issuerSymbol))
-                .sort((a: any, b: any) => b.totalRemainingDebt - a.totalRemainingDebt);
-              
-              if (isMounted) {
-                setRankingData(ranking);
-                newRanking = ranking;
-              }
-            } else if (symbolsRes.status === 401) throw new Error('401');
-          } catch (e) { console.error('Ranking fetch error', e); }
-        };
-
-        await Promise.all([fetchStats(), fetchRanking()]);
-
+        const groupedData = await loadIndustryBondGroupData(String(industry));
         if (!isMounted) return;
 
-        // Cache industry specific results
-        setCache(cacheKey, {
-          industryStats: newStats,
-          rankingData: newRanking
-        });
-
+        setIndustryStats(groupedData.industryStats);
+        setRankingData(groupedData.issuerSummaries);
+        setProjectedCashFlowBuckets(groupedData.projectedCashFlowBuckets);
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching industry data:', error);
@@ -148,178 +73,24 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           setError(error instanceof Error ? error.message : t('error'));
         }
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          setLoadingCashFlows(false);
+        }
       }
     };
 
-    fetchAllData();
-    return () => { isMounted = false; };
-  }, [industry, industryConfig]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchProjectedCashFlows = async () => {
-      const cashFlowCacheKey = `industry_projected_cash_flows_${industry}`;
-      const cached = getCache(cashFlowCacheKey);
-      if (cached && Object.keys(cached).length > 0) {
-        setProjectedCashFlowBuckets(cached);
-        return;
-      }
-
-      setLoadingCashFlows(true);
-
-      try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        const headers: any = {
-          Accept: 'application/json',
-        };
-        if (cleanToken) {
-          headers.Authorization = `Bearer ${cleanToken}`;
-        }
-
-        const symbolsRes = await fetch(buildFireantUrl(`icb/${industryConfig.icbCode}/symbols`), {
-          cache: 'no-store',
-          headers,
-        });
-
-        if (!symbolsRes.ok) {
-          if (symbolsRes.status === 401) throw new Error('401');
-          return;
-        }
-
-        const symbolsRaw = await symbolsRes.json();
-        const issuerSymbols = Array.from(new Set((Array.isArray(symbolsRaw) ? symbolsRaw : []).filter(Boolean)));
-        const bondsByCode = new Map<string, any>();
-        const issuerChunkSize = 6;
-
-        for (let i = 0; i < issuerSymbols.length; i += issuerChunkSize) {
-          if (!isMounted) return;
-
-          const chunk = issuerSymbols.slice(i, i + issuerChunkSize);
-          const results = await Promise.allSettled(
-            chunk.map(async (symbol) => {
-              const data = await fireantApi.getIssuerBonds(symbol);
-              return Array.isArray(data) ? data : [];
-            })
-          );
-
-          results.forEach((result) => {
-            if (result.status !== 'fulfilled') return;
-            result.value.forEach((bond: any) => {
-              const code = bond.bondCode || bond.code;
-              if (code) bondsByCode.set(String(code), bond);
-            });
-          });
-        }
-
-        const buckets = new Map<string, ProjectedCashFlowBucket>();
-        const ensureBucket = (dateString: string) => {
-          const keyInfo = getDateKey(dateString, 'month');
-          if (!keyInfo) return null;
-
-          if (!buckets.has(keyInfo.bucketKey)) {
-            buckets.set(keyInfo.bucketKey, { label: keyInfo.label, interest: 0, principal: 0 });
-          }
-
-          return buckets.get(keyInfo.bucketKey)!;
-        };
-
-        const addCashFlows = (cashFlows: any[]) => {
-          cashFlows.forEach((cashFlow) => {
-            if (!cashFlow?.paymentDate) return;
-
-            const bucket = ensureBucket(cashFlow.paymentDate);
-            if (!bucket) return;
-
-            bucket.interest += toBillionVnd(cashFlow.interestAmount);
-            bucket.principal += toBillionVnd(cashFlow.principalAmount);
-          });
-        };
-
-        const bonds = Array.from(bondsByCode.values());
-        const bondChunkSize = 10;
-
-        for (let i = 0; i < bonds.length; i += bondChunkSize) {
-          if (!isMounted) return;
-
-          const chunk = bonds.slice(i, i + bondChunkSize);
-          const results = await Promise.allSettled(
-            chunk.map(async (bond) => {
-              const code = bond.bondCode || bond.code;
-              if (!code) return { bond, cashFlows: [] };
-
-              const bondCacheKey = `bond_cash_flows_${code}`;
-              const cachedCashFlows = getCache(bondCacheKey);
-              if (Array.isArray(cachedCashFlows)) {
-                return { bond, cashFlows: cachedCashFlows };
-              }
-
-              const detailData = await fireantApi.getBond(code);
-              const cashFlows = Array.isArray(detailData.cashFlows)
-                ? detailData.cashFlows.map((cashFlow: any) => ({
-                    paymentDate: cashFlow.paymentDate,
-                    interestAmount: toBillionVnd(cashFlow.interestAmount),
-                    principalAmount: toBillionVnd(cashFlow.principalAmount),
-                  }))
-                : [];
-
-              setCache(bondCacheKey, cashFlows);
-              return { bond, cashFlows };
-            })
-          );
-
-          results.forEach((result) => {
-            if (result.status !== 'fulfilled') return;
-
-            const cashFlows = result.value.cashFlows;
-            if (cashFlows.length > 0) {
-              addCashFlows(cashFlows);
-              return;
-            }
-
-            const bond = result.value.bond;
-            const fallbackDate = bond.maturityDate || bond.paymentDate;
-            const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
-            if (!fallbackDate || !fallbackPrincipal) return;
-
-            const bucket = ensureBucket(fallbackDate);
-            if (bucket) bucket.principal += toBillionVnd(fallbackPrincipal);
-          });
-
-          if (isMounted) {
-            const partialBuckets = Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
-            setProjectedCashFlowBuckets(partialBuckets);
-          }
-        }
-
-        if (!isMounted) return;
-
-        const finalBuckets = Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
-        setProjectedCashFlowBuckets(finalBuckets);
-        setCache(cashFlowCacheKey, finalBuckets);
-      } catch (error) {
-        console.error('Industry projected cash flow fetch error', error);
-      } finally {
-        if (isMounted) setLoadingCashFlows(false);
-      }
-    };
-
-    fetchProjectedCashFlows();
-
+    fetchIndustryData();
     return () => {
       isMounted = false;
     };
-  }, [industry, industryConfig]);
+  }, [industry]);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
   const getIndustryLabel = (ind: string) => {
-    // Basic translations for the three main tabs
-    if (ind === 'Banking') return t('Banking');
-    if (ind === 'Securities') return t('Securities');
-    if (ind === 'RealEstate') return t('RealEstate');
+    const labelKey = INDUSTRY_LABEL_KEYS[ind];
+    if (labelKey) return t(labelKey as any);
     
     // Fallback to general translation for any other industry string
     return t(ind as any);
@@ -373,17 +144,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     };
   };
 
-  const toNumber = (value: unknown) => {
-    const numberValue = Number(value);
-    return Number.isFinite(numberValue) ? numberValue : 0;
-  };
-
-  const toBillionVnd = (value: unknown) => {
-    const numberValue = toNumber(value);
-    if (!numberValue) return 0;
-    return Math.abs(numberValue) > 1000000 ? numberValue / 1000000000 : numberValue;
-  };
-
   const getKpis = () => {
     if (industryStats) {
       return [
@@ -427,6 +187,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const getRankingOptions = () => {
     const displayData = [...rankingData].reverse();
+    const categoryCount = displayData.length;
     const maxDebt = rankingData.length > 0 ? Math.max(...rankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
     const interval = (industry === 'Banking' || industry === 'RealEstate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
 
@@ -466,7 +227,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         type: 'bar',
         data: displayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)),
         itemStyle: { borderRadius: [0, 4, 4, 0] },
-        barWidth: '60%'
+        barWidth: getAdaptiveBarWidth(categoryCount)
       }]
     };
   };
@@ -573,6 +334,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       { name: t('avgCouponInterest'), value: industryStats.avgCouponRate },
       { name: t('floatingInterest'), value: industryStats.floatingRate }
     ] : [];
+    const categoryCount = data.length;
 
     return {
       color: chartPalette,
@@ -601,7 +363,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       series: [{
         name: `${t('interestRate')} (%)`,
         type: 'bar',
-        barWidth: '40%',
+        barWidth: getAdaptiveBarWidth(categoryCount),
         data: data.map(d => d.value),
         itemStyle: { 
           borderRadius: [4, 4, 0, 0]
@@ -622,6 +384,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const getCombinedOptions = () => {
     const displayData = rankingData;
+    const categoryCount = displayData.length;
 
     return {
       color: chartPalette,
@@ -675,6 +438,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           name: t('remainingDebtTitle'), 
           type: 'bar', 
           data: displayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)), 
+          barWidth: getAdaptiveBarWidth(categoryCount),
           itemStyle: { } 
         },
         { 
@@ -774,7 +538,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         stack: 'cashFlow',
         data: projectedCashFlowData.interest,
         itemStyle: { borderRadius: 0 },
-        barWidth: '45%'
+        barWidth: getAdaptiveBarWidth(projectedCashFlowData.labels.length)
       },
       {
         name: t('totalPrincipalPayable'),
@@ -782,7 +546,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         stack: 'cashFlow',
         data: projectedCashFlowData.principal,
         itemStyle: { borderRadius: 0 },
-        barWidth: '45%'
+        barWidth: getAdaptiveBarWidth(projectedCashFlowData.labels.length)
       }
     ]
   };
@@ -819,13 +583,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   }
 
   return (
-    <div className="space-y-4 transition-colors duration-300">
+    <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div>
         <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {kpis.map((kpi, idx) => (
           <div key={idx} className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32">
             <p className="text-sm font-semibold text-text-muted/80 mb-2">{kpi.label}</p>
@@ -841,7 +605,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           className="col-span-12 lg:col-span-6 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col"
         >
           <div className="mb-3">
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('debtRanking')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('debtRanking')}</h3>
           </div>
           <ReactECharts option={rankingOptions} style={{ height: '570px' }} />
         </div>
@@ -852,7 +616,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
           <div className="mb-3">
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('marketShare')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('marketShare')}</h3>
           </div>
             <ReactECharts option={marketShareOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '250px' }} />
           </div>
@@ -862,7 +626,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
           >
           <div className="mb-3">
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('industryInterest')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('industryInterest')}</h3>
           </div>
             <ReactECharts option={interestOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '200px' }} />
           </div>
@@ -873,7 +637,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
         >
           <div className="mb-2">
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
           </div>
           <ReactECharts option={combinedOptions} style={{ height: '400px' }} />
         </div>
@@ -882,7 +646,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
             <div className="hidden md:block" />
             <div className="min-w-0">
-              <h3 className="text-base font-semibold text-blue-600 dark:text-white text-center transition-colors">{projectedCashFlowTitle}</h3>
+              <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{projectedCashFlowTitle}</h3>
             </div>
             <div className="flex shrink-0 items-center justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">

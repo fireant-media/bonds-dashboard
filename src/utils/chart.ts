@@ -12,3 +12,11 @@ export const getChartTooltip = (isDark: boolean) => ({
     fontWeight: 'normal' as const,
   },
 });
+
+export const getAdaptiveBarWidth = (categoryCount: number) => {
+  if (categoryCount <= 1) return '20%';
+  if (categoryCount <= 2) return '35%';
+  if (categoryCount <= 3) return '45%';
+  if (categoryCount <= 5) return '55%';
+  return '65%';
+};

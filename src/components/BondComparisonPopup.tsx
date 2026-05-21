@@ -539,7 +539,24 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     setSearchTerm('');
   };
 
+  const saveSelectedBondsToWatchlist = (bondsToSave: Bond[]) => {
+    bondsToSave.forEach((bond) => {
+      upsertWatchlistItem({
+        ...bond,
+        issuerName: bond.enterpriseId || bond.code,
+        ticker: bond.enterpriseId || '',
+      });
+    });
+
+    setWatchlistMessage(t('addToWatchlistSuccess'));
+  };
+
   const handleOpenWatchlistPicker = () => {
+    if (selectedBonds.length <= 1) {
+      saveSelectedBondsToWatchlist(selectedBonds);
+      return;
+    }
+
     setWatchlistSelections(
       selectedBonds.reduce<Record<string, boolean>>((acc, bond) => {
         acc[bond.code] = true;
@@ -561,17 +578,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   const handleSaveWatchlist = () => {
     const bondsToSave = selectedBonds.filter((bond) => watchlistSelections[bond.code]);
-
-    bondsToSave.forEach((bond) => {
-      upsertWatchlistItem({
-        ...bond,
-        issuerName: bond.enterpriseId || bond.code,
-        ticker: bond.enterpriseId || '',
-      });
-    });
-
+    saveSelectedBondsToWatchlist(bondsToSave);
     setShowWatchlistPicker(false);
-    setWatchlistMessage(t('addToWatchlistSuccess'));
   };
 
   const chartColors = {

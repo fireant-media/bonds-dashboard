@@ -1153,25 +1153,25 @@ export default function EnterpriseView({
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByTerm')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByTerm')}</h3>
             <ReactECharts option={pieOptions} style={{ height: '320px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
             <ReactECharts option={interestTypePieOptions} style={{ height: '300px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('interestRateVsTerm')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('interestRateVsTerm')}</h3>
             <ReactECharts option={bubbleOptions} style={{ height: '300px' }} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-semibold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
+            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
             <ReactECharts option={columnOptions} style={{ height: '300px' }} />
           </div>
         </div>
@@ -1179,7 +1179,7 @@ export default function EnterpriseView({
         <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
           <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-center">
             <div className="hidden sm:block" />
-            <h3 className="text-center text-base font-semibold text-blue-600 dark:text-white transition-colors">{projectedCashFlowTitle}</h3>
+            <h3 className="text-center text-base font-bold text-blue-600 dark:text-white transition-colors">{projectedCashFlowTitle}</h3>
             <div className="flex items-center justify-center gap-1 justify-self-center bg-bg-base border border-border-base rounded-lg p-1 sm:justify-self-end">
               <button
                 type="button"
@@ -1444,10 +1444,10 @@ export default function EnterpriseView({
   }
 
   return (
-    <div className="p-0 md:p-4 space-y-4 transition-colors">
+    <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('enterprise')}</h2>
+          <h2 className="text-2xl font-bold text-blue-600 dark:text-white text-center transition-colors">{t('enterprise')}</h2>
         </div>
         <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
       </div>

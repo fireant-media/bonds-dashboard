@@ -276,7 +276,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   }
 
   return (
-    <div className="p-0 md:p-4 animate-in fade-in duration-500 transition-colors">
+    <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('maturityTitle')}</h1>
         <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
