@@ -172,15 +172,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let lastStatus = 502;
     let lastBodyType = 'empty';
+    let lastError = '';
 
     for (const url of urls) {
-      const result = await fetchPosts(url, token);
-      lastStatus = result.status;
-      lastBodyType = Array.isArray(result.data) ? 'array' : typeof result.data;
+      try {
+        const result = await fetchPosts(url, token);
+        lastStatus = result.status;
+        lastBodyType = Array.isArray(result.data) ? 'array' : typeof result.data;
 
-      const posts = extractPosts(result.data);
-      if (result.ok && posts.length > 0) {
-        return res.status(200).json(posts.map(mapPost));
+        const posts = extractPosts(result.data);
+        if (result.ok && posts.length > 0) {
+          return res.status(200).json(posts.map(mapPost));
+        }
+      } catch (error: any) {
+        lastError = error?.message || 'Unknown fetch error';
+        console.warn(`[News API] Failed to fetch ${new URL(url).hostname}: ${lastError}`);
       }
     }
 
@@ -189,6 +195,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: 'Upstream FireAnt news API returned no usable data',
       status: lastStatus,
       bodyType: lastBodyType,
+      lastError,
     });
   } catch (error: any) {
     console.error('[News API Error]', error?.stack || error?.message || error);
