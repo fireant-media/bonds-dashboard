@@ -187,7 +187,7 @@ export default function RightPanel({
 
         if (Array.isArray(data)) {
           for (const b of data) {
-            const bondCode = String(b.bondCode || b.code || '');
+            const bondCode = String(b.bondCode || '');
             if (!bondCode || seenCodes.has(bondCode)) {
               continue;
             }
@@ -202,7 +202,7 @@ export default function RightPanel({
           .slice(0, 10);
 
         const mappedData: ExpiringBond[] = sortedBonds.map((b: any) => {
-          const bondCode = String(b.bondCode || b.code || '');
+          const bondCode = String(b.bondCode || '');
           return {
             id: bondCode,
             code: bondCode,

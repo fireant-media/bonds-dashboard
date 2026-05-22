@@ -572,10 +572,12 @@ export default function EnterpriseView({
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching enterprise data:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
+        if (!cachedData) {
+          if (error instanceof Error && error.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(error instanceof Error ? error.message : t('error'));
+          }
         }
       } finally {
         if (isMounted) setLoading(false);

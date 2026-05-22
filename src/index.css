@@ -17,25 +17,25 @@
 }
 
 :root {
-  --bg-base: #f8fafc;
+  --bg-base: #f7f7f5;
   --bg-surface: #ffffff;
-  --surface-container-low: #f1f5f9;
+  --surface-container-low: #f0f0ee;
   --surface-bright: #ffffff;
-  --text-base: #172033;
-  --text-muted: #64748b;
+  --text-base: #111111;
+  --text-muted: #4f4f4f;
   --text-highlight: #2563eb;
-  --border-base: #e2e8f0;
+  --border-base: #d9d9d9;
 }
 
 .dark {
-  --bg-base: #0f172a;
-  --bg-surface: #172033;
-  --surface-container-low: #111827;
-  --surface-bright: #1e293b;
-  --text-base: #e5edf7;
-  --text-muted: #94a3b8;
-  --text-highlight: #3b82f6;
-  --border-base: #334155;
+  --bg-base: #081225;
+  --bg-surface: #0b1730;
+  --surface-container-low: #12203a;
+  --surface-bright: #152544;
+  --text-base: #e6eefc;
+  --text-muted: #9fb2d1;
+  --text-highlight: #4d93f9;
+  --border-base: #243758;
 }
 
 @layer base {

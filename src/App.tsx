@@ -10,6 +10,7 @@ import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
 import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
 import { fireantApi } from './api/fireant';
+import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
 import { Calendar, Menu, Newspaper } from 'lucide-react';
 
 const MarketOverview = lazy(() => import('./components/MarketOverview'));
@@ -273,6 +274,11 @@ export default function App() {
         },
       }),
     }).catch(console.error);
+
+    warmDashboardCoreDataInBackground();
+    void import('./components/MarketOverview');
+    void import('./components/IndustryView');
+    void import('./components/EnterpriseView');
   }, [user, authLoading]);
 
   const handleLogout = async () => {
@@ -407,26 +413,18 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-bg-base">
+      <div className="min-h-screen flex items-center justify-center bg-bg-base text-text-base">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
-          <p className="text-white/60 font-bold uppercase tracking-widest text-xs">{t('authenticating')}</p>
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600/20 border-t-blue-600"></div>
+          <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">Đang xác thực...</p>
         </div>
-        <Suspense fallback={null}>
-          <AIChatBot />
-        </Suspense>
       </div>
     );
   }
 
   if (!user) {
     return (
-      <>
-        <LoginView onSignIn={signIn} isSigningIn={authLoading} />
-        <Suspense fallback={null}>
-          <AIChatBot />
-        </Suspense>
-      </>
+      <LoginView onSignIn={signIn} isSigningIn={authLoading} />
     );
   }
 

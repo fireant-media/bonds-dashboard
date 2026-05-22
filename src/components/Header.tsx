@@ -8,6 +8,7 @@ import { useTheme } from '../ThemeContext';
 import { Language } from '../translations';
 import { loadIssuerStatsSummary } from '../services/industryBondData';
 import { loadBondDetail, loadMaturingBonds } from '../services/bondData';
+import { fireantApi } from '../api/fireant';
 
 const HeaderAppLogo = () => {
   const id = useId();

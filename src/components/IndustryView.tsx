@@ -60,12 +60,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         setProjectedCashFlowBuckets(cachedGroupData.projectedCashFlowBuckets || {});
         setLoading(false);
         setLoadingCashFlows(false);
-        return;
       }
 
       setError(null);
-      setLoading(true);
-      setLoadingCashFlows(true);
+      if (!cachedGroupData) {
+        setLoading(true);
+        setLoadingCashFlows(true);
+      }
 
       try {
         const stats = await loadIndustryStats(String(industry));
@@ -87,10 +88,12 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching industry data:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
+        if (!cachedGroupData) {
+          if (error instanceof Error && error.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(error instanceof Error ? error.message : t('error'));
+          }
         }
       } finally {
         if (isMounted) {

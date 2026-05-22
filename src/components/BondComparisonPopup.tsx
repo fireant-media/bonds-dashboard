@@ -10,10 +10,11 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
-import { buildFireantUrl } from '../api/fireant';
+import { buildFireantUrl, fireantApi } from '../api/fireant';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
 import { upsertWatchlistItem } from '../utils/watchlist';
+import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
 
 const MAX_SELECTED_BONDS = 4;
 
@@ -433,7 +434,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           maturityDate,
           interestType,
           status: b.status || t('active'),
-          issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseName || ''),
+          issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseId || ''),
         } as Bond;
 
         addComparisonBond(fullBond);

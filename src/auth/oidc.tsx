@@ -163,14 +163,10 @@ export const useOidcAuth = () => {
       throw new Error('Missing VITE_OIDC_CLIENT_ID');
     }
     try {
-      await authManager.signinPopup();
-    } catch (error) {
-      if (isPopupClosedByUser(error)) {
-        console.info('Sign-in popup was dismissed by user');
-        return;
-      }
-      console.warn('Popup sign-in failed, fallback to redirect', error);
       await authManager.signinRedirect();
+    } catch (error) {
+      console.error('Sign-in redirect failed', error);
+      throw error;
     }
   }, []);
 

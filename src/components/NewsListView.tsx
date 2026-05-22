@@ -20,6 +20,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
   const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
   const loadingRef = useRef(false);
+  const newsListRef = useRef<NewsItem[]>([]);
 
   useEffect(() => {
     const cached = getCachedNews();
@@ -27,6 +28,10 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
       setNewsList(cached);
     }
   }, []);
+
+  useEffect(() => {
+    newsListRef.current = newsList;
+  }, [newsList]);
 
   const loadData = useCallback(async (isAutoRefresh = false, force = false) => {
     if (loadingRef.current) return;
@@ -39,7 +44,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
       }
     }
 
-    const hasExistingNews = newsList.length > 0;
+    const hasExistingNews = newsListRef.current.length > 0;
     if (!hasExistingNews) {
       setLoading(true);
     }
@@ -59,7 +64,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [newsList.length, t]);
+  }, [t]);
 
   useEffect(() => {
     loadData();

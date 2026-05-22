@@ -1,24 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  AlertCircle,
   ArrowRight,
   BarChart3,
   Building2,
-  CirclePlay,
+  Clock3,
+  Database,
+  Globe2,
+  Landmark,
   LineChart,
-  Network,
+  PlayCircle,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { useLanguage } from '../LanguageContext';
-import { getCache, setCache } from '../utils/cache';
-import { formatNumber } from '../utils/format';
-import { loadIndustryStatsByLevel, loadIssuerStatsSummary } from '../services/industryBondData';
-import { loadMaturingBonds } from '../services/bondData';
 import Logo from './Logo';
+import { getCache } from '../utils/cache';
+import { formatNumber } from '../utils/format';
 
 interface LoginViewProps {
   onSignIn: () => Promise<void> | void;
@@ -37,411 +35,511 @@ type LoginSnapshot = {
   topIndustryRemainingDebt: number;
   upcoming30: number;
   upcoming90: number;
+  upcoming180: number;
+  issuerBars: Array<{
+    label: string;
+    value: number;
+    debt: number;
+  }>;
+  industryHeatmap: Array<{
+    label: string;
+    value: number;
+    debt: number;
+  }>;
+  maturityTimeline: Array<{
+    label: string;
+    value: number;
+  }>;
 };
 
-const navItems = ['Features', 'Solutions', 'Pricing', 'About'];
+type CacheIssuerRow = {
+  issuerName?: string;
+  issuerSymbol?: string;
+  totalRemainingDebt?: number;
+  totalIssuedValue?: number;
+  bondCount?: number;
+};
+
+type CacheIndustryRow = {
+  icbName?: string;
+  totalRemainingDebt?: number;
+};
+
+const navItems = [
+  { label: 'Tính năng', target: 'features' },
+  { label: 'Giải pháp', target: 'solutions' },
+  { label: 'Giới thiệu', target: 'about' },
+];
 
 const featureCards = [
   {
-    icon: BarChart3,
-    title: 'Phân Tích Chuyên Sâu',
-    description: 'Quan sát danh mục, lãi suất, kỳ hạn và xu hướng thị trường trong một workflow thống nhất.',
+    icon: TrendingUp,
+    title: 'Phân tích chuyên sâu',
+    description: 'Phân tích dư nợ, lợi suất và quy mô phát hành theo thời gian thực trong một giao diện tập trung.',
   },
   {
     icon: ShieldCheck,
-    title: 'Quản Trị Rủi Ro',
-    description: 'Theo dõi trái phiếu sắp đáo hạn, dư nợ còn lại và các điểm nóng theo ngành phát hành.',
+    title: 'Quản trị rủi ro',
+    description: 'Theo dõi áp lực đáo hạn và tín hiệu biến động để hỗ trợ quyết định nhanh hơn.',
   },
   {
-    icon: Network,
-    title: 'Kết Nối Dữ Liệu',
-    description: 'Liên kết trái phiếu, tổ chức phát hành và ngành ICB để truy vấn nhanh hơn.',
+    icon: BarChart3,
+    title: 'Tích hợp API',
+    description: 'Kết nối dữ liệu thị trường, tổ chức phát hành và ngành trong một luồng hiển thị nhất quán.',
   },
 ];
 
-const chartBars = [44, 58, 68, 82, 92, 100];
+const footerColumns = [
+  {
+    title: 'Product',
+    items: ['Dashboard', 'Market Data', 'Realtime Flow'],
+  },
+  {
+    title: 'Company',
+    items: ['About', 'Contact', 'Support'],
+  },
+  {
+    title: 'Legal',
+    items: ['Privacy Policy', 'Terms of Service', 'Security'],
+  },
+];
+
+const formatBillion = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} tỷ`;
+
+const normalizeIndustryLabel = (value: string | undefined) => (value && value.trim() ? value : 'Chưa xác định');
+
+const resolveSnapshot = (): LoginSnapshot | null => {
+  const cachedSnapshot = getCache('login_snapshot') as LoginSnapshot | null;
+  if (cachedSnapshot) return cachedSnapshot;
+
+  const cachedOverview = getCache('market_overview') as {
+    issuerStatsData?: CacheIssuerRow[];
+    industryData?: CacheIndustryRow[];
+  } | null;
+
+  if (!cachedOverview?.issuerStatsData?.length && !cachedOverview?.industryData?.length) {
+    return null;
+  }
+
+  const issuerRows = cachedOverview.issuerStatsData || [];
+  const industryRows = cachedOverview.industryData || [];
+  const sortedIssuers = [...issuerRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const sortedIndustries = [...industryRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const topIssuer = sortedIssuers[0];
+  const topIndustry = sortedIndustries[0];
+  const maxIssuerDebt = Math.max(...sortedIssuers.slice(0, 5).map((issuer) => Number(issuer.totalRemainingDebt || 0)), 0);
+  const maxIndustryDebt = Math.max(
+    ...sortedIndustries.slice(0, 6).map((industry) => Number(industry.totalRemainingDebt || 0)),
+    0,
+  );
+
+  return {
+    totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
+    totalIssuers: issuerRows.length,
+    totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
+    totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
+    topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
+    topIssuerSymbol: topIssuer?.issuerSymbol || '',
+    topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
+    topIndustryName: normalizeIndustryLabel(topIndustry?.icbName),
+    topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
+    upcoming30: 0,
+    upcoming90: 0,
+    upcoming180: 0,
+    issuerBars: sortedIssuers.slice(0, 5).map((issuer) => ({
+      label: issuer.issuerSymbol || issuer.issuerName || '--',
+      value: maxIssuerDebt > 0 ? Math.round((Number(issuer.totalRemainingDebt || 0) / maxIssuerDebt) * 100) : 0,
+      debt: Number(issuer.totalRemainingDebt || 0),
+    })),
+    industryHeatmap: sortedIndustries.slice(0, 6).map((industry) => ({
+      label: normalizeIndustryLabel(industry.icbName),
+      value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
+      debt: Number(industry.totalRemainingDebt || 0),
+    })),
+    maturityTimeline: [
+      { label: '30 ngày', value: 0 },
+      { label: '90 ngày', value: 0 },
+      { label: '180 ngày', value: 0 },
+    ],
+  };
+};
+
+const getHeightClass = (value: number) => {
+  if (value >= 90) return 'h-28';
+  if (value >= 75) return 'h-24';
+  if (value >= 60) return 'h-20';
+  if (value >= 45) return 'h-16';
+  if (value >= 30) return 'h-12';
+  if (value >= 15) return 'h-10';
+  return 'h-8';
+};
+
+const getHeatWidthClass = (value: number) => {
+  if (value >= 90) return 'w-full';
+  if (value >= 75) return 'w-5/6';
+  if (value >= 60) return 'w-3/4';
+  if (value >= 45) return 'w-2/3';
+  if (value >= 30) return 'w-1/2';
+  return 'w-1/3';
+};
 
 export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
-  const { t } = useLanguage();
-  const [error, setError] = useState<string | null>(null);
-  const [snapshot, setSnapshot] = useState<LoginSnapshot | null>(null);
+  const [snapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
 
   const handleLogin = async () => {
-    setError(null);
-
     try {
       await onSignIn();
-    } catch (err) {
-      console.error('OIDC sign-in failed', err);
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Sign in failed: ${message}`);
+    } catch (error) {
+      console.error('OIDC sign-in failed', error);
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
+  const scrollToSection = (target: string) => {
+    document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
-    const loadSnapshot = async () => {
-      const cachedOverview = getCache('market_overview') as {
-        issuerStatsData?: Array<{ issuerName?: string; issuerSymbol?: string; totalRemainingDebt?: number; totalIssuedValue?: number; bondCount?: number }>;
-        industryData?: Array<{ icbName?: string; totalRemainingDebt?: number }>;
-      } | null;
+  const heroStats = [
+    {
+      label: 'Mã trái phiếu',
+      value: snapshot ? formatNumber(snapshot.totalBonds, 0) : '0',
+      icon: Database,
+    },
+    {
+      label: 'Tổ chức phát hành',
+      value: snapshot ? formatNumber(snapshot.totalIssuers, 0) : '0',
+      icon: Users,
+    },
+    {
+      label: 'Dư nợ còn lại',
+      value: snapshot ? formatBillion(snapshot.totalRemainingDebt) : '0 tỷ',
+      icon: LineChart,
+    },
+    {
+      label: 'Giá trị phát hành',
+      value: snapshot ? formatBillion(snapshot.totalIssuedValue) : '0 tỷ',
+      icon: Building2,
+    },
+  ];
 
-      const cachedSnapshot = getCache('login_snapshot') as LoginSnapshot | null;
-      if (cachedSnapshot) {
-        setSnapshot(cachedSnapshot);
-        return;
-      }
+  const topIssuerLabel = snapshot
+    ? snapshot.topIssuerSymbol
+      ? `${snapshot.topIssuerName} (${snapshot.topIssuerSymbol})`
+      : snapshot.topIssuerName
+    : 'FireAnt';
 
-      if (cachedOverview?.issuerStatsData?.length) {
-        const issuerRows = cachedOverview.issuerStatsData;
-        const industryRows = cachedOverview.industryData || [];
-        const sortedIssuers = [...issuerRows].sort((a, b) => (b.totalRemainingDebt || 0) - (a.totalRemainingDebt || 0));
-        const topIssuer = sortedIssuers[0];
-        const topIndustry = [...industryRows].sort((a, b) => (b.totalRemainingDebt || 0) - (a.totalRemainingDebt || 0))[0];
-        const derivedSnapshot: LoginSnapshot = {
-          totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
-          totalIssuers: issuerRows.length,
-          totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
-          totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
-          topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
-          topIssuerSymbol: topIssuer?.issuerSymbol || '',
-          topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
-          topIndustryName: topIndustry?.icbName || 'Industry',
-          topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
-          upcoming30: 0,
-          upcoming90: 0,
-        };
+  const previewCards = [
+    {
+      label: 'Tổ chức dẫn đầu',
+      value: topIssuerLabel,
+      detail: snapshot ? `${formatBillion(snapshot.topIssuerRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
+      icon: Landmark,
+    },
+    {
+      label: 'Ngành dẫn đầu',
+      value: snapshot?.topIndustryName || 'Chưa xác định',
+      detail: snapshot ? `${formatBillion(snapshot.topIndustryRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
+      icon: Globe2,
+    },
+    {
+      label: 'Đáo hạn 90 ngày',
+      value: snapshot ? `${formatNumber(snapshot.upcoming90, 0)} mã` : '0 mã',
+      detail: 'Giám sát thanh khoản',
+      icon: Clock3,
+    },
+  ];
 
-        setSnapshot(derivedSnapshot);
-        setCache('login_snapshot', derivedSnapshot);
-        return;
-      }
-
-      try {
-        const [issuers, industries, upcoming30, upcoming90] = await Promise.all([
-          loadIssuerStatsSummary(200),
-          loadIndustryStatsByLevel(1),
-          loadMaturingBonds(30),
-          loadMaturingBonds(90),
-        ]);
-
-        if (cancelled) return;
-
-        const sortedIssuers = [...issuers].sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt);
-        const topIssuer = sortedIssuers[0];
-        const sortedIndustries = [...industries].sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt);
-        const topIndustry = sortedIndustries[0];
-
-        const nextSnapshot: LoginSnapshot = {
-          totalBonds: issuers.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
-          totalIssuers: issuers.length,
-          totalRemainingDebt: issuers.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
-          totalIssuedValue: issuers.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
-          topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
-          topIssuerSymbol: topIssuer?.issuerSymbol || '',
-          topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
-          topIndustryName: topIndustry?.icbName || 'Industry',
-          topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
-          upcoming30: Array.isArray(upcoming30) ? upcoming30.length : 0,
-          upcoming90: Array.isArray(upcoming90) ? upcoming90.length : 0,
-        };
-
-        setSnapshot(nextSnapshot);
-        setCache('login_snapshot', nextSnapshot);
-      } catch (loadError) {
-        console.warn('Failed to load login snapshot', loadError);
-      }
-    };
-
-    void loadSnapshot();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const heroStats = useMemo(() => {
-    const totalBonds = snapshot?.totalBonds ?? 0;
-    const totalIssuers = snapshot?.totalIssuers ?? 0;
-    const remainingDebtBillion = (snapshot?.totalRemainingDebt ?? 0) / 1_000_000_000;
-
-    return [
-      { label: 'MÃ£ trÃ¡i phiáº¿u', value: totalBonds ? formatNumber(totalBonds, 0) : '0' },
-      { label: 'Tá»• chá»©c phÃ¡t hÃ nh', value: totalIssuers ? formatNumber(totalIssuers, 0) : '0' },
-      { label: 'DÆ° ná»£ cÃ²n láº¡i', value: remainingDebtBillion ? `${formatNumber(remainingDebtBillion, 2)} Tá»·` : '0 Tá»·' },
-    ];
-  }, [snapshot]);
-
-  const topIssuerLabel = snapshot?.topIssuerSymbol
-    ? `${snapshot.topIssuerName} (${snapshot.topIssuerSymbol})`
-    : snapshot?.topIssuerName || 'FireAnt';
+  const bars = snapshot?.issuerBars || [];
+  const heatmap = snapshot?.industryHeatmap || [];
+  const maturityTimeline = snapshot?.maturityTimeline || [
+    { label: '30 ngày', value: 0 },
+    { label: '90 ngày', value: 0 },
+    { label: '180 ngày', value: 0 },
+  ];
 
   return (
-    <div className="min-h-dvh bg-gradient-to-b from-slate-50 via-white to-blue-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <Logo />
-            <div className="leading-tight">
-              <p className="text-lg font-bold text-slate-900">FireAnt</p>
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-                Institutional Analytics
-              </p>
-            </div>
-          </div>
-
-          <nav className="hidden items-center gap-8 lg:flex">
-            {navItems.map((item) => (
-              <a
-                key={item}
-                href="#"
-                className="text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
-              >
-                {item}
-              </a>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-2">
+    <div className="min-h-dvh bg-bg-base text-text-base">
+      <header className="sticky top-0 z-30 border-b border-border-base bg-bg-surface/95 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-8">
             <button
               type="button"
-              onClick={handleLogin}
-              disabled={isSigningIn}
-              className="hidden rounded-full px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:text-slate-900 sm:inline-flex"
+              onClick={() => scrollToSection('overview')}
+              className="flex items-center"
+              aria-label="Fireant"
             >
-              Login
+              <Logo />
+            </button>
+
+            <nav className="hidden items-center gap-6 md:flex">
+              {navItems.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => scrollToSection(item.target)}
+                  className="rounded px-3 py-2 text-sm text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void handleLogin()}
+              disabled={isSigningIn}
+              className="inline-flex items-center justify-center rounded-lg border border-blue-500 px-5 py-2 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Đăng ký tài khoản
             </button>
             <button
               type="button"
-              onClick={handleLogin}
+              onClick={() => void handleLogin()}
               disabled={isSigningIn}
-              className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg border border-blue-500 px-5 py-2 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Get Started
+              Đăng nhập
             </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-        <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12">
-          <motion.section
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45 }}
-            className="space-y-8"
-          >
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
-              <Sparkles className="h-4 w-4" />
-              Institutional Grade Analytics
-            </div>
-
-            <div className="space-y-5">
-              <h1 className="max-w-2xl text-4xl font-bold leading-tight tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
-                Làm Chủ Thị Trường Trái Phiếu Với{' '}
-                <span className="text-blue-600">FireAnt</span>
+      <main>
+        <section id="overview" className="relative overflow-hidden bg-bg-base px-4 pt-12 pb-4 sm:px-6 lg:px-8 lg:pt-12 lg:pb-12">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent" />
+          <div className="mx-auto grid max-w-7xl items-center gap-6 lg:grid-cols-12">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45 }}
+              className="relative z-10 lg:col-span-6"
+            >
+              <h1 className="max-w-2xl text-4xl font-bold leading-tight tracking-tight text-text-base sm:text-5xl xl:text-6xl">
+                Làm Chủ Thị Trường Trái Phiếu Với <span className="text-blue-600">Fireant</span>
               </h1>
-              <p className="max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">
-                Nền tảng quản lý danh mục trái phiếu chuyên sâu dành cho nhà đầu tư tổ chức. Dữ liệu hiển thị ở
-                đây được đồng bộ trực tiếp với các nguồn đang dùng trong dashboard: tổ chức phát hành, ngành ICB,
-                mã trái phiếu và dòng tiền dự kiến.
+              <p className="mt-6 max-w-2xl text-base leading-8 text-text-muted sm:text-lg">
+                Nền tảng dữ liệu và phân tích trái phiếu dành cho nhà đầu tư chuyên nghiệp - trực quan, tốc độ cao
+                và tập trung vào quyết định đầu tư.
+              </p>
+
+              <div className="mt-8 flex flex-col gap-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => void handleLogin()}
+                  disabled={isSigningIn}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-8 py-4 font-bold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Bắt Đầu Ngay
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection('solutions')}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-border-base bg-bg-surface px-8 py-4 font-semibold text-text-base transition-colors hover:bg-bg-base"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  Xem Demo
+                </button>
+              </div>
+
+              <div className="mt-6 flex items-center gap-8">
+                <div className="flex flex-col">
+                  <span className="text-2xl font-bold text-text-base">
+                    {snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,000+'}
+                  </span>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
+                    Mã trái phiếu
+                  </span>
+                </div>
+                <div className="h-10 w-px bg-border-base" />
+                <div className="flex flex-col">
+                  <span className="text-2xl font-bold text-text-base">
+                    {snapshot ? formatNumber(snapshot.totalIssuers, 0) : '100+'}
+                  </span>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
+                    Tổ chức phát hành
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.05 }}
+              className="relative lg:col-span-6"
+            >
+              <div className="grid grid-cols-6 gap-4 items-start">
+                <div className="data-card col-span-6 overflow-hidden rounded-xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                  <div className="flex flex-col">
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-text-base">Khối lượng trái phiếu theo ngành</h3>
+                        <p className="mt-1 text-xs text-text-muted">Đơn vị: Nghìn tỷ VNĐ</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <span className="h-3 w-3 rounded-sm bg-blue-500" />
+                          <span className="text-xs font-medium text-text-muted">Phát hành</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="h-3 w-3 rounded-sm bg-emerald-500" />
+                          <span className="text-xs font-medium text-text-muted">Niêm yết</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  <div className="mt-4 grid grid-cols-5 items-end gap-2">
+                    {[
+                      { label: 'Bất động sản', issue: 85, listed: 70 },
+                      { label: 'Ngân hàng', issue: 95, listed: 90 },
+                      { label: 'Xây dựng', issue: 45, listed: 35 },
+                      { label: 'Năng lượng', issue: 60, listed: 40 },
+                      { label: 'Dịch vụ tài chính', issue: 30, listed: 25 },
+                    ].map((item) => (
+                      <div key={item.label} className="flex min-w-0 flex-col items-center justify-end gap-2">
+                        <div className="flex h-32 w-full items-end justify-center gap-1">
+                          <div className={`w-8 rounded-t-sm bg-sky-400 transition-all duration-1000 ${getHeightClass(item.issue)}`} />
+                          <div className={`w-8 rounded-t-sm bg-emerald-300 transition-all duration-1000 ${getHeightClass(item.listed)}`} />
+                        </div>
+                        <span className="flex h-12 items-start text-center text-xs leading-tight text-text-muted">
+                          <span className="block max-w-full break-words whitespace-normal">{item.label}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  </div>
+                </div>
+
+                <div className="data-card col-span-3 rounded-xl border border-border-base bg-bg-surface p-4">
+                  <span className="mb-3 block text-sm font-semibold text-text-base">
+                    Tổng quan thị trường
+                  </span>
+                  <div className="space-y-3">
+                    <div className="border-b border-border-base pb-1">
+                      <span className="block text-xs font-medium text-text-muted/80">
+                        Tổng mã trái phiếu
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold text-text-base">
+                        {snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,248'}
+                      </span>
+                    </div>
+                    <div className="border-b border-border-base pb-1">
+                      <span className="block text-xs font-medium text-text-muted/80">
+                        Tổng giá trị phát hành
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold text-text-base">
+                        {snapshot ? formatBillion(snapshot.totalIssuedValue) : '450 tỷ VNĐ'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-medium text-text-muted/80">
+                        Tổng dư nợ còn lại
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold text-text-base">
+                        {snapshot ? formatBillion(snapshot.totalRemainingDebt) : '320 tỷ VNĐ'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="data-card col-span-3 rounded-xl border border-border-base bg-bg-surface p-4">
+                  <span className="mb-4 block text-sm font-semibold text-text-base">
+                    Top doanh nghiệp dư nợ lớn nhất
+                  </span>
+                  <div className="space-y-3">
+                    {(bars.length > 0
+                      ? bars
+                      : [
+                          { label: 'VIC', value: 100, debt: 85000 },
+                          { label: 'NVL', value: 82, debt: 70000 },
+                          { label: 'MSN', value: 70, debt: 60000 },
+                          { label: 'VHM', value: 65, debt: 55000 },
+                          { label: 'DIG', value: 53, debt: 45000 },
+                        ]
+                    ).map((item) => (
+                      <div key={item.label} className="flex items-center gap-4">
+                        <span className="w-10 text-sm font-semibold text-text-base">{item.label}</span>
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-border-base/50">
+                          <div className={`h-full rounded-full bg-blue-500 ${getHeatWidthClass(item.value)}`} />
+                        </div>
+                        <span className="w-24 text-right text-sm font-medium text-text-muted">
+                          {item.debt ? `${formatNumber(item.debt, 0)} tỷ VND` : `${item.value}%`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        <section id="solutions" className="-mt-8 border-t border-border-base bg-bg-surface py-16 lg:-mt-10">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="text-center">
+              <h2 className="text-3xl font-semibold text-text-base">Tại Sao Chọn Fireant?</h2>
+              <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-text-muted">
+                Công cụ phân tích chuyên sâu và dữ liệu thị trường được thiết kế để bạn nhìn nhanh, hiểu nhanh và hành
+                động nhanh.
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={handleLogin}
-                disabled={isSigningIn}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-4 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSigningIn ? (t('signingIn') || 'Signing in...') : 'Bắt Đầu Ngay'}
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-4 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:bg-slate-50"
-              >
-                <CirclePlay className="h-4 w-4" />
-                Xem Demo
-              </button>
-            </div>
-
-            {error && (
-              <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                {error}
-              </div>
-            )}
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              {heroStats.map((stat) => (
-                <div key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <p className="text-2xl font-bold text-slate-900">{stat.value}</p>
-                  <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-slate-500">
-                    {stat.label}
-                  </p>
-                </div>
+            <div className="mt-2 grid gap-6 md:grid-cols-3">
+              {featureCards.map((card) => (
+                <motion.div
+                  key={card.title}
+                  whileHover={{ y: -3 }}
+                  className="rounded-xl border border-border-base bg-bg-surface p-6 transition-colors hover:border-blue-600/30"
+                >
+                  <card.icon className="mb-4 h-8 w-8 text-blue-600" />
+                  <h3 className="text-xl font-semibold text-text-base">{card.title}</h3>
+                  <p className="mt-2 text-sm leading-7 text-text-muted">{card.description}</p>
+                </motion.div>
               ))}
             </div>
-          </motion.section>
+          </div>
+        </section>
 
-          <motion.section
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.55, delay: 0.05 }}
-            className="grid gap-4 sm:grid-cols-2"
-          >
-            <div className="sm:col-span-2 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="mb-6 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-900">Yield Curve Analysis</h2>
-                <LineChart className="h-5 w-5 text-slate-400" />
-              </div>
-              <div className="flex h-48 items-end gap-3 sm:h-56">
-                {chartBars.map((height, index) => (
-                  <div
-                    key={index}
-                    className="flex-1 rounded-t-2xl bg-blue-600 shadow-sm"
-                    style={{ height: `${height}%`, opacity: 0.5 + index * 0.1 }}
-                  />
-                ))}
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Top Issuer</p>
-                  <p className="mt-2 font-semibold text-slate-900">{topIssuerLabel}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {snapshot ? `${formatNumber(snapshot.topIssuerRemainingDebt / 1_000_000_000, 2)} Tỷ dư nợ` : 'Loading...'}
-                  </p>
+        <section id="about" className="relative border-t border-border-base bg-bg-surface py-20">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="grid gap-6 lg:grid-cols-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <Logo />
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Top Industry</p>
-                  <p className="mt-2 font-semibold text-slate-900">{snapshot?.topIndustryName || 'Industry'}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {snapshot ? `${formatNumber(snapshot.topIndustryRemainingDebt / 1_000_000_000, 2)} Tỷ` : 'Loading...'}
-                  </p>
-                </div>
+                <p className="mt-4 max-w-xs text-sm leading-7 text-text-muted">
+                  Phân tích trái phiếu cấp độ tổ chức cho nhà đầu tư hiện đại.
+                </p>
               </div>
-            </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="mb-6">
-                <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Credit Rating</p>
-              </div>
-              <div className="space-y-4">
-                {[
-                  { name: 'AAA', value: snapshot?.upcoming30 ? '42%' : '34%' },
-                  { name: 'AA+', value: snapshot?.upcoming90 ? '28%' : '24%' },
-                ].map((item) => (
-                  <div key={item.name} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-semibold text-slate-900">{item.name}</span>
-                      <span className="font-semibold text-blue-600">{item.value}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-slate-100">
-                      <div className="h-2 rounded-full bg-blue-600" style={{ width: item.value }} />
+              <div className="grid gap-4 sm:grid-cols-3 lg:col-span-3">
+                {footerColumns.map((group) => (
+                  <div key={group.title} className="rounded-lg bg-bg-surface p-4">
+                    <p className="text-xs font-medium uppercase tracking-widest text-text-muted/80">{group.title}</p>
+                    <div className="mt-3 space-y-2">
+                      {group.items.map((item) => (
+                        <p key={item} className="text-sm text-text-muted">
+                          {item}
+                        </p>
+                      ))}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="mb-6 flex items-center justify-center">
-                <div className="flex h-28 w-28 items-center justify-center rounded-2xl border-8 border-blue-600">
-                  <Building2 className="h-8 w-8 text-slate-900" />
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-base font-semibold text-slate-900">Government Bonds</p>
-                <p className="mt-2 text-sm text-slate-500">
-                  {snapshot ? `${formatNumber(snapshot.upcoming30, 0)} bonds due in 30 days` : 'Bond market overview'}
-                </p>
-              </div>
+            <div className="mt-8 pt-5 text-sm text-text-muted">
+              <p>© 2024 Fireant Analytics. All rights reserved.</p>
             </div>
-          </motion.section>
-        </div>
-
-        <section className="mt-16 border-t border-slate-200 pt-16">
-          <div className="mx-auto max-w-3xl text-center">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-              Tại Sao Chọn FireAnt?
-            </h2>
-            <p className="mt-4 text-base leading-7 text-slate-600">
-              Bộ công cụ phân tích trái phiếu được xây dựng từ chính dữ liệu đang dùng trong dashboard: tổ chức phát
-              hành, ngành ICB, danh sách mã đáo hạn và các thống kê thị trường chính.
-            </p>
           </div>
-
-          <div className="mt-10 grid gap-4 lg:grid-cols-3">
-            {featureCards.map((card, index) => (
-              <motion.article
-                key={card.title}
-                initial={{ opacity: 0, y: 12 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.3 }}
-                transition={{ duration: 0.35, delay: index * 0.08 }}
-                className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
-              >
-                <card.icon className="h-8 w-8 text-blue-600" />
-                <h3 className="mt-6 text-xl font-semibold text-slate-900">{card.title}</h3>
-                <p className="mt-3 text-sm leading-7 text-slate-600">{card.description}</p>
-              </motion.article>
-            ))}
-          </div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border-base" />
         </section>
-
-        <section className="mt-16 rounded-3xl border border-slate-200 bg-white px-6 py-10 shadow-sm">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-                Trusted by Bond Analysts
-              </p>
-              <h3 className="mt-3 text-2xl font-bold text-slate-900">
-                Dữ liệu tổ chức theo cách giúp bạn ra quyết định nhanh hơn.
-              </h3>
-              <p className="mt-3 text-sm leading-7 text-slate-600">
-                Các số liệu trên màn hình đăng nhập được lấy trực tiếp từ cache/service của dự án để đồng bộ với
-                dashboard, giúp người dùng thấy đúng sản phẩm ngay từ lần chạm đầu tiên.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {[
-                snapshot ? `${snapshot.totalIssuers} Issuers` : 'Top Issuers',
-                'Industry View',
-                'Cash Flow',
-                'Maturity List',
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700"
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <footer className="mt-16 border-t border-slate-200 pt-8 pb-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white">
-                F
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-900">FireAnt</p>
-                <p className="text-xs text-slate-500">Institutional bond analytics for modern investors.</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 text-sm font-medium text-slate-500">
-              <a href="#" className="transition-colors hover:text-slate-900">LinkedIn</a>
-              <a href="#" className="transition-colors hover:text-slate-900">Twitter</a>
-            </div>
-          </div>
-        </footer>
       </main>
     </div>
   );

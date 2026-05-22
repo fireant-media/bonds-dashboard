@@ -145,11 +145,11 @@ async function startServer() {
 
   app.use(express.json());
 
-  // app.use(cookieSession({
-  //   name: 'session',
-  //   keys: [process.env.SESSION_SECRET || 'sentinel-secret-key'],
-  //   maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  // }));
+  app.use(cookieSession({
+    name: 'session',
+    keys: [process.env.SESSION_SECRET || 'fireant-dev-session-secret'],
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  }));
 
   // Generic API Proxy for Fireant
   app.all("/api/fireant/*", async (req, res) => {

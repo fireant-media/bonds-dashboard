@@ -183,7 +183,7 @@ const normalizeCategoryRow = (row: any): BondCategoryItem => ({
   icbCode: asString(firstDefined(row?.icbCode, row?.ICBCode)),
   icbName: asString(firstDefined(row?.icbName, row?.ICBName)),
   icbLevel: row?.icbLevel !== undefined ? Number(row.icbLevel) : row?.ICBLevel !== undefined ? Number(row.ICBLevel) : undefined,
-  id: firstDefined(row?.id, row?.ID),
+  id: asString(firstDefined(row?.id, row?.ID)),
   name: asString(firstDefined(row?.name, row?.Name)),
 });
 
@@ -303,12 +303,12 @@ export const loadIssuerBondsByFilter = async (issuerSymbol: string): Promise<Bon
     IssuerSymbol: issuerSymbol,
   });
 
-export const loadBondDetail = async (code: string) => {
+export const loadBondDetail = async (code: string, forceRefresh = false) => {
   const normalizedCode = asString(code);
   if (!normalizedCode) return null;
 
   const cacheKey = `${BOND_DETAIL_CACHE_PREFIX}${normalizedCode}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached;
 
   const inflight = detailPromises.get(normalizedCode);
@@ -327,12 +327,12 @@ export const loadBondDetail = async (code: string) => {
   return promise;
 };
 
-export const loadIssuerProfile = async (symbol: string) => {
+export const loadIssuerProfile = async (symbol: string, forceRefresh = false) => {
   const normalizedSymbol = asString(symbol);
   if (!normalizedSymbol) return null;
 
   const cacheKey = `${ISSUER_PROFILE_CACHE_PREFIX}${normalizedSymbol}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached;
 
   const inflight = issuerProfilePromises.get(normalizedSymbol);

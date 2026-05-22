@@ -6,6 +6,7 @@ import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { getIndustryIssuedValue, hasBondIssuers, INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { loadDedupedIndustrySymbols, loadIndustryStats } from '../services/industryBondData';
+import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -106,6 +107,11 @@ export default function Sidebar({
           {menuItems.map((item) => (
             <div key={item.id}>
               <button
+                onMouseEnter={() => {
+                  if (item.id === 'overview' || item.id === 'enterprise') {
+                    warmDashboardCoreDataInBackground();
+                  }
+                }}
                 onClick={() => {
                   if (item.hasSubmenu) {
                     if (!isOpen) {
@@ -157,6 +163,9 @@ export default function Sidebar({
                   {subIndustries.map((sub) => (
                     <button
                       key={sub.id}
+                      onMouseEnter={() => {
+                        void warmIndustryData(sub.id);
+                      }}
                       onClick={() => {
                         setActiveIndustry(sub.id);
                       }}

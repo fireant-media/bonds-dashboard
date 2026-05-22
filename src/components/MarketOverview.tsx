@@ -49,14 +49,14 @@ interface MarketOverviewPayload {
 
 let marketOverviewPromise: Promise<MarketOverviewPayload> | null = null;
 
-const loadMarketOverviewData = async (): Promise<MarketOverviewPayload> => {
-  const cachedOverview = getCache('market_overview');
+const loadMarketOverviewData = async (forceRefresh = false): Promise<MarketOverviewPayload> => {
+  const cachedOverview = forceRefresh ? null : getCache('market_overview');
   if (cachedOverview) return cachedOverview;
 
   if (!marketOverviewPromise) {
     marketOverviewPromise = (async () => {
       const [issuerStatsRaw, highYieldRaw, industriesRaw] = await Promise.all([
-        loadIssuerStatsSummary(200).catch((error) => {
+        loadIssuerStatsSummary(200, forceRefresh).catch((error) => {
           console.error('Issuer stats fetch error', error);
           return [];
         }),
@@ -64,7 +64,7 @@ const loadMarketOverviewData = async (): Promise<MarketOverviewPayload> => {
           console.error('Interest fetch error', error);
           return [];
         }),
-        loadIndustryStatsByLevel(1).catch((error) => {
+        loadIndustryStatsByLevel(1, forceRefresh).catch((error) => {
           console.error('Industry fetch error', error);
           return [];
         }),
@@ -258,12 +258,14 @@ export default function MarketOverview() {
     let isMounted = true;
     const fetchData = async () => {
       if (cachedData) {
+        setIssuerStatsData(cachedData.issuerStatsData || cachedData.topDebtData || []);
+        setTopInterestData(cachedData.topInterestData || []);
+        setIndustryData(cachedData.industryData || []);
         setLoading(false);
-        return;
       }
 
       setError(null);
-      setLoading(true);
+      if (!cachedData) setLoading(true);
       try {
         const data = await loadMarketOverviewData();
         if (!isMounted) return;
@@ -273,10 +275,12 @@ export default function MarketOverview() {
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching market data:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
+        if (!cachedData) {
+          if (error instanceof Error && error.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(error instanceof Error ? error.message : t('error'));
+          }
         }
       } finally {
         if (isMounted) setLoading(false);

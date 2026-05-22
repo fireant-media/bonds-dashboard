@@ -133,19 +133,6 @@ const normalizeIssuerStats = (issuer: any): IssuerStatsSummary => ({
   avgFloatingRate: toNumber(issuer?.avgFloatingRate || issuer?.floatingRate),
 });
 
-const tryProcedure = async <T>(
-  path: string,
-  query: Record<string, string | number | boolean | null | undefined>,
-  fallback: () => Promise<T>,
-) => {
-  try {
-    return await fireantRequest<T>(path, { query });
-  } catch (error) {
-    console.warn(`[bond-data] Falling back from ${path}`, error);
-    return fallback();
-  }
-};
-
 const subtractMetric = (base: IndustryStats, ...deductions: IndustryStats[]) =>
   Math.max(0, deductions.reduce((value, deduction) => value - deduction.totalIssuedValue, base.totalIssuedValue));
 
@@ -189,9 +176,9 @@ const buildFinancialsOtherStats = (financials: IndustryStats, banking: IndustryS
   floatingRate: residualRate('floatingRate', financials, banking, securities),
 });
 
-export const loadIssuerStatsSummary = async (top = 200): Promise<IssuerStatsSummary[]> => {
+export const loadIssuerStatsSummary = async (top = 200, forceRefresh = false): Promise<IssuerStatsSummary[]> => {
   const cacheKey = `${ISSUER_STATS_CACHE_PREFIX}${top}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as IssuerStatsSummary[];
 
   const inflightKey = String(top);
@@ -199,11 +186,24 @@ export const loadIssuerStatsSummary = async (top = 200): Promise<IssuerStatsSumm
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const procedurePayload = await tryProcedure<ProcedureResult<IssuerStatsSummary>>(
-      'bond_StatisticsByIssuer',
-      { Top: top, SortBy: 2, StatusID: 1, IsListing: 1 },
-      () => fireantApi.getBondStatisticsByIssuer(top, 2, 1, 1),
-    );
+    const sources = [
+      () => fireantApi.getTopDebtIssuers(top),
+      () => fireantRequest<ProcedureResult<IssuerStatsSummary>>('bond_StatisticsByIssuer', {
+        query: { Top: top, SortBy: 2, StatusID: 1, IsListing: 1 },
+      }),
+    ];
+
+    let procedurePayload: ProcedureResult<IssuerStatsSummary> | null = null;
+    for (const source of sources) {
+      try {
+        procedurePayload = await source();
+        if (extractRows<IssuerStatsSummary>(procedurePayload).length > 0) {
+          break;
+        }
+      } catch (error) {
+        console.warn('[bond-data] Issuer stats source failed', error);
+      }
+    }
 
     const rows = extractRows<IssuerStatsSummary>(procedurePayload)
       .map(normalizeIssuerStats)
@@ -228,16 +228,29 @@ export const loadIssuerStatsSummary = async (top = 200): Promise<IssuerStatsSumm
   return promise;
 };
 
-export const loadIndustryStatsByLevel = async (level: number): Promise<IndustryStats[]> => {
+export const loadIndustryStatsByLevel = async (level: number, forceRefresh = false): Promise<IndustryStats[]> => {
   const cacheKey = `${INDUSTRY_STATS_CACHE_PREFIX}level_${level}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as IndustryStats[];
 
-  const procedurePayload = await tryProcedure<ProcedureResult<IndustryStats>>(
-    'bond_StatisticsByIssuerICB',
-    { ICBLevel: level, StatusID: 1, IsListing: 1 },
-    () => fireantApi.getBondStatisticsByIssuerICB(level, 1000, undefined, 1, 1),
-  );
+  const sources = [
+    () => fireantApi.getIndustries(1000, level),
+    () => fireantRequest<ProcedureResult<IndustryStats>>('bond_StatisticsByIssuerICB', {
+      query: { ICBLevel: level, StatusID: 1, IsListing: 1 },
+    }),
+  ];
+
+  let procedurePayload: ProcedureResult<IndustryStats> | null = null;
+  for (const source of sources) {
+    try {
+      procedurePayload = await source();
+      if (extractRows<IndustryStats>(procedurePayload).length > 0) {
+        break;
+      }
+    } catch (error) {
+      console.warn('[bond-data] Industry stats source failed', error);
+    }
+  }
 
   const rows = extractRows<IndustryStats>(procedurePayload)
     .map(normalizeIndustryStats)
@@ -295,8 +308,8 @@ const fetchWithLimit = async <T, R>(
   worker: (item: T, index: number) => Promise<R>
 ) => getFulfilledValues(await mapWithConcurrency(items, concurrency, worker));
 
-export const loadDedupedIndustrySymbols = async () => {
-  const cached = getCache(SYMBOL_GROUP_CACHE_KEY);
+export const loadDedupedIndustrySymbols = async (forceRefresh = false) => {
+  const cached = forceRefresh ? null : getCache(SYMBOL_GROUP_CACHE_KEY);
   if (cached) return cached as Record<string, string[]>;
   if (symbolGroupsPromise) return symbolGroupsPromise;
 
@@ -304,11 +317,16 @@ export const loadDedupedIndustrySymbols = async () => {
     const rawSymbolsByIndustry = new Map<string, string[]>();
 
     await Promise.all(INDUSTRY_NAV_ITEMS.map(async (industry) => {
-      const symbols = await fireantApi.getIcbSymbols(industry.code);
-      rawSymbolsByIndustry.set(
-        industry.id,
-        Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(String).filter(Boolean)))
-      );
+      try {
+        const symbols = await fireantApi.getIcbSymbols(industry.code);
+        rawSymbolsByIndustry.set(
+          industry.id,
+          Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(String).filter(Boolean)))
+        );
+      } catch (error) {
+        console.warn(`[industry-bond-data] Failed to load ICB symbols for ${industry.id}`, error);
+        rawSymbolsByIndustry.set(industry.id, []);
+      }
     }));
 
     const assignedSymbols = new Map<string, string>();
@@ -337,15 +355,15 @@ export const loadDedupedIndustrySymbols = async () => {
   return symbolGroupsPromise;
 };
 
-const loadStatsForIndustry = async (industry: IndustryNavItem) => {
-  const stats = await loadIndustryStatsByLevel(industry.statsLevel);
+const loadStatsForIndustry = async (industry: IndustryNavItem, forceRefresh = false) => {
+  const stats = await loadIndustryStatsByLevel(industry.statsLevel, forceRefresh);
   return normalizeIndustryStats(findIndustryStats(stats, industry));
 };
 
-export const loadIndustryStats = async (industryId: string): Promise<IndustryStats> => {
+export const loadIndustryStats = async (industryId: string, forceRefresh = false): Promise<IndustryStats> => {
   const industry = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
   const cacheKey = `${INDUSTRY_STATS_CACHE_PREFIX}${industry.id}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as IndustryStats;
   const inflight = industryStatsPromises.get(industry.id);
   if (inflight) return inflight;
@@ -354,12 +372,12 @@ export const loadIndustryStats = async (industryId: string): Promise<IndustrySta
     let stats: IndustryStats;
 
     if (industry.id === 'Financials') {
-      const financials = await loadStatsForIndustry(industry);
-      const banking = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Banking);
-      const securities = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Securities);
+      const financials = await loadStatsForIndustry(industry, forceRefresh);
+      const banking = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Banking, forceRefresh);
+      const securities = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Securities, forceRefresh);
       stats = buildFinancialsOtherStats(financials, banking, securities);
     } else {
-      stats = await loadStatsForIndustry(industry);
+      stats = await loadStatsForIndustry(industry, forceRefresh);
     }
 
     setCache(cacheKey, stats);
@@ -372,16 +390,16 @@ export const loadIndustryStats = async (industryId: string): Promise<IndustrySta
   return promise;
 };
 
-export const loadIndustryBaseBondGroupData = async (industryId: string): Promise<IndustryBondGroupData> => {
+export const loadIndustryBaseBondGroupData = async (industryId: string, forceRefresh = false): Promise<IndustryBondGroupData> => {
   const industry: IndustryNavItem = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
   const cacheKey = `${INDUSTRY_BOND_BASE_CACHE_PREFIX}${industry.id}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as IndustryBondGroupData;
   const inflight = industryBondBasePromises.get(industry.id);
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const symbolGroups = await loadDedupedIndustrySymbols();
+    const symbolGroups = await loadDedupedIndustrySymbols(forceRefresh);
     const symbols = symbolGroups[industry.id] || [];
 
     const issuerBondBatches = await fetchWithLimit(symbols, 6, async (symbol) => {
@@ -400,7 +418,7 @@ export const loadIndustryBaseBondGroupData = async (industryId: string): Promise
     });
 
     const bonds = Array.from(bondsByCode.values());
-    const industryStats = await loadIndustryStats(industry.id);
+    const industryStats = await loadIndustryStats(industry.id, forceRefresh);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
       symbols,
@@ -534,16 +552,16 @@ const buildIndustryStats = (issuerSummaries: IndustryIssuerSummary[], bonds: any
   };
 };
 
-export const loadIndustryBondGroupData = async (industryId: string): Promise<IndustryBondGroupData> => {
+export const loadIndustryBondGroupData = async (industryId: string, forceRefresh = false): Promise<IndustryBondGroupData> => {
   const industry: IndustryNavItem = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
   const cacheKey = `${INDUSTRY_BOND_GROUP_CACHE_PREFIX}${industry.id}`;
-  const cached = getCache(cacheKey);
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as IndustryBondGroupData;
   const inflight = industryBondGroupPromises.get(industry.id);
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const baseData = await loadIndustryBaseBondGroupData(industry.id);
+    const baseData = await loadIndustryBaseBondGroupData(industry.id, forceRefresh);
     const baseBonds = baseData.bonds;
     const detailedBonds = await fetchWithLimit(baseBonds, 8, async (bond) => {
       const code = getBondCode(bond);
@@ -558,7 +576,7 @@ export const loadIndustryBondGroupData = async (industryId: string): Promise<Ind
     });
 
     const issuerSummaries = buildIssuerSummaries(detailedBonds);
-    const industryStats = await loadIndustryStats(industry.id);
+    const industryStats = await loadIndustryStats(industry.id, forceRefresh);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
       symbols: baseData.symbols,
