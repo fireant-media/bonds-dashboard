@@ -85,6 +85,31 @@ The final grouped shape should support:
 - `industryStats`: industry totals for KPI cards.
 - `projectedCashFlowBuckets`: month buckets for cash-flow charts.
 
+## Fetch Concurrency
+
+When fetching a list of issuers or bond details, do not fetch sequentially and do not open unbounded `Promise.all` request storms.
+
+Use `mapWithConcurrency` from `src/utils/async.ts`:
+
+```ts
+const results = await mapWithConcurrency(bondCodes, 8, async (code) => {
+  const cached = getCache(`bond_detail_${code}`);
+  if (cached) return cached;
+
+  const detail = await fireantApi.getBond(code);
+  setCache(`bond_detail_${code}`, detail);
+  return detail;
+});
+```
+
+Recommended concurrency:
+
+- Issuer bond lists: `6`
+- Bond detail / cash-flow fetches: `8` to `10`
+- Issuer profiles / translated names: `5`
+
+Prefer the async pool over chunked loops. A pool starts the next request as soon as one finishes, while still capping concurrent load against FireAnt APIs.
+
 ## Industry Stats Contract
 
 Cards and the "Bieu do Lai suat nganh" must use `/bonds/stats/industries` by the industry level, not totals recomputed from issuer bonds:

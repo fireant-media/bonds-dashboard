@@ -36,6 +36,7 @@ import { useLanguage } from '../LanguageContext';
 import { fireantApi } from '../api/fireant';
 import { Card, MetricCard } from './ui/Card';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 
 interface MarketOverviewPayload {
   topDebtData: TopDebtIssuer[];
@@ -335,28 +336,21 @@ export default function MarketOverview() {
             .filter((symbol): symbol is string => Boolean(symbol))
         )
       );
-      const allBonds: TopInterestBond[] = [];
+      const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
+        const bonds = await fireantApi.getIssuerBonds(symbol);
+        return Array.isArray(bonds) ? bonds : [];
+      });
 
-      const chunkSize = 6;
-      for (let i = 0; i < issuerSymbols.length; i += chunkSize) {
-        const chunk = issuerSymbols.slice(i, i + chunkSize);
-        const results = await Promise.allSettled(
-          chunk.map(async (symbol) => {
-            const bonds = await fireantApi.getIssuerBonds(symbol);
-            return Array.isArray(bonds) ? bonds : [];
-          })
-        );
-
-        results.forEach((result) => {
-          if (result.status !== 'fulfilled') return;
-          result.value.forEach((bond: any) => {
-            const bondCode = String(bond.bondCode || bond.code || '').trim();
-            const bondRate = Number(bond.bondRate || 0);
-            if (!bondCode || !Number.isFinite(bondRate)) return;
-            allBonds.push({ bondCode, bondRate });
-          });
-        });
-      }
+      const allBonds = getFulfilledValues(issuerBondResults)
+        .flat()
+        .reduce<TopInterestBond[]>((items, bond: any) => {
+          const bondCode = String(bond.bondCode || bond.code || '').trim();
+          const bondRate = Number(bond.bondRate || 0);
+          if (bondCode && Number.isFinite(bondRate)) {
+            items.push({ bondCode, bondRate });
+          }
+          return items;
+        }, []);
 
       const uniqueBonds = Array.from(new Map(allBonds.map((bond) => [bond.bondCode, bond])).values());
       setTopInterestData(uniqueBonds);
@@ -388,27 +382,18 @@ export default function MarketOverview() {
       try {
         const issuerSymbols = Array.from(new Set(issuerStatsData.map(issuer => issuer.issuerSymbol).filter(Boolean)));
         const bondsByCode = new Map<string, any>();
-        const issuerChunkSize = 6;
 
-        for (let i = 0; i < issuerSymbols.length; i += issuerChunkSize) {
-          if (!isMounted) return;
+        const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
+          if (!isMounted) return [];
+          const data = await fireantApi.getIssuerBonds(symbol);
+          return Array.isArray(data) ? data : [];
+        });
+        if (!isMounted) return;
 
-          const chunk = issuerSymbols.slice(i, i + issuerChunkSize);
-          const results = await Promise.allSettled(
-            chunk.map(async (symbol) => {
-              const data = await fireantApi.getIssuerBonds(symbol);
-              return Array.isArray(data) ? data : [];
-            })
-          );
-
-          results.forEach((result) => {
-            if (result.status !== 'fulfilled') return;
-            result.value.forEach((bond: any) => {
-              const code = bond.bondCode || bond.code;
-              if (code) bondsByCode.set(String(code), bond);
-            });
-          });
-        }
+        getFulfilledValues(issuerBondResults).flat().forEach((bond: any) => {
+          const code = bond.bondCode || bond.code;
+          if (code) bondsByCode.set(String(code), bond);
+        });
 
         const buckets = new Map<string, ProjectedCashFlowBucket>();
         const ensureBucket = (dateString: string) => {
@@ -435,62 +420,45 @@ export default function MarketOverview() {
         };
 
         const bonds = Array.from(bondsByCode.values());
-        const bondChunkSize = 10;
+        const cashFlowResults = await mapWithConcurrency(bonds, 10, async (bond) => {
+          const code = bond.bondCode || bond.code;
+          if (!code) return { bond, cashFlows: [] };
 
-        for (let i = 0; i < bonds.length; i += bondChunkSize) {
-          if (!isMounted) return;
-
-          const chunk = bonds.slice(i, i + bondChunkSize);
-          const results = await Promise.allSettled(
-            chunk.map(async (bond) => {
-              const code = bond.bondCode || bond.code;
-              if (!code) return { bond, cashFlows: [] };
-
-              const cacheKey = `bond_cash_flows_${code}`;
-              const cachedCashFlows = getCache(cacheKey);
-              if (Array.isArray(cachedCashFlows)) {
-                return { bond, cashFlows: cachedCashFlows };
-              }
-
-              const detailData = await fireantApi.getBond(code);
-              const cashFlows = Array.isArray(detailData.cashFlows)
-                ? detailData.cashFlows.map((cashFlow: any) => ({
-                    paymentDate: cashFlow.paymentDate,
-                    interestAmount: toBillionVnd(cashFlow.interestAmount),
-                    principalAmount: toBillionVnd(cashFlow.principalAmount),
-                    totalCashflow: toBillionVnd(cashFlow.totalCashflow),
-                    bondRate: cashFlow.bondRate || 0
-                  }))
-                : [];
-
-              setCache(cacheKey, cashFlows);
-              return { bond, cashFlows };
-            })
-          );
-
-          results.forEach((result) => {
-            if (result.status !== 'fulfilled') return;
-
-            const cashFlows = result.value.cashFlows;
-            if (cashFlows.length > 0) {
-              addCashFlows(cashFlows);
-              return;
-            }
-
-            const bond = result.value.bond;
-            const fallbackDate = bond.maturityDate || bond.paymentDate;
-            const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
-            if (!fallbackDate || !fallbackPrincipal) return;
-
-            const bucket = ensureBucket(fallbackDate);
-            if (bucket) bucket.principal += toBillionVnd(fallbackPrincipal);
-          });
-
-          if (isMounted) {
-            const partialBuckets = Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
-            setProjectedCashFlowBuckets(partialBuckets);
+          const cacheKey = `bond_cash_flows_${code}`;
+          const cachedCashFlows = getCache(cacheKey);
+          if (Array.isArray(cachedCashFlows)) {
+            return { bond, cashFlows: cachedCashFlows };
           }
-        }
+
+          const detailData = await fireantApi.getBond(code);
+          const cashFlows = Array.isArray(detailData.cashFlows)
+            ? detailData.cashFlows.map((cashFlow: any) => ({
+                paymentDate: cashFlow.paymentDate,
+                interestAmount: toBillionVnd(cashFlow.interestAmount),
+                principalAmount: toBillionVnd(cashFlow.principalAmount),
+                totalCashflow: toBillionVnd(cashFlow.totalCashflow),
+                bondRate: cashFlow.bondRate || 0
+              }))
+            : [];
+
+          setCache(cacheKey, cashFlows);
+          return { bond, cashFlows };
+        });
+        if (!isMounted) return;
+
+        getFulfilledValues(cashFlowResults).forEach(({ bond, cashFlows }) => {
+          if (cashFlows.length > 0) {
+            addCashFlows(cashFlows);
+            return;
+          }
+
+          const fallbackDate = bond.maturityDate || bond.paymentDate;
+          const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
+          if (!fallbackDate || !fallbackPrincipal) return;
+
+          const bucket = ensureBucket(fallbackDate);
+          if (bucket) bucket.principal += toBillionVnd(fallbackPrincipal);
+        });
 
         if (!isMounted) return;
 

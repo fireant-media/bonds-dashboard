@@ -1,5 +1,6 @@
 import { fireantApi } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { findIndustryStats, INDUSTRY_NAV_ITEM_BY_ID, INDUSTRY_NAV_ITEMS, IndustryNavItem } from '../constants/industries';
 
 export interface ProjectedCashFlowBucket {
@@ -159,24 +160,11 @@ const mergeBondDetail = (bond: any, detailData: any) => {
   };
 };
 
-const fetchInChunks = async <T, R>(
+const fetchWithLimit = async <T, R>(
   items: T[],
-  chunkSize: number,
-  worker: (item: T) => Promise<R>
-) => {
-  const results: R[] = [];
-
-  for (let i = 0; i < items.length; i += chunkSize) {
-    const chunk = items.slice(i, i + chunkSize);
-    const settled = await Promise.allSettled(chunk.map(worker));
-
-    settled.forEach((result) => {
-      if (result.status === 'fulfilled') results.push(result.value);
-    });
-  }
-
-  return results;
-};
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+) => getFulfilledValues(await mapWithConcurrency(items, concurrency, worker));
 
 export const loadDedupedIndustrySymbols = async () => {
   const cached = getCache(SYMBOL_GROUP_CACHE_KEY);
@@ -362,7 +350,7 @@ export const loadIndustryBondGroupData = async (industryId: string): Promise<Ind
   const symbolGroups = await loadDedupedIndustrySymbols();
   const symbols = symbolGroups[industry.id] || [];
 
-  const issuerBondBatches = await fetchInChunks(symbols, 6, async (symbol) => {
+  const issuerBondBatches = await fetchWithLimit(symbols, 6, async (symbol) => {
     const bonds = await fireantApi.getIssuerBonds(symbol);
     return (Array.isArray(bonds) ? bonds : []).map((bond) => ({
       ...bond,
@@ -378,7 +366,7 @@ export const loadIndustryBondGroupData = async (industryId: string): Promise<Ind
   });
 
   const baseBonds = Array.from(bondsByCode.values());
-  const detailedBonds = await fetchInChunks(baseBonds, 8, async (bond) => {
+  const detailedBonds = await fetchWithLimit(baseBonds, 8, async (bond) => {
     const code = getBondCode(bond);
     if (!code) return bond;
 

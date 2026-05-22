@@ -7,6 +7,7 @@ import { formatInterestRate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { fireantApi } from '../api/fireant';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -226,21 +227,20 @@ export default function RightPanel({
       if (mappedData.length > 0) {
         const fetchNames = async () => {
           const currentENNames = { ...enterpriseNamesEN };
-          let hasUpdates = false;
+          const tickersToFetch = Array.from(
+            new Set(mappedData.map((bond) => bond.ticker).filter((ticker): ticker is string => Boolean(ticker && !currentENNames[ticker])))
+          );
 
-          for (const bond of mappedData) {
-            if (bond.ticker && !currentENNames[bond.ticker]) {
-              try {
-                  const profile = await fireantApi.getIssuerProfile(bond.ticker);
-                  if (profile.internationalName) {
-                    currentENNames[bond.ticker] = profile.internationalName;
-                    hasUpdates = true;
-                  }
-              } catch (e) {}
-            }
-          }
+          const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
+            const profile = await fireantApi.getIssuerProfile(ticker);
+            return { ticker, name: profile.internationalName };
+          });
 
-          if (hasUpdates) {
+          getFulfilledValues(results).forEach(({ ticker, name }) => {
+            if (name) currentENNames[ticker] = name;
+          });
+
+          if (results.some((result) => result.status === 'fulfilled' && result.value.name)) {
             setEnterpriseNamesEN(currentENNames);
             const cacheObj = { data: currentENNames, timestamp: Date.now() };
             localStorage.setItem('sentinel_cache_enterprise_names_en', JSON.stringify(cacheObj));

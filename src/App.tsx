@@ -1,19 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
-import MarketOverview from './components/MarketOverview';
-import IndustryView from './components/IndustryView';
-import EnterpriseView from './components/EnterpriseView';
-import MaturityListView from './components/MaturityListView';
-import NewsListView from './components/NewsListView';
-import WatchlistView from './components/WatchlistView';
-import BondDetailPopup from './components/BondDetailPopup';
-import ProfileView from './components/ProfileView';
 import LoginView from './components/LoginView';
-import HelpView from './components/HelpView';
-import AIChatBot from './components/AIChatBot';
 import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { useLanguage } from './LanguageContext';
 import { getCache } from './utils/cache';
@@ -21,6 +11,17 @@ import { normalizeInterestType } from './utils/format';
 import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
 import { fireantApi } from './api/fireant';
 import { Calendar, Menu, Newspaper } from 'lucide-react';
+
+const MarketOverview = lazy(() => import('./components/MarketOverview'));
+const IndustryView = lazy(() => import('./components/IndustryView'));
+const EnterpriseView = lazy(() => import('./components/EnterpriseView'));
+const MaturityListView = lazy(() => import('./components/MaturityListView'));
+const NewsListView = lazy(() => import('./components/NewsListView'));
+const WatchlistView = lazy(() => import('./components/WatchlistView'));
+const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
+const ProfileView = lazy(() => import('./components/ProfileView'));
+const HelpView = lazy(() => import('./components/HelpView'));
+const AIChatBot = lazy(() => import('./components/AIChatBot'));
 
 const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
 
@@ -411,12 +412,22 @@ export default function App() {
           <div className="h-12 w-12 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
           <p className="text-white/60 font-bold uppercase tracking-widest text-xs">{t('authenticating')}</p>
         </div>
+        <Suspense fallback={null}>
+          <AIChatBot />
+        </Suspense>
       </div>
     );
   }
 
   if (!user) {
-    return <LoginView onSignIn={signIn} isSigningIn={authLoading} />;
+    return (
+      <>
+        <LoginView onSignIn={signIn} isSigningIn={authLoading} />
+        <Suspense fallback={null}>
+          <AIChatBot />
+        </Suspense>
+      </>
+    );
   }
 
   const isProfileMode = activeTab === 'profile' || activeTab === 'help';
@@ -514,39 +525,47 @@ export default function App() {
               className="flex-1 min-h-0 transition-all duration-300 min-w-0 overflow-y-auto overflow-x-hidden"
             >
               <div className={cn(isProfileMode ? "w-full h-full" : "max-w-screen-2xl mx-auto py-3 px-2 md:py-4 md:px-4 w-full")}>
-                <Routes location={location.state?.backgroundLocation || location}>
-                  <Route path="/" element={<MarketOverview />} />
-                  <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
-                  <Route path="/enterprise/:ticker?" element={
-                    <EnterpriseView 
-                      selectedEnterprise={selectedEnterprise} 
-                      setSelectedEnterprise={handleSetSelectedEnterprise}
-                      setSelectedBond={handleSetSelectedBond}
-                      setBondEnterpriseName={setBondEnterpriseName}
-                    />
-                  } />
-                  <Route path="/maturity" element={
-                    <MaturityListView 
-                      setSelectedBond={handleSetSelectedBond}
-                      setBondEnterpriseName={setBondEnterpriseName}
-                    />
-                  } />
-                  <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
-                  <Route path="/news/:id" element={<Navigate to="/news" replace />} />
-                  <Route path="/watchlist" element={
-                    <WatchlistView
-                      setSelectedBond={handleSetSelectedBond}
-                      setBondEnterpriseName={setBondEnterpriseName}
-                    />
-                  } />
-                  <Route path="/profile" element={
-                    <ProfileView onLogout={handleLogout} />
-                  } />
-                  <Route path="/settings" element={<Navigate to="/" replace />} />
-                  <Route path="/help" element={<HelpView onBack={() => navigate('/')} />} />
-                  <Route path="/:bondCode" element={<MarketOverview />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
+                <Suspense
+                  fallback={
+                    <div className="flex min-h-96 items-center justify-center">
+                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                    </div>
+                  }
+                >
+                  <Routes location={location.state?.backgroundLocation || location}>
+                    <Route path="/" element={<MarketOverview />} />
+                    <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
+                    <Route path="/enterprise/:ticker?" element={
+                      <EnterpriseView 
+                        selectedEnterprise={selectedEnterprise} 
+                        setSelectedEnterprise={handleSetSelectedEnterprise}
+                        setSelectedBond={handleSetSelectedBond}
+                        setBondEnterpriseName={setBondEnterpriseName}
+                      />
+                    } />
+                    <Route path="/maturity" element={
+                      <MaturityListView 
+                        setSelectedBond={handleSetSelectedBond}
+                        setBondEnterpriseName={setBondEnterpriseName}
+                      />
+                    } />
+                    <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
+                    <Route path="/news/:id" element={<Navigate to="/news" replace />} />
+                    <Route path="/watchlist" element={
+                      <WatchlistView
+                        setSelectedBond={handleSetSelectedBond}
+                        setBondEnterpriseName={setBondEnterpriseName}
+                      />
+                    } />
+                    <Route path="/profile" element={
+                      <ProfileView onLogout={handleLogout} />
+                    } />
+                    <Route path="/settings" element={<Navigate to="/" replace />} />
+                    <Route path="/help" element={<HelpView onBack={() => navigate('/')} />} />
+                    <Route path="/:bondCode" element={<MarketOverview />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Suspense>
               </div>
             </main>
 
@@ -586,13 +605,17 @@ export default function App() {
       </div>
 
       {selectedBond && (
-        <BondDetailPopup 
-          bond={selectedBond}
-          enterpriseName={bondEnterpriseName}
-          onClose={() => handleSetSelectedBond(null)}
-        />
+        <Suspense fallback={null}>
+          <BondDetailPopup 
+            bond={selectedBond}
+            enterpriseName={bondEnterpriseName}
+            onClose={() => handleSetSelectedBond(null)}
+          />
+        </Suspense>
       )}
-      <AIChatBot />
+      <Suspense fallback={null}>
+        <AIChatBot />
+      </Suspense>
     </div>
   );
 }

@@ -27,6 +27,7 @@ interface MaturityListViewProps {
 
 import { getCache, setCache } from '../utils/cache';
 import { fireantApi } from '../api/fireant';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
   const { effectiveTheme } = useTheme();
@@ -104,69 +105,55 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               const bondsToFetch = mapped.filter(b => !enterpriseNamesEN[b.ticker || ''] || !b.ticker);
               
               if (bondsToFetch.length > 0) {
-                const fetchInChunks = async () => {
-                  const chunkSize = 5;
+                const fetchNames = async () => {
                   const currentENNames = { ...enterpriseNamesEN };
-                  
-                  for (let i = 0; i < bondsToFetch.length; i += chunkSize) {
-                    if (!isMounted) break;
+                  const results = await mapWithConcurrency(bondsToFetch, 5, async (bond) => {
+                    let ticker = bond.ticker;
                     
-                    const chunk = bondsToFetch.slice(i, i + chunkSize);
-                    const results = await Promise.all(
-                      chunk.map(async (bond) => {
-                        try {
-                          let ticker = bond.ticker;
-                          
-                          // Step 1: If ticker is missing, fetch bond details to get issuerSymbol
-                          if (!ticker) {
-                            const bondDetail = await fireantApi.getBond(bond.code);
-                            ticker = bondDetail.detail?.issuerSymbol;
-                          }
+                    // Step 1: If ticker is missing, fetch bond details to get issuerSymbol
+                    if (!ticker) {
+                      const bondDetail = await fireantApi.getBond(bond.code);
+                      ticker = bondDetail.detail?.issuerSymbol;
+                    }
 
-                          // Step 2 & 3: Fetch profile and get internationalName
-                          if (ticker) {
-                            const profile = await fireantApi.getIssuerProfile(ticker);
-                            return { code: bond.code, ticker, name: profile.internationalName };
-                          }
-                        } catch (e) {
-                          console.error(`Failed to fetch EN name for ${bond.code}`, e);
-                        }
-                        return null;
-                      })
-                    );
+                    // Step 2 & 3: Fetch profile and get internationalName
+                    if (ticker) {
+                      const profile = await fireantApi.getIssuerProfile(ticker);
+                      return { code: bond.code, ticker, name: profile.internationalName };
+                    }
+                    return null;
+                  });
 
-                    let hasUpdates = false;
-                    results.forEach(res => {
-                      if (res && res.name && res.ticker) {
-                        currentENNames[res.ticker] = res.name;
-                        hasUpdates = true;
+                  if (!isMounted) return;
+
+                  const validResults = getFulfilledValues(results).filter(Boolean);
+                  let hasUpdates = false;
+                  validResults.forEach(res => {
+                    if (res && res.name && res.ticker) {
+                      currentENNames[res.ticker] = res.name;
+                      hasUpdates = true;
+                    }
+                  });
+
+                  if (hasUpdates && isMounted) {
+                    setEnterpriseNamesEN({ ...currentENNames });
+                    setCache('enterprise_names_en', { ...currentENNames });
+                    
+                    // Also update the currently displayed bonds list if they match the ticker
+                    setBonds(prev => prev.map(b => {
+                      const res = validResults.find(r => r?.code === b.code);
+                      if (res && res.name) {
+                        return { ...b, ticker: res.ticker, issuerName: res.name };
                       }
-                    });
-
-                    if (hasUpdates && isMounted) {
-                      setEnterpriseNamesEN({ ...currentENNames });
-                      setCache('enterprise_names_en', { ...currentENNames });
-                      
-                      // Also update the currently displayed bonds list if they match the ticker
-                      setBonds(prev => prev.map(b => {
-                        const res = results.find(r => r?.code === b.code);
-                        if (res && res.name) {
-                          return { ...b, ticker: res.ticker, issuerName: res.name };
-                        }
-                        // Even if it didn't just update, if we now have it in currentENNames, apply it
-                        if (b.ticker && currentENNames[b.ticker]) {
-                          return { ...b, issuerName: currentENNames[b.ticker] };
-                        }
-                        return b;
-                      }));
-                    }
-
-                    if (i + chunkSize < bondsToFetch.length) {
-                      await new Promise(resolve => setTimeout(resolve, 200));
-                    }
+                      // Even if it didn't just update, if we now have it in currentENNames, apply it
+                      if (b.ticker && currentENNames[b.ticker]) {
+                        return { ...b, issuerName: currentENNames[b.ticker] };
+                      }
+                      return b;
+                    }));
                   }
                 };
-                fetchInChunks();
+                fetchNames();
               }
             }
           }
