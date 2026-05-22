@@ -935,9 +935,9 @@ export default function EnterpriseView({
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-        <div className="flex items-start justify-between">
+        <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
           <div className="space-y-2">
-            <h2 className="text-4xl font-bold text-blue-600 dark:text-white tracking-tight">
+            <h2 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight md:text-4xl">
               {language === 'en' && enterpriseProfile?.internationalName 
                 ? enterpriseProfile.internationalName 
                 : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
@@ -1421,7 +1421,7 @@ export default function EnterpriseView({
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky top-0 z-20 -mx-2 flex flex-col gap-3 border-b border-border-base bg-surface-container-low px-2 py-2 sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
         <div>
           <h2 className="text-2xl font-bold text-blue-600 dark:text-white text-center transition-colors">{t('enterprise')}</h2>
         </div>

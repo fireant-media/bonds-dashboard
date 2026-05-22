@@ -261,8 +261,13 @@ export default function MarketOverview() {
   useEffect(() => {
     let isMounted = true;
     const fetchData = async () => {
+      if (cachedData) {
+        setLoading(false);
+        return;
+      }
+
       setError(null);
-      if (!cachedData) setLoading(true);
+      setLoading(true);
       try {
         const data = await loadMarketOverviewData();
         if (!isMounted) return;
@@ -285,7 +290,7 @@ export default function MarketOverview() {
       }
     };
 
-    fetchData();
+    void fetchData();
     return () => { isMounted = false; };
   }, []);
 
@@ -896,7 +901,7 @@ export default function MarketOverview() {
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="flex min-w-0 items-center justify-between">
+      <div className="sticky top-0 z-20 -mx-2 flex min-w-0 items-center justify-between border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight break-words">{t('marketOverview')}</h1>
         </div>

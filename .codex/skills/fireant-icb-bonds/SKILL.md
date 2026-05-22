@@ -110,6 +110,14 @@ Recommended concurrency:
 
 Prefer the async pool over chunked loops. A pool starts the next request as soon as one finishes, while still capping concurrent load against FireAnt APIs.
 
+For expensive grouped industry loaders, keep an in-flight promise map alongside persistent cache. This prevents React StrictMode remounts, quick tab switches, or duplicate callers from starting the same industry calculation twice before the first result is cached.
+
+Industry pages should stage their data:
+
+1. Load `/bonds/stats/industries` first for KPI cards.
+2. Load base issuer bond groups next for issuer rankings/market-share charts.
+3. Fetch per-bond details/cash flows last for projected cash-flow charts.
+
 ## Industry Stats Contract
 
 Cards and the "Bieu do Lai suat nganh" must use `/bonds/stats/industries` by the industry level, not totals recomputed from issuer bonds:
