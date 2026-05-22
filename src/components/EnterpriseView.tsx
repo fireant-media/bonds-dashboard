@@ -23,6 +23,89 @@ import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
+import { fireantApi } from '../api/fireant';
+import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
+import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+
+const INDUSTRY_KEY_ALIAS_MAP = (() => {
+  const map = new Map<string, string>();
+
+  INDUSTRY_NAV_ITEMS.forEach((item) => {
+    const aliases = new Set<string>([
+      item.id,
+      item.labelKey,
+      ...item.targetNames,
+    ]);
+
+    if (item.id === 'Financials') {
+      aliases.add('financialsIndustry');
+      aliases.add('Tài chính khác');
+    }
+
+    aliases.forEach((alias) => {
+      const normalized = String(alias || '').trim().toLowerCase();
+      if (normalized) {
+        map.set(normalized, item.labelKey);
+      }
+    });
+  });
+
+  return map;
+})();
+
+const resolveEnterpriseIndustryKey = (...candidates: Array<unknown>) => {
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value || value.toLowerCase() === 'n/a') continue;
+
+    const resolved = INDUSTRY_KEY_ALIAS_MAP.get(value.toLowerCase());
+    if (resolved) return resolved;
+  }
+
+  return 'otherIndustry';
+};
+
+const INDUSTRY_CODE_KEY_MAP = new Map<string, string>(
+  INDUSTRY_NAV_ITEMS.flatMap((item) => [
+    [item.code, item.labelKey] as const,
+    item.icbCode ? [item.icbCode, item.labelKey] as const : null,
+  ]).filter((entry): entry is readonly [string, string] => Boolean(entry))
+);
+
+const INDUSTRY_NAME_KEY_MAP = new Map<string, string>(
+  INDUSTRY_NAV_ITEMS.flatMap((item) => {
+    const aliases = new Set<string>([
+      item.id,
+      item.labelKey,
+      ...item.targetNames,
+    ]);
+
+    if (item.id === 'Financials') {
+      aliases.add('financialsIndustry');
+      aliases.add('Tài chính');
+      aliases.add('Tài chính khác');
+    }
+
+    return Array.from(aliases).map((alias) => [String(alias).trim().toLowerCase(), item.labelKey] as const);
+  })
+);
+
+const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unknown>) => {
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value || value.toLowerCase() === 'n/a') continue;
+
+    if (/^\d+$/.test(value)) {
+      const byCode = INDUSTRY_CODE_KEY_MAP.get(value);
+      if (byCode) return byCode;
+    }
+
+    const byName = INDUSTRY_NAME_KEY_MAP.get(value.toLowerCase());
+    if (byName) return byName;
+  }
+
+  return 'otherIndustry';
+};
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -37,7 +120,15 @@ export default function EnterpriseView({
   const [searchTerm, setSearchTerm] = useState('');
   const [industryFilter, setIndustryFilter] = useState('All');
   const [issueValueSort, setIssueValueSort] = useState('None');
-  const [enterprises, setEnterprises] = useState<Enterprise[]>(cachedData || []);
+  const [remainingDebtSort, setRemainingDebtSort] = useState('None');
+  const [enterprises, setEnterprises] = useState<Enterprise[]>(
+    Array.isArray(cachedData)
+      ? cachedData.map((enterprise: Enterprise) => ({
+          ...enterprise,
+          industry: resolveEnterpriseIndustryFromCandidates(enterprise.industry),
+        }))
+      : []
+  );
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(getCache('enterprise_names_en') || {});
   const [issuerBonds, setIssuerBonds] = useState<Bond[]>([]);
   const [loading, setLoading] = useState(!cachedData);
@@ -84,6 +175,27 @@ export default function EnterpriseView({
   };
 
   const chartPalette = CHART_PALETTE;
+
+  const enterpriseIndustryOptions = useMemo(() => {
+    const excluded = new Set(['telecommunicationsIndustry', 'healthcareIndustry']);
+    const totals = enterprises.reduce<Record<string, { issuedValue: number }>>((acc, enterprise) => {
+      if (!enterprise.industry || excluded.has(enterprise.industry)) return acc;
+      if (!acc[enterprise.industry]) acc[enterprise.industry] = { issuedValue: 0 };
+      acc[enterprise.industry].issuedValue += enterprise.issuedValue || 0;
+      return acc;
+    }, {});
+
+    return INDUSTRY_NAV_ITEMS
+      .filter((item) => !excluded.has(item.labelKey))
+      .map((item, index) => ({
+        value: item.labelKey,
+        label: t(item.labelKey as any),
+        issuedValue: totals[item.labelKey]?.issuedValue || 0,
+        order: index,
+      }))
+      .filter((item) => item.issuedValue > 0)
+      .sort((a, b) => b.issuedValue - a.issuedValue || a.order - b.order);
+  }, [enterprises, t]);
 
   useEffect(() => {
     /**
@@ -370,16 +482,35 @@ export default function EnterpriseView({
         if (!isMounted) return;
 
         if (issuers) {
-          const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+          const symbolGroups = await loadDedupedIndustrySymbols();
+          const symbolToIndustryKey = new Map<string, string>();
 
-          // Map issuers immediately. Use existing industries if available.
+          INDUSTRY_NAV_ITEMS.forEach((item) => {
+            (symbolGroups[item.id] || []).forEach((symbol) => {
+              symbolToIndustryKey.set(symbol, item.labelKey);
+            });
+          });
+
           const mappedEnterprises: Enterprise[] = issuers.map((issuer: any) => {
             const currentEnt = enterprises.find(e => e.ticker === issuer.issuerSymbol);
             return {
               id: issuer.issuerSymbol,
               ticker: issuer.issuerSymbol,
               name: issuer.issuerName,
-              industry: currentEnt?.industry || 'N/A', 
+              industry: symbolToIndustryKey.get(issuer.issuerSymbol) || resolveEnterpriseIndustryFromCandidates(
+                issuer?.infoObj?.icbNameLv2,
+                issuer?.infoObj?.icbNameLv1,
+                issuer?.infoObj?.icbCodeLv2,
+                issuer?.infoObj?.icbCodeLv1,
+                issuer?.icbNameLv2,
+                issuer?.icbNameLv1,
+                issuer?.icbCodeLv2,
+                issuer?.icbCodeLv1,
+                issuer?.industryName,
+                issuer?.industryCode,
+                issuer?.industry,
+                currentEnt?.industry
+              ),
               bondCount: issuer.bondCount,
               issuedValue: issuer.totalIssuedValue / 1000000000,
               initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue) / 1000000000,
@@ -390,38 +521,60 @@ export default function EnterpriseView({
           setEnterprises(mappedEnterprises);
           if (isMounted) setLoading(false); 
 
-          // Fetch industries background mapping
-          const icbCodes = ['3010', '3510', '30202005'];
-          const industriesMap: Record<string, string> = {
-            '3010': 'Banking',
-            '3510': 'RealEstate',
-            '30202005': 'Securities'
-          };
+          const finalEnterprises = [...mappedEnterprises];
 
-          const industryBatches = await Promise.all(icbCodes.map(async (code) => {
-             try {
-               const res = await fetch(buildFireantUrl(`icb/${code}/symbols`), { cache: 'no-store', headers });
-               if (res.ok) {
-                 const symbols = await res.json();
-                 return { code, symbols };
-               }
-             } catch(e) {}
-             return { code, symbols: [] };
-          }));
-
-          if (!isMounted) return;
-
-          const symbolToIndustry: Record<string, string> = {};
-          industryBatches.forEach(batch => {
-            batch.symbols.forEach((s: string) => {
-              symbolToIndustry[s] = industriesMap[batch.code];
-            });
+          const unresolvedEnterprises = finalEnterprises.filter((enterprise) => {
+            const industry = String(enterprise.industry || '').trim().toLowerCase();
+            return !industry || industry === 'otherindustry' || industry === 'other' || industry === 'n/a';
           });
 
-          const finalEnterprises = mappedEnterprises.map(ent => ({
-            ...ent,
-            industry: symbolToIndustry[ent.ticker] || 'Other'
-          }));
+          if (unresolvedEnterprises.length > 0) {
+            const chunkSize = 5;
+            const resolvedIndustries = new Map<string, string>();
+
+            for (let i = 0; i < unresolvedEnterprises.length; i += chunkSize) {
+              if (!isMounted) break;
+
+              const chunk = unresolvedEnterprises.slice(i, i + chunkSize);
+              const results = await Promise.allSettled(
+                chunk.map(async (enterprise) => {
+                  const profile = await fireantApi.getIssuerProfile(enterprise.ticker);
+                  return {
+                    ticker: enterprise.ticker,
+                    industry: resolveEnterpriseIndustryFromCandidates(
+                      profile?.infoObj?.icbNameLv2,
+                      profile?.infoObj?.icbNameLv1,
+                      profile?.infoObj?.icbCodeLv2,
+                      profile?.infoObj?.icbCodeLv1,
+                      profile?.icbNameLv2,
+                      profile?.icbNameLv1,
+                      profile?.icbCodeLv2,
+                      profile?.icbCodeLv1,
+                      profile?.industryName,
+                      profile?.industryCode,
+                      profile?.industry,
+                      enterprise.industry
+                    )
+                  };
+                })
+              );
+
+              results.forEach((result) => {
+                if (result.status === 'fulfilled' && result.value.industry) {
+                  resolvedIndustries.set(result.value.ticker, result.value.industry);
+                }
+              });
+            }
+
+            if (isMounted && resolvedIndustries.size > 0) {
+              finalEnterprises.forEach((enterprise) => {
+                const industry = resolvedIndustries.get(enterprise.ticker);
+                if (industry) {
+                  enterprise.industry = industry;
+                }
+              });
+            }
+          }
 
           setEnterprises(finalEnterprises);
           setCache('enterprise_list', finalEnterprises);
@@ -505,12 +658,18 @@ export default function EnterpriseView({
     setBondPage(1);
   }, [bondTermFilter, bondInterestSort]);
 
+  useEffect(() => {
+    setEnterprisePage(1);
+  }, [remainingDebtSort]);
+
   const filteredEnterprises = enterprises.filter(e => 
     (e.name.toLowerCase().includes(searchTerm.toLowerCase()) || e.ticker.toLowerCase().includes(searchTerm.toLowerCase())) &&
     (industryFilter === 'All' || e.industry === industryFilter)
   );
 
   const sortedEnterprises = [...filteredEnterprises].sort((a, b) => {
+    if (remainingDebtSort === 'HighToLow') return b.remainingDebt - a.remainingDebt;
+    if (remainingDebtSort === 'LowToHigh') return a.remainingDebt - b.remainingDebt;
     if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
     if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
     return 0;
@@ -970,7 +1129,7 @@ export default function EnterpriseView({
             {/* Financial Badges Section */}
             <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2 pt-1">
               {!loadingFinancial ? (() => {
-                const ind = selectedEnterprise.industry?.toLowerCase() || '';
+                const ind = selectedEnterprise.industry ? t(selectedEnterprise.industry as any).toLowerCase() : '';
                 const type = (financialData?.__companyType || '').toLowerCase();
                 const d = financialData && financialData.__symbol === selectedEnterprise.ticker ? financialData : {};
                 
@@ -1230,7 +1389,7 @@ export default function EnterpriseView({
               <div className="relative">
                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 <select 
-                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
                   value={bondTermFilter}
                   onChange={(e) => setBondTermFilter(e.target.value)}
                 >
@@ -1243,7 +1402,7 @@ export default function EnterpriseView({
               <div className="relative">
                 <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
                 <select 
-                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
                   value={bondInterestSort}
                   onChange={(e) => setBondInterestSort(e.target.value)}
                 >
@@ -1258,36 +1417,36 @@ export default function EnterpriseView({
             <table className="w-full min-w-[920px] text-left border-collapse">
               <thead className="bg-blue-600 text-white">
                 <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
                       <span className="whitespace-nowrap leading-none">{t('term')}</span>
                       <span className="whitespace-nowrap mt-1 leading-none">({t('monthUnit')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate')}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate')}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
                       <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
                       <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType')}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume')}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
                       <span className="whitespace-nowrap leading-none">{t('totalIssuedValueTitle')}</span>
                       <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
                       <span className="whitespace-nowrap leading-none">{t('listedValueTitle')}</span>
                       <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1300,26 +1459,26 @@ export default function EnterpriseView({
                     }}
                     className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-left">
-                      <span className="text-xs font-bold text-text-highlight group-hover:underline">{bond.code}</span>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className="text-sm font-bold text-text-highlight group-hover:underline">{bond.code}</span>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
+                      <span className="px-2 py-1 rounded-lg text-sm font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
                     </td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.issueDate)}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.maturityDate)}</td>
-                    <td className="px-6 py-4 text-xs font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
-                    <td className={`px-6 py-4 text-xs font-bold whitespace-nowrap text-center transition-colors ${
+                    <td className="px-6 py-4 text-sm text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.issueDate)}</td>
+                    <td className="px-6 py-4 text-sm text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.maturityDate)}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
+                    <td className={`px-6 py-4 text-sm font-bold whitespace-nowrap text-center transition-colors ${
                       bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed') ? 'text-blue-600' : 'text-orange-600'
                     }`}>
                       {(bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
                        ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : bond.interestType)}
                     </td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
+                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
+                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
+                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                      <span className={`px-2 py-1 rounded-full text-sm font-bold uppercase ${
                         bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
                       }`}>
                         {(bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active')) ? t('active') : 
@@ -1466,11 +1625,29 @@ export default function EnterpriseView({
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
           <div className="relative flex-1 sm:flex-none">
-            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select 
-              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              className="w-full pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              value={industryFilter}
+              onChange={(e) => setIndustryFilter(e.target.value)}
+            >
+              <option value="All" className="bg-bg-surface">{t('allIndustries')}</option>
+              {enterpriseIndustryOptions.map((industry) => (
+                <option key={industry.value} value={industry.value} className="bg-bg-surface">
+                  {industry.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="relative flex-1 sm:flex-none">
+            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+            <select
+              className="w-full pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
               value={issueValueSort}
-              onChange={(e) => setIssueValueSort(e.target.value)}
+              onChange={(e) => {
+                setIssueValueSort(e.target.value);
+                if (e.target.value !== 'None') setRemainingDebtSort('None');
+              }}
             >
               <option value="None" className="bg-bg-surface">{t('issuedValue')}</option>
               <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
@@ -1478,19 +1655,18 @@ export default function EnterpriseView({
             </select>
           </div>
           <div className="relative flex-1 sm:flex-none">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select 
-              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
+            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+            <select
+              className="w-full pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              value={remainingDebtSort}
+              onChange={(e) => {
+                setRemainingDebtSort(e.target.value);
+                if (e.target.value !== 'None') setIssueValueSort('None');
+              }}
             >
-              <option value="All" className="bg-bg-surface">{t('allIndustries')}</option>
-              {Array.from(new Set(enterprises.map(e => e.industry)))
-                .sort()
-                .map(industry => (
-                  <option key={industry} value={industry} className="bg-bg-surface">{t(industry as any)}</option>
-                ))
-              }
+              <option value="None" className="bg-bg-surface">{t('remainingDebtTitle')}</option>
+              <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
+              <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
             </select>
           </div>
         </div>
@@ -1546,16 +1722,16 @@ export default function EnterpriseView({
           <table className="w-full min-w-[720px] text-left">
             <thead>
               <tr className="bg-blue-600 text-white transition-colors">
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
-                <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount')}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
+                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
+                <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount')}</th>
+                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('remainingDebtTitle')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
@@ -1574,7 +1750,7 @@ export default function EnterpriseView({
                   onClick={() => setSelectedEnterprise(enterprise)}
                   className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
                 >
-                  <td className="px-6 py-5 text-left">
+                  <td className="px-6 py-5 text-center">
                     <span className="text-sm font-bold text-text-highlight">{enterprise.ticker}</span>
                   </td>
                   <td className="px-6 py-5 text-left">

@@ -38,6 +38,83 @@ export const INDUSTRY_LABEL_KEYS = INDUSTRY_NAV_ITEMS.reduce<Record<string, stri
 export const normalizeIndustryName = (value: unknown) =>
   String(value || '').trim().toLowerCase();
 
+const INDUSTRY_LABEL_KEY_BY_ALIAS = INDUSTRY_NAV_ITEMS.reduce<Record<string, string>>((acc, item) => {
+  const aliases = new Set<string>([
+    item.id,
+    item.labelKey,
+    item.code,
+    item.icbCode || '',
+    ...item.targetNames,
+  ]);
+
+  aliases.forEach((alias) => {
+    const normalized = normalizeIndustryName(alias);
+    if (normalized) {
+      acc[normalized] = item.labelKey;
+    }
+  });
+
+  return acc;
+}, {});
+
+export const resolveIndustryLabelKey = (...candidates: Array<unknown>) => {
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value || value.toLowerCase() === 'n/a') continue;
+
+    const normalized = normalizeIndustryName(value);
+    if (/^\d+$/.test(value)) {
+      const byCode = INDUSTRY_NAV_ITEMS.find((item) => item.code === value || item.icbCode === value);
+      if (byCode) return byCode.labelKey;
+    }
+
+    const resolved = INDUSTRY_LABEL_KEY_BY_ALIAS[normalized];
+    if (resolved) return resolved;
+  }
+
+  return 'otherIndustry';
+};
+
+export const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unknown>) => {
+  for (const candidate of candidates) {
+    const value = String(candidate || '').trim();
+    if (!value || value.toLowerCase() === 'n/a') continue;
+
+    if (/^\d+$/.test(value)) {
+      const byCode = INDUSTRY_NAV_ITEMS.find((item) => item.code === value || item.icbCode === value);
+      if (byCode) return byCode.labelKey;
+    }
+
+    const resolved = resolveIndustryLabelKey(value);
+    if (resolved !== 'otherIndustry') return resolved;
+  }
+
+  return 'otherIndustry';
+};
+
+export const buildEnterpriseIndustryOptions = (
+  enterprises: Array<{ industry?: string; issuedValue?: number }>,
+  excluded = new Set(['telecommunicationsIndustry', 'healthcareIndustry'])
+) => {
+  const totals = enterprises.reduce<Record<string, { issuedValue: number }>>((acc, enterprise) => {
+    if (!enterprise.industry || excluded.has(enterprise.industry)) return acc;
+    if (!acc[enterprise.industry]) acc[enterprise.industry] = { issuedValue: 0 };
+    acc[enterprise.industry].issuedValue += Number(enterprise.issuedValue || 0);
+    return acc;
+  }, {});
+
+  return INDUSTRY_NAV_ITEMS
+    .filter((item) => !excluded.has(item.labelKey))
+    .map((item, index) => ({
+      value: item.labelKey,
+      label: item.labelKey,
+      issuedValue: totals[item.labelKey]?.issuedValue || 0,
+      order: index,
+    }))
+    .filter((item) => item.issuedValue > 0)
+    .sort((a, b) => b.issuedValue - a.issuedValue || a.order - b.order);
+};
+
 export const findIndustryStats = (stats: unknown, item: IndustryNavItem) => {
   const list = Array.isArray(stats) ? stats : [];
   const targetNames = item.targetNames.map(normalizeIndustryName);

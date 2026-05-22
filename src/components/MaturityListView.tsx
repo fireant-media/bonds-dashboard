@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Filter, Calendar, Activity, Briefcase, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
+import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 import { Bond } from '../types';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
@@ -8,6 +8,7 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
+import { buildEnterpriseIndustryOptions, resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -28,6 +29,30 @@ interface MaturityListViewProps {
 import { getCache, setCache } from '../utils/cache';
 import { fireantApi } from '../api/fireant';
 
+const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
+  resolveEnterpriseIndustryFromCandidates(
+    enterpriseIndustry,
+    bond?.industry,
+    bond?.industryLabel,
+    bond?.infoObj?.icbNameLv2,
+    bond?.infoObj?.icbNameLv1,
+    bond?.infoObj?.icbCodeLv2,
+    bond?.infoObj?.icbCodeLv1,
+    bond?.infoObj?.industryName,
+    bond?.infoObj?.industryCode,
+    bond?.icbNameLv2,
+    bond?.icbNameLv1,
+    bond?.icbCodeLv2,
+    bond?.icbCodeLv1,
+    bond?.industryName,
+    bond?.industryCode
+  );
+
+const normalizeMaturityBond = (bond: any, enterpriseIndustry?: string): MaturityBond => ({
+  ...bond,
+  industry: getMaturityIndustryKey(bond, enterpriseIndustry),
+});
+
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
@@ -35,21 +60,25 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const [selectedTimeRange, setSelectedTimeRange] = useState(30); // Default 1 month
   const cacheKey = `maturity_list_${selectedTimeRange}`;
   const cachedData = getCache(cacheKey);
-  const [bonds, setBonds] = useState<MaturityBond[]>(cachedData || []);
+  const [bonds, setBonds] = useState<MaturityBond[]>(() =>
+    Array.isArray(cachedData) ? cachedData.map((bond: any) => normalizeMaturityBond(bond)) : []
+  );
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [industryFilter, setIndustryFilter] = useState(t('allIndustries'));
-  const [warningFilter, setWarningFilter] = useState(t('allStatuses'));
-  const [valueFilter, setValueFilter] = useState(t('allValues'));
+  const [industryFilter, setIndustryFilter] = useState('All');
+  const [warningFilter, setWarningFilter] = useState('All');
   const [exportLoading, setExportLoading] = useState(false);
-  const [sortType, setSortType] = useState<'default' | 'maturity-near' | 'maturity-far' | 'value-high' | 'value-low'>('default');
+  const [sortType, setSortType] = useState<
+    'default' | 'maturity-near' | 'maturity-far' | 'value-high' | 'value-low' | 'interest-high' | 'interest-low'
+  >('default');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(() => {
     return getCache('enterprise_names_en') || {};
   });
+  const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string; issuedValue?: number }>;
 
   useEffect(() => {
     let isMounted = true;
@@ -68,6 +97,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
             today.setHours(0, 0, 0, 0);
 
             const mapped: MaturityBond[] = data.map((b: any) => {
+              const enterpriseIndustry = enterpriseList.find((item) => item.ticker === b.issuerSymbol)?.industry;
               const maturity = new Date(b.maturityDate);
               maturity.setHours(0, 0, 0, 0);
               const diffTime = maturity.getTime() - today.getTime();
@@ -93,11 +123,60 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 issueDate: b.issueDate?.split('T')[0] || '',
                 issuedValue: 0,
                 status: b.status || t('active'),
-                industry: b.infoObj?.icbNameLv2 || t('others')
+                industry: getMaturityIndustryKey(b, enterpriseIndustry)
               };
-            });
+            }).map((bond) => normalizeMaturityBond(bond, enterpriseList.find((item) => item.ticker === bond.ticker)?.industry));
             setBonds(mapped);
             setCache(cacheKey, mapped);
+
+            const unresolvedIndustries = mapped.filter((bond) => !bond.industry || bond.industry === 'otherIndustry');
+            if (unresolvedIndustries.length > 0) {
+              const resolveIndustries = async () => {
+                const chunkSize = 5;
+                const updates = new Map<string, string>();
+
+                for (let i = 0; i < unresolvedIndustries.length; i += chunkSize) {
+                  if (!isMounted) break;
+
+                  const chunk = unresolvedIndustries.slice(i, i + chunkSize);
+                  const results = await Promise.allSettled(
+                    chunk.map(async (bond) => {
+                      if (!bond.ticker) return null;
+
+                      const profile = await fireantApi.getIssuerProfile(bond.ticker);
+                      const enterpriseIndustry = (getCache('enterprise_list') || [])
+                        .find((item: any) => item.ticker === bond.ticker)?.industry;
+
+                      return {
+                        code: bond.code,
+                        industry: getMaturityIndustryKey(profile || bond, enterpriseIndustry),
+                      };
+                    })
+                  );
+
+                  results.forEach((result) => {
+                    if (result.status === 'fulfilled' && result.value?.code && result.value.industry) {
+                      updates.set(result.value.code, result.value.industry);
+                    }
+                  });
+                }
+
+                if (!isMounted || updates.size === 0) return;
+
+                setBonds((prev) => {
+                  const next = prev.map((bond) => {
+                    const industry = updates.get(bond.code);
+                    return industry ? { ...bond, industry } : bond;
+                  });
+                  setCache(cacheKey, next);
+                  return next;
+                });
+              };
+
+              resolveIndustries().catch((resolveError) => {
+                console.error('Failed to resolve maturity industries', resolveError);
+              });
+            }
 
             // Trigger background fetch for international names if in English mode
             if (language === 'en') {
@@ -188,26 +267,21 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   }, [selectedTimeRange]);
 
   const getWarningStatus = (days: number) => {
-    if (days < 30) return { label: t('statusVeryNear'), color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30', icon: AlertCircle, iconColor: 'text-red-600' };
-    if (days <= 90) return { label: t('statusNear'), color: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-400/30', icon: Zap, iconColor: 'text-orange-600' };
-    if (days <= 180) return { label: t('statusMonitor'), color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-400/30', icon: Eye, iconColor: 'text-yellow-600' };
-    if (days <= 270) return { label: t('statusMediumTerm'), color: 'bg-blue-600/5 text-blue-600 border-blue-600/10', icon: Activity, iconColor: 'text-blue-600' };
-    return { label: t('statusLongTerm'), color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30', icon: CheckCircle2, iconColor: 'text-green-600' };
+    if (days < 30) return { value: 'very-near', label: t('statusVeryNear'), color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30', icon: AlertCircle, iconColor: 'text-red-600' };
+    if (days <= 90) return { value: 'near', label: t('statusNear'), color: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-400/30', icon: Zap, iconColor: 'text-orange-600' };
+    if (days <= 180) return { value: 'monitor', label: t('statusMonitor'), color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-400/30', icon: Eye, iconColor: 'text-yellow-600' };
+    if (days <= 270) return { value: 'medium-term', label: t('statusMediumTerm'), color: 'bg-blue-600/5 text-blue-600 border-blue-600/10', icon: Activity, iconColor: 'text-blue-600' };
+    return { value: 'long-term', label: t('statusLongTerm'), color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30', icon: CheckCircle2, iconColor: 'text-green-600' };
   };
 
   const filteredBonds = bonds.filter(bond => {
     const matchesSearch = bond.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
                          bond.issuerName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesIndustry = industryFilter === t('allIndustries') || bond.industry === industryFilter;
+    const matchesIndustry = industryFilter === 'All' || bond.industry === industryFilter;
     const status = getWarningStatus(bond.daysLeft);
-    const matchesWarning = warningFilter === t('allStatuses') || status.label === warningFilter;
-    
-    let matchesValue = true;
-    if (valueFilter === t('rangeLess100')) matchesValue = bond.listedValue < 100;
-    else if (valueFilter === t('range100to500')) matchesValue = bond.listedValue >= 100 && bond.listedValue <= 500;
-    else if (valueFilter === t('rangeMore500')) matchesValue = bond.listedValue > 500;
+    const matchesWarning = warningFilter === 'All' || status.value === warningFilter;
 
-    return matchesSearch && matchesIndustry && matchesWarning && matchesValue;
+    return matchesSearch && matchesIndustry && matchesWarning;
   });
 
   const sortedBonds = [...filteredBonds].sort((a, b) => {
@@ -219,6 +293,10 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       return b.listedValue - a.listedValue;
     } else if (sortType === 'value-low') {
       return a.listedValue - b.listedValue;
+    } else if (sortType === 'interest-high') {
+      return (b.interestRate || 0) - (a.interestRate || 0);
+    } else if (sortType === 'interest-low') {
+      return (a.interestRate || 0) - (b.interestRate || 0);
     } else {
       // Default and maturity-near both sort by maturity asc
       const dateA = new Date(a.maturityDate).getTime();
@@ -230,8 +308,22 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const totalPages = Math.ceil(sortedBonds.length / itemsPerPage);
   const paginatedBonds = sortedBonds.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const industries = [t('allIndustries'), ...new Set(bonds.map(b => b.industry).filter(Boolean) as string[])];
-  const warningLevels = [t('allStatuses'), t('statusVeryNear'), t('statusNear'), t('statusMonitor'), t('statusMediumTerm'), t('statusLongTerm')];
+  const enterpriseIndustryOptions = buildEnterpriseIndustryOptions(
+    enterpriseList.length > 0
+      ? enterpriseList
+      : bonds.map((bond) => ({
+          industry: bond.industry,
+          issuedValue: bond.listedValue,
+        }))
+  );
+  const warningLevels = [
+    { value: 'All', label: t('allStatuses') },
+    { value: 'very-near', label: t('statusVeryNear') },
+    { value: 'near', label: t('statusNear') },
+    { value: 'monitor', label: t('statusMonitor') },
+    { value: 'medium-term', label: t('statusMediumTerm') },
+    { value: 'long-term', label: t('statusLongTerm') },
+  ];
 
   const handleExportExcel = async () => {
     setExportLoading(true);
@@ -318,7 +410,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       <div className="bg-bg-surface p-4 rounded-lg shadow-sm border border-border-base mb-4 transition-colors">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* Row 1 */}
-          {/* Search Item */}
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-text-muted" />
             <input
@@ -329,10 +420,50 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-text-muted outline-none"
+              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-lg text-sm text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-text-muted outline-none"
             />
           </div>
 
+          {/* Industry Filter */}
+          <div className="relative">
+            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+            <select
+              value={industryFilter}
+              onChange={(e) => {
+                setIndustryFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+            >
+              <option value="All">{t('allIndustries')}</option>
+              {enterpriseIndustryOptions.map((industry) => (
+                <option key={industry.value} value={industry.value}>
+                  {t(industry.label as any)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="relative">
+            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+            <select
+              value={warningFilter}
+              onChange={(e) => {
+                setWarningFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+            >
+              {warningLevels.map((level) => (
+                <option key={level.value} value={level.value}>
+                  {level.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Row 2 */}
           {/* Maturity Date Sort */}
           <div className="relative">
             <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
@@ -348,7 +479,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               <option value="default">{t('maturityDateSort')}</option>
               <option value="near">{t('nearest')}</option>
@@ -371,7 +502,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
               <option value="default">{t('issuedValue')}</option>
               <option value="high">{t('highToLow')}</option>
@@ -379,49 +510,26 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
             </select>
           </div>
 
-          {/* Row 2 */}
-          {/* Industry Filter */}
+          {/* Interest Rate Sort */}
           <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select
-              value={industryFilter}
+              value={sortType === 'interest-high' ? 'high' : (sortType === 'interest-low' ? 'low' : 'default')}
               onChange={(e) => {
-                setIndustryFilter(e.target.value);
+                if (e.target.value === 'default') {
+                  setSortType('default');
+                } else if (e.target.value === 'high') {
+                  setSortType('interest-high');
+                } else if (e.target.value === 'low') {
+                  setSortType('interest-low');
+                }
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
+              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
             >
-              {industries.map(ind => <option key={ind} value={ind}>{t(ind as any)}</option>)}
-            </select>
-          </div>
-
-          {/* Value Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={valueFilter}
-              onChange={(e) => {
-                setValueFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              {[t('allValues'), t('rangeLess100'), t('range100to500'), t('rangeMore500')].map(val => <option key={val} value={val}>{val}</option>)}
-            </select>
-          </div>
-
-          {/* Warning Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={warningFilter}
-              onChange={(e) => {
-                setWarningFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-medium text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              {warningLevels.map(level => <option key={level} value={level}>{level}</option>)}
+              <option value="default">{t('interestRate')}</option>
+              <option value="high">{t('highToLow')}</option>
+              <option value="low">{t('lowToHigh')}</option>
             </select>
           </div>
         </div>
@@ -433,28 +541,28 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
           <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
               <tr className="bg-blue-600 text-white transition-colors">
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode')}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('enterprise')}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate')}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('enterprise')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('daysLeftLabel')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('daysUnit')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionShort')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('situation')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('situation')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-base transition-colors">

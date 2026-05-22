@@ -266,25 +266,25 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
               <tr className="bg-blue-600 text-white transition-colors">
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {t('bondCode')}
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {t('issuerName')}
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {t('maturityDate')}
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {t('situation')}
                 </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {t('action')}
                 </th>
               </tr>
