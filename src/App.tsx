@@ -433,7 +433,7 @@ export default function App() {
   const isProfileMode = activeTab === 'profile' || activeTab === 'help';
 
   return (
-    <div className="h-screen overflow-hidden bg-surface-container-low font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
+    <div className="min-h-dvh overflow-hidden bg-surface-container-low font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
       <Header 
         onProfileClick={() => setActiveTab('profile')} 
         onHelpClick={() => setActiveTab('help')}
@@ -524,7 +524,7 @@ export default function App() {
               ref={scrollContainerRef}
               className="flex-1 min-h-0 transition-all duration-300 min-w-0 overflow-y-auto overflow-x-hidden"
             >
-              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-screen-2xl mx-auto py-3 px-2 md:py-4 md:px-4 w-full")}>
+              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-screen-2xl mx-auto py-3 px-3 sm:px-4 md:py-4 md:px-4 lg:px-6 xl:px-8 w-full")}>
                 <Suspense
                   fallback={
                     <div className="flex min-h-96 items-center justify-center">

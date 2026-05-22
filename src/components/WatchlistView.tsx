@@ -6,9 +6,9 @@ import { useLanguage } from '../LanguageContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItem, type WatchlistItem } from '../utils/watchlist';
-import { fireantApi } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -142,7 +142,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           try {
             const bondCacheKey = `bond_detail_${bond.code}`;
             const cachedBondData = getCache(bondCacheKey);
-            const bondData = cachedBondData || await fireantApi.getBond(bond.code);
+            const bondData = cachedBondData || await loadBondDetail(bond.code);
             if (!cachedBondData) setCache(bondCacheKey, bondData);
 
             const detail = bondData?.detail || bondData || {};
@@ -166,13 +166,13 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
               try {
                 const profileCacheKey = `issuer_profile_${issuerSymbol}`;
                 const cachedProfile = getCache(profileCacheKey);
-                const profile = cachedProfile || await fireantApi.getIssuerProfile(issuerSymbol);
+                const profile = cachedProfile || await loadIssuerProfile(issuerSymbol);
                 if (!cachedProfile) setCache(profileCacheKey, profile);
 
                 issuerName = String(
                   language === 'en'
-                    ? profile.internationalName || profile.name || profile.companyName || issuerName || ''
-                    : profile.name || profile.companyName || profile.internationalName || issuerName || ''
+                    ? profile?.internationalName || profile?.name || profile?.companyName || issuerName || ''
+                    : profile?.name || profile?.companyName || profile?.internationalName || issuerName || ''
                 ).trim();
                 industry = String(
                   industry ||
@@ -272,7 +272,68 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-sm transition-colors">
+      <div className="space-y-3 lg:hidden">
+        {bonds.length > 0 ? (
+          bonds.map((bond) => {
+            const status = getStatusMeta(bond.daysLeft, t);
+            return (
+              <button
+                key={bond.code}
+                type="button"
+                onClick={() => handleOpenBond(bond)}
+                className="w-full rounded-lg border border-border-base bg-bg-surface p-4 text-left shadow-sm transition-colors hover:bg-surface-container-low"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-base font-bold text-text-highlight">{bond.code}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">{t(bond.issuerName as any, bond.ticker)}</p>
+                    {bond.industry && <p className="mt-1 text-xs font-semibold text-text-muted">{t(bond.industry as any)}</p>}
+                  </div>
+                  <span className={cn("shrink-0 rounded-full border px-3 py-1 text-xs font-bold uppercase", status.color)}>
+                    {status.label}
+                  </span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-bg-base p-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('interestRate')}</p>
+                    <p className="mt-1 text-sm font-bold text-green-600 dark:text-green-500">{formatInterestRate(bond.interestRate)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('maturityDate')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">{formatDate(bond.maturityDate)}</p>
+                  </div>
+                  <div className="col-span-2 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase tracking-wider text-text-muted/80">
+                      {t('remainingPrefix')} {bond.daysLeft} {t('daysUnit').toLowerCase()}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleRemoveBond(bond);
+                      }}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border-base text-text-muted transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                      title={t('delete')}
+                      aria-label={t('delete')}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        ) : (
+          <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center">
+            <div className="flex flex-col items-center gap-3 text-text-muted">
+              <Building2 className="h-8 w-8" />
+              <p className="text-sm font-bold uppercase transition-colors">{t('noBondsFound')}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-sm transition-colors lg:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>

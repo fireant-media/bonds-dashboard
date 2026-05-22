@@ -41,15 +41,15 @@ export default function ProfileView({ onLogout }: ProfileViewProps) {
   ];
 
   return (
-    <div className="flex flex-col md:flex-row bg-bg-base h-full overflow-hidden transition-colors">
+    <div className="flex min-h-dvh flex-col bg-bg-base overflow-hidden transition-colors md:flex-row">
       {/* Sidebar */}
-      <div className="w-full md:w-80 bg-bg-surface border-b md:border-b-0 md:border-r border-border-base flex flex-col pt-4 md:pt-10 pb-4 md:pb-10 px-3 md:px-4 shrink-0 shadow-sm transition-colors">
-        <div className="mb-4 md:mb-12 px-3 md:px-6">
+      <div className="w-full shrink-0 border-b border-border-base bg-bg-surface px-3 py-4 shadow-sm transition-colors md:w-80 md:border-b-0 md:border-r md:px-4 md:py-8">
+        <div className="mb-4 px-2 md:mb-12 md:px-4">
           <h2 className="text-xl font-bold text-blue-600 tracking-tight transition-colors">{t('profileUser')}</h2>
           <p className="text-sm text-text-muted mt-1 font-medium transition-colors">{t('manageAccount')}</p>
         </div>
 
-        <nav className="flex-1 grid grid-cols-3 md:block md:space-y-4 gap-2 md:px-2">
+        <nav className="grid flex-1 grid-cols-2 gap-2 md:block md:space-y-4 md:px-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -58,7 +58,7 @@ export default function ProfileView({ onLogout }: ProfileViewProps) {
                 key={item.id}
                 onClick={() => setActiveTab(item.id as ProfileTab)}
                 className={cn(
-                  "w-full flex items-center justify-center md:justify-between gap-2 md:gap-4 px-3 md:px-4 py-3 md:py-4 rounded-xl transition-all text-left group",
+                  "w-full flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-left transition-all group md:justify-between md:gap-4 md:px-4 md:py-4",
                   isActive 
                     ? "bg-blue-600/5 text-blue-600" 
                     : "text-text-muted hover:bg-bg-base"
@@ -78,7 +78,7 @@ export default function ProfileView({ onLogout }: ProfileViewProps) {
       </div>
 
       {/* Main Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar transition-colors">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 custom-scrollbar transition-colors">
         <div className="max-w-5xl min-w-0">
           {activeTab === 'info' && <PersonalInfoView user={user} />}
           {activeTab === 'security' && <SecuritySettingsView />}
@@ -124,7 +124,7 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
       <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('personalInfo')}</h1>
 
       {isGoogleUser && (
-        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900 rounded-xl flex items-center gap-3 text-blue-600 text-xs font-bold transition-colors">
+      <div className="mb-6 flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs font-bold text-blue-600 transition-colors dark:border-blue-900 dark:bg-blue-900/20">
           <ShieldCheck className="h-5 w-5" />
           <span>{t('googleProfileReadOnly')}</span>
         </div>
@@ -132,10 +132,10 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
 
       <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
         <div className="mb-6">
-          <div className="flex flex-col md:flex-row gap-12">
+          <div className="flex flex-col gap-8 lg:flex-row lg:gap-12">
             <div className="flex flex-col items-center gap-4">
-              <div className="h-48 w-48 rounded-xl bg-bg-base/50 flex items-center justify-center border-2 border-dashed border-border-base relative group overflow-hidden transition-colors">
-                <User className="h-20 w-20 text-text-muted/40" />
+              <div className="relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border-base bg-bg-base/50 transition-colors sm:h-44 sm:w-44 lg:h-48 lg:w-48">
+                <User className="h-16 w-16 text-text-muted/40 sm:h-20 sm:w-20" />
                 {!isGoogleUser && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                     <Camera className="h-8 w-8 text-white" />

@@ -173,57 +173,33 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             const headers: Record<string, string> = { 'Accept': 'application/json' };
             if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
 
-            // Fetch a larger window to get more symbols into the pool
-            const response = await fetch(buildFireantUrl('bonds/stats/bonds/maturing-soon', { days: 3650 }), { cache: 'no-store', headers });
-            if (response.ok) {
-              const data = await readJsonResponse<any[]>(response, 'Bond comparison pool');
-              if (Array.isArray(data)) {
-                const fetchedBonds: Bond[] = data.map((b: any) => {
-                  const normalizeVal = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 1000000) return val / 1000000000;
-                    return val;
-                  };
-                  const normalizeVol = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 100000) return val / 10000;
-                    return val;
-                  };
+            const data = await loadMaturingBonds(3650);
+            if (Array.isArray(data)) {
+              const fetchedBonds: Bond[] = data.map((b: any) => ({
+                id: b.bondCode,
+                code: b.bondCode,
+                enterpriseId: b.issuerSymbol || '',
+                term: String(b.tenorPeriod || 'N/A'),
+                interestRate: b.bondRate || 0,
+                listedVolume: b.currentListedVolume || 0,
+                issuedValue: b.totalIssuedValue || b.currentListedVolume || 0,
+                listedValue: b.currentListedValue || b.currentListedVolume || 0,
+                issueDate: b.issueDate?.split('T')[0] || '',
+                maturityDate: b.maturityDate?.split('T')[0] || '',
+                interestType: normalizeInterestType(
+                  b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
+                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+                  []
+                ) || 'N/A',
+                status: b.status || t('active')
+              }));
 
-                  const issueValue = b.totalIssuedValue 
-                    ? normalizeVal(b.totalIssuedValue)
-                    : normalizeVol(b.currentListedVolume);
-                  const listedValue = b.currentListedValue 
-                    ? normalizeVal(b.currentListedValue)
-                    : normalizeVol(b.currentListedVolume);
-
-                  return {
-                    id: b.bondCode,
-                    code: b.bondCode,
-                    enterpriseId: b.issuerSymbol || '',
-                    term: String(b.tenorPeriod || 'N/A'),
-                    interestRate: b.bondRate || 0,
-                    listedVolume: normalizeVol(b.currentListedVolume),
-                    issuedValue: issueValue,
-                    listedValue: listedValue,
-                    issueDate: b.issueDate?.split('T')[0] || '',
-                    maturityDate: b.maturityDate?.split('T')[0] || '',
-                    interestType: normalizeInterestType(
-                      b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
-                      b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                      []
-                    ) || 'N/A',
-                    status: b.status || t('active')
-                  };
-                });
-                
-                setAllBondsPool(prev => {
-                  const combined = [...prev, ...fetchedBonds];
-                  const final = Array.from(new Map(combined.map(b => [b.code, b])).values());
-                  setCache('comparison_pool_bonds', final);
-                  return final;
-                });
-              }
+              setAllBondsPool(prev => {
+                const combined = [...prev, ...fetchedBonds];
+                const final = Array.from(new Map(combined.map(b => [b.code, b])).values());
+                setCache('comparison_pool_bonds', final);
+                return final;
+              });
             }
           } catch (e) {
             console.error("Failed to fetch background pool", e);
@@ -263,52 +239,27 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         // try to fetch all bonds for that issuer to get the full list (e.g., 174 bonds for BID)
         if (normalizedSearch.length >= 2 && normalizedSearch.length <= 5) {
           try {
-            // Try different endpoints for issuer bonds
-            const issuerRes = await fetch(buildFireantUrl('bonds/get-bonds-by-issuer', { issuerSymbol: normalizedSearch }), { cache: 'no-store', headers });
-            if (issuerRes.ok) {
-              const data = await readJsonResponse<any>(issuerRes, `Issuer search ${normalizedSearch}`);
-              const issuerBonds = Array.isArray(data) ? data : (data.items || []);
-              if (Array.isArray(issuerBonds)) {
-                const mappedIssuerBonds = issuerBonds.map((b: any) => {
-                  const normalizeVal = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 1000000) return val / 1000000000;
-                    return val;
-                  };
-                  const normalizeVol = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 100000) return val / 10000;
-                    return val;
-                  };
-
-                  const issueValue = b.totalIssuedValue 
-                    ? normalizeVal(b.totalIssuedValue)
-                    : normalizeVol(b.currentListedVolume);
-                  const listedValue = b.currentListedValue 
-                    ? normalizeVal(b.currentListedValue)
-                    : normalizeVol(b.currentListedVolume);
-
-                  return {
-                    id: b.bondCode,
-                    code: b.bondCode,
-                    enterpriseId: b.issuerSymbol || normalizedSearch,
-                    term: String(b.tenorPeriod || 'N/A'),
-                    interestRate: b.bondRate || 0,
-                    listedVolume: normalizeVol(b.currentListedVolume),
-                    issuedValue: issueValue,
-                    listedValue: listedValue,
-                    issueDate: b.issueDate?.split('T')[0] || '',
-                    maturityDate: b.maturityDate?.split('T')[0] || '',
-                    interestType: normalizeInterestType(
-                      b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
-                      b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                      []
-                    ) || 'N/A',
-                    status: b.status || t('active')
-                  };
-                });
-                apiMatches = [...apiMatches, ...mappedIssuerBonds];
-              }
+            const issuerBonds = await loadIssuerBondsByFilter(normalizedSearch);
+            if (Array.isArray(issuerBonds)) {
+              const mappedIssuerBonds = issuerBonds.map((b: any) => ({
+                id: b.bondCode,
+                code: b.bondCode,
+                enterpriseId: b.issuerSymbol || normalizedSearch,
+                term: String(b.tenorPeriod || 'N/A'),
+                interestRate: b.bondRate || 0,
+                listedVolume: b.currentListedVolume || 0,
+                issuedValue: b.totalIssuedValue || b.currentListedVolume || 0,
+                listedValue: b.currentListedValue || b.currentListedVolume || 0,
+                issueDate: b.issueDate?.split('T')[0] || '',
+                maturityDate: b.maturityDate?.split('T')[0] || '',
+                interestType: normalizeInterestType(
+                  b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
+                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+                  []
+                ) || 'N/A',
+                status: b.status || t('active')
+              }));
+              apiMatches = [...apiMatches, ...mappedIssuerBonds];
             }
           } catch (e) {
             console.error("Failed to fetch issuer specific bonds during search", e);
@@ -435,76 +386,59 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       }
       
       const cleanToken = cleanTokenString(token);
-      
-      const detailRes = await fetch(buildFireantUrl(`bonds/${bond.code}`), {
-        cache: 'no-store',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${cleanToken}`
+      void cleanToken;
+
+      try {
+        const data = await loadBondDetail(bond.code);
+        if (!data) {
+          throw new Error('Missing bond detail data');
         }
-      });
 
-      console.log('[BondComparisonPopup] Fetch response status:', detailRes.status);
+        const b = data.detail || data;
+        const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+        const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+        const issuerSymbol = String(b.issuerSymbol || bond.enterpriseId || '').trim();
+        const profile = issuerSymbol ? await loadIssuerProfile(issuerSymbol) : null;
 
-      if (detailRes.ok) {
-        try {
-          const data = await readJsonResponse<any>(detailRes, `Bond comparison detail ${bond.code}`);
-          console.log('[BondComparisonPopup] API response data:', data);
-          
-          const b = data.detail || data;
-          if (!b || (!b.bondCode && !b.symbol)) {
-            throw new Error('Invalid bond data response');
-          }
-          
-          const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
-          const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+        const issueValue = b.totalIssuedValue
+          ? b.totalIssuedValue / 1000000000
+          : historyItem?.value
+            ? historyItem.value / 1000000000
+            : 0;
+        const listedValue = b.currentListedValue
+          ? b.currentListedValue / 1000000000
+          : historyItem?.value
+            ? historyItem.value / 1000000000
+            : issueValue;
+        const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
+        const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
+        const interestType = deriveInterestType(b, data.cashFlows);
 
-          const issueValue = b.totalIssuedValue
-            ? b.totalIssuedValue / 1000000000
-            : historyItem?.value
-              ? historyItem.value / 1000000000
-              : 0;
-          const listedValue = b.currentListedValue
-            ? b.currentListedValue / 1000000000
-            : historyItem?.value
-              ? historyItem.value / 1000000000
-              : issueValue;
-          const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
-          const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
-          const interestType = deriveInterestType(b, data.cashFlows);
-
-          let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
-          // Validate the maturityDate
-          const dateCheck = new Date(maturityDate);
-          if (isNaN(dateCheck.getTime())) {
-            console.log('[BondComparisonPopup] Invalid maturity date, using today');
-            maturityDate = new Date().toISOString().split('T')[0];
-          }
-
-          const fullBond: Bond = {
-            id: b.bondCode || bond.id,
-            code: b.bondCode || bond.code,
-            enterpriseId: b.issuerSymbol || '', 
-            term: String(b.tenorPeriod || 'N/A'),
-            interestRate: Number(interestRate) || 0,
-            listedVolume: Number(listedVolume) || 0,
-            issuedValue: Number(issueValue) || 0,
-            listedValue: Number(listedValue) || 0,
-            issueDate: b.issueDate?.split('T')[0] || '',
-            maturityDate,
-            interestType,
-            status: b.status || t('active')
-          };
-          
-          console.log('[BondComparisonPopup] Adding full bond:', fullBond);
-          addComparisonBond(fullBond);
-        } catch (parseError) {
-          console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
-          // If we can't parse it as a valid bond, don't add it
+        let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
+        const dateCheck = new Date(maturityDate);
+        if (isNaN(dateCheck.getTime())) {
+          maturityDate = new Date().toISOString().split('T')[0];
         }
-      } else {
-        console.warn('[BondComparisonPopup] Fetch failed with status:', detailRes.status);
-        // If fetch failed, it's likely not a valid bond according to the bond API
+
+        const fullBond: Bond = {
+          id: b.bondCode || bond.id,
+          code: b.bondCode || bond.code,
+          enterpriseId: issuerSymbol,
+          term: String(b.tenorPeriod || 'N/A'),
+          interestRate: Number(interestRate) || 0,
+          listedVolume: Number(listedVolume) || 0,
+          issuedValue: Number(issueValue) || 0,
+          listedValue: Number(listedValue) || 0,
+          issueDate: b.issueDate?.split('T')[0] || '',
+          maturityDate,
+          interestType,
+          status: b.status || t('active'),
+          issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseName || ''),
+        } as Bond;
+
+        addComparisonBond(fullBond);
+      } catch (parseError) {
+        console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
       }
     } catch (e) {
       console.error('[BondComparisonPopup] Error in handleAddBond:', e);
@@ -964,7 +898,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       onClick={onClose}
     >
       <div 
-        className="relative bg-bg-surface w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col transition-colors"
+        className="relative flex max-h-dvh w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-bg-surface shadow-2xl transition-colors animate-in zoom-in-95 duration-300"
         onClick={(e) => e.stopPropagation()}
       >
         {watchlistMessage && (
@@ -974,8 +908,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         )}
 
         {/* Header */}
-        <div className="p-6 border-b border-border-base flex items-center justify-between transition-colors">
-          <div className="flex items-center gap-6">
+        <div className="flex flex-col gap-4 border-b border-border-base p-4 transition-colors sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex items-center gap-4 sm:gap-6">
             <button 
               onClick={onBack}
               className="flex items-center gap-2 text-text-muted hover:text-text-base transition-colors"
@@ -988,7 +922,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               <p className="text-xs text-text-muted transition-colors">{t('bondComparisonSubtitle')}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-end gap-3">
             <button 
               onClick={handleReset}
               className="flex items-center gap-2 text-text-muted hover:text-text-base transition-colors"
@@ -1006,7 +940,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-12 transition-colors">
+        <div className="flex-1 overflow-y-auto space-y-10 p-4 transition-colors sm:p-6 md:space-y-12 md:p-8">
           {/* Selected Pills */}
           <div className="flex flex-wrap gap-3 items-center">
             {selectedBonds.map((b) => (
@@ -1051,7 +985,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('searchBondPlaceholder') || "Enter code..."}
-                    className="bg-transparent border-none outline-none text-sm font-bold w-32 md:w-48 text-text-base"
+                    className="w-28 border-none bg-transparent text-sm font-bold text-text-base outline-none sm:w-40 md:w-48"
                   />
                   {searching && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
                   <button onClick={() => {
@@ -1064,7 +998,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 </div>
                 
                 {suggestions.length > 0 && (
-                  <div className="absolute top-full left-0 mt-2 w-full min-w-[240px] bg-bg-surface border border-border-base rounded-2xl shadow-2xl z-20 max-h-64 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="absolute left-0 top-full z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-border-base bg-bg-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200 sm:min-w-0">
                     <div className="p-2 border-b border-border-base bg-bg-base/30">
                       <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider px-2">{t('searchResult') || "Search Results"}</span>
                     </div>
@@ -1085,7 +1019,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 )}
                 
                 {searchTerm.length >= 2 && suggestions.length === 0 && !searching && (
-                   <div className="absolute top-full left-0 mt-2 w-full min-w-[240px] bg-bg-surface border border-border-base rounded-2xl shadow-xl z-20 p-4 text-center">
+                   <div className="absolute left-0 top-full z-20 mt-2 w-full rounded-2xl border border-border-base bg-bg-surface p-4 text-center shadow-xl sm:min-w-0">
                      <p className="text-xs font-bold text-text-muted italic">{t('noResults') || "No results found"}</p>
                    </div>
                 )}
@@ -1102,7 +1036,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           </div>
 
           {/* Issue Scale & Coupon */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-10">
             <div className="space-y-6">
               <div className="flex items-baseline justify-between border-b border-border-base pb-2">
                 <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('issueScale')}</h4>

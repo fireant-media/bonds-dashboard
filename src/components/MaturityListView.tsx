@@ -27,8 +27,8 @@ interface MaturityListViewProps {
 }
 
 import { getCache, setCache } from '../utils/cache';
-import { fireantApi } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { loadBondDetail, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
 
 const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
   resolveEnterpriseIndustryFromCandidates(
@@ -89,7 +89,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       }
       setError(null);
       try {
-        const data = await fireantApi.getMaturingSoon(selectedTimeRange);
+        const data = await loadMaturingBonds(selectedTimeRange);
 
         if (!isMounted) return;
 
@@ -144,7 +144,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                     chunk.map(async (bond) => {
                       if (!bond.ticker) return null;
 
-                      const profile = await fireantApi.getIssuerProfile(bond.ticker);
+                      const profile = await loadIssuerProfile(bond.ticker);
                       const enterpriseIndustry = (getCache('enterprise_list') || [])
                         .find((item: any) => item.ticker === bond.ticker)?.industry;
 
@@ -191,14 +191,14 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                     
                     // Step 1: If ticker is missing, fetch bond details to get issuerSymbol
                     if (!ticker) {
-                      const bondDetail = await fireantApi.getBond(bond.code);
-                      ticker = bondDetail.detail?.issuerSymbol;
+                      const bondDetail = await loadBondDetail(bond.code);
+                      ticker = bondDetail?.detail?.issuerSymbol;
                     }
 
                     // Step 2 & 3: Fetch profile and get internationalName
                     if (ticker) {
-                      const profile = await fireantApi.getIssuerProfile(ticker);
-                      return { code: bond.code, ticker, name: profile.internationalName };
+                      const profile = await loadIssuerProfile(ticker);
+                      return { code: bond.code, ticker, name: profile?.internationalName || '' };
                     }
                     return null;
                   });
@@ -522,8 +522,87 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         </div>
       </div>
 
+      {/* Mobile Cards */}
+      <div className="space-y-3 lg:hidden">
+        {loading ? (
+          <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center text-sm font-bold uppercase text-text-muted transition-colors">
+            {t('loading')}
+          </div>
+        ) : paginatedBonds.length > 0 ? (
+          paginatedBonds.map((bond) => {
+            const status = getWarningStatus(bond.daysLeft);
+            return (
+              <button
+                key={bond.id}
+                type="button"
+                onClick={() => {
+                  setBondEnterpriseName(bond.issuerName);
+                  setSelectedBond(bond);
+                }}
+                className="w-full rounded-lg border border-border-base bg-bg-surface p-4 text-left shadow-sm transition-colors hover:bg-surface-container-low"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-base font-bold text-text-highlight">{bond.code}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">{language === 'en' && bond.ticker && enterpriseNamesEN[bond.ticker] ? enterpriseNamesEN[bond.ticker] : t(bond.issuerName as any, bond.ticker)}</p>
+                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(bond.industry as any)}</p>
+                  </div>
+                  <span className={cn("shrink-0 rounded-full border px-3 py-1 text-xs font-bold uppercase", status.color)}>
+                    {status.label}
+                  </span>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-bg-base p-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('maturityDate')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">{formatDate(bond.maturityDate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('daysLeftLabel')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">{bond.daysLeft} {t('daysUnit').toLowerCase()}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('issuedValue')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">{formatNumber(bond.listedValue, 2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('interestRate')}</p>
+                    <p className="mt-1 text-sm font-bold text-green-600">{formatInterestRate(bond.interestRate)}%</p>
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        ) : (
+          <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center text-sm font-bold uppercase text-text-muted transition-colors">
+            {t('noBondsFound')}
+          </div>
+        )}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border-base bg-bg-surface px-4 py-3 text-sm lg:hidden">
+          <button
+            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+            className="rounded-lg border border-border-base px-3 py-2 font-bold text-text-muted transition-colors disabled:opacity-40"
+          >
+            {t('prev')}
+          </button>
+          <span className="font-bold text-text-base">
+            {currentPage} / {totalPages}
+          </span>
+          <button
+            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+            className="rounded-lg border border-border-base px-3 py-2 font-bold text-text-muted transition-colors disabled:opacity-40"
+          >
+            {t('next')}
+          </button>
+        </div>
+      )}
+
       {/* Table */}
-      <div className="bg-bg-surface rounded-lg shadow-sm border border-border-base overflow-hidden transition-colors">
+      <div className="hidden overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-sm transition-colors lg:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-left border-collapse">
             <thead>
@@ -578,7 +657,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                         "hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
                       )}
                     >
-                      <td className="px-6 py-5 whitespace-nowrap text-left border-none">
+                      <td className="px-6 py-5 whitespace-nowrap text-center border-none">
                         <span className="text-sm font-bold text-text-highlight group-hover:underline transition-colors">{bond.code}</span>
                       </td>
                       <td className="px-6 py-5 text-left border-none">
@@ -634,7 +713,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-4 md:px-6 py-4 border-t border-border-base flex items-center justify-end bg-bg-base/30 transition-colors overflow-x-auto">
+          <div className="hidden overflow-x-auto border-t border-border-base bg-bg-base/30 px-4 py-4 transition-colors md:px-6 lg:flex lg:items-center lg:justify-end">
             <div className="flex items-center gap-2 min-w-max">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}

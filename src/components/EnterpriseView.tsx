@@ -21,11 +21,13 @@ import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
-import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
+import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile } from '../services/bondData';
 
 const INDUSTRY_KEY_ALIAS_MAP = (() => {
   const map = new Map<string, string>();
@@ -228,13 +230,9 @@ export default function EnterpriseView({
           headers['Authorization'] = `Bearer ${cleanToken}`;
         }
 
-        const response = await fetch(buildFireantUrl(`bonds/issuer/${selectedEnterprise.ticker}`), {
-          cache: 'no-store',
-          headers
-        });
+        const data = await loadIssuerBondsByFilter(selectedEnterprise.ticker);
 
-        if (response.ok) {
-          const data = await readJsonResponse<any[]>(response, `Issuer bonds ${selectedEnterprise.ticker}`);
+        if (Array.isArray(data)) {
           const mappedBonds: Bond[] = data.map((b: any) => ({
             id: b.bondCode,
             code: b.bondCode,
@@ -267,14 +265,8 @@ export default function EnterpriseView({
               return { ...bond, cashFlows: cachedCashFlows };
             }
 
-            const detailResponse = await fetch(buildFireantUrl(`bonds/${encodeURIComponent(bond.code)}`), {
-              cache: 'no-store',
-              headers
-            });
-
-            if (!detailResponse.ok) return bond;
-
-            const detailData = await readJsonResponse<any>(detailResponse, `Bond detail ${bond.code}`);
+            const detailData = await loadBondDetail(bond.code);
+            if (!detailData) return bond;
             const cashFlows = Array.isArray(detailData.cashFlows)
               ? detailData.cashFlows.map((cf: any) => ({
                   paymentDate: cf.paymentDate,
@@ -295,8 +287,6 @@ export default function EnterpriseView({
           );
           setIssuerBonds(detailedBonds);
           setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, detailedBonds);
-        } else {
-          throw new Error(`${language === 'vi' ? 'Lỗi khi lấy dữ liệu trái phiếu:' : 'Error fetching bond data:'} ${response.status}`);
         }
       } catch (error) {
         console.error('Error fetching issuer bonds:', error);
@@ -411,20 +401,8 @@ export default function EnterpriseView({
 
       const symbol = selectedEnterprise.ticker;
       try {
-        const token = getFireantToken();
-        if (!token) return;
-
-        const cleanToken = cleanTokenString(token);
-        const response = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(symbol)}/profile`), {
-          cache: 'no-store',
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`
-          }
-        });
-
-        if (response.ok) {
-          const profile = await readJsonResponse<any>(response, `Enterprise profile ${symbol}`);
+        const profile = await loadIssuerProfile(symbol);
+        if (profile) {
           setEnterpriseProfile(profile);
           setCache(`enterprise_profile_${symbol}`, profile);
         }
@@ -455,23 +433,8 @@ export default function EnterpriseView({
           headers['Authorization'] = `Bearer ${cleanToken}`;
         }
 
-        // Fetch top debtors
-        let issuers = getCache('top_debt_200');
-        if (!issuers) {
-          const issuersRes = await fetch(buildFireantUrl('bonds/stats/issuers/top-debt', { top: 200 }), { cache: 'no-store', headers });
-          if (issuersRes.ok) {
-            issuers = await issuersRes.json();
-            setCache('top_debt_200', issuers);
-          } else {
-            // Fallback to empty instead of throwing if we don't have token
-            if (issuersRes.status === 401 && !cleanToken) {
-              console.warn('Unauthorized and no token provided. Using empty list or cached data.');
-              issuers = [];
-            } else {
-              throw new Error(`${language === 'vi' ? 'Lỗi tải danh sách doanh nghiệp:' : 'Error loading enterprise list:'} ${issuersRes.status}`);
-            }
-          }
-        }
+        const issuers = await loadIssuerStatsSummary(200);
+        setCache('top_debt_200', issuers);
 
         if (!isMounted) return;
 
@@ -532,7 +495,7 @@ export default function EnterpriseView({
               const chunk = unresolvedEnterprises.slice(i, i + chunkSize);
               const results = await Promise.allSettled(
                 chunk.map(async (enterprise) => {
-                  const profile = await fireantApi.getIssuerProfile(enterprise.ticker);
+                  const profile = await loadIssuerProfile(enterprise.ticker);
                   return {
                     ticker: enterprise.ticker,
                     industry: resolveEnterpriseIndustryFromCandidates(
@@ -582,10 +545,8 @@ export default function EnterpriseView({
             const fetchNames = async () => {
               const currentENNames = { ...enterpriseNamesEN };
               const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
-                const res = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(ticker)}/profile`), { cache: 'no-store', headers });
-                if (!res.ok) return null;
-
-                const profile = await res.json();
+                const profile = await loadIssuerProfile(ticker);
+                if (!profile) return null;
                 return { ticker, name: profile.internationalName };
               });
 

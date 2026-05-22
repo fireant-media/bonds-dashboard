@@ -6,8 +6,8 @@ import { ExpiringBond, Bond } from '../types';
 import { formatInterestRate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
-import { fireantApi } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -181,7 +181,7 @@ export default function RightPanel({
       setLoading(true);
       setError(null);
       try {
-        const data = await fireantApi.getMaturingSoon(3650);
+        const data = await loadMaturingBonds(3650);
         const allBonds: any[] = [];
         const seenCodes = new Set<string>();
 
@@ -232,8 +232,8 @@ export default function RightPanel({
           );
 
           const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
-            const profile = await fireantApi.getIssuerProfile(ticker);
-            return { ticker, name: profile.internationalName };
+            const profile = await loadIssuerProfile(ticker);
+            return { ticker, name: profile?.internationalName || '' };
           });
 
           getFulfilledValues(results).forEach(({ ticker, name }) => {

@@ -254,6 +254,18 @@ These are frequently overlooked issues that make UI look unprofessional:
 | **Content padding** | Account for fixed navbar height | Let content hide behind fixed elements |
 | **Consistent max-width** | Use same `max-w-6xl` or `max-w-7xl` | Mix different container widths |
 
+### Chart Color Standard
+
+Use this exact palette for charts in this workspace:
+
+`['#3fb1e3', '#6be6c1', '#626c91', '#a0a7e6', '#c4ebad', '#96dee8']`
+
+Rules:
+- Use the palette sequentially by series index.
+- Keep the same color assignment across renders.
+- Do not apply gradient fills to charts unless the user explicitly asks for them.
+- Use flat hex colors for all chart series and fills.
+
 ---
 
 ## Pre-Delivery Checklist

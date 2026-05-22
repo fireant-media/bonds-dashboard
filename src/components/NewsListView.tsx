@@ -85,7 +85,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
   };
 
   const NewsSkeleton = () => (
-    <div className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden flex flex-col h-[520px] animate-pulse transition-colors">
+    <div className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden flex flex-col min-h-96 sm:min-h-[460px] md:min-h-[520px] animate-pulse transition-colors">
       <div className="h-64 bg-bg-base/50" />
       <div className="p-6 flex-1 flex flex-col gap-4">
         <div className="h-4 w-1/4 bg-bg-base/50 rounded-full" />
@@ -105,9 +105,9 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
   );
 
   return (
-    <div className="p-0 md:p-8 space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 transition-colors">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="space-y-6 px-0 py-0 transition-colors animate-in fade-in slide-in-from-bottom-4 duration-700 md:space-y-8 md:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-text-base flex items-center gap-3 transition-colors">
             <Newspaper className="h-7 w-7 text-blue-600" />
             {t('relatedNews')}
@@ -118,7 +118,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
           <button
             onClick={() => loadData(false, true)}
             disabled={loading}
-            className="p-2 text-text-muted hover:text-blue-600 transition-all hover:rotate-180 duration-500"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border-base text-text-muted transition-all hover:text-blue-600 active:scale-95"
             title={t('refresh')}
           >
             <RefreshCw className={`h-5 w-5 ${loadingRef.current ? 'animate-spin' : ''}`} />
@@ -162,7 +162,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
                 href={articleUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col h-auto min-h-[460px] md:h-[520px]"
+                className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col min-h-96 sm:min-h-[460px] md:min-h-[520px]"
               >
                 <div className="relative h-48 md:h-64 w-full bg-blue-600">
                   {hasImage ? (

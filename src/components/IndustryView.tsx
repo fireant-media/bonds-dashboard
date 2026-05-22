@@ -622,47 +622,55 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {/* Ranking - Double Height */}
         <div 
-          className="col-span-12 lg:col-span-6 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col"
+          className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors lg:col-span-6"
         >
           <div className="mb-3">
             <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('debtRanking')}</h3>
           </div>
-          <ReactECharts option={rankingOptions} style={{ height: '570px' }} />
+          <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
+            <ReactECharts option={rankingOptions} style={{ height: '100%', width: '100%' }} />
+          </div>
         </div>
 
-        <div className="col-span-12 lg:col-span-6 flex flex-col gap-3 h-full">
+        <div className="col-span-12 flex flex-col gap-3 lg:col-span-6">
           {/* Market Share */}
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
+            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors min-h-0"
           >
           <div className="mb-3">
             <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('marketShare')}</h3>
           </div>
-            <ReactECharts option={marketShareOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '250px' }} />
+            <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
+              <ReactECharts option={marketShareOptions} style={{ height: '100%', width: '100%' }} />
+            </div>
           </div>
 
           {/* Interest Rates */}
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors flex flex-col flex-1 min-h-0"
+            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors min-h-0"
           >
           <div className="mb-3">
             <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('industryInterest')}</h3>
           </div>
-            <ReactECharts option={interestOptions} className="flex-1 min-h-0" style={{ height: '100%', minHeight: '200px' }} />
+            <div className="min-h-72 flex-1 overflow-hidden md:min-h-80">
+              <ReactECharts option={interestOptions} style={{ height: '100%', width: '100%' }} />
+            </div>
           </div>
         </div>
 
         {/* Combined Chart */}
         <div 
-          className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+          className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors"
         >
           <div className="mb-2">
             <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
           </div>
-          <ReactECharts option={combinedOptions} style={{ height: '400px' }} />
+          <div className="h-80 overflow-hidden md:h-96">
+            <ReactECharts option={combinedOptions} style={{ height: '100%', width: '100%' }} />
+          </div>
         </div>
 
-        <div className="col-span-12 bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
+        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors">
           <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
             <div className="hidden md:block" />
             <div className="min-w-0">
@@ -693,7 +701,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
               <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
             </div>
           ) : hasProjectedCashFlowData ? (
-            <ReactECharts option={projectedCashFlowOptions} style={{ height: '420px' }} />
+            <div className="h-80 overflow-hidden md:h-96">
+              <ReactECharts option={projectedCashFlowOptions} style={{ height: '100%', width: '100%' }} />
+            </div>
           ) : (
             <div className="flex min-h-80 items-center justify-center">
               <p className="text-sm font-medium text-text-muted">{t('noData')}</p>

@@ -1,7 +1,8 @@
-import { fireantApi } from '../api/fireant';
+import { fireantApi, fireantRequest } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { findIndustryStats, INDUSTRY_NAV_ITEM_BY_ID, INDUSTRY_NAV_ITEMS, IndustryNavItem } from '../constants/industries';
+import { loadBondDetail, loadIssuerBondsByFilter } from './bondData';
 
 export interface ProjectedCashFlowBucket {
   label: string;
@@ -45,14 +46,43 @@ export interface IndustryStats {
   floatingRate: number;
 }
 
+export interface IssuerStatsSummary {
+  issuerName: string;
+  issuerSymbol: string;
+  issuerInstitutionID?: number;
+  bondCount: number;
+  totalIssuedVolume: number;
+  totalIssuedValue: number;
+  totalCurrentListedVolume: number;
+  totalCurrentListedValue: number;
+  totalDebtFull: number;
+  totalRemainingDebt: number;
+  avgRate: number;
+  avgCouponRate: number;
+  avgFloatingRate: number;
+}
+
+type ProcedureResult<T> =
+  | T[]
+  | {
+      columns?: unknown;
+      rows?: T[];
+      data?: T[];
+      items?: T[];
+      result?: T[];
+      [key: string]: unknown;
+    };
+
 const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
 const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v1_';
 const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v2_';
 const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v1_';
+const ISSUER_STATS_CACHE_PREFIX = 'issuer_stats_api_v1_';
 let symbolGroupsPromise: Promise<Record<string, string[]>> | null = null;
 const industryStatsPromises = new Map<string, Promise<IndustryStats>>();
 const industryBondBasePromises = new Map<string, Promise<IndustryBondGroupData>>();
 const industryBondGroupPromises = new Map<string, Promise<IndustryBondGroupData>>();
+const issuerStatsPromises = new Map<string, Promise<IssuerStatsSummary[]>>();
 
 const toNumber = (value: unknown) => {
   const numberValue = Number(value);
@@ -79,6 +109,42 @@ const normalizeIndustryStats = (stats: any): IndustryStats => ({
   avgCouponRate: toNumber(stats?.avgCouponRate),
   floatingRate: toNumber(stats?.floatingRate),
 });
+
+const extractRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  const candidate = payload.rows || payload.data || payload.items || payload.result;
+  return Array.isArray(candidate) ? candidate : [];
+};
+
+const normalizeIssuerStats = (issuer: any): IssuerStatsSummary => ({
+  issuerName: String(issuer?.issuerName || issuer?.name || issuer?.issuerSymbol || ''),
+  issuerSymbol: String(issuer?.issuerSymbol || issuer?.symbol || ''),
+  issuerInstitutionID: issuer?.issuerInstitutionID !== undefined ? Number(issuer.issuerInstitutionID) : undefined,
+  bondCount: toNumber(issuer?.bondCount),
+  totalIssuedVolume: toNumber(issuer?.totalIssuedVolume),
+  totalIssuedValue: toNumber(issuer?.totalIssuedValue),
+  totalCurrentListedVolume: toNumber(issuer?.totalCurrentListedVolume),
+  totalCurrentListedValue: toNumber(issuer?.totalCurrentListedValue),
+  totalDebtFull: toNumber(issuer?.totalDebtFull),
+  totalRemainingDebt: toNumber(issuer?.totalRemainingDebt),
+  avgRate: toNumber(issuer?.avgRate),
+  avgCouponRate: toNumber(issuer?.avgCouponRate),
+  avgFloatingRate: toNumber(issuer?.avgFloatingRate || issuer?.floatingRate),
+});
+
+const tryProcedure = async <T>(
+  path: string,
+  query: Record<string, string | number | boolean | null | undefined>,
+  fallback: () => Promise<T>,
+) => {
+  try {
+    return await fireantRequest<T>(path, { query });
+  } catch (error) {
+    console.warn(`[bond-data] Falling back from ${path}`, error);
+    return fallback();
+  }
+};
 
 const subtractMetric = (base: IndustryStats, ...deductions: IndustryStats[]) =>
   Math.max(0, deductions.reduce((value, deduction) => value - deduction.totalIssuedValue, base.totalIssuedValue));
@@ -122,6 +188,64 @@ const buildFinancialsOtherStats = (financials: IndustryStats, banking: IndustryS
   avgCouponRate: residualRate('avgCouponRate', financials, banking, securities),
   floatingRate: residualRate('floatingRate', financials, banking, securities),
 });
+
+export const loadIssuerStatsSummary = async (top = 200): Promise<IssuerStatsSummary[]> => {
+  const cacheKey = `${ISSUER_STATS_CACHE_PREFIX}${top}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached as IssuerStatsSummary[];
+
+  const inflightKey = String(top);
+  const inflight = issuerStatsPromises.get(inflightKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const procedurePayload = await tryProcedure<ProcedureResult<IssuerStatsSummary>>(
+      'bond_StatisticsByIssuer',
+      { Top: top, SortBy: 2, StatusID: 1, IsListing: 1 },
+      () => fireantApi.getBondStatisticsByIssuer(top, 2, 1, 1),
+    );
+
+    const rows = extractRows<IssuerStatsSummary>(procedurePayload)
+      .map(normalizeIssuerStats)
+      .filter((issuer) => Boolean(issuer.issuerSymbol || issuer.issuerName));
+
+    if (rows.length > 0) {
+      setCache(cacheKey, rows);
+      return rows;
+    }
+
+    const fallbackRows = Array.isArray(procedurePayload)
+      ? procedurePayload
+      : [];
+    const normalizedFallback = fallbackRows.map(normalizeIssuerStats);
+    setCache(cacheKey, normalizedFallback);
+    return normalizedFallback;
+  })().finally(() => {
+    issuerStatsPromises.delete(inflightKey);
+  });
+
+  issuerStatsPromises.set(inflightKey, promise);
+  return promise;
+};
+
+export const loadIndustryStatsByLevel = async (level: number): Promise<IndustryStats[]> => {
+  const cacheKey = `${INDUSTRY_STATS_CACHE_PREFIX}level_${level}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached as IndustryStats[];
+
+  const procedurePayload = await tryProcedure<ProcedureResult<IndustryStats>>(
+    'bond_StatisticsByIssuerICB',
+    { ICBLevel: level, StatusID: 1, IsListing: 1 },
+    () => fireantApi.getBondStatisticsByIssuerICB(level, 1000, undefined, 1, 1),
+  );
+
+  const rows = extractRows<IndustryStats>(procedurePayload)
+    .map(normalizeIndustryStats)
+    .filter((item) => Boolean(item.icbCode || item.icbName));
+
+  setCache(cacheKey, rows);
+  return rows;
+};
 
 const getDateKey = (dateString: string) => {
   const date = new Date(dateString);
@@ -214,7 +338,7 @@ export const loadDedupedIndustrySymbols = async () => {
 };
 
 const loadStatsForIndustry = async (industry: IndustryNavItem) => {
-  const stats = await fireantApi.getIndustries(industry.statsTop, industry.statsLevel);
+  const stats = await loadIndustryStatsByLevel(industry.statsLevel);
   return normalizeIndustryStats(findIndustryStats(stats, industry));
 };
 
@@ -261,7 +385,7 @@ export const loadIndustryBaseBondGroupData = async (industryId: string): Promise
     const symbols = symbolGroups[industry.id] || [];
 
     const issuerBondBatches = await fetchWithLimit(symbols, 6, async (symbol) => {
-      const bonds = await fireantApi.getIssuerBonds(symbol);
+      const bonds = await loadIssuerBondsByFilter(symbol);
       return (Array.isArray(bonds) ? bonds : []).map((bond) => ({
         ...bond,
         issuerSymbol: getIssuerSymbol(bond, symbol),
@@ -427,7 +551,7 @@ export const loadIndustryBondGroupData = async (industryId: string): Promise<Ind
 
       const bondCacheKey = `bond_detail_${code}`;
       const cachedDetail = getCache(bondCacheKey);
-      const detailData = cachedDetail || await fireantApi.getBond(code);
+      const detailData = cachedDetail || await loadBondDetail(code);
       if (!cachedDetail) setCache(bondCacheKey, detailData);
 
       return mergeBondDetail(bond, detailData);

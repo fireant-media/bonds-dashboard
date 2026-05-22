@@ -1,4 +1,12 @@
-export const CHART_PALETTE = ['#3fb1e3', '#6be6c1', '#626c91', '#a0a7e6', '#c4ebad', '#96dee8'];
+export const CHART_BASE_PALETTE = [
+  '#3fb1e3',
+  '#6be6c1',
+  '#626c91',
+  '#a0a7e6',
+  '#c4ebad',
+  '#96dee8',
+];
+export const CHART_PALETTE = [...CHART_BASE_PALETTE];
 
 export const getChartTooltip = (isDark: boolean) => ({
   backgroundColor: isDark ? '#0f172a' : '#ffffff',
@@ -12,6 +20,8 @@ export const getChartTooltip = (isDark: boolean) => ({
     fontWeight: 'normal' as const,
   },
 });
+
+export const getChartColor = (index: number) => CHART_BASE_PALETTE[index % CHART_BASE_PALETTE.length];
 
 export const getAdaptiveBarWidth = (categoryCount: number) => {
   if (categoryCount <= 1) return '20%';

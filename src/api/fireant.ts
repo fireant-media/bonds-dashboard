@@ -94,6 +94,36 @@ export const fireantApi = {
   getIssuerBonds: (issuerSymbol: string) => fireantRequest<any[]>(`bonds/issuer/${encodeURIComponent(issuerSymbol)}`),
   getBondsByIssuer: (issuerSymbol: string) =>
     fireantRequest<any[]>("bonds/get-bonds-by-issuer", { query: { issuerSymbol } }),
+  getBondCategoryList: (option = 0, icbLevel?: number, isListing = 1, statusId = 1) =>
+    fireantRequest<any[]>("bond_GetCategoryList", {
+      query: {
+        Option: option,
+        ICBLevel: icbLevel,
+        IsListing: isListing,
+        StatusID: statusId,
+      },
+    }),
+  filterBonds: (query: Record<string, string | number | boolean | null | undefined> = {}) =>
+    fireantRequest<any[]>("bond_Filter", { query }),
+  getBondStatisticsByIssuer: (top = 200, sortBy = 2, statusId = 1, isListing = 1) =>
+    fireantRequest<any[]>("bond_StatisticsByIssuer", {
+      query: {
+        Top: top,
+        SortBy: sortBy,
+        StatusID: statusId,
+        IsListing: isListing,
+      },
+    }),
+  getBondStatisticsByIssuerICB: (icbLevel?: number, top?: number, sortBy?: number, statusId = 1, isListing?: number) =>
+    fireantRequest<any[]>("bond_StatisticsByIssuerICB", {
+      query: {
+        ICBLevel: icbLevel,
+        Top: top,
+        SortBy: sortBy,
+        StatusID: statusId,
+        IsListing: isListing,
+      },
+    }),
   getIssuerProfile: (symbol: string) => fireantRequest<any>(`symbols/${encodeURIComponent(symbol)}/profile`),
   getFinancialData: (symbol: string, type = "Q", count = 4) =>
     fireantRequest<any>(`symbols/${encodeURIComponent(symbol)}/financial-data`, { query: { type, count } }),

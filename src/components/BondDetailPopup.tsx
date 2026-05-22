@@ -18,7 +18,7 @@ import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } f
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
-import { fireantApi } from '../api/fireant';
+import { loadBondDetail } from '../services/bondData';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
 
@@ -56,7 +56,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     const fetchDetails = async () => {
       try {
-        const data = await fireantApi.getBond(bond.code);
+        const data = await loadBondDetail(bond.code);
         const detail = data.detail || {};
         const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
         const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;

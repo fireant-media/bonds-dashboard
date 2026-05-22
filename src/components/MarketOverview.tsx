@@ -37,6 +37,8 @@ import { fireantApi } from '../api/fireant';
 import { Card, MetricCard } from './ui/Card';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { loadIndustryStatsByLevel, loadIssuerStatsSummary } from '../services/industryBondData';
+import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 
 interface MarketOverviewPayload {
   topDebtData: TopDebtIssuer[];
@@ -53,25 +55,22 @@ const loadMarketOverviewData = async (): Promise<MarketOverviewPayload> => {
 
   if (!marketOverviewPromise) {
     marketOverviewPromise = (async () => {
-      const [topDebtRaw, highYieldRaw, industriesRaw] = await Promise.all([
-        (async () => {
-          const cachedTopDebt = getCache('top_debt_200');
-          if (cachedTopDebt) return cachedTopDebt;
-          const data = await fireantApi.getTopDebtIssuers(200);
-          setCache('top_debt_200', data);
-          return data;
-        })(),
+      const [issuerStatsRaw, highYieldRaw, industriesRaw] = await Promise.all([
+        loadIssuerStatsSummary(200).catch((error) => {
+          console.error('Issuer stats fetch error', error);
+          return [];
+        }),
         fireantApi.getHighYieldBonds(10).catch((error) => {
           console.error('Interest fetch error', error);
           return [];
         }),
-        fireantApi.getIndustries(1000, 1).catch((error) => {
+        loadIndustryStatsByLevel(1).catch((error) => {
           console.error('Industry fetch error', error);
           return [];
         }),
       ]);
 
-      const issuerStatsData = Array.isArray(topDebtRaw) ? topDebtRaw : [];
+      const issuerStatsData = Array.isArray(issuerStatsRaw) ? issuerStatsRaw : [];
       const payload: MarketOverviewPayload = {
         topDebtData: issuerStatsData.slice(0, 10),
         issuerStatsData,
@@ -95,15 +94,12 @@ export default function MarketOverview() {
   const isDark = effectiveTheme === 'dark';
   const cachedData = getCache('market_overview');
   const cachedIssuerStats = getCache('top_debt_200');
-  const [topDebtData, setTopDebtData] = useState<TopDebtIssuer[]>(cachedData?.topDebtData || []);
   const [issuerStatsData, setIssuerStatsData] = useState<TopDebtIssuer[]>(cachedData?.issuerStatsData || cachedIssuerStats || cachedData?.topDebtData || []);
   const [topInterestData, setTopInterestData] = useState<any[]>(cachedData?.topInterestData || []);
   const [topInterestMetric, setTopInterestMetric] = useState<'highest' | 'lowest'>('highest');
-  const [topInterestChartData, setTopInterestChartData] = useState<TopInterestBond[]>(cachedData?.topInterestData || []);
   const [loadingTopInterestChart, setLoadingTopInterestChart] = useState(false);
   const [industryData, setIndustryData] = useState<IndustryData[]>(cachedData?.industryData || []);
   const [topIssuerMetric, setTopIssuerMetric] = useState<'remainingDebt' | 'issuedValue'>('remainingDebt');
-  const [topIssuerChartData, setTopIssuerChartData] = useState<TopDebtIssuer[]>(cachedData?.topDebtData || []);
   const [loadingTopIssuerChart, setLoadingTopIssuerChart] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(getCache('market_projected_cash_flows') || {});
@@ -271,12 +267,9 @@ export default function MarketOverview() {
       try {
         const data = await loadMarketOverviewData();
         if (!isMounted) return;
-        setTopDebtData(data.topDebtData);
         setIssuerStatsData(data.issuerStatsData);
         setTopInterestData(data.topInterestData);
         setIndustryData(data.industryData);
-        setTopIssuerChartData(getTopIssuerChartData(data.issuerStatsData, topIssuerMetric));
-        setTopInterestChartData(getTopInterestChartData(data.topInterestData as TopInterestBond[], topInterestMetric));
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching market data:', error);
@@ -294,23 +287,12 @@ export default function MarketOverview() {
     return () => { isMounted = false; };
   }, []);
 
-  useEffect(() => {
-    setTopIssuerChartData(getTopIssuerChartData(issuerStatsData, topIssuerMetric));
-  }, [issuerStatsData, topIssuerMetric]);
-
   const refreshTopIssuerChart = async (metric: 'remainingDebt' | 'issuedValue') => {
-    const source = issuerStatsData.length > 0 ? issuerStatsData : cachedIssuerStats || [];
-    if (source.length > 0) {
-      setTopIssuerChartData(getTopIssuerChartData(source, metric));
-    }
-
     setLoadingTopIssuerChart(true);
     try {
-      const freshIssuers = await fireantApi.getTopDebtIssuers(200);
+      const freshIssuers = await loadIssuerStatsSummary(200);
       if (Array.isArray(freshIssuers)) {
         setIssuerStatsData(freshIssuers);
-        setTopDebtData(getTopIssuerChartData(freshIssuers, 'remainingDebt'));
-        setTopIssuerChartData(getTopIssuerChartData(freshIssuers, metric));
         setCache('top_debt_200', freshIssuers);
       }
     } catch (error) {
@@ -320,17 +302,9 @@ export default function MarketOverview() {
     }
   };
 
-  useEffect(() => {
-    setTopInterestChartData(getTopInterestChartData(topInterestData as TopInterestBond[], topInterestMetric));
-  }, [topInterestData, topInterestMetric]);
-
   const refreshTopInterestChart = async (metric: 'highest' | 'lowest') => {
     const cachedInterest = getCache('market_top_interest_bonds');
     const baseFromCache = Array.isArray(cachedInterest) ? cachedInterest : [];
-    if (baseFromCache.length > 0) {
-      setTopInterestChartData(getTopInterestChartData(baseFromCache, metric));
-    }
-
     setLoadingTopInterestChart(true);
     try {
       const sourceIssuers = issuerStatsData.length > 0 ? issuerStatsData : (cachedIssuerStats || cachedData?.issuerStatsData || []);
@@ -342,7 +316,7 @@ export default function MarketOverview() {
         )
       );
       const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
-        const bonds = await fireantApi.getIssuerBonds(symbol);
+        const bonds = await loadIssuerBondsByFilter(symbol);
         return Array.isArray(bonds) ? bonds : [];
       });
 
@@ -359,12 +333,9 @@ export default function MarketOverview() {
 
       const uniqueBonds = Array.from(new Map(allBonds.map((bond) => [bond.bondCode, bond])).values());
       setTopInterestData(uniqueBonds);
-      setTopInterestChartData(getTopInterestChartData(uniqueBonds, metric));
       setCache('market_top_interest_bonds', uniqueBonds);
     } catch (error) {
       console.error('Top interest chart refresh error', error);
-      const fallback = Array.isArray(topInterestData) ? topInterestData : [];
-      setTopInterestChartData(getTopInterestChartData(fallback as TopInterestBond[], metric));
     } finally {
       setLoadingTopInterestChart(false);
     }
@@ -390,7 +361,7 @@ export default function MarketOverview() {
 
         const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
           if (!isMounted) return [];
-          const data = await fireantApi.getIssuerBonds(symbol);
+          const data = await loadIssuerBondsByFilter(symbol);
           return Array.isArray(data) ? data : [];
         });
         if (!isMounted) return;
@@ -435,7 +406,8 @@ export default function MarketOverview() {
             return { bond, cashFlows: cachedCashFlows };
           }
 
-          const detailData = await fireantApi.getBond(code);
+          const detailData = await loadBondDetail(code);
+          if (!detailData) return { bond, cashFlows: [] };
           const cashFlows = Array.isArray(detailData.cashFlows)
             ? detailData.cashFlows.map((cashFlow: any) => ({
                 paymentDate: cashFlow.paymentDate,
@@ -512,7 +484,20 @@ export default function MarketOverview() {
     ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
 
-  const topIssuerDisplayData = topIssuerChartData;
+  const topDebtData = useMemo(
+    () => getTopIssuerChartData(issuerStatsData, 'remainingDebt'),
+    [issuerStatsData]
+  );
+
+  const topIssuerDisplayData = useMemo(
+    () => getTopIssuerChartData(issuerStatsData, topIssuerMetric),
+    [issuerStatsData, topIssuerMetric]
+  );
+
+  const topInterestChartData = useMemo(
+    () => getTopInterestChartData(topInterestData as TopInterestBond[], topInterestMetric),
+    [topInterestData, topInterestMetric]
+  );
 
   const topIssuerOptions = {
     color: chartPalette,
@@ -914,7 +899,7 @@ export default function MarketOverview() {
           ))}
         </div>
 
-        <Card className="col-span-12 p-3 md:p-4 lg:col-span-6 flex flex-col min-h-screen">
+        <Card className="col-span-12 flex flex-col p-3 md:p-4 lg:col-span-6 min-h-0">
           <div className="mb-2 flex min-w-0 flex-col gap-2">
             <div className="min-w-0 text-center">
               <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">{topIssuerMetricTitle}</h3>
@@ -954,9 +939,9 @@ export default function MarketOverview() {
               </div>
             </div>
           </div>
-          <div className="flex-1 min-w-0 overflow-hidden">
-            {loadingTopIssuerChart && topIssuerChartData.length === 0 ? (
-              <div className="flex h-full min-h-80 items-center justify-center">
+          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+            {loadingTopIssuerChart && topIssuerDisplayData.length === 0 ? (
+              <div className="flex h-full items-center justify-center">
                 <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-text-muted">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
                   {t('loading')}
@@ -968,8 +953,8 @@ export default function MarketOverview() {
           </div>
         </Card>
 
-        <div className="col-span-12 space-y-3 lg:col-span-6 flex flex-col min-h-screen">
-          <Card className="p-3 md:p-4 flex flex-col flex-1">
+        <div className="col-span-12 flex flex-col space-y-3 lg:col-span-6 min-h-0">
+          <Card className="flex flex-1 flex-col p-3 md:p-4 min-h-0">
             <div className="mb-2 flex min-w-0 flex-col gap-2">
               <div className="min-w-0 text-center">
                 <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">{topInterestChartTitle}</h3>
@@ -1009,9 +994,9 @@ export default function MarketOverview() {
                 </div>
               </div>
             </div>
-            <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               {loadingTopInterestChart && topInterestChartData.length === 0 ? (
-                <div className="flex h-full min-h-80 items-center justify-center">
+                <div className="flex h-full items-center justify-center">
                   <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-text-muted">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
                     {t('loading')}
@@ -1023,33 +1008,33 @@ export default function MarketOverview() {
             </div>
           </Card>
 
-          <Card className="p-3 md:p-4 flex flex-col flex-1">
+          <Card className="flex flex-1 flex-col p-3 md:p-4 min-h-0">
             <h3 className="mb-2 text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('debtAndLots')}</h3>
-            <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               <ReactECharts option={debtLotsOptions} style={{ height: '100%', width: '100%' }} />
             </div>
           </Card>
         </div>
 
-        <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
+        <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
           <div className="mb-2 min-w-0">
             <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('valueByIndustry')}</h3>
           </div>
-          <div className="flex-1 min-w-0 overflow-hidden">
-            <ReactECharts option={industryValueOptions} style={{ height: '500px' }} />
+          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+            <ReactECharts option={industryValueOptions} style={{ height: '100%', width: '100%' }} />
           </div>
         </Card>
 
-        <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
+        <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
           <div className="mb-2 min-w-0">
             <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('volumeByIndustry')}</h3>
           </div>
-          <div className="flex-1 min-w-0 overflow-hidden">
-            <ReactECharts option={industryVolumeOptions} style={{ height: '500px' }} />
+          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+            <ReactECharts option={industryVolumeOptions} style={{ height: '100%', width: '100%' }} />
           </div>
         </Card>
 
-        <Card className="col-span-12 p-3 md:p-4 flex flex-col min-h-96">
+        <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
           <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
             <div className="hidden md:block" />
             <div className="min-w-0">
@@ -1080,8 +1065,8 @@ export default function MarketOverview() {
               <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
             </div>
           ) : hasProjectedCashFlowData ? (
-            <div className="flex-1 min-w-0 overflow-hidden">
-              <ReactECharts option={projectedCashFlowOptions} style={{ height: '500px' }} />
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+              <ReactECharts option={projectedCashFlowOptions} style={{ height: '100%', width: '100%' }} />
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center">

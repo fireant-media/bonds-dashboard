@@ -4,9 +4,10 @@ import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { useAuthUser } from '../auth/authStore';
 import Logo from './Logo';
-import { fireantApi } from '../api/fireant';
 import { useTheme } from '../ThemeContext';
 import { Language } from '../translations';
+import { loadIssuerStatsSummary } from '../services/industryBondData';
+import { loadBondDetail, loadMaturingBonds } from '../services/bondData';
 
 const HeaderAppLogo = () => {
   const id = useId();
@@ -103,7 +104,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
 
       if (!enterpriseCache) {
         try {
-            const issuers = await fireantApi.getTopDebtIssuers(200);
+            const issuers = await loadIssuerStatsSummary(200);
             if (Array.isArray(issuers)) {
               const mappedEnterprises = issuers.map((issuer: any) => ({
                 id: issuer.issuerSymbol,
@@ -124,7 +125,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
 
       if (!bondCache) {
         try {
-            const bonds = await fireantApi.getMaturingSoon(3650);
+            const bonds = await loadMaturingBonds(3650);
             if (Array.isArray(bonds)) {
               const mappedBonds = bonds.map((bond: any) => ({
                 id: String(bond.bondCode || bond.code || ''),
@@ -244,7 +245,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
       const maybeBond = normalizedCode.length >= 3 && /[0-9]/.test(normalizedCode);
       if (maybeBond && !Array.from(suggestionMap.values()).some(s => s.type === 'bond' && s.code?.toUpperCase() === normalizedCode)) {
         try {
-            const bondData = await fireantApi.getBond(normalizedCode);
+            const bondData = await loadBondDetail(normalizedCode);
             const issuerName = String(bondData?.issuerName || bondData?.issuerSymbol || '');
             addSuggestion({
               id: normalizedCode,
