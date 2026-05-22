@@ -14,7 +14,7 @@ import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getAdaptiveBarWidth, getChartTooltip } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
-import { loadIndustryBondGroupData } from '../services/industryBondData';
+import { loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats } from '../services/industryBondData';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -39,25 +39,45 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const nextCachedData = getCache(cacheKey);
     setCashFlowPeriod('year');
-    setProjectedCashFlowBuckets(cachedData?.projectedCashFlowBuckets || {});
+    setIndustryStats(nextCachedData?.industryStats || null);
+    setRankingData(nextCachedData?.issuerSummaries || nextCachedData?.rankingData || []);
+    setProjectedCashFlowBuckets(nextCachedData?.projectedCashFlowBuckets || {});
+    setLoading(!nextCachedData);
     setLoadingCashFlows(false);
-  }, [industry, cachedData]);
+  }, [industry, cacheKey]);
 
   useEffect(() => {
     let isMounted = true;
 
     const fetchIndustryData = async () => {
-      if (!cachedData) {
-        setLoading(true);
-        setLoadingCashFlows(true);
-        setIndustryStats(null);
-        setRankingData([]);
+      const cachedGroupData = getCache(cacheKey);
+      if (cachedGroupData) {
+        if (!isMounted) return;
+        setIndustryStats(cachedGroupData.industryStats);
+        setRankingData(cachedGroupData.issuerSummaries || cachedGroupData.rankingData || []);
+        setProjectedCashFlowBuckets(cachedGroupData.projectedCashFlowBuckets || {});
+        setLoading(false);
+        setLoadingCashFlows(false);
+        return;
       }
 
       setError(null);
+      setLoading(true);
+      setLoadingCashFlows(true);
 
       try {
+        const stats = await loadIndustryStats(String(industry));
+        if (!isMounted) return;
+        setIndustryStats(stats);
+        setLoading(false);
+
+        const baseGroupedData = await loadIndustryBaseBondGroupData(String(industry));
+        if (!isMounted) return;
+        setIndustryStats(baseGroupedData.industryStats);
+        setRankingData(baseGroupedData.issuerSummaries);
+
         const groupedData = await loadIndustryBondGroupData(String(industry));
         if (!isMounted) return;
 
@@ -80,11 +100,11 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       }
     };
 
-    fetchIndustryData();
+    void fetchIndustryData();
     return () => {
       isMounted = false;
     };
-  }, [industry]);
+  }, [industry, cacheKey]);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
@@ -551,7 +571,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     ]
   };
 
-  if (loading) {
+  if (loading && !industryStats) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -584,7 +604,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div>
+      <div className="sticky top-0 z-20 -mx-2 border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
         <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 

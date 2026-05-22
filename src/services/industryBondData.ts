@@ -1,5 +1,6 @@
 import { fireantApi } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { findIndustryStats, INDUSTRY_NAV_ITEM_BY_ID, INDUSTRY_NAV_ITEMS, IndustryNavItem } from '../constants/industries';
 
 export interface ProjectedCashFlowBucket {
@@ -45,8 +46,13 @@ export interface IndustryStats {
 }
 
 const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
+const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v1_';
 const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v2_';
 const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v1_';
+let symbolGroupsPromise: Promise<Record<string, string[]>> | null = null;
+const industryStatsPromises = new Map<string, Promise<IndustryStats>>();
+const industryBondBasePromises = new Map<string, Promise<IndustryBondGroupData>>();
+const industryBondGroupPromises = new Map<string, Promise<IndustryBondGroupData>>();
 
 const toNumber = (value: unknown) => {
   const numberValue = Number(value);
@@ -159,58 +165,52 @@ const mergeBondDetail = (bond: any, detailData: any) => {
   };
 };
 
-const fetchInChunks = async <T, R>(
+const fetchWithLimit = async <T, R>(
   items: T[],
-  chunkSize: number,
-  worker: (item: T) => Promise<R>
-) => {
-  const results: R[] = [];
-
-  for (let i = 0; i < items.length; i += chunkSize) {
-    const chunk = items.slice(i, i + chunkSize);
-    const settled = await Promise.allSettled(chunk.map(worker));
-
-    settled.forEach((result) => {
-      if (result.status === 'fulfilled') results.push(result.value);
-    });
-  }
-
-  return results;
-};
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+) => getFulfilledValues(await mapWithConcurrency(items, concurrency, worker));
 
 export const loadDedupedIndustrySymbols = async () => {
   const cached = getCache(SYMBOL_GROUP_CACHE_KEY);
   if (cached) return cached as Record<string, string[]>;
+  if (symbolGroupsPromise) return symbolGroupsPromise;
 
-  const rawSymbolsByIndustry = new Map<string, string[]>();
+  symbolGroupsPromise = (async () => {
+    const rawSymbolsByIndustry = new Map<string, string[]>();
 
-  await Promise.all(INDUSTRY_NAV_ITEMS.map(async (industry) => {
-    const symbols = await fireantApi.getIcbSymbols(industry.code);
-    rawSymbolsByIndustry.set(
-      industry.id,
-      Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(String).filter(Boolean)))
-    );
-  }));
+    await Promise.all(INDUSTRY_NAV_ITEMS.map(async (industry) => {
+      const symbols = await fireantApi.getIcbSymbols(industry.code);
+      rawSymbolsByIndustry.set(
+        industry.id,
+        Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(String).filter(Boolean)))
+      );
+    }));
 
-  const assignedSymbols = new Map<string, string>();
-  const groupedSymbols: Record<string, string[]> = {};
+    const assignedSymbols = new Map<string, string>();
+    const groupedSymbols: Record<string, string[]> = {};
 
-  [...INDUSTRY_NAV_ITEMS]
-    .sort((a, b) => a.priority - b.priority)
-    .forEach((industry) => {
-      const uniqueSymbols: string[] = [];
+    [...INDUSTRY_NAV_ITEMS]
+      .sort((a, b) => a.priority - b.priority)
+      .forEach((industry) => {
+        const uniqueSymbols: string[] = [];
 
-      (rawSymbolsByIndustry.get(industry.id) || []).forEach((symbol) => {
-        if (assignedSymbols.has(symbol)) return;
-        assignedSymbols.set(symbol, industry.id);
-        uniqueSymbols.push(symbol);
+        (rawSymbolsByIndustry.get(industry.id) || []).forEach((symbol) => {
+          if (assignedSymbols.has(symbol)) return;
+          assignedSymbols.set(symbol, industry.id);
+          uniqueSymbols.push(symbol);
+        });
+
+        groupedSymbols[industry.id] = uniqueSymbols;
       });
 
-      groupedSymbols[industry.id] = uniqueSymbols;
-    });
+    setCache(SYMBOL_GROUP_CACHE_KEY, groupedSymbols);
+    return groupedSymbols;
+  })().finally(() => {
+    symbolGroupsPromise = null;
+  });
 
-  setCache(SYMBOL_GROUP_CACHE_KEY, groupedSymbols);
-  return groupedSymbols;
+  return symbolGroupsPromise;
 };
 
 const loadStatsForIndustry = async (industry: IndustryNavItem) => {
@@ -223,20 +223,77 @@ export const loadIndustryStats = async (industryId: string): Promise<IndustrySta
   const cacheKey = `${INDUSTRY_STATS_CACHE_PREFIX}${industry.id}`;
   const cached = getCache(cacheKey);
   if (cached) return cached as IndustryStats;
+  const inflight = industryStatsPromises.get(industry.id);
+  if (inflight) return inflight;
 
-  let stats: IndustryStats;
+  const promise = (async () => {
+    let stats: IndustryStats;
 
-  if (industry.id === 'Financials') {
-    const financials = await loadStatsForIndustry(industry);
-    const banking = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Banking);
-    const securities = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Securities);
-    stats = buildFinancialsOtherStats(financials, banking, securities);
-  } else {
-    stats = await loadStatsForIndustry(industry);
-  }
+    if (industry.id === 'Financials') {
+      const financials = await loadStatsForIndustry(industry);
+      const banking = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Banking);
+      const securities = await loadStatsForIndustry(INDUSTRY_NAV_ITEM_BY_ID.Securities);
+      stats = buildFinancialsOtherStats(financials, banking, securities);
+    } else {
+      stats = await loadStatsForIndustry(industry);
+    }
 
-  setCache(cacheKey, stats);
-  return stats;
+    setCache(cacheKey, stats);
+    return stats;
+  })().finally(() => {
+    industryStatsPromises.delete(industry.id);
+  });
+
+  industryStatsPromises.set(industry.id, promise);
+  return promise;
+};
+
+export const loadIndustryBaseBondGroupData = async (industryId: string): Promise<IndustryBondGroupData> => {
+  const industry: IndustryNavItem = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
+  const cacheKey = `${INDUSTRY_BOND_BASE_CACHE_PREFIX}${industry.id}`;
+  const cached = getCache(cacheKey);
+  if (cached) return cached as IndustryBondGroupData;
+  const inflight = industryBondBasePromises.get(industry.id);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const symbolGroups = await loadDedupedIndustrySymbols();
+    const symbols = symbolGroups[industry.id] || [];
+
+    const issuerBondBatches = await fetchWithLimit(symbols, 6, async (symbol) => {
+      const bonds = await fireantApi.getIssuerBonds(symbol);
+      return (Array.isArray(bonds) ? bonds : []).map((bond) => ({
+        ...bond,
+        issuerSymbol: getIssuerSymbol(bond, symbol),
+        issuerName: getIssuerName(bond, symbol),
+      }));
+    });
+
+    const bondsByCode = new Map<string, any>();
+    issuerBondBatches.flat().forEach((bond) => {
+      const code = getBondCode(bond);
+      if (code) bondsByCode.set(code, bond);
+    });
+
+    const bonds = Array.from(bondsByCode.values());
+    const industryStats = await loadIndustryStats(industry.id);
+    const groupedData: IndustryBondGroupData = {
+      industryId: industry.id,
+      symbols,
+      bonds,
+      issuerSummaries: buildIssuerSummaries(bonds),
+      industryStats,
+      projectedCashFlowBuckets: {},
+    };
+
+    setCache(cacheKey, groupedData);
+    return groupedData;
+  })().finally(() => {
+    industryBondBasePromises.delete(industry.id);
+  });
+
+  industryBondBasePromises.set(industry.id, promise);
+  return promise;
 };
 
 const buildProjectedCashFlowBuckets = (bonds: any[]) => {
@@ -358,49 +415,41 @@ export const loadIndustryBondGroupData = async (industryId: string): Promise<Ind
   const cacheKey = `${INDUSTRY_BOND_GROUP_CACHE_PREFIX}${industry.id}`;
   const cached = getCache(cacheKey);
   if (cached) return cached as IndustryBondGroupData;
+  const inflight = industryBondGroupPromises.get(industry.id);
+  if (inflight) return inflight;
 
-  const symbolGroups = await loadDedupedIndustrySymbols();
-  const symbols = symbolGroups[industry.id] || [];
+  const promise = (async () => {
+    const baseData = await loadIndustryBaseBondGroupData(industry.id);
+    const baseBonds = baseData.bonds;
+    const detailedBonds = await fetchWithLimit(baseBonds, 8, async (bond) => {
+      const code = getBondCode(bond);
+      if (!code) return bond;
 
-  const issuerBondBatches = await fetchInChunks(symbols, 6, async (symbol) => {
-    const bonds = await fireantApi.getIssuerBonds(symbol);
-    return (Array.isArray(bonds) ? bonds : []).map((bond) => ({
-      ...bond,
-      issuerSymbol: getIssuerSymbol(bond, symbol),
-      issuerName: getIssuerName(bond, symbol),
-    }));
+      const bondCacheKey = `bond_detail_${code}`;
+      const cachedDetail = getCache(bondCacheKey);
+      const detailData = cachedDetail || await fireantApi.getBond(code);
+      if (!cachedDetail) setCache(bondCacheKey, detailData);
+
+      return mergeBondDetail(bond, detailData);
+    });
+
+    const issuerSummaries = buildIssuerSummaries(detailedBonds);
+    const industryStats = await loadIndustryStats(industry.id);
+    const groupedData: IndustryBondGroupData = {
+      industryId: industry.id,
+      symbols: baseData.symbols,
+      bonds: detailedBonds,
+      issuerSummaries,
+      industryStats,
+      projectedCashFlowBuckets: buildProjectedCashFlowBuckets(detailedBonds),
+    };
+
+    setCache(cacheKey, groupedData);
+    return groupedData;
+  })().finally(() => {
+    industryBondGroupPromises.delete(industry.id);
   });
 
-  const bondsByCode = new Map<string, any>();
-  issuerBondBatches.flat().forEach((bond) => {
-    const code = getBondCode(bond);
-    if (code) bondsByCode.set(code, bond);
-  });
-
-  const baseBonds = Array.from(bondsByCode.values());
-  const detailedBonds = await fetchInChunks(baseBonds, 8, async (bond) => {
-    const code = getBondCode(bond);
-    if (!code) return bond;
-
-    const bondCacheKey = `bond_detail_${code}`;
-    const cachedDetail = getCache(bondCacheKey);
-    const detailData = cachedDetail || await fireantApi.getBond(code);
-    if (!cachedDetail) setCache(bondCacheKey, detailData);
-
-    return mergeBondDetail(bond, detailData);
-  });
-
-  const issuerSummaries = buildIssuerSummaries(detailedBonds);
-  const industryStats = await loadIndustryStats(industry.id);
-  const groupedData: IndustryBondGroupData = {
-    industryId: industry.id,
-    symbols,
-    bonds: detailedBonds,
-    issuerSummaries,
-    industryStats,
-    projectedCashFlowBuckets: buildProjectedCashFlowBuckets(detailedBonds),
-  };
-
-  setCache(cacheKey, groupedData);
-  return groupedData;
+  industryBondGroupPromises.set(industry.id, promise);
+  return promise;
 };

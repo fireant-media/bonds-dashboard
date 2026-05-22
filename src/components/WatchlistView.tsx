@@ -7,7 +7,8 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItem, type WatchlistItem } from '../utils/watchlist';
 import { fireantApi } from '../api/fireant';
-import { getCache } from '../utils/cache';
+import { getCache, setCache } from '../utils/cache';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -134,10 +135,16 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     }
 
     const enrichIssuerNames = async () => {
-      const updates = await Promise.all(
-        bondsToLookup.map(async (bond) => {
+      const results = await mapWithConcurrency(
+        bondsToLookup,
+        6,
+        async (bond) => {
           try {
-            const bondData = await fireantApi.getBond(bond.code);
+            const bondCacheKey = `bond_detail_${bond.code}`;
+            const cachedBondData = getCache(bondCacheKey);
+            const bondData = cachedBondData || await fireantApi.getBond(bond.code);
+            if (!cachedBondData) setCache(bondCacheKey, bondData);
+
             const detail = bondData?.detail || bondData || {};
             const issuerSymbol = String(detail.issuerSymbol || bond.enterpriseId || bond.ticker || '').trim();
             let industry = String(
@@ -157,7 +164,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
             if (issuerSymbol) {
               try {
-                const profile = await fireantApi.getIssuerProfile(issuerSymbol);
+                const profileCacheKey = `issuer_profile_${issuerSymbol}`;
+                const cachedProfile = getCache(profileCacheKey);
+                const profile = cachedProfile || await fireantApi.getIssuerProfile(issuerSymbol);
+                if (!cachedProfile) setCache(profileCacheKey, profile);
+
                 issuerName = String(
                   language === 'en'
                     ? profile.internationalName || profile.name || profile.companyName || issuerName || ''
@@ -193,12 +204,12 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
             console.warn(`Failed to fetch issuer name for ${bond.code}`, error);
             return null;
           }
-        })
+        }
       );
 
       if (cancelled) return;
 
-      const validUpdates = updates.filter(Boolean) as Array<{
+      const validUpdates = getFulfilledValues(results).filter(Boolean) as Array<{
         code: string;
         issuerName: string;
         ticker: string;

@@ -289,18 +289,12 @@ export default function EnterpriseView({
             return { ...bond, cashFlows };
           };
 
-          const detailedBonds: Bond[] = [];
-          const chunkSize = 8;
-          for (let i = 0; i < mappedBonds.length; i += chunkSize) {
-            const chunk = mappedBonds.slice(i, i + chunkSize);
-            const results = await Promise.allSettled(chunk.map(fetchBondCashFlows));
-            results.forEach((result, index) => {
-              detailedBonds.push(result.status === 'fulfilled' ? result.value : chunk[index]);
-            });
-            const nextBonds = [...detailedBonds, ...mappedBonds.slice(i + chunkSize)];
-            setIssuerBonds(nextBonds);
-            setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, nextBonds);
-          }
+          const results = await mapWithConcurrency(mappedBonds, 8, fetchBondCashFlows);
+          const detailedBonds = results.map((result, index) =>
+            result.status === 'fulfilled' ? result.value : mappedBonds[index]
+          );
+          setIssuerBonds(detailedBonds);
+          setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, detailedBonds);
         } else {
           throw new Error(`${language === 'vi' ? 'Lỗi khi lấy dữ liệu trái phiếu:' : 'Error fetching bond data:'} ${response.status}`);
         }
@@ -585,52 +579,33 @@ export default function EnterpriseView({
             .filter(ticker => !enterpriseNamesEN[ticker]);
           
           if (tickersToFetch.length > 0) {
-            const fetchInChunks = async () => {
-              const chunkSize = 5;
+            const fetchNames = async () => {
               const currentENNames = { ...enterpriseNamesEN };
-              let totalUpdated = 0;
+              const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
+                const res = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(ticker)}/profile`), { cache: 'no-store', headers });
+                if (!res.ok) return null;
 
-              for (let i = 0; i < tickersToFetch.length; i += chunkSize) {
-                if (!isMounted) break;
-                
-                const chunk = tickersToFetch.slice(i, i + chunkSize);
-                const results = await Promise.all(
-                  chunk.map(async (ticker) => {
-                    try {
-                      const res = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(ticker)}/profile`), { cache: 'no-store', headers });
-                      if (res.ok) {
-                        const profile = await res.json();
-                        return { ticker, name: profile.internationalName };
-                      }
-                    } catch (e) {
-                      console.error(`Failed to fetch EN name for ${ticker}`, e);
-                    }
-                    return null;
-                  })
-                );
+                const profile = await res.json();
+                return { ticker, name: profile.internationalName };
+              });
 
-                let chunkUpdated = false;
-                results.forEach(res => {
-                  if (res && res.name) {
-                    currentENNames[res.ticker] = res.name;
-                    chunkUpdated = true;
-                    totalUpdated++;
-                  }
-                });
+              if (!isMounted) return;
 
-                if (chunkUpdated && isMounted) {
-                  setEnterpriseNamesEN({ ...currentENNames });
-                  setCache('enterprise_names_en', { ...currentENNames });
+              let hasUpdates = false;
+              getFulfilledValues(results).forEach(res => {
+                if (res && res.name) {
+                  currentENNames[res.ticker] = res.name;
+                  hasUpdates = true;
                 }
+              });
 
-                // Small delay between chunks
-                if (i + chunkSize < tickersToFetch.length) {
-                  await new Promise(resolve => setTimeout(resolve, 200));
-                }
+              if (hasUpdates) {
+                setEnterpriseNamesEN({ ...currentENNames });
+                setCache('enterprise_names_en', { ...currentENNames });
               }
             };
 
-            fetchInChunks();
+            fetchNames();
           }
         }
       } catch (error) {
@@ -1118,9 +1093,9 @@ export default function EnterpriseView({
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-        <div className="flex items-start justify-between">
+        <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
           <div className="space-y-2">
-            <h2 className="text-4xl font-bold text-blue-600 dark:text-white tracking-tight">
+            <h2 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight md:text-4xl">
               {language === 'en' && enterpriseProfile?.internationalName 
                 ? enterpriseProfile.internationalName 
                 : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
@@ -1604,7 +1579,7 @@ export default function EnterpriseView({
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky top-0 z-20 -mx-2 flex flex-col gap-3 border-b border-border-base bg-surface-container-low px-2 py-2 sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
         <div>
           <h2 className="text-2xl font-bold text-blue-600 dark:text-white text-center transition-colors">{t('enterprise')}</h2>
         </div>

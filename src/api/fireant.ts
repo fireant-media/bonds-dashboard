@@ -9,6 +9,8 @@ export interface FireantRequestOptions extends RequestInit {
   query?: Record<string, QueryValue>;
 }
 
+const inflightRequests = new Map<string, Promise<unknown>>();
+
 export class FireantApiError extends Error {
   status: number;
 
@@ -47,22 +49,44 @@ export function buildFireantUrl(path: string, query?: Record<string, QueryValue>
 
 export async function fireantRequest<T = unknown>(path: string, options: FireantRequestOptions = {}): Promise<T> {
   const { query, headers, ...requestOptions } = options;
-  const response = await fetch(buildFireantUrl(path, query), {
-    ...requestOptions,
-    cache: "no-store",
-    headers: buildFireantHeaders(headers),
-  });
+  const url = buildFireantUrl(path, query);
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  const canDedupe = method === "GET" && !requestOptions.body;
+  const dedupeKey = `${method}:${url}`;
 
-  if (!response.ok) {
-    throw new FireantApiError(response.status, response.status === 401 ? "401" : `HTTP ${response.status}`);
+  if (canDedupe) {
+    const existing = inflightRequests.get(dedupeKey);
+    if (existing) return existing as Promise<T>;
   }
 
-  try {
-    return await readJsonResponse<T>(response, `FireAnt API ${path}`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : `Invalid response from ${path}`;
-    throw new FireantApiError(response.status, message);
+  const requestPromise = (async () => {
+    const response = await fetch(url, {
+      ...requestOptions,
+      cache: "no-store",
+      headers: buildFireantHeaders(headers),
+    });
+
+    if (!response.ok) {
+      throw new FireantApiError(response.status, response.status === 401 ? "401" : `HTTP ${response.status}`);
+    }
+
+    try {
+      return await readJsonResponse<T>(response, `FireAnt API ${path}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `Invalid response from ${path}`;
+      throw new FireantApiError(response.status, message);
+    }
+  })();
+
+  if (canDedupe) {
+    inflightRequests.set(dedupeKey, requestPromise);
+    requestPromise.then(
+      () => inflightRequests.delete(dedupeKey),
+      () => inflightRequests.delete(dedupeKey),
+    );
   }
+
+  return requestPromise;
 }
 
 export const fireantApi = {
