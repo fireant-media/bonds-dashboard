@@ -22,7 +22,6 @@ const WatchlistView = lazy(() => import('./components/WatchlistView'));
 const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
 const HelpView = lazy(() => import('./components/HelpView'));
-const AIChatBot = lazy(() => import('./components/AIChatBot'));
 
 const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
 
@@ -166,9 +165,6 @@ export default function App() {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
     }
-    if (appFrameRef.current) {
-      appFrameRef.current.scrollTo({ top: 0, behavior: 'instant' });
-    }
   }, [activeTab, activeIndustry, ticker]);
 
   const handleSetSelectedEnterprise = (enterprise: Enterprise | null) => {
@@ -287,6 +283,10 @@ export default function App() {
     } catch (error) {
       console.error('OIDC sign-out failed', error);
     }
+  };
+
+  const handleRegister = () => {
+    window.open('https://www.fireant.vn/Account/Register', '_blank', 'noopener,noreferrer');
   };
 
   const handleSearchSelect = async (suggestion: SearchSuggestion) => {
@@ -424,14 +424,14 @@ export default function App() {
 
   if (!user) {
     return (
-      <LoginView onSignIn={signIn} isSigningIn={authLoading} />
+      <LoginView onRegister={handleRegister} onSignIn={signIn} isSigningIn={authLoading} />
     );
   }
 
   const isProfileMode = activeTab === 'profile' || activeTab === 'help';
 
   return (
-    <div className="min-h-dvh overflow-hidden bg-surface-container-low font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
+    <div className="h-dvh overflow-hidden bg-surface-container-low font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
       <Header 
         onProfileClick={() => setActiveTab('profile')} 
         onHelpClick={() => setActiveTab('help')}
@@ -470,16 +470,10 @@ export default function App() {
           </>
         )}
         
-        {/* Unified Scroll Container for Center + Right Panel */}
-        <div
-          className={cn(
-            "flex-1 min-w-0 transition-all duration-300",
-            isProfileMode ? "h-full overflow-hidden" : "h-full overflow-hidden"
-          )}
-        >
+        <div className="flex-1 min-w-0 h-full overflow-hidden transition-all duration-300">
           <div className={cn(
-            "flex h-full min-h-0 flex-col lg:flex-row items-stretch transition-all duration-300",
-            !isProfileMode ? "min-h-full bg-surface-container-low" : "h-full"
+            "flex h-full min-h-0 flex-col lg:flex-row items-stretch overflow-hidden transition-all duration-300",
+            !isProfileMode ? "bg-surface-container-low" : "h-full"
           )}>
             {!isProfileMode && isMobileLayout && (
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-base bg-surface-bright px-3 py-2 lg:hidden">
@@ -518,11 +512,20 @@ export default function App() {
                 </div>
               </div>
             )}
-            <main
-              ref={scrollContainerRef}
-              className="flex-1 min-h-0 transition-all duration-300 min-w-0 overflow-y-auto overflow-x-hidden"
-            >
-              <div className={cn(isProfileMode ? "w-full h-full" : "max-w-screen-2xl mx-auto py-3 px-3 sm:px-4 md:py-4 md:px-4 lg:px-6 xl:px-8 w-full")}>
+            <main className="flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
+              <div
+                ref={scrollContainerRef}
+                className={cn(
+                  "h-full min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar overscroll-contain",
+                  isProfileMode
+                    ? "w-full"
+                    : activeTab === 'overview'
+                      ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                      : activeTab === 'maturity-list' || activeTab === 'watchlist'
+                        ? "w-full pt-2 pb-3 pl-2 pr-1 sm:pt-3 sm:pl-3 sm:pr-2 md:pt-4 md:pb-4 md:px-4 lg:pt-4 lg:pl-4 lg:pr-2 xl:pt-4 xl:pl-4 xl:pr-3"
+                        : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                )}
+              >
                 <Suspense
                   fallback={
                     <div className="flex min-h-96 items-center justify-center">
@@ -611,9 +614,6 @@ export default function App() {
           />
         </Suspense>
       )}
-      <Suspense fallback={null}>
-        <AIChatBot />
-      </Suspense>
     </div>
   );
 }

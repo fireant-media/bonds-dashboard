@@ -1,4 +1,4 @@
-export type IndustryType = 'Ngân hàng' | 'Chứng khoán' | 'Bất động sản' | 'Khác' | string;
+export type IndustryType = string;
 
 export interface Enterprise {
   id: string;

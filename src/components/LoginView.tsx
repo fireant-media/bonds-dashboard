@@ -13,12 +13,14 @@ import {
   ShieldCheck,
   TrendingUp,
   Users,
+  AlertCircle,
 } from 'lucide-react';
 import Logo from './Logo';
 import { getCache } from '../utils/cache';
 import { formatNumber } from '../utils/format';
 
 interface LoginViewProps {
+  onRegister: () => void;
   onSignIn: () => Promise<void> | void;
   isSigningIn?: boolean;
 }
@@ -187,14 +189,18 @@ const getHeatWidthClass = (value: number) => {
   return 'w-1/3';
 };
 
-export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
+export default function LoginView({ onRegister, onSignIn, isSigningIn = false }: LoginViewProps) {
   const [snapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const handleLogin = async () => {
     try {
+      setLoginError(null);
       await onSignIn();
     } catch (error) {
-      console.error('OIDC sign-in failed', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('OIDC sign-in failed:', errorMessage);
+      setLoginError(errorMessage || 'Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại.');
     }
   };
 
@@ -291,7 +297,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => void handleLogin()}
+              onClick={onRegister}
               disabled={isSigningIn}
               className="inline-flex items-center justify-center rounded-lg border border-blue-500 px-5 py-2 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -308,6 +314,21 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
           </div>
         </div>
       </header>
+
+      {loginError && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mx-4 mt-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-800">Lỗi đăng nhập</p>
+              <p className="text-sm text-red-700 mt-1">{loginError}</p>
+              <p className="text-xs text-red-600 mt-2">
+                Kiểm tra console (F12) để xem chi tiết lỗi.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main>
         <section id="overview" className="relative overflow-hidden bg-bg-base px-4 pt-12 pb-4 sm:px-6 lg:px-8 lg:pt-12 lg:pb-12">

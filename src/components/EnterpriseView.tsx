@@ -23,91 +23,17 @@ import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { ExportExcelButton } from './ui/ExportExcelButton';
+import { MetricCard } from './ui/Card';
 import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
-import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
+import {
+  buildEnterpriseIndustryOptions,
+  buildIndustrySymbolLookup,
+  resolveIndustryKeyFromCandidates as resolveIndustryFromShared,
+  resolveIndustryKeyFromSymbolGroups,
+} from '../constants/industries';
 import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile } from '../services/bondData';
-
-const INDUSTRY_KEY_ALIAS_MAP = (() => {
-  const map = new Map<string, string>();
-
-  INDUSTRY_NAV_ITEMS.forEach((item) => {
-    const aliases = new Set<string>([
-      item.id,
-      item.labelKey,
-      ...item.targetNames,
-    ]);
-
-    if (item.id === 'Financials') {
-      aliases.add('financialsIndustry');
-      aliases.add('Tài chính khác');
-    }
-
-    aliases.forEach((alias) => {
-      const normalized = String(alias || '').trim().toLowerCase();
-      if (normalized) {
-        map.set(normalized, item.labelKey);
-      }
-    });
-  });
-
-  return map;
-})();
-
-const resolveEnterpriseIndustryKey = (...candidates: Array<unknown>) => {
-  for (const candidate of candidates) {
-    const value = String(candidate || '').trim();
-    if (!value || value.toLowerCase() === 'n/a') continue;
-
-    const resolved = INDUSTRY_KEY_ALIAS_MAP.get(value.toLowerCase());
-    if (resolved) return resolved;
-  }
-
-  return 'otherIndustry';
-};
-
-const INDUSTRY_CODE_KEY_MAP = new Map<string, string>(
-  INDUSTRY_NAV_ITEMS.flatMap((item) => [
-    [item.code, item.labelKey] as const,
-    item.icbCode ? [item.icbCode, item.labelKey] as const : null,
-  ]).filter((entry): entry is readonly [string, string] => Boolean(entry))
-);
-
-const INDUSTRY_NAME_KEY_MAP = new Map<string, string>(
-  INDUSTRY_NAV_ITEMS.flatMap((item) => {
-    const aliases = new Set<string>([
-      item.id,
-      item.labelKey,
-      ...item.targetNames,
-    ]);
-
-    if (item.id === 'Financials') {
-      aliases.add('financialsIndustry');
-      aliases.add('Tài chính');
-      aliases.add('Tài chính khác');
-    }
-
-    return Array.from(aliases).map((alias) => [String(alias).trim().toLowerCase(), item.labelKey] as const);
-  })
-);
-
-const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unknown>) => {
-  for (const candidate of candidates) {
-    const value = String(candidate || '').trim();
-    if (!value || value.toLowerCase() === 'n/a') continue;
-
-    if (/^\d+$/.test(value)) {
-      const byCode = INDUSTRY_CODE_KEY_MAP.get(value);
-      if (byCode) return byCode;
-    }
-
-    const byName = INDUSTRY_NAME_KEY_MAP.get(value.toLowerCase());
-    if (byName) return byName;
-  }
-
-  return 'otherIndustry';
-};
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -127,7 +53,7 @@ export default function EnterpriseView({
     Array.isArray(cachedData)
       ? cachedData.map((enterprise: Enterprise) => ({
           ...enterprise,
-          industry: resolveEnterpriseIndustryFromCandidates(enterprise.industry),
+          industry: resolveIndustryFromShared(enterprise.industry),
         }))
       : []
   );
@@ -179,24 +105,10 @@ export default function EnterpriseView({
   const chartPalette = CHART_PALETTE;
 
   const enterpriseIndustryOptions = useMemo(() => {
-    const excluded = new Set(['telecommunicationsIndustry', 'healthcareIndustry']);
-    const totals = enterprises.reduce<Record<string, { issuedValue: number }>>((acc, enterprise) => {
-      if (!enterprise.industry || excluded.has(enterprise.industry)) return acc;
-      if (!acc[enterprise.industry]) acc[enterprise.industry] = { issuedValue: 0 };
-      acc[enterprise.industry].issuedValue += enterprise.issuedValue || 0;
-      return acc;
-    }, {});
-
-    return INDUSTRY_NAV_ITEMS
-      .filter((item) => !excluded.has(item.labelKey))
-      .map((item, index) => ({
-        value: item.labelKey,
-        label: t(item.labelKey as any),
-        issuedValue: totals[item.labelKey]?.issuedValue || 0,
-        order: index,
-      }))
-      .filter((item) => item.issuedValue > 0)
-      .sort((a, b) => b.issuedValue - a.issuedValue || a.order - b.order);
+    return buildEnterpriseIndustryOptions(enterprises).map((item) => ({
+      ...item,
+      label: t(item.label as any),
+    }));
   }, [enterprises, t]);
 
   useEffect(() => {
@@ -440,13 +352,7 @@ export default function EnterpriseView({
 
         if (issuers) {
           const symbolGroups = await loadDedupedIndustrySymbols();
-          const symbolToIndustryKey = new Map<string, string>();
-
-          INDUSTRY_NAV_ITEMS.forEach((item) => {
-            (symbolGroups[item.id] || []).forEach((symbol) => {
-              symbolToIndustryKey.set(symbol, item.labelKey);
-            });
-          });
+          const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
 
           const mappedEnterprises: Enterprise[] = issuers.map((issuer: any) => {
             const currentEnt = enterprises.find(e => e.ticker === issuer.issuerSymbol);
@@ -454,7 +360,9 @@ export default function EnterpriseView({
               id: issuer.issuerSymbol,
               ticker: issuer.issuerSymbol,
               name: issuer.issuerName,
-              industry: symbolToIndustryKey.get(issuer.issuerSymbol) || resolveEnterpriseIndustryFromCandidates(
+              industry: resolveIndustryKeyFromSymbolGroups(
+                issuer.issuerSymbol,
+                symbolToIndustryKey,
                 issuer?.infoObj?.icbNameLv2,
                 issuer?.infoObj?.icbNameLv1,
                 issuer?.infoObj?.icbCodeLv2,
@@ -478,66 +386,10 @@ export default function EnterpriseView({
           setEnterprises(mappedEnterprises);
           if (isMounted) setLoading(false); 
 
-          const finalEnterprises = [...mappedEnterprises];
-
-          const unresolvedEnterprises = finalEnterprises.filter((enterprise) => {
-            const industry = String(enterprise.industry || '').trim().toLowerCase();
-            return !industry || industry === 'otherindustry' || industry === 'other' || industry === 'n/a';
-          });
-
-          if (unresolvedEnterprises.length > 0) {
-            const chunkSize = 5;
-            const resolvedIndustries = new Map<string, string>();
-
-            for (let i = 0; i < unresolvedEnterprises.length; i += chunkSize) {
-              if (!isMounted) break;
-
-              const chunk = unresolvedEnterprises.slice(i, i + chunkSize);
-              const results = await Promise.allSettled(
-                chunk.map(async (enterprise) => {
-                  const profile = await loadIssuerProfile(enterprise.ticker);
-                  return {
-                    ticker: enterprise.ticker,
-                    industry: resolveEnterpriseIndustryFromCandidates(
-                      profile?.infoObj?.icbNameLv2,
-                      profile?.infoObj?.icbNameLv1,
-                      profile?.infoObj?.icbCodeLv2,
-                      profile?.infoObj?.icbCodeLv1,
-                      profile?.icbNameLv2,
-                      profile?.icbNameLv1,
-                      profile?.icbCodeLv2,
-                      profile?.icbCodeLv1,
-                      profile?.industryName,
-                      profile?.industryCode,
-                      profile?.industry,
-                      enterprise.industry
-                    )
-                  };
-                })
-              );
-
-              results.forEach((result) => {
-                if (result.status === 'fulfilled' && result.value.industry) {
-                  resolvedIndustries.set(result.value.ticker, result.value.industry);
-                }
-              });
-            }
-
-            if (isMounted && resolvedIndustries.size > 0) {
-              finalEnterprises.forEach((enterprise) => {
-                const industry = resolvedIndustries.get(enterprise.ticker);
-                if (industry) {
-                  enterprise.industry = industry;
-                }
-              });
-            }
-          }
-
-          setEnterprises(finalEnterprises);
-          setCache('enterprise_list', finalEnterprises);
+          setCache('enterprise_list', mappedEnterprises);
 
           // Background fetch international names for English mode
-          const tickersToFetch = finalEnterprises
+          const tickersToFetch = mappedEnterprises
             .map(e => e.ticker)
             .filter(ticker => !enterpriseNamesEN[ticker]);
           
@@ -1056,7 +908,7 @@ export default function EnterpriseView({
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-        <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex items-start justify-between border-b border-border-base bg-surface-container-low px-2 py-3 md:-mx-4 md:px-4">
           <div className="space-y-2">
             <h2 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight md:text-4xl">
               {language === 'en' && enterpriseProfile?.internationalName 
@@ -1223,26 +1075,26 @@ export default function EnterpriseView({
           <>
             {/* KPI Cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
-                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('bondCodeCount')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
-                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
-              </div>
-              <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
-                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('totalIssuedValueTitle')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
-                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
-              </div>
-              <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
-                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('initialDebtFull')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
-                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
-              </div>
-              <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32 transition-colors">
-                <p className="text-[10px] min-[360px]:text-xs lg:text-sm font-semibold text-text-muted/80 mb-2 whitespace-nowrap">{t('remainingDebtTitle')}</p>
-                <span className="text-2xl md:text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors whitespace-nowrap">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
-                <span className="text-xs md:text-sm font-bold text-gray-400">{t('unitBillionVND')}</span>
-              </div>
+              <MetricCard
+                label={t('bondCodeCount')}
+                value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
+                unit={t('unitBondCode')}
+              />
+              <MetricCard
+                label={t('totalIssuedValueTitle')}
+                value={formatNumber(selectedEnterprise.issuedValue, 2)}
+                unit={t('unitBillionVND')}
+              />
+              <MetricCard
+                label={t('initialDebtFull')}
+                value={formatNumber(selectedEnterprise.initialDebt, 2)}
+                unit={t('unitBillionVND')}
+              />
+              <MetricCard
+                label={t('remainingDebtTitle')}
+                value={formatNumber(selectedEnterprise.remainingDebt, 2)}
+                unit={t('unitBillionVND')}
+              />
             </div>
 
         {/* Charts Section */}
@@ -1542,7 +1394,7 @@ export default function EnterpriseView({
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 flex flex-col gap-3 border-b border-border-base bg-surface-container-low px-2 py-2 sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-8 flex flex-col gap-3 border-b border-border-base bg-surface-container-low px-2 py-3 sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
         <div>
           <h2 className="text-2xl font-bold text-blue-600 dark:text-white text-center transition-colors">{t('enterprise')}</h2>
         </div>
@@ -1631,7 +1483,7 @@ export default function EnterpriseView({
                         ? enterpriseNamesEN[enterprise.ticker]
                         : t(enterprise.name as any, enterprise.ticker)}
                     </p>
-                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(enterprise.industry as any)}</p>
+                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(enterprise.industry as any) || enterprise.industry || 'N/A'}</p>
                   </div>
                   <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted" />
                 </div>
@@ -1699,7 +1551,7 @@ export default function EnterpriseView({
                           : t(enterprise.name as any, enterprise.ticker)}
                       </p>
                       <p className="text-[10px] font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
-                        {t(enterprise.industry as any)}
+                        {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
                       </p>
                     </div>
                   </td>
@@ -1828,3 +1680,4 @@ export default function EnterpriseView({
     </div>
   );
 }
+

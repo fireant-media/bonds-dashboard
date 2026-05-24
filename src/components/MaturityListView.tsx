@@ -8,7 +8,12 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
-import { buildEnterpriseIndustryOptions, resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
+import {
+  buildEnterpriseIndustryOptions,
+  buildIndustrySymbolLookup,
+  resolveIndustryKeyFromCandidates,
+  resolveIndustryKeyFromSymbolGroups,
+} from '../constants/industries';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -29,10 +34,10 @@ interface MaturityListViewProps {
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
+import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 
 const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
-  resolveEnterpriseIndustryFromCandidates(
-    enterpriseIndustry,
+  resolveIndustryKeyFromCandidates(
     bond?.industry,
     bond?.industryLabel,
     bond?.infoObj?.icbNameLv2,
@@ -46,12 +51,13 @@ const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
     bond?.icbCodeLv2,
     bond?.icbCodeLv1,
     bond?.industryName,
-    bond?.industryCode
+    bond?.industryCode,
+    enterpriseIndustry
   );
 
 const normalizeMaturityBond = (bond: any, enterpriseIndustry?: string): MaturityBond => ({
   ...bond,
-  industry: getMaturityIndustryKey(bond, enterpriseIndustry),
+  industry: bond?.industry || getMaturityIndustryKey(bond, enterpriseIndustry),
 });
 
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
@@ -89,95 +95,119 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       }
       setError(null);
       try {
-        const data = await loadMaturingBonds(selectedTimeRange);
+        const [data, symbolGroups] = await Promise.all([
+          loadMaturingBonds(selectedTimeRange),
+          loadDedupedIndustrySymbols(),
+        ]);
 
         if (!isMounted) return;
 
-          if (Array.isArray(data)) {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+        if (Array.isArray(data)) {
+          const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
 
-            const mapped: MaturityBond[] = data.map((b: any) => {
-              const enterpriseIndustry = enterpriseList.find((item) => item.ticker === b.issuerSymbol)?.industry;
-              const maturity = new Date(b.maturityDate);
-              maturity.setHours(0, 0, 0, 0);
-              const diffTime = maturity.getTime() - today.getTime();
-              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
 
-              return {
-                id: b.bondCode,
-                code: b.bondCode,
-                enterpriseId: b.issuerSymbol || '',
-                ticker: b.issuerSymbol,
-                issuerName: b.issuerName,
-                maturityDate: b.maturityDate?.split('T')[0] || '',
-                daysLeft: diffDays > 0 ? diffDays : 0,
-                listedVolume: b.currentListedVolume || 0,
-                listedValue: (b.currentListedVolume * 100000) / 1000000000, 
-                interestRate: b.bondRate || 0,
-                interestType: normalizeInterestType(
-                  b.bondRateType || b.interestRateType || b.interestType || '',
-                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                  []
-                ) || 'N/A',
-                term: `${b.tenorPeriod} ${t('monthUnit')}`,
-                issueDate: b.issueDate?.split('T')[0] || '',
-                issuedValue: 0,
-                status: b.status || t('active'),
-                industry: getMaturityIndustryKey(b, enterpriseIndustry)
-              };
-            }).map((bond) => normalizeMaturityBond(bond, enterpriseList.find((item) => item.ticker === bond.ticker)?.industry));
-            setBonds(mapped);
-            setCache(cacheKey, mapped);
+          const mapped: MaturityBond[] = data.map((b: any) => {
+            const enterpriseIndustry = enterpriseList.find((item) => item.ticker === b.issuerSymbol)?.industry;
+            const maturity = new Date(b.maturityDate);
+            maturity.setHours(0, 0, 0, 0);
+            const diffTime = maturity.getTime() - today.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-            const unresolvedIndustries = mapped.filter((bond) => !bond.industry || bond.industry === 'otherIndustry');
-            if (unresolvedIndustries.length > 0) {
-              const resolveIndustries = async () => {
-                const chunkSize = 5;
-                const updates = new Map<string, string>();
+            const industry = resolveIndustryKeyFromSymbolGroups(
+              b.issuerSymbol,
+              symbolToIndustryKey,
+              getMaturityIndustryKey(b, enterpriseIndustry)
+            );
 
-                for (let i = 0; i < unresolvedIndustries.length; i += chunkSize) {
-                  if (!isMounted) break;
+            return {
+              id: b.bondCode,
+              code: b.bondCode,
+              enterpriseId: b.issuerSymbol || '',
+              ticker: b.issuerSymbol,
+              issuerName: b.issuerName,
+              maturityDate: b.maturityDate?.split('T')[0] || '',
+              daysLeft: diffDays > 0 ? diffDays : 0,
+              listedVolume: b.currentListedVolume || 0,
+              listedValue: (b.currentListedVolume * 100000) / 1000000000,
+              interestRate: b.bondRate || 0,
+              interestType: normalizeInterestType(
+                b.bondRateType || b.interestRateType || b.interestType || '',
+                b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+                []
+              ) || 'N/A',
+              term: `${b.tenorPeriod} ${t('monthUnit')}`,
+              issueDate: b.issueDate?.split('T')[0] || '',
+              issuedValue: 0,
+              status: b.status || t('active'),
+              industry,
+            };
+          }).map((bond) => normalizeMaturityBond(bond, enterpriseList.find((item) => item.ticker === bond.ticker)?.industry));
+          setBonds(mapped);
+          setCache(cacheKey, mapped);
 
-                  const chunk = unresolvedIndustries.slice(i, i + chunkSize);
-                  const results = await Promise.allSettled(
-                    chunk.map(async (bond) => {
-                      if (!bond.ticker) return null;
+          const refreshIndustries = async () => {
+            const bondsToRefresh = mapped.filter((bond) => !bond.industry);
+            if (bondsToRefresh.length === 0) return;
 
-                      const profile = await loadIssuerProfile(bond.ticker);
-                      const enterpriseIndustry = (getCache('enterprise_list') || [])
-                        .find((item: any) => item.ticker === bond.ticker)?.industry;
+            const chunkSize = 5;
+            const updates = new Map<string, string>();
 
-                      return {
-                        code: bond.code,
-                        industry: getMaturityIndustryKey(profile || bond, enterpriseIndustry),
-                      };
-                    })
+            for (let i = 0; i < bondsToRefresh.length; i += chunkSize) {
+              if (!isMounted) break;
+
+              const chunk = bondsToRefresh.slice(i, i + chunkSize);
+              const results = await Promise.allSettled(
+                chunk.map(async (bond) => {
+                  let ticker = bond.ticker;
+
+                  if (!ticker) {
+                    const bondDetail = await loadBondDetail(bond.code);
+                    ticker = bondDetail?.detail?.issuerSymbol;
+                  }
+
+                  if (!ticker) return null;
+
+                  const profile = await loadIssuerProfile(ticker);
+                  const enterpriseIndustry = (getCache('enterprise_list') || [])
+                    .find((item: any) => item.ticker === ticker)?.industry;
+
+                  const industry = resolveIndustryKeyFromSymbolGroups(
+                    ticker,
+                    symbolToIndustryKey,
+                    getMaturityIndustryKey(profile || bond, enterpriseIndustry)
                   );
 
-                  results.forEach((result) => {
-                    if (result.status === 'fulfilled' && result.value?.code && result.value.industry) {
-                      updates.set(result.value.code, result.value.industry);
-                    }
-                  });
+                  return {
+                    code: bond.code,
+                    industry,
+                  };
+                })
+              );
+
+              results.forEach((result) => {
+                if (result.status === 'fulfilled' && result.value?.code && result.value.industry) {
+                  updates.set(result.value.code, result.value.industry);
                 }
-
-                if (!isMounted || updates.size === 0) return;
-
-                setBonds((prev) => {
-                  const next = prev.map((bond) => {
-                    const industry = updates.get(bond.code);
-                    return industry ? { ...bond, industry } : bond;
-                  });
-                  setCache(cacheKey, next);
-                  return next;
-                });
-              };
-
-              resolveIndustries().catch((resolveError) => {
-                console.error('Failed to resolve maturity industries', resolveError);
               });
             }
+
+            if (!isMounted || updates.size === 0) return;
+
+            setBonds((prev) => {
+              const next = prev.map((bond) => {
+                const industry = updates.get(bond.code);
+                return industry && industry !== bond.industry ? { ...bond, industry } : bond;
+              });
+              setCache(cacheKey, next);
+              return next;
+            });
+          };
+
+          refreshIndustries().catch((resolveError) => {
+            console.error('Failed to resolve maturity industries', resolveError);
+          });
 
             // Trigger background fetch for international names if in English mode
             if (language === 'en') {
@@ -295,8 +325,13 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const totalPages = Math.ceil(sortedBonds.length / itemsPerPage);
   const paginatedBonds = sortedBonds.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  const hasUsefulEnterpriseIndustries = enterpriseList.some((item) => {
+    const industry = String(item.industry || '').trim();
+    return Boolean(industry) && industry !== 'N/A';
+  });
+
   const enterpriseIndustryOptions = buildEnterpriseIndustryOptions(
-    enterpriseList.length > 0
+    hasUsefulEnterpriseIndustries
       ? enterpriseList
       : bonds.map((bond) => ({
           industry: bond.industry,
@@ -545,7 +580,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                   <div className="min-w-0">
                     <p className="text-base font-bold text-text-highlight">{bond.code}</p>
                     <p className="mt-1 text-sm font-bold text-text-base">{language === 'en' && bond.ticker && enterpriseNamesEN[bond.ticker] ? enterpriseNamesEN[bond.ticker] : t(bond.issuerName as any, bond.ticker)}</p>
-                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(bond.industry as any)}</p>
+                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(bond.industry as any) || bond.industry || 'N/A'}</p>
                   </div>
                   <span className={cn("shrink-0 rounded-full border px-3 py-1 text-xs font-bold uppercase", status.color)}>
                     {status.label}
@@ -668,7 +703,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                               : t(bond.issuerName as any, bond.ticker)}
                           </p>
                           <p className="text-[10px] text-text-muted font-semibold group-hover:text-text-highlight transition-colors">
-                            {t(bond.industry as any)}
+                            {t(bond.industry as any) || bond.industry || 'N/A'}
                           </p>
                         </div>
                       </td>

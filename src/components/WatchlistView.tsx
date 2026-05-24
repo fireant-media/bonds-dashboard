@@ -9,6 +9,8 @@ import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItem, type Watchl
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
+import { buildIndustrySymbolLookup, resolveIndustryKeyFromCandidates, resolveIndustryKeyFromSymbolGroups } from '../constants/industries';
+import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -119,6 +121,8 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   useEffect(() => {
     let cancelled = false;
     const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string; name?: string }>;
+    const symbolGroupsPromise = loadDedupedIndustrySymbols();
+
     const bondsWithCachedIndustry = bonds.map((bond) => {
       if (bond.industry) return bond;
 
@@ -135,6 +139,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     }
 
     const enrichIssuerNames = async () => {
+      const symbolLookup = buildIndustrySymbolLookup(await symbolGroupsPromise);
       const results = await mapWithConcurrency(
         bondsToLookup,
         6,
@@ -147,14 +152,19 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
             const detail = bondData?.detail || bondData || {};
             const issuerSymbol = String(detail.issuerSymbol || bond.enterpriseId || bond.ticker || '').trim();
-            let industry = String(
+            const detailIndustry = resolveIndustryKeyFromCandidates(
               detail.infoObj?.icbNameLv2 ||
               detail.infoObj?.icbNameLv1 ||
               detail.icbNameLv2 ||
               detail.industry ||
               bond.industry ||
               ''
-            ).trim();
+            );
+            let industry = resolveIndustryKeyFromSymbolGroups(
+              issuerSymbol,
+              symbolLookup,
+              detailIndustry
+            );
             let issuerName = String(
               detail.issuerName ||
               detail.companyName ||
@@ -174,14 +184,15 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                     ? profile?.internationalName || profile?.name || profile?.companyName || issuerName || ''
                     : profile?.name || profile?.companyName || profile?.internationalName || issuerName || ''
                 ).trim();
-                industry = String(
-                  industry ||
-                  profile.icbNameLv2 ||
-                  profile.icbNameLv1 ||
-                  profile.industryName ||
-                  profile.industry ||
-                  ''
-                ).trim();
+                industry = resolveIndustryKeyFromSymbolGroups(
+                  issuerSymbol,
+                  symbolLookup,
+                  industry,
+                  profile.icbNameLv2,
+                  profile.icbNameLv1,
+                  profile.industryName,
+                  profile.industry
+                );
               } catch (profileError) {
                 console.warn(`Failed to fetch issuer profile for ${issuerSymbol}`, profileError);
               }
@@ -251,7 +262,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-blue-600 dark:text-white transition-colors">{t('watchList')}</h1>
         </div>

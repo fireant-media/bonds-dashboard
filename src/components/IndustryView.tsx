@@ -15,6 +15,7 @@ import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getAdaptiveBarWidth, getChartTooltip } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats } from '../services/industryBondData';
+import { MetricCard } from './ui/Card';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -607,18 +608,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-8 border-b border-border-base bg-surface-container-low px-2 py-3 md:-mx-4 md:px-4">
         <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {kpis.map((kpi, idx) => (
-          <div key={idx} className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-32">
-            <p className="text-sm font-semibold text-text-muted/80 mb-2">{kpi.label}</p>
-            <p className="text-3xl font-bold text-blue-600 dark:text-white mb-1 transition-colors">{kpi.value}</p>
-            <p className="text-sm font-bold text-gray-400">{kpi.unit}</p>
-          </div>
+          <MetricCard key={idx} label={kpi.label} value={kpi.value} unit={kpi.unit} />
         ))}
       </div>
 

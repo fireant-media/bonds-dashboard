@@ -41,10 +41,63 @@ const appBaseUrl =
   import.meta.env.VITE_APP_BASE_URL?.trim() || window.location.origin;
 const isPopupWindow = () => Boolean(window.opener && window.opener !== window);
 
-const POPUP_CLOSED_PATTERNS = ['popup window closed', 'popup closed', 'closed by user'];
-const isPopupClosedByUser = (error: unknown): boolean => {
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return POPUP_CLOSED_PATTERNS.some((pattern) => message.includes(pattern));
+const OIDC_STORAGE_PREFIX = 'oidc.';
+const AUTH_STORAGE_PRESSURE_PREFIXES = [
+  OIDC_STORAGE_PREFIX,
+  'sentinel_cache_',
+  'fireant_access_token',
+  'ai_chat_history',
+];
+
+const isQuotaExceededError = (error: unknown): boolean => {
+  if (!(error instanceof DOMException)) {
+    const message = error instanceof Error ? error.message : String(error);
+    return /quota|storage/i.test(message);
+  }
+
+  return error.name === 'QuotaExceededError' || error.code === 22 || error.code === 1014;
+};
+
+const pruneAuthStoragePressure = () => {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      if (AUTH_STORAGE_PRESSURE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach((key) => window.localStorage.removeItem(key));
+    if (keysToRemove.length > 0) {
+      console.warn(`Pruned ${keysToRemove.length} auth/cache items to free localStorage space`);
+    }
+  } catch (error) {
+    console.warn('Failed to prune localStorage pressure', error);
+  }
+};
+
+const resilientLocalStorage: Storage = {
+  get length() {
+    return window.localStorage.length;
+  },
+  clear: () => window.localStorage.clear(),
+  getItem: (key: string) => window.localStorage.getItem(key),
+  key: (index: number) => window.localStorage.key(index),
+  removeItem: (key: string) => window.localStorage.removeItem(key),
+  setItem: (key: string, value: string) => {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (error) {
+      if (!isQuotaExceededError(error)) {
+        throw error;
+      }
+
+      pruneAuthStoragePressure();
+      window.localStorage.setItem(key, value);
+    }
+  },
 };
 
 const getOidcSettings = (): UserManagerSettings => ({
@@ -63,7 +116,7 @@ const getOidcSettings = (): UserManagerSettings => ({
   clockSkew: 86400,
   popupWindowFeatures:
     'location=no,toolbar=no,width=800,height=600,left=100,top=100',
-  userStore: new WebStorageStateStore({ store: window.localStorage }),
+  userStore: new WebStorageStateStore({ store: resilientLocalStorage }),
 });
 
 export const authManager = new UserManager(getOidcSettings());
@@ -163,9 +216,10 @@ export const useOidcAuth = () => {
       throw new Error('Missing VITE_OIDC_CLIENT_ID');
     }
     try {
-      await authManager.signinRedirect();
+      pruneAuthStoragePressure();
+      await authManager.signinPopup();
     } catch (error) {
-      console.error('Sign-in redirect failed', error);
+      console.error('Sign-in popup failed', error);
       throw error;
     }
   }, []);
@@ -174,18 +228,15 @@ export const useOidcAuth = () => {
     try {
       await authManager.signoutPopup();
     } catch (error) {
-      if (!isPopupClosedByUser(error)) {
-        console.warn('Popup sign-out failed', error);
-      }
-    } finally {
-      try {
-        await authManager.removeUser();
-      } catch (err) {
-        console.error('Failed to remove user after sign-out', err);
-      }
-      removeFireantToken();
-      useAuthStore.getState().reset();
+      console.warn('Sign-out popup failed', error);
     }
+    try {
+      await authManager.removeUser();
+    } catch (err) {
+      console.error('Failed to remove user after sign-out', err);
+    }
+    removeFireantToken();
+    useAuthStore.getState().reset();
   }, []);
 
   return { user, roles, isLoading, signIn, signOut };
@@ -199,13 +250,35 @@ export function SignInCallback() {
       try {
         if (isPopupWindow()) {
           await authManager.signinPopupCallback();
+          const popupUser = await authManager.getUser();
+          useAuthStore.getState().setUser(popupUser ?? null);
+          if (popupUser?.access_token) {
+            setFireantToken(popupUser.access_token);
+            await refreshUserAccount();
+          } else {
+            removeFireantToken();
+          }
           window.close();
           return;
         }
 
-        await authManager.signinCallback();
+        const user = await authManager.signinCallback();
+        console.log('Sign-in callback completed:', user ? 'User loaded' : 'No user');
+        const resolvedUser = user ?? (await authManager.getUser());
+        useAuthStore.getState().setUser(resolvedUser ?? null);
+
+        if (resolvedUser?.access_token) {
+          setFireantToken(resolvedUser.access_token);
+          await refreshUserAccount();
+        } else {
+          removeFireantToken();
+        }
+
+        if (!resolvedUser) {
+          console.warn('Sign-in callback returned no user');
+        }
       } catch (error) {
-        console.error('Sign-in callback failed', error);
+        console.error('Sign-in callback failed:', error);
       } finally {
         navigate('/', { replace: true });
       }

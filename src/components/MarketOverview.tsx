@@ -889,10 +889,10 @@ export default function MarketOverview() {
   }
 
   return (
-    <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 flex min-w-0 items-center justify-between border-b border-border-base bg-surface-container-low px-2 py-2 md:-mx-4 md:px-4">
+    <div className="min-w-0 transition-colors duration-300">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-8 flex min-w-0 items-center justify-between border-b border-border-base bg-surface-container-low px-2 py-3 md:-mx-4 md:px-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight break-words">{t('marketOverview')}</h1>
+          <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
         </div>
       </div>
 

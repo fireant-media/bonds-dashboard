@@ -322,7 +322,7 @@ export default function RightPanel({
       <div className={cn("p-3 lg:p-2 transition-all duration-300 flex-1 min-h-0 flex flex-col", isOpen ? "w-full lg:w-64 lg:pr-10" : "w-0 p-0")}>
 
         {isOpen ? (
-          <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto flex flex-col space-y-5 animate-in fade-in duration-500">
+          <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col space-y-5 animate-in fade-in duration-500">
             <div className="grid grid-cols-2 gap-1 rounded bg-surface-container-low p-1 lg:hidden">
               <button
                 type="button"

@@ -27,13 +27,13 @@ interface MetricCardProps {
 
 export function MetricCard({ label, value, unit }: MetricCardProps) {
   return (
-    <Card className="p-4">
-      <div className="min-w-0 space-y-3 text-center">
-        <p className="text-xs font-semibold uppercase text-text-muted/80 leading-snug break-words">{label}</p>
-        <div className="min-w-0">
-          <p className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-white leading-tight break-words">{value}</p>
-          <p className="text-xs font-semibold text-text-muted mt-2 leading-snug break-words">{unit}</p>
-        </div>
+    <Card className="p-2">
+      <div className="flex min-w-0 min-h-28 flex-col items-center justify-center gap-4 text-center">
+        <p className="w-full whitespace-nowrap text-sm font-semibold leading-none tracking-wider text-text-muted/80">{label}</p>
+        <p className="w-full whitespace-nowrap text-2xl font-bold leading-none text-blue-600 dark:text-white sm:text-xl md:text-2xl">
+          {value}
+        </p>
+        <p className="w-full whitespace-nowrap text-sm font-semibold leading-none text-text-muted">{unit}</p>
       </div>
     </Card>
   );

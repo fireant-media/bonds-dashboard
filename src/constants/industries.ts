@@ -11,8 +11,6 @@ export interface IndustryNavItem {
 
 export const INDUSTRY_NAV_ITEMS: IndustryNavItem[] = [
   { id: 'Technology', labelKey: 'technologyIndustry', code: '10', statsTop: 1000, statsLevel: 1, targetNames: ['Công nghệ'], priority: 40, icbCode: '10' },
-  { id: 'Telecommunications', labelKey: 'telecommunicationsIndustry', code: '15', statsTop: 1000, statsLevel: 1, targetNames: ['Viễn thông'], priority: 50, icbCode: '15' },
-  { id: 'HealthCare', labelKey: 'healthcareIndustry', code: '20', statsTop: 1000, statsLevel: 1, targetNames: ['Chăm sóc sức khỏe', 'Dược phẩm & Y tế', 'Dược phẩm và Y tế', 'Y tế'], priority: 60, icbCode: '20' },
   { id: 'Financials', labelKey: 'financialsOtherIndustry', code: '30', statsTop: 1000, statsLevel: 1, targetNames: ['Tài chính'], priority: 30, icbCode: '30' },
   { id: 'Banking', labelKey: 'Banking', code: '3010', statsTop: 10, statsLevel: 2, targetNames: ['Ngân hàng'], priority: 20, icbCode: '3010' },
   { id: 'Securities', labelKey: 'Securities', code: '30202005', statsTop: 20, statsLevel: 4, targetNames: ['Công ty chứng khoán'], priority: 10, icbCode: '30202005' },
@@ -47,6 +45,12 @@ const INDUSTRY_LABEL_KEY_BY_ALIAS = INDUSTRY_NAV_ITEMS.reduce<Record<string, str
     ...item.targetNames,
   ]);
 
+  if (item.id === 'Financials') {
+    aliases.add('financialsIndustry');
+    aliases.add('Tài chính');
+    aliases.add('Tài chính khác');
+  }
+
   aliases.forEach((alias) => {
     const normalized = normalizeIndustryName(alias);
     if (normalized) {
@@ -72,10 +76,10 @@ export const resolveIndustryLabelKey = (...candidates: Array<unknown>) => {
     if (resolved) return resolved;
   }
 
-  return 'otherIndustry';
+  return '';
 };
 
-export const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unknown>) => {
+export const resolveIndustryKeyFromCandidates = (...candidates: Array<unknown>) => {
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
     if (!value || value.toLowerCase() === 'n/a') continue;
@@ -86,10 +90,42 @@ export const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unk
     }
 
     const resolved = resolveIndustryLabelKey(value);
-    if (resolved !== 'otherIndustry') return resolved;
+    if (resolved) return resolved;
   }
 
-  return 'otherIndustry';
+  return '';
+};
+
+export const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unknown>) =>
+  resolveIndustryKeyFromCandidates(...candidates);
+
+export const buildIndustrySymbolLookup = (symbolGroups: Record<string, string[]>) => {
+  const lookup = new Map<string, string>();
+
+  INDUSTRY_NAV_ITEMS.forEach((item) => {
+    (symbolGroups[item.id] || []).forEach((symbol) => {
+      const key = String(symbol || '').trim();
+      if (key) {
+        lookup.set(key, item.labelKey);
+      }
+    });
+  });
+
+  return lookup;
+};
+
+export const resolveIndustryKeyFromSymbolGroups = (
+  symbol: unknown,
+  symbolLookup: Map<string, string>,
+  ...candidates: Array<unknown>
+) => {
+  const normalizedSymbol = String(symbol || '').trim();
+  if (normalizedSymbol) {
+    const resolved = symbolLookup.get(normalizedSymbol);
+    if (resolved) return resolved;
+  }
+
+  return resolveIndustryKeyFromCandidates(...candidates);
 };
 
 export const buildEnterpriseIndustryOptions = (
@@ -97,9 +133,10 @@ export const buildEnterpriseIndustryOptions = (
   excluded = new Set(['telecommunicationsIndustry', 'healthcareIndustry'])
 ) => {
   const totals = enterprises.reduce<Record<string, { issuedValue: number }>>((acc, enterprise) => {
-    if (!enterprise.industry || excluded.has(enterprise.industry)) return acc;
-    if (!acc[enterprise.industry]) acc[enterprise.industry] = { issuedValue: 0 };
-    acc[enterprise.industry].issuedValue += Number(enterprise.issuedValue || 0);
+    const industry = resolveEnterpriseIndustryFromCandidates(enterprise.industry);
+    if (!industry || excluded.has(industry)) return acc;
+    if (!acc[industry]) acc[industry] = { issuedValue: 0 };
+    acc[industry].issuedValue += Number(enterprise.issuedValue || 0);
     return acc;
   }, {});
 
@@ -111,7 +148,6 @@ export const buildEnterpriseIndustryOptions = (
       issuedValue: totals[item.labelKey]?.issuedValue || 0,
       order: index,
     }))
-    .filter((item) => item.issuedValue > 0)
     .sort((a, b) => b.issuedValue - a.issuedValue || a.order - b.order);
 };
 
