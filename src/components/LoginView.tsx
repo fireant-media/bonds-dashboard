@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import ReactECharts from 'echarts-for-react';
 import {
   ArrowRight,
   BarChart3,
@@ -9,8 +10,11 @@ import {
   Globe2,
   Landmark,
   LineChart,
+  Languages,
+  Moon,
   PlayCircle,
   ShieldCheck,
+  Sun,
   TrendingUp,
   Users,
   AlertCircle,
@@ -18,6 +22,11 @@ import {
 import Logo from './Logo';
 import { getCache } from '../utils/cache';
 import { formatNumber } from '../utils/format';
+import { CHART_PALETTE } from '../utils/chart';
+import { useLanguage } from '../LanguageContext';
+import { useTheme } from '../ThemeContext';
+import { Language } from '../translations';
+import { loadMarketOverviewData } from '../services/marketOverviewData';
 
 interface LoginViewProps {
   onRegister: () => void;
@@ -48,6 +57,11 @@ type LoginSnapshot = {
     value: number;
     debt: number;
   }>;
+  industryData: Array<{
+    icbName: string;
+    totalIssuedVolume: number;
+    totalCurrentListedVolume: number;
+  }>;
   maturityTimeline: Array<{
     label: string;
     value: number;
@@ -65,6 +79,8 @@ type CacheIssuerRow = {
 type CacheIndustryRow = {
   icbName?: string;
   totalRemainingDebt?: number;
+  totalIssuedVolume?: number;
+  totalCurrentListedVolume?: number;
 };
 
 const navItems = [
@@ -110,14 +126,78 @@ const formatBillion = (value: number) => `${formatNumber(value / 1_000_000_000, 
 
 const normalizeIndustryLabel = (value: string | undefined) => (value && value.trim() ? value : 'Chưa xác định');
 
-const resolveSnapshot = (): LoginSnapshot | null => {
-  const cachedSnapshot = getCache('login_snapshot') as LoginSnapshot | null;
-  if (cachedSnapshot) return cachedSnapshot;
+const buildSnapshotFromOverview = (cachedOverview: {
+  issuerStatsData?: CacheIssuerRow[];
+  industryData?: CacheIndustryRow[];
+}): LoginSnapshot | null => {
+  const issuerRows = cachedOverview.issuerStatsData || [];
+  const industryRows = cachedOverview.industryData || [];
 
+  if (!issuerRows.length && !industryRows.length) {
+    return null;
+  }
+
+  const sortedIssuers = [...issuerRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const sortedIndustries = [...industryRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const topIssuer = sortedIssuers[0];
+  const topIndustry = sortedIndustries[0];
+  const maxIssuerDebt = Math.max(...sortedIssuers.slice(0, 5).map((issuer) => Number(issuer.totalRemainingDebt || 0)), 0);
+  const maxIndustryDebt = Math.max(
+    ...sortedIndustries.slice(0, 6).map((industry) => Number(industry.totalRemainingDebt || 0)),
+    0,
+  );
+
+  return {
+    totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
+    totalIssuers: issuerRows.length,
+    totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
+    totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
+    topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
+    topIssuerSymbol: topIssuer?.issuerSymbol || '',
+    topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
+    topIndustryName: normalizeIndustryLabel(topIndustry?.icbName),
+    topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
+    upcoming30: 0,
+    upcoming90: 0,
+    upcoming180: 0,
+    issuerBars: sortedIssuers.slice(0, 5).map((issuer) => ({
+      label: issuer.issuerSymbol || issuer.issuerName || '--',
+      value: maxIssuerDebt > 0 ? Math.round((Number(issuer.totalRemainingDebt || 0) / maxIssuerDebt) * 100) : 0,
+      debt: Number(issuer.totalRemainingDebt || 0),
+    })),
+    industryHeatmap: sortedIndustries.slice(0, 6).map((industry) => ({
+      label: normalizeIndustryLabel(industry.icbName),
+      value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
+      debt: Number(industry.totalRemainingDebt || 0),
+    })),
+    industryData: industryRows as Array<{
+      icbName: string;
+      totalIssuedVolume: number;
+      totalCurrentListedVolume: number;
+    }>,
+    maturityTimeline: [
+      { label: '30 ngày', value: 0 },
+      { label: '90 ngày', value: 0 },
+      { label: '180 ngày', value: 0 },
+    ],
+  };
+};
+
+const resolveSnapshot = (): LoginSnapshot | null => {
   const cachedOverview = getCache('market_overview') as {
     issuerStatsData?: CacheIssuerRow[];
     industryData?: CacheIndustryRow[];
   } | null;
+
+  const snapshotFromOverview = cachedOverview ? buildSnapshotFromOverview(cachedOverview) : null;
+  if (snapshotFromOverview) return snapshotFromOverview;
+
+  const cachedSnapshot = getCache('login_snapshot') as LoginSnapshot | null;
+  if (cachedSnapshot) return cachedSnapshot;
 
   if (!cachedOverview?.issuerStatsData?.length && !cachedOverview?.industryData?.length) {
     return null;
@@ -162,6 +242,11 @@ const resolveSnapshot = (): LoginSnapshot | null => {
       value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
       debt: Number(industry.totalRemainingDebt || 0),
     })),
+    industryData: industryRows as Array<{
+      icbName: string;
+      totalIssuedVolume: number;
+      totalCurrentListedVolume: number;
+    }>,
     maturityTimeline: [
       { label: '30 ngày', value: 0 },
       { label: '90 ngày', value: 0 },
@@ -190,8 +275,108 @@ const getHeatWidthClass = (value: number) => {
 };
 
 export default function LoginView({ onRegister, onSignIn, isSigningIn = false }: LoginViewProps) {
-  const [snapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
+  const [snapshot, setSnapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
   const [loginError, setLoginError] = useState<string | null>(null);
+  const { t, language, setLanguage } = useLanguage();
+  const { effectiveTheme, setTheme } = useTheme();
+
+  const isDarkMode = effectiveTheme === 'dark';
+  const billionVndUnit = t('unitBillionVND');
+  const formatBillionVnd = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} ${billionVndUnit}`;
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchOverview = async () => {
+      try {
+        const overview = await loadMarketOverviewData();
+        if (!active) return;
+        setSnapshot(buildSnapshotFromOverview(overview));
+      } catch (error) {
+        console.error('Login overview fetch error', error);
+      }
+    };
+
+    void fetchOverview();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const industryVolumeOptions = {
+    backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+    color: CHART_PALETTE,
+    tooltip: { show: false },
+    grid: { left: '2%', right: '2%', top: '12%', bottom: '2%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => t(d.icbName as any)) : [],
+      axisLabel: {
+        fontSize: 10,
+        color: isDarkMode ? '#cbd5e1' : '#6b7280',
+        fontFamily: 'Manrope',
+        fontWeight: 'bold' as const,
+        rotate: 45,
+      },
+      axisLine: {
+        lineStyle: {
+          color: isDarkMode ? '#475569' : '#d1d5db',
+        },
+      },
+      axisTick: {
+        lineStyle: {
+          color: isDarkMode ? '#475569' : '#d1d5db',
+        },
+      },
+    },
+    yAxis: {
+      type: 'value',
+      splitNumber: 4,
+      splitLine: {
+        show: false,
+      },
+      name: 'Nghìn TP',
+      nameTextStyle: {
+        fontSize: 10,
+        color: isDarkMode ? '#cbd5e1' : '#374151',
+        fontWeight: 'bold' as const,
+        fontFamily: 'Manrope',
+      },
+      axisLine: {
+        lineStyle: {
+          color: isDarkMode ? '#475569' : '#d1d5db',
+        },
+      },
+      axisTick: {
+        lineStyle: {
+          color: isDarkMode ? '#475569' : '#d1d5db',
+        },
+      },
+      axisLabel: {
+        fontSize: 10,
+        color: isDarkMode ? '#cbd5e1' : '#6b7280',
+        fontFamily: 'Manrope',
+        formatter: (value: number) => formatNumber(value, 0),
+      },
+    },
+    series: [
+      {
+        name: t('issuedVolumeTitle'),
+        type: 'bar',
+        data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalIssuedVolume || 0) / 1000)) : [],
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        barWidth: '30%',
+      },
+      {
+        name: t('listedVolume'),
+        type: 'bar',
+        data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalCurrentListedVolume || 0) / 1000)) : [],
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        barWidth: '30%',
+      },
+    ],
+  };
 
   const handleLogin = async () => {
     try {
@@ -221,12 +406,12 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
     },
     {
       label: 'Dư nợ còn lại',
-      value: snapshot ? formatBillion(snapshot.totalRemainingDebt) : '0 tỷ',
+      value: snapshot ? formatBillionVnd(snapshot.totalRemainingDebt) : `0 ${billionVndUnit}`,
       icon: LineChart,
     },
     {
       label: 'Giá trị phát hành',
-      value: snapshot ? formatBillion(snapshot.totalIssuedValue) : '0 tỷ',
+      value: snapshot ? formatBillionVnd(snapshot.totalIssuedValue) : `0 ${billionVndUnit}`,
       icon: Building2,
     },
   ];
@@ -241,13 +426,13 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
     {
       label: 'Tổ chức dẫn đầu',
       value: topIssuerLabel,
-      detail: snapshot ? `${formatBillion(snapshot.topIssuerRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
+      detail: snapshot ? `${formatBillionVnd(snapshot.topIssuerRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
       icon: Landmark,
     },
     {
       label: 'Ngành dẫn đầu',
       value: snapshot?.topIndustryName || 'Chưa xác định',
-      detail: snapshot ? `${formatBillion(snapshot.topIndustryRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
+      detail: snapshot ? `${formatBillionVnd(snapshot.topIndustryRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
       icon: Globe2,
     },
     {
@@ -259,6 +444,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
   ];
 
   const bars = snapshot?.issuerBars || [];
+  const hasSnapshotBars = bars.length > 0;
   const heatmap = snapshot?.industryHeatmap || [];
   const maturityTimeline = snapshot?.maturityTimeline || [
     { label: '30 ngày', value: 0 },
@@ -267,7 +453,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
   ];
 
   return (
-    <div className="min-h-dvh bg-bg-base text-text-base">
+    <div className="min-h-dvh overflow-y-auto bg-bg-base text-text-base">
       <header className="sticky top-0 z-30 border-b border-border-base bg-bg-surface/95 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-8">
@@ -295,6 +481,25 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
+              className="inline-flex items-center justify-center rounded-lg px-2.5 py-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-blue-600 active:scale-95"
+              title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+              aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+            >
+              {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-blue-600 active:scale-95"
+              title={t('uiLanguage')}
+              aria-label={t('uiLanguage')}
+            >
+              <Languages className="h-5 w-5" />
+              <span className="text-xs font-bold uppercase">{language}</span>
+            </button>
             <button
               type="button"
               onClick={onRegister}
@@ -396,48 +601,33 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
               className="relative lg:col-span-6"
             >
               <div className="grid grid-cols-6 gap-4 items-start">
-                <div className="data-card col-span-6 overflow-hidden rounded-xl border border-border-base bg-bg-surface p-5 shadow-sm">
-                  <div className="flex flex-col">
-                    <div className="mb-4 flex items-start justify-between gap-4">
-                      <div>
-                        <h3 className="text-sm font-semibold text-text-base">Khối lượng trái phiếu theo ngành</h3>
-                        <p className="mt-1 text-xs text-text-muted">Đơn vị: Nghìn tỷ VNĐ</p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                          <span className="h-3 w-3 rounded-sm bg-blue-500" />
-                          <span className="text-xs font-medium text-text-muted">Phát hành</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="h-3 w-3 rounded-sm bg-emerald-500" />
-                          <span className="text-xs font-medium text-text-muted">Niêm yết</span>
-                        </div>
-                      </div>
-                    </div>
-
-                  <div className="mt-4 grid grid-cols-5 items-end gap-2">
-                    {[
-                      { label: 'Bất động sản', issue: 85, listed: 70 },
-                      { label: 'Ngân hàng', issue: 95, listed: 90 },
-                      { label: 'Xây dựng', issue: 45, listed: 35 },
-                      { label: 'Năng lượng', issue: 60, listed: 40 },
-                      { label: 'Dịch vụ tài chính', issue: 30, listed: 25 },
-                    ].map((item) => (
-                      <div key={item.label} className="flex min-w-0 flex-col items-center justify-end gap-2">
-                        <div className="flex h-32 w-full items-end justify-center gap-1">
-                          <div className={`w-8 rounded-t-sm bg-sky-400 transition-all duration-1000 ${getHeightClass(item.issue)}`} />
-                          <div className={`w-8 rounded-t-sm bg-emerald-300 transition-all duration-1000 ${getHeightClass(item.listed)}`} />
-                        </div>
-                        <span className="flex h-12 items-start text-center text-xs leading-tight text-text-muted">
-                          <span className="block max-w-full break-words whitespace-normal">{item.label}</span>
-                        </span>
-                      </div>
-                    ))}
+              <div className="data-card col-span-6 overflow-hidden rounded-xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                <div className="mb-2 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-text-base">Khối lượng trái phiếu theo ngành</h3>
                   </div>
+                  <div className="flex shrink-0 items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[0] }} />
+                      <span className="text-xs font-semibold text-text-muted">Phát hành</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[1] }} />
+                      <span className="text-xs font-semibold text-text-muted">Niêm yết</span>
+                    </div>
                   </div>
                 </div>
+                <div className="h-72 w-full overflow-hidden bg-bg-surface pb-0">
+                  <ReactECharts
+                    option={industryVolumeOptions}
+                    style={{ height: '100%', width: '100%' }}
+                    notMerge
+                    lazyUpdate
+                  />
+                </div>
+              </div>
 
-                <div className="data-card col-span-3 rounded-xl border border-border-base bg-bg-surface p-4">
+              <div className="data-card col-span-2 rounded-xl border border-border-base bg-bg-surface p-4">
                   <span className="mb-3 block text-sm font-semibold text-text-base">
                     Tổng quan thị trường
                   </span>
@@ -455,7 +645,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                         Tổng giá trị phát hành
                       </span>
                       <span className="mt-1 block text-sm font-semibold text-text-base">
-                        {snapshot ? formatBillion(snapshot.totalIssuedValue) : '450 tỷ VNĐ'}
+                        {snapshot ? formatBillionVnd(snapshot.totalIssuedValue) : `0 ${billionVndUnit}`}
                       </span>
                     </div>
                     <div>
@@ -463,13 +653,13 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                         Tổng dư nợ còn lại
                       </span>
                       <span className="mt-1 block text-sm font-semibold text-text-base">
-                        {snapshot ? formatBillion(snapshot.totalRemainingDebt) : '320 tỷ VNĐ'}
+                        {snapshot ? formatBillionVnd(snapshot.totalRemainingDebt) : `0 ${billionVndUnit}`}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                <div className="data-card col-span-3 rounded-xl border border-border-base bg-bg-surface p-4">
+              <div className="data-card col-span-4 rounded-xl border border-border-base bg-bg-surface p-4">
                   <span className="mb-4 block text-sm font-semibold text-text-base">
                     Top doanh nghiệp dư nợ lớn nhất
                   </span>
@@ -484,13 +674,17 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                           { label: 'DIG', value: 53, debt: 45000 },
                         ]
                     ).map((item) => (
-                      <div key={item.label} className="flex items-center gap-4">
-                        <span className="w-10 text-sm font-semibold text-text-base">{item.label}</span>
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-border-base/50">
+                      <div key={item.label} className="flex items-center gap-3">
+                        <span className="w-10 shrink-0 text-sm font-semibold text-text-base">{item.label}</span>
+                        <div className="h-2 w-24 flex-none overflow-hidden rounded-full bg-border-base/50 sm:w-32 lg:w-40">
                           <div className={`h-full rounded-full bg-blue-500 ${getHeatWidthClass(item.value)}`} />
                         </div>
-                        <span className="w-24 text-right text-sm font-medium text-text-muted">
-                          {item.debt ? `${formatNumber(item.debt, 0)} tỷ VND` : `${item.value}%`}
+                        <span className="w-36 shrink-0 text-right text-xs font-medium tabular-nums text-text-muted sm:text-sm">
+                          {hasSnapshotBars
+                            ? formatBillionVnd(item.debt)
+                            : item.debt
+                              ? `${formatNumber(item.debt, 0)} tỷ VND`
+                              : `${item.value}%`}
                         </span>
                       </div>
                     ))}
@@ -565,3 +759,5 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
     </div>
   );
 }
+
+

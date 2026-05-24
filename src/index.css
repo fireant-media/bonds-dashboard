@@ -37,6 +37,10 @@ body {
   overflow: hidden;
 }
 
+body[data-app-view='login'] .ai-chatbot-shell {
+  display: none;
+}
+
 .dark {
   --bg-base: #081225;
   --bg-surface: #0b1730;

@@ -22,6 +22,7 @@ const WatchlistView = lazy(() => import('./components/WatchlistView'));
 const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
 const HelpView = lazy(() => import('./components/HelpView'));
+const AIChatBot = lazy(() => import('./components/AIChatBot'));
 
 const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
 
@@ -276,6 +277,24 @@ export default function App() {
     void import('./components/IndustryView');
     void import('./components/EnterpriseView');
   }, [user, authLoading]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const previousOverflow = document.body.style.overflow;
+    const previousView = document.body.getAttribute('data-app-view');
+    document.body.style.overflow = user ? 'hidden' : 'auto';
+    document.body.setAttribute('data-app-view', user ? 'dashboard' : 'login');
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (previousView) {
+        document.body.setAttribute('data-app-view', previousView);
+      } else {
+        document.body.removeAttribute('data-app-view');
+      }
+    };
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -604,6 +623,12 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {user && (
+        <Suspense fallback={null}>
+          <AIChatBot />
+        </Suspense>
+      )}
 
       {selectedBond && (
         <Suspense fallback={null}>

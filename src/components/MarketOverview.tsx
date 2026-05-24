@@ -3,23 +3,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 
-interface TopDebtIssuer {
-  issuerName: string;
-  issuerSymbol: string;
-  totalIssuedValue: number;
-  totalRemainingDebt: number;
-  bondCount: number;
-}
-
-interface IndustryData {
-  icbName: string;
-  totalCurrentListedValue: number;
-  totalRemainingDebt: number;
-  bondCount: number;
-  totalIssuedVolume: number;
-  totalCurrentListedVolume: number;
-}
-
 interface ProjectedCashFlowBucket {
   label: string;
   interest: number;
@@ -33,60 +16,12 @@ interface TopInterestBond {
 
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { fireantApi } from '../api/fireant';
 import { Card, MetricCard } from './ui/Card';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
-import { loadIndustryStatsByLevel, loadIssuerStatsSummary } from '../services/industryBondData';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
-
-interface MarketOverviewPayload {
-  topDebtData: TopDebtIssuer[];
-  issuerStatsData: TopDebtIssuer[];
-  topInterestData: any[];
-  industryData: IndustryData[];
-}
-
-let marketOverviewPromise: Promise<MarketOverviewPayload> | null = null;
-
-const loadMarketOverviewData = async (forceRefresh = false): Promise<MarketOverviewPayload> => {
-  const cachedOverview = forceRefresh ? null : getCache('market_overview');
-  if (cachedOverview) return cachedOverview;
-
-  if (!marketOverviewPromise) {
-    marketOverviewPromise = (async () => {
-      const [issuerStatsRaw, highYieldRaw, industriesRaw] = await Promise.all([
-        loadIssuerStatsSummary(200, forceRefresh).catch((error) => {
-          console.error('Issuer stats fetch error', error);
-          return [];
-        }),
-        fireantApi.getHighYieldBonds(10).catch((error) => {
-          console.error('Interest fetch error', error);
-          return [];
-        }),
-        loadIndustryStatsByLevel(1, forceRefresh).catch((error) => {
-          console.error('Industry fetch error', error);
-          return [];
-        }),
-      ]);
-
-      const issuerStatsData = Array.isArray(issuerStatsRaw) ? issuerStatsRaw : [];
-      const payload: MarketOverviewPayload = {
-        topDebtData: issuerStatsData.slice(0, 10),
-        issuerStatsData,
-        topInterestData: Array.isArray(highYieldRaw) ? highYieldRaw : [],
-        industryData: Array.isArray(industriesRaw) ? industriesRaw : [],
-      };
-
-      setCache('market_overview', payload);
-      return payload;
-    })().finally(() => {
-      marketOverviewPromise = null;
-    });
-  }
-
-  return marketOverviewPromise;
-};
+import { loadMarketOverviewData, type IndustryData, type TopDebtIssuer } from '../services/marketOverviewData';
+import { loadIssuerStatsSummary } from '../services/industryBondData';
 
 export default function MarketOverview() {
   const { effectiveTheme } = useTheme();

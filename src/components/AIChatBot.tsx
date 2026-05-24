@@ -423,7 +423,7 @@ export default function AIChatBot() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-30 md:bottom-6 md:left-6 md:right-auto md:z-50">
+    <div className="ai-chatbot-shell fixed bottom-4 left-4 right-4 z-30 md:bottom-6 md:left-6 md:right-auto md:z-50">
       <AnimatePresence>
         {isOpen ? (
           <motion.div
