@@ -381,7 +381,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         type: 'value',
         splitLine: { show: false },
         name: t('unitPercentLabel'),
-        nameLocation: 'middle',
         nameGap: 22,
         nameTextStyle: chartTitleStyle,
         axisLabel: valueLabelStyle 

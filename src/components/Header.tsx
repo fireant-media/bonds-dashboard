@@ -1,5 +1,5 @@
 import { Search, LogOut, HelpCircle, UserCircle, Moon, Sun, Languages, X } from 'lucide-react';
-import { useState, useEffect, useRef, useId } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { useAuthUser } from '../auth/authStore';
@@ -9,42 +9,6 @@ import { Language } from '../translations';
 import { loadIssuerStatsSummary } from '../services/industryBondData';
 import { loadBondDetail, loadMaturingBonds } from '../services/bondData';
 import { fireantApi } from '../api/fireant';
-
-const HeaderAppLogo = () => {
-  const id = useId();
-  const radialId = `${id}-radial`;
-  const linearId = `${id}-linear`;
-  const linear2Id = `${id}-linear-2`;
-
-  return (
-    <svg width="28" height="28" viewBox="0 0 32 32" className="shrink-0" aria-hidden="true">
-      <defs>
-        <radialGradient id={radialId} cx="36.22" cy="5.33" r="39.36" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#05e6fd" />
-          <stop offset="1" stopColor="#157cff" />
-        </radialGradient>
-        <linearGradient id={linearId} x1="10.43" y1="16.55" x2="13.14" y2="24.88" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#fff" stopOpacity="0" />
-          <stop offset="0.12" stopColor="#fff" stopOpacity="0.17" />
-          <stop offset="0.3" stopColor="#fff" stopOpacity="0.42" />
-          <stop offset="0.47" stopColor="#fff" stopOpacity="0.63" />
-          <stop offset="0.64" stopColor="#fff" stopOpacity="0.79" />
-          <stop offset="0.78" stopColor="#fff" stopOpacity="0.9" />
-          <stop offset="0.91" stopColor="#fff" stopOpacity="0.97" />
-          <stop offset="1" stopColor="#fff" />
-        </linearGradient>
-        <linearGradient id={linear2Id} x1="15.93" y1="25.47" x2="16.27" y2="8.37" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#fff" stopOpacity="0" />
-          <stop offset="1" stopColor="#fff" />
-        </linearGradient>
-      </defs>
-      <rect fill={`url(#${radialId})`} width="32" height="32" rx="5.63" />
-      <path fill={`url(#${linearId})`} d="M9,26.16h.92A4.56,4.56,0,0,0,14.4,22L15,15.33h0s-1.19-.9-3.57,2.71-3,4.93-3,5.72c0,.49-.05,1.3-.07,1.84A.54.54,0,0,0,9,26.16Z" />
-      <path fill={`url(#${linear2Id})`} d="M17.4,10.83l.92-.16h0c-.39-.35-.8-.69-1.22-1A.35.35,0,0,1,17,9.29a.34.34,0,0,1,.32-.23h.07a18.59,18.59,0,0,1,2.7.81c.32.13.65.26,1,.41a.94.94,0,0,0,.37.07h.07A.87.87,0,0,0,22,9.87h0v0l1.61-3.7h0c-.5-.07-1-.13-1.51-.18-.27,0-.54,0-.82-.06h0c-.64,0-1.28-.07-1.93-.07a29.37,29.37,0,0,0-7.13.87l-.15,0h0A4.21,4.21,0,0,0,9,10.53H9v.27H9l-.11,3.07h0c.32-.18.64-.34,1-.5A29.1,29.1,0,0,1,17.4,10.83Z" />
-      <path fill="white" d="M22.18,11.24s0,0,0,0v.05c-.09.28-.19.55-.3.83s-.13.35-.21.52-.25.6-.39.88A18.06,18.06,0,0,1,19,17.13h0a18.36,18.36,0,0,0,.89-4.41h0a18.25,18.25,0,0,0-11,10.73,2,2,0,0,0-.08.22c-.15.39-.28.79-.39,1.19h0l.05-1.32.25-6.91a1.38,1.38,0,0,1,.32-.84l0-.06a11.17,11.17,0,0,1,3.94-2.86,26,26,0,0,1,5.12-1.69,7.11,7.11,0,0,1,1-.13h0c-.19-.19-.38-.38-.58-.56A16.81,16.81,0,0,0,17.3,9.4h0a18.41,18.41,0,0,1,2.65.8,17.47,17.47,0,0,1,2.23,1.05Z" />
-    </svg>
-  );
-};
 
 export type SearchSuggestion = {
   id: string;
@@ -299,7 +263,6 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
         >
           <div className="flex min-w-0 items-end gap-3 md:gap-6 lg:gap-10">
             <div className="flex shrink-0 items-center gap-2 origin-left">
-              <HeaderAppLogo />
               <Logo />
             </div>
           </div>

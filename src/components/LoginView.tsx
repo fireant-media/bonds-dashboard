@@ -591,12 +591,6 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
               className="flex items-center gap-2"
               aria-label="Fireant"
             >
-              <img
-                src="/favicon.svg"
-                alt=""
-                aria-hidden="true"
-                className="h-7 w-7 shrink-0"
-              />
               <Logo />
             </button>
 

@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BarChart3, Download, LineChart, Maximize2, RotateCcw, Table2, X } from 'lucide-react';
+import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -902,9 +902,10 @@ export default function MarketOverview() {
                   type="button"
                   onClick={() => setShowTopIssuerDataView(true)}
                   className={topIssuerToolbarButtonClass()}
-                  title="Data"
+                  title={t('dataView')}
+                  aria-label={t('dataView')}
                 >
-                  <Table2 className="h-4 w-4" />
+                  <TableProperties className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -1124,13 +1125,13 @@ export default function MarketOverview() {
           onClick={() => setShowTopIssuerDataView(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-surface-container shadow-2xl"
+            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
-                  Data view
+                  {t('dataView')}
                 </h3>
                 <p className="text-xs font-medium text-text-muted">
                   {topIssuerMetricTitle}
@@ -1146,18 +1147,18 @@ export default function MarketOverview() {
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <div className="overflow-x-auto rounded-xl border border-border-base">
-                <table className="min-w-full border-collapse text-left">
+              <div className="overflow-x-auto rounded-xl border border-border-base bg-bg-surface">
+                <table className="min-w-full border-collapse text-left bg-bg-surface">
                   <thead className="bg-surface-container-low">
                     <tr className="border-b border-border-base">
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        Rank
+                        {t('rank')}
                       </th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        Company
+                        {t('enterprise')}
                       </th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        Symbol
+                        {t('ticker')}
                       </th>
                       <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
                         <span className="block">Remaining debt</span>
@@ -1175,12 +1176,12 @@ export default function MarketOverview() {
                   </thead>
                   <tbody>
                     {topIssuerDataViewRows.map((row, index) => (
-                      <tr key={`${row[2] || row[1]}-${index}`} className="border-b border-border-base/70 last:border-b-0">
-                        <td className="px-3 py-3 text-sm font-semibold text-text-base">{row[0]}</td>
-                        <td className="px-3 py-3 text-sm font-medium text-text-base">{row[1]}</td>
-                        <td className="px-3 py-3 text-sm font-medium text-text-muted">{row[2] || '-'}</td>
-                        <td className="px-3 py-3 text-sm font-medium text-text-base">{row[3]}</td>
-                        <td className="px-3 py-3 text-sm font-medium text-text-base">{row[4]}</td>
+                      <tr key={`${row[2] || row[1]}-${index}`} className="border-b border-border-base/70 bg-bg-surface last:border-b-0">
+                        <td className="bg-bg-surface px-3 py-3 text-sm font-semibold text-text-base">{row[0]}</td>
+                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">{row[1]}</td>
+                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-muted">{row[2] || '-'}</td>
+                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">{row[3]}</td>
+                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">{row[4]}</td>
                       </tr>
                     ))}
                   </tbody>

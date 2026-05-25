@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { formatNumber } from '../utils/format';
-import { BarChart3, Download, LineChart, Maximize2, RotateCcw, Table2, X } from 'lucide-react';
+import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
+import { useLanguage } from '../LanguageContext';
+
+interface ChartTableHeader {
+  label: string;
+  unit?: string;
+}
 
 interface ChartTable {
-  headers: string[];
+  headers: ChartTableHeader[];
   rows: string[][];
 }
 
@@ -31,6 +37,12 @@ function getAxisData(option: any, axisKey: 'xAxis' | 'yAxis'): string[] {
   const axis = Array.isArray(option?.[axisKey]) ? option[axisKey][0] : option?.[axisKey];
   const data = axis?.data;
   return Array.isArray(data) ? data.map((item: any) => String(item)) : [];
+}
+
+function getAxisUnit(option: any, axisKey: 'xAxis' | 'yAxis') {
+  const axis = Array.isArray(option?.[axisKey]) ? option[axisKey][0] : option?.[axisKey];
+  const unit = axis?.name;
+  return typeof unit === 'string' && unit.trim() ? unit.trim() : '';
 }
 
 function formatCell(value: unknown) {
@@ -66,7 +78,7 @@ function normalizePointValue(point: unknown) {
   return String(point);
 }
 
-function flattenTreemap(data: any[], prefix = ''): ChartTable {
+function flattenTreemap(data: any[], t: (key: any) => string, prefix = ''): ChartTable {
   const rows: string[][] = [];
 
   data.forEach((item) => {
@@ -76,18 +88,20 @@ function flattenTreemap(data: any[], prefix = ''): ChartTable {
     rows.push([path, value]);
 
     if (Array.isArray(item?.children) && item.children.length > 0) {
-      const childTable = flattenTreemap(item.children, path);
+      const childTable = flattenTreemap(item.children, t, path);
       rows.push(...childTable.rows);
     }
   });
 
-  return { headers: ['Name', 'Value'], rows };
+  return { headers: [{ label: t('name') }, { label: t('value') }], rows };
 }
 
-function buildDataTable(option: any): ChartTable {
+function buildDataTable(option: any, t: (key: any) => string): ChartTable {
   const series = getSeriesArray(option);
   const xAxisData = getAxisData(option, 'xAxis');
   const yAxisData = getAxisData(option, 'yAxis');
+  const xAxisUnit = getAxisUnit(option, 'xAxis');
+  const yAxisUnit = getAxisUnit(option, 'yAxis');
 
   const firstSeriesType = String(series[0]?.type || '');
   const firstSeriesData = Array.isArray(series[0]?.data) ? series[0].data : [];
@@ -98,11 +112,18 @@ function buildDataTable(option: any): ChartTable {
       formatCell(item?.value),
       item?.percent != null ? `${formatCell(item.percent)}%` : '',
     ]);
-    return { headers: ['Name', 'Value', 'Percent'], rows };
+    return {
+      headers: [
+        { label: t('name') },
+        { label: t('value') },
+        { label: t('percent') },
+      ],
+      rows
+    };
   }
 
   if (firstSeriesType === 'treemap' && firstSeriesData.length > 0) {
-    return flattenTreemap(firstSeriesData);
+    return flattenTreemap(firstSeriesData, t);
   }
 
   if (firstSeriesType === 'scatter' || firstSeriesType === 'effectScatter' || firstSeriesType === 'bubble') {
@@ -124,10 +145,19 @@ function buildDataTable(option: any): ChartTable {
       ];
     });
 
-    return { headers: ['Name', 'X', 'Y', 'Z'], rows };
+    return {
+      headers: [
+        { label: t('name') },
+        { label: 'X' },
+        { label: 'Y' },
+        { label: 'Z' },
+      ],
+      rows
+    };
   }
 
   const categoryData = xAxisData.length > 0 ? xAxisData : yAxisData;
+  const valueUnit = xAxisData.length > 0 ? yAxisUnit : xAxisUnit;
 
   if (categoryData.length > 0 && series.length > 0) {
     const rows = categoryData.map((label, rowIndex) => [
@@ -135,7 +165,13 @@ function buildDataTable(option: any): ChartTable {
       ...series.map((item) => normalizePointValue(Array.isArray(item?.data) ? item.data[rowIndex] : '')),
     ]);
     return {
-      headers: ['Category', ...series.map((item, index) => String(item?.name || `Series ${index + 1}`))],
+      headers: [
+        { label: t('category') },
+        ...series.map((item, index) => ({
+          label: String(item?.name || `${t('series')} ${index + 1}`),
+          unit: valueUnit,
+        })),
+      ],
       rows,
     };
   }
@@ -151,10 +187,22 @@ function buildDataTable(option: any): ChartTable {
       ]);
     });
 
-    return { headers: ['Series', 'Value'], rows };
+    return {
+      headers: [
+        { label: t('series') },
+        { label: t('value'), unit: yAxisUnit || xAxisUnit },
+      ],
+      rows
+    };
   }
 
-  return { headers: ['Field', 'Value'], rows: [] };
+  return {
+    headers: [
+      { label: t('field') },
+      { label: t('value'), unit: yAxisUnit || xAxisUnit },
+    ],
+    rows: []
+  };
 }
 
 function getSeriesType(series: any) {
@@ -172,6 +220,7 @@ export default function ChartWithToolbar({
   actions,
 }: ChartWithToolbarProps) {
   const { effectiveTheme } = useTheme();
+  const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const chartRef = useRef<any>(null);
   const [showDataView, setShowDataView] = useState(false);
@@ -187,7 +236,7 @@ export default function ChartWithToolbar({
   const isMixedMagicChart = Boolean(hasBarSeries && hasLineSeries);
   const baseChartMode = isMixedMagicChart ? 'original' : (firstSeriesType === 'line' ? 'line' : 'bar');
   const [chartMode, setChartMode] = useState<'original' | 'line' | 'bar'>(baseChartMode);
-  const dataTable = useMemo(() => buildDataTable(option), [option]);
+  const dataTable = useMemo(() => buildDataTable(option, t), [option, t]);
 
   useEffect(() => {
     setChartMode(baseChartMode);
@@ -265,9 +314,10 @@ export default function ChartWithToolbar({
             type="button"
             onClick={() => setShowDataView(true)}
             className={toolbarButtonClass()}
-            title="Data"
+            title={t('dataView')}
+            aria-label={t('dataView')}
           >
-            <Table2 className="h-4 w-4" />
+            <TableProperties className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -341,13 +391,13 @@ export default function ChartWithToolbar({
           onClick={() => setShowDataView(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-surface-container shadow-2xl"
+            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
-                  Data view
+                  {t('dataView')}
                 </h3>
               </div>
               <button
@@ -360,25 +410,30 @@ export default function ChartWithToolbar({
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <div className="overflow-x-auto rounded-xl border border-border-base">
-                <table className="min-w-full border-collapse text-left">
+              <div className="overflow-x-auto rounded-xl border border-border-base bg-bg-surface">
+                <table className="min-w-full border-collapse text-left bg-bg-surface">
                   <thead className="bg-surface-container-low">
                     <tr className="border-b border-border-base">
                       {dataTable.headers.map((header) => (
                         <th
-                          key={header}
+                          key={`${header.label}-${header.unit || ''}`}
                           className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted"
                         >
-                          {header}
+                          <span className="block">{header.label}</span>
+                          {header.unit ? (
+                            <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
+                              {header.unit}
+                            </span>
+                          ) : null}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {dataTable.rows.length > 0 ? dataTable.rows.map((row, rowIndex) => (
-                      <tr key={`row-${rowIndex}`} className="border-b border-border-base/70 last:border-b-0">
+                      <tr key={`row-${rowIndex}`} className="border-b border-border-base/70 bg-bg-surface last:border-b-0">
                         {row.map((cell, cellIndex) => (
-                          <td key={`${rowIndex}-${cellIndex}`} className="px-3 py-3 text-sm font-medium text-text-base">
+                          <td key={`${rowIndex}-${cellIndex}`} className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">
                             {cell || '-'}
                           </td>
                         ))}
@@ -386,7 +441,7 @@ export default function ChartWithToolbar({
                     )) : (
                       <tr>
                         <td className="px-3 py-4 text-sm text-text-muted" colSpan={dataTable.headers.length}>
-                          No data
+                          {t('noData')}
                         </td>
                       </tr>
                     )}
@@ -410,7 +465,7 @@ export default function ChartWithToolbar({
             <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
               <div className="min-w-0">
                 <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
-                  Zoom
+                  {t('zoom')}
                 </h3>
               </div>
               <button

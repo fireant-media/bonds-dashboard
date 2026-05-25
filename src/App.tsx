@@ -22,7 +22,7 @@ const WatchlistView = lazy(() => import('./components/WatchlistView'));
 const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
 const HelpView = lazy(() => import('./components/HelpView'));
-const AIChatBot = lazy(() => import('./components/AIChatBot'));
+// AI chat removed from dashboard UI
 
 const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
 
@@ -624,11 +624,7 @@ export default function App() {
         </div>
       </div>
 
-      {user && (
-        <Suspense fallback={null}>
-          <AIChatBot />
-        </Suspense>
-      )}
+      {/* AI chat removed from dashboard UI */}
 
       {selectedBond && (
         <Suspense fallback={null}>
