@@ -1,7 +1,9 @@
+import ChartWithToolbar from './ChartWithToolbar';
 import ReactECharts from 'echarts-for-react';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
+import { BarChart3, Download, LineChart, Maximize2, RotateCcw, Table2, X } from 'lucide-react';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -36,11 +38,14 @@ export default function MarketOverview() {
   const [industryData, setIndustryData] = useState<IndustryData[]>(cachedData?.industryData || []);
   const [topIssuerMetric, setTopIssuerMetric] = useState<'remainingDebt' | 'issuedValue'>('remainingDebt');
   const [loadingTopIssuerChart, setLoadingTopIssuerChart] = useState(false);
+  const [showTopIssuerDataView, setShowTopIssuerDataView] = useState(false);
+  const [showTopIssuerZoom, setShowTopIssuerZoom] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(getCache('market_projected_cash_flows') || {});
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
+  const topIssuerChartRef = useRef<any>(null);
 
   // Common styles for consistency
   const chartColors = {
@@ -438,77 +443,95 @@ export default function MarketOverview() {
     [topInterestData, topInterestMetric]
   );
 
-  const topIssuerOptions = {
-    color: chartPalette,
-    tooltip: { 
-      ...chartTooltip,
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' },
-      confine: true,
-      textStyle: tooltipTextStyle,
-      formatter: (params: any) => {
-        const symbol = params[0].name;
-        const issuer = topIssuerDisplayData.find(d => d.issuerSymbol === symbol);
-        const issuerLabel = issuer ? getTopIssuerDisplayName(issuer) : symbol;
-        let content = `${issuerLabel} (${symbol})`;
-        params.forEach((param: any) => {
-          const unit = param.seriesName === t('bondLotsTitle') ? '' : ` ${t('unitBillionVND')}`;
-          content += `<br/>${param.marker}${param.seriesName}: ${formatNumber(param.value, 0)}${unit}`;
-        });
-        return content;
-      }
-    },
-    legend: { bottom: 5, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', top: '5%', bottom: '8%', containLabel: true },
-    xAxis: { 
-      type: 'value', 
-      splitLine: { show: false },
-      name: t('unitBillionVND'),
-      nameTextStyle: chartTitleStyle,
-      axisLabel: { 
-        ...valueLabelStyle,
-        formatter: (value: number) => formatNumber(value, 0)
-      } 
-    },
-    yAxis: { 
-      type: 'category',
-      inverse: true,
-      data: topIssuerDisplayData.length > 0 
-        ? topIssuerDisplayData.map(d => d.issuerSymbol) 
-        : [],
-      axisLabel: {
-        ...categoryLabelStyle,
-        width: 150,
-        overflow: 'truncate'
-      }
-    },
-    series: [
-      {
-        name: t('remainingDebtTitle'),
-        type: 'bar',
-        data: topIssuerDisplayData.length > 0 
-          ? topIssuerDisplayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
-          : [],
-        itemStyle: { borderRadius: [0, 4, 4, 0] },
-        barWidth: '40%',
-        universalTransition: true,
-        animationDurationUpdate: 600,
-        animationEasingUpdate: 'cubicOut'
+  const topIssuerDataViewRows = useMemo(() => {
+    return topIssuerDisplayData.map((issuer, index) => ([
+      String(index + 1),
+      getTopIssuerDisplayName(issuer),
+      issuer.issuerSymbol || '',
+      formatNumber(issuer.totalRemainingDebt / 1000000000, 0),
+      formatNumber(issuer.totalIssuedValue / 1000000000, 0),
+    ]));
+  }, [topIssuerDisplayData, t]);
+
+  const topIssuerOptions = useMemo(() => {
+    const labels = topIssuerDisplayData.length > 0
+      ? topIssuerDisplayData.map((d) => d.issuerSymbol || getTopIssuerDisplayName(d))
+      : [];
+    const remainingDebtData = topIssuerDisplayData.length > 0
+      ? topIssuerDisplayData.map((d) => Math.round(d.totalRemainingDebt / 1000000000))
+      : [];
+    const issuedValueData = topIssuerDisplayData.length > 0
+      ? topIssuerDisplayData.map((d) => Math.round(d.totalIssuedValue / 1000000000))
+      : [];
+
+    return {
+      color: chartPalette,
+      tooltip: {
+        ...chartTooltip,
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        confine: true,
+        textStyle: tooltipTextStyle,
+        formatter: (params: any) => {
+          const index = params?.[0]?.dataIndex ?? 0;
+          const issuer = topIssuerDisplayData[index];
+          const symbol = issuer?.issuerSymbol || params?.[0]?.name || '';
+          const issuerLabel = issuer ? getTopIssuerDisplayName(issuer) : symbol;
+          let content = `${issuerLabel} (${symbol})`;
+          params.forEach((param: any) => {
+            const unit = param.seriesName === t('bondLotsTitle') ? '' : ` ${t('unitBillionVND')}`;
+            content += `<br/>${param.marker}${param.seriesName}: ${formatNumber(param.value, 0)}${unit}`;
+          });
+          return content;
+        }
       },
-      {
-        name: t('totalIssuedValueTitle'),
-        type: 'bar',
-        data: topIssuerDisplayData.length > 0 
-          ? topIssuerDisplayData.map(d => Math.round(d.totalIssuedValue / 1000000000)) 
-          : [],
-        itemStyle: { borderRadius: [0, 4, 4, 0] },
-        barWidth: '40%',
-        universalTransition: true,
-        animationDurationUpdate: 600,
-        animationEasingUpdate: 'cubicOut'
-      }
-    ]
-  };
+      legend: { bottom: 5, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
+      grid: { left: '3%', right: '8%', top: '4%', bottom: '12%', containLabel: true },
+      xAxis: {
+        type: 'value',
+        splitLine: { show: false },
+        name: t('unitBillionVND'),
+        nameGap: 16,
+        nameTextStyle: chartTitleStyle,
+        axisLabel: {
+          ...valueLabelStyle,
+          formatter: (value: number) => formatNumber(value, 0)
+        }
+      },
+      yAxis: {
+        type: 'category',
+        data: labels,
+        inverse: true,
+        axisLabel: {
+          ...categoryLabelStyle,
+          width: 120,
+          overflow: 'truncate',
+        }
+      },
+      series: [
+        {
+          name: t('remainingDebtTitle'),
+          type: 'bar',
+          data: remainingDebtData,
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '38%',
+          universalTransition: true,
+          animationDurationUpdate: 600,
+          animationEasingUpdate: 'cubicOut'
+        },
+        {
+          name: t('totalIssuedValueTitle'),
+          type: 'bar',
+          data: issuedValueData,
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '38%',
+          universalTransition: true,
+          animationDurationUpdate: 600,
+          animationEasingUpdate: 'cubicOut'
+        }
+      ]
+    };
+  }, [chartPalette, chartTooltip, chartTitleStyle, categoryLabelStyle, topIssuerDisplayData, t, tooltipTextStyle, valueLabelStyle, legendStyle]);
 
   const topInterestOptions = {
     color: chartPalette,
@@ -521,7 +544,7 @@ export default function MarketOverview() {
         return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${formatInterestRate(params[0].value)}%`;
       }
     },
-    grid: { left: '5%', right: '8%', top: '10%', bottom: '8%', containLabel: true },
+    grid: { left: '5%', right: '8%', top: '14%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: topInterestChartData.length > 0 
@@ -533,6 +556,7 @@ export default function MarketOverview() {
       type: 'value', 
       splitLine: { show: false },
       name: t('unitPercentLabel'),
+      nameGap: 24,
       nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
@@ -572,7 +596,7 @@ export default function MarketOverview() {
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', bottom: '8%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '12%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: topDebtData.length > 0 
@@ -584,6 +608,7 @@ export default function MarketOverview() {
       { 
         type: 'value', 
         name: t('unitBillionVND'),
+        nameGap: 24,
         nameTextStyle: chartTitleStyle,
         splitLine: { show: false },
         axisLabel: {
@@ -642,7 +667,7 @@ export default function MarketOverview() {
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '4%',top: '5%', bottom: '8%', containLabel: true },
+    grid: { left: '3%', right: '4%', top: '12%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: industryData.length > 0 
@@ -696,7 +721,7 @@ export default function MarketOverview() {
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', top: '5%', bottom: '8%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '12%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: industryData.length > 0 ? industryData.map(d => t(d.icbName as any)) : [], 
@@ -706,6 +731,7 @@ export default function MarketOverview() {
       type: 'value', 
       splitLine: { show: false },
       name: t('unitThousandShares'),
+      nameGap: 28,
       nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
@@ -753,7 +779,7 @@ export default function MarketOverview() {
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { left: '3%', right: '8%', top: '5%', bottom: '12%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '12%', bottom: '14%', containLabel: true },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -766,6 +792,7 @@ export default function MarketOverview() {
       type: 'value',
       splitLine: { show: false },
       name: t('unitBillionVND'),
+      nameGap: 24,
       nameTextStyle: chartTitleStyle,
       axisLabel: {
         ...valueLabelStyle,
@@ -791,6 +818,36 @@ export default function MarketOverview() {
       }
     ]
   };
+
+  const handleTopIssuerDownload = () => {
+    const instance = topIssuerChartRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    const url = instance.getDataURL({
+      type: 'png',
+      pixelRatio: 2,
+      backgroundColor: isDark ? '#0b1730' : '#ffffff',
+    });
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'top-10-issuer-chart.png';
+    link.click();
+  };
+
+  const handleTopIssuerReset = () => {
+    const instance = topIssuerChartRef.current?.getEchartsInstance?.();
+    instance?.restore?.();
+    setTopIssuerMetric('remainingDebt');
+    setShowTopIssuerDataView(false);
+    setShowTopIssuerZoom(false);
+  };
+
+  const topIssuerToolbarButtonClass = (disabled = false) => (
+    `rounded-md p-1.5 transition-colors ${
+      disabled
+        ? 'cursor-not-allowed text-text-muted/60 opacity-60'
+        : 'text-text-muted hover:bg-bg-base hover:text-blue-600'
+    }`
+  );
 
   if (loading) {
     return (
@@ -839,11 +896,61 @@ export default function MarketOverview() {
         </div>
 
         <Card className="col-span-12 flex flex-col p-3 md:p-4 lg:col-span-6 min-h-0">
-          <div className="mb-2 flex min-w-0 flex-col gap-2">
-            <div className="min-w-0 text-center">
-              <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">{topIssuerMetricTitle}</h3>
+          <div className="mb-1 flex min-w-0 flex-col gap-1">
+            <div className="flex items-center justify-end gap-1 text-text-muted">
+                <button
+                  type="button"
+                  onClick={() => setShowTopIssuerDataView(true)}
+                  className={topIssuerToolbarButtonClass()}
+                  title="Data"
+                >
+                  <Table2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className={topIssuerToolbarButtonClass()}
+                  title="Line chart"
+                >
+                  <LineChart className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className={topIssuerToolbarButtonClass()}
+                  title="Column chart"
+                >
+                  <BarChart3 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTopIssuerReset}
+                  className={topIssuerToolbarButtonClass()}
+                  title="Reset"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTopIssuerDownload}
+                  className={topIssuerToolbarButtonClass()}
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTopIssuerZoom(true)}
+                  className={topIssuerToolbarButtonClass()}
+                  title="Zoom"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </button>
             </div>
-            <div className="flex justify-end">
+            <div className="min-w-0 text-center">
+              <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words text-center">{topIssuerMetricTitle}</h3>
+            </div>
+            <div className="flex justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                 <button
                   type="button"
@@ -887,52 +994,13 @@ export default function MarketOverview() {
                 </div>
               </div>
             ) : (
-              <ReactECharts option={topIssuerOptions} style={{ height: '100%', width: '100%' }} />
+              <ReactECharts ref={topIssuerChartRef} option={topIssuerOptions} style={{ height: '100%', width: '100%' }} />
             )}
           </div>
         </Card>
 
         <div className="col-span-12 flex flex-col space-y-3 lg:col-span-6 min-h-0">
           <Card className="flex flex-1 flex-col p-3 md:p-4 min-h-0">
-            <div className="mb-2 flex min-w-0 flex-col gap-2">
-              <div className="min-w-0 text-center">
-                <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">{topInterestChartTitle}</h3>
-              </div>
-              <div className="flex justify-end">
-                <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTopInterestMetric('highest');
-                      refreshTopInterestChart('highest');
-                    }}
-                    disabled={loadingTopInterestChart && topInterestMetric === 'highest'}
-                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                      topInterestMetric === 'highest'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-text-muted hover:text-text-base'
-                    }`}
-                  >
-                    {t('highest')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTopInterestMetric('lowest');
-                      refreshTopInterestChart('lowest');
-                    }}
-                    disabled={loadingTopInterestChart && topInterestMetric === 'lowest'}
-                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                      topInterestMetric === 'lowest'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-text-muted hover:text-text-base'
-                    }`}
-                  >
-                    {t('lowest')}
-                  </button>
-                </div>
-              </div>
-            </div>
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               {loadingTopInterestChart && topInterestChartData.length === 0 ? (
                 <div className="flex h-full items-center justify-center">
@@ -942,78 +1010,220 @@ export default function MarketOverview() {
                   </div>
                 </div>
               ) : (
-                <ReactECharts option={topInterestOptions} style={{ height: '100%', width: '100%' }} />
+                <ChartWithToolbar
+                  option={topInterestOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  allowMagicType
+                  title={topInterestChartTitle}
+                  actions={(
+                    <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopInterestMetric('highest');
+                          refreshTopInterestChart('highest');
+                        }}
+                        disabled={loadingTopInterestChart && topInterestMetric === 'highest'}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          topInterestMetric === 'highest'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {t('highest')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopInterestMetric('lowest');
+                          refreshTopInterestChart('lowest');
+                        }}
+                        disabled={loadingTopInterestChart && topInterestMetric === 'lowest'}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          topInterestMetric === 'lowest'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {t('lowest')}
+                      </button>
+                    </div>
+                  )}
+                />
               )}
             </div>
           </Card>
 
           <Card className="flex flex-1 flex-col p-3 md:p-4 min-h-0">
-            <h3 className="mb-2 text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('debtAndLots')}</h3>
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-              <ReactECharts option={debtLotsOptions} style={{ height: '100%', width: '100%' }} />
+              <ChartWithToolbar
+                option={debtLotsOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={t('debtAndLots')}
+              />
             </div>
           </Card>
         </div>
 
         <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
-          <div className="mb-2 min-w-0">
-            <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('valueByIndustry')}</h3>
-          </div>
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ReactECharts option={industryValueOptions} style={{ height: '100%', width: '100%' }} />
+            <ChartWithToolbar
+              option={industryValueOptions}
+              style={{ height: '100%', width: '100%' }}
+              allowMagicType
+              title={t('valueByIndustry')}
+            />
           </div>
         </Card>
 
         <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
-          <div className="mb-2 min-w-0">
-            <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{t('volumeByIndustry')}</h3>
-          </div>
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ReactECharts option={industryVolumeOptions} style={{ height: '100%', width: '100%' }} />
+            <ChartWithToolbar
+              option={industryVolumeOptions}
+              style={{ height: '100%', width: '100%' }}
+              allowMagicType
+              title={t('volumeByIndustry')}
+            />
           </div>
         </Card>
 
         <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
-          <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
-            <div className="hidden md:block" />
-            <div className="min-w-0">
-              <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white text-center leading-snug break-words">{projectedCashFlowTitle}</h3>
+          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+            <ChartWithToolbar
+              option={projectedCashFlowOptions}
+              style={{ height: '100%', width: '100%' }}
+              allowMagicType
+              title={projectedCashFlowTitle}
+              actions={(
+                <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                  {(['month', 'year'] as const).map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setCashFlowPeriod(period)}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                        cashFlowPeriod === period
+                          ? 'bg-blue-600 text-white'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {period === 'month' ? t('month') : t('year')}
+                    </button>
+                  ))}
+                </div>
+              )}
+            />
+          </div>
+        </Card>
+      </div>
+
+      {showTopIssuerDataView && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          onClick={() => setShowTopIssuerDataView(false)}
+        >
+          <div
+            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-surface-container shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
+                  Data view
+                </h3>
+                <p className="text-xs font-medium text-text-muted">
+                  {topIssuerMetricTitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTopIssuerDataView(false)}
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-blue-600"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="flex shrink-0 items-center justify-center md:justify-end">
-              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                {(['month', 'year'] as const).map((period) => (
-                  <button
-                    key={period}
-                    type="button"
-                    onClick={() => setCashFlowPeriod(period)}
-                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                      cashFlowPeriod === period
-                        ? 'bg-blue-600 text-white'
-                        : 'text-text-muted hover:text-text-base'
-                    }`}
-                  >
-                    {period === 'month' ? t('month') : t('year')}
-                  </button>
-                ))}
+            <div className="flex-1 overflow-auto p-4">
+              <div className="overflow-x-auto rounded-xl border border-border-base">
+                <table className="min-w-full border-collapse text-left">
+                  <thead className="bg-surface-container-low">
+                    <tr className="border-b border-border-base">
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
+                        Rank
+                      </th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
+                        Company
+                      </th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
+                        Symbol
+                      </th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
+                        <span className="block">Remaining debt</span>
+                        <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
+                          {t('unitBillionVND')}
+                        </span>
+                      </th>
+                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
+                        <span className="block">Issued value</span>
+                        <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
+                          {t('unitBillionVND')}
+                        </span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topIssuerDataViewRows.map((row, index) => (
+                      <tr key={`${row[2] || row[1]}-${index}`} className="border-b border-border-base/70 last:border-b-0">
+                        <td className="px-3 py-3 text-sm font-semibold text-text-base">{row[0]}</td>
+                        <td className="px-3 py-3 text-sm font-medium text-text-base">{row[1]}</td>
+                        <td className="px-3 py-3 text-sm font-medium text-text-muted">{row[2] || '-'}</td>
+                        <td className="px-3 py-3 text-sm font-medium text-text-base">{row[3]}</td>
+                        <td className="px-3 py-3 text-sm font-medium text-text-base">{row[4]}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
-          {loadingCashFlows && !hasProjectedCashFlowData ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3">
-              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
-              <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
+        </div>
+      )}
+
+      {showTopIssuerZoom && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          onClick={() => setShowTopIssuerZoom(false)}
+        >
+          <div
+            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-surface-container shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
+                  {topIssuerMetricTitle}
+                </h3>
+                <p className="text-xs font-medium text-text-muted">
+                  Zoom
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTopIssuerZoom(false)}
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-blue-600"
+                title="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
-          ) : hasProjectedCashFlowData ? (
-            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-              <ReactECharts option={projectedCashFlowOptions} style={{ height: '100%', width: '100%' }} />
+            <div className="flex-1 min-h-0 p-4">
+              <ReactECharts option={topIssuerOptions} style={{ height: '100%', width: '100%' }} />
             </div>
-          ) : (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
-            </div>
-          )}
-        </Card>
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

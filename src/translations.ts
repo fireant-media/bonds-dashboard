@@ -386,7 +386,7 @@ export const translations = {
     initialDebtFull: 'Tổng dư nợ ban đầu',
     unitMillionShares: 'Triệu trái phiếu',
     debtRanking: 'Xếp hạng dư nợ trái phiếu trong ngành',
-    industryInterest: 'Biểu đồ Lãi suất ngành',
+    industryInterest: 'Lãi suất ngành',
     avgInterest: 'LS trung bình',
     avgCouponInterest: 'LS coupon',
     floatingInterest: 'LS thả nổi',

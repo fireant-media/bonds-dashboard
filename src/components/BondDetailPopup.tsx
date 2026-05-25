@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ChartWithToolbar from './ChartWithToolbar';
 import {
   X,
   Info,
@@ -462,7 +462,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                   )}
                 </div>
               ) : (
-                <ReactECharts option={getCashFlowOptions()} style={{ height: '100%', width: '100%' }} />
+                <ChartWithToolbar option={getCashFlowOptions()} style={{ height: '100%', width: '100%' }} allowMagicType />
               )}
             </div>
 

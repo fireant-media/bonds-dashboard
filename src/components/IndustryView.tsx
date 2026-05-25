@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ChartWithToolbar from './ChartWithToolbar';
 import { IndustryType } from '../types';
 import { TrendingUp, Activity, PieChart, BarChart3, Info } from 'lucide-react';
 import { formatInterestRate, formatNumber } from '../utils/format';
@@ -371,7 +371,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           return `${params[0].name}: ${formatInterestRate(params[0].value)}%`;
         }
       },
-      grid: { left: '3%', right: '4%', bottom: '3%', top: '5%', containLabel: true },
+      grid: { left: '10%', right: '4%', bottom: '6%', top: '12%', containLabel: true },
       xAxis: { 
         type: 'category', 
         data: data.map(d => d.name),
@@ -381,6 +381,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         type: 'value',
         splitLine: { show: false },
         name: t('unitPercentLabel'),
+        nameLocation: 'middle',
+        nameGap: 22,
         nameTextStyle: chartTitleStyle,
         axisLabel: valueLabelStyle 
       },
@@ -405,6 +407,75 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   };
 
   const interestOptions = getInterestOptions();
+
+  const issuedValueTreemapData = useMemo(() => {
+    return [...rankingData]
+      .filter((item) => item.totalIssuedValue > 0)
+      .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
+      .map((item, index) => ({
+        name: item.issuerSymbol,
+        value: Math.round(item.totalIssuedValue / 1000000000),
+        fullName: t(item.issuerName as any, item.issuerSymbol),
+        issuerSymbol: item.issuerSymbol,
+        itemStyle: {
+          color: chartPalette[index % chartPalette.length],
+        },
+      }));
+  }, [rankingData, chartPalette, t]);
+
+  const getIssuedValueTreemapOptions = () => ({
+    color: chartPalette,
+    tooltip: {
+      ...chartTooltip,
+      trigger: 'item',
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        const data = params?.data || {};
+        const displayName = data.fullName || data.name || '';
+        const value = Number(data.value || 0);
+        return `${displayName}<br/>${t('totalIssuedValueTitle')}: ${formatNumber(value, 0)} ${t('unitBillionVND')}`;
+      },
+    },
+    series: [
+      {
+        name: t('totalIssuedValueTitle'),
+        type: 'treemap',
+        roam: false,
+        nodeClick: false,
+        breadcrumb: { show: false },
+        label: {
+          show: true,
+          formatter: (params: any) => params.name,
+          color: isDark ? '#ffffff' : '#111827',
+          fontSize: 11,
+          fontFamily: 'Manrope',
+          fontWeight: 'bold',
+          overflow: 'truncate',
+        },
+        upperLabel: {
+          show: false,
+        },
+        itemStyle: {
+          borderColor: isDark ? '#0f172a' : '#ffffff',
+          borderWidth: 2,
+          gapWidth: 2,
+        },
+        data: issuedValueTreemapData,
+        levels: [
+          {
+            itemStyle: {
+              borderColor: isDark ? '#0f172a' : '#ffffff',
+              borderWidth: 2,
+              gapWidth: 2,
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const issuedValueTreemapOptions = getIssuedValueTreemapOptions();
 
   const getCombinedOptions = () => {
     const displayData = rankingData;
@@ -624,11 +695,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         <div 
           className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors lg:col-span-6"
         >
-          <div className="mb-3">
-            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('debtRanking')}</h3>
-          </div>
           <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-            <ReactECharts option={rankingOptions} style={{ height: '100%', width: '100%' }} />
+            <ChartWithToolbar option={rankingOptions} style={{ height: '100%', width: '100%' }} title={t('debtRanking')} />
           </div>
         </div>
 
@@ -637,11 +705,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           <div 
             className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors min-h-0"
           >
-          <div className="mb-3">
-            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('marketShare')}</h3>
-          </div>
             <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-              <ReactECharts option={marketShareOptions} style={{ height: '100%', width: '100%' }} />
+              <ChartWithToolbar option={marketShareOptions} style={{ height: '100%', width: '100%' }} title={t('marketShare')} />
             </div>
           </div>
 
@@ -649,61 +714,69 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           <div 
             className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors min-h-0"
           >
-          <div className="mb-3">
-            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('industryInterest')}</h3>
-          </div>
             <div className="min-h-72 flex-1 overflow-hidden md:min-h-80">
-              <ReactECharts option={interestOptions} style={{ height: '100%', width: '100%' }} />
+              <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
             </div>
           </div>
+        </div>
+
+        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors">
+          {issuedValueTreemapData.length > 0 ? (
+            <div className="h-80 overflow-hidden md:h-96">
+              <ChartWithToolbar option={issuedValueTreemapOptions} style={{ height: '100%', width: '100%' }} title={t('totalIssuedValueTitle')} />
+            </div>
+          ) : (
+            <div className="flex min-h-80 items-center justify-center">
+              <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
+            </div>
+          )}
         </div>
 
         {/* Combined Chart */}
         <div 
           className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors"
         >
-          <div className="mb-2">
-            <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{t('debtAndLotsEnterprise')}</h3>
-          </div>
           <div className="h-80 overflow-hidden md:h-96">
-            <ReactECharts option={combinedOptions} style={{ height: '100%', width: '100%' }} />
+            <ChartWithToolbar
+              option={combinedOptions}
+              style={{ height: '100%', width: '100%' }}
+              allowMagicType
+              title={t('debtAndLotsEnterprise')}
+            />
           </div>
         </div>
 
         <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors">
-          <div className="mb-2 grid min-w-0 grid-cols-1 gap-2 md:grid-cols-3 md:items-center">
-            <div className="hidden md:block" />
-            <div className="min-w-0">
-              <h3 className="text-base font-bold text-blue-600 dark:text-white text-center transition-colors">{projectedCashFlowTitle}</h3>
-            </div>
-            <div className="flex shrink-0 items-center justify-center md:justify-end">
-              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                {(['month', 'year'] as const).map((period) => (
-                  <button
-                    key={period}
-                    type="button"
-                    onClick={() => setCashFlowPeriod(period)}
-                    className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                      cashFlowPeriod === period
-                        ? 'bg-blue-600 text-white'
-                        : 'text-text-muted hover:text-text-base'
-                    }`}
-                  >
-                    {period === 'month' ? t('month') : t('year')}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
           {loadingCashFlows && !hasProjectedCashFlowData ? (
             <div className="flex min-h-80 flex-col items-center justify-center gap-3">
               <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
               <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
             </div>
           ) : hasProjectedCashFlowData ? (
-            <div className="h-80 overflow-hidden md:h-96">
-              <ReactECharts option={projectedCashFlowOptions} style={{ height: '100%', width: '100%' }} />
-            </div>
+            <ChartWithToolbar
+              option={projectedCashFlowOptions}
+              style={{ height: '360px', width: '100%' }}
+              allowMagicType
+              title={projectedCashFlowTitle}
+              actions={(
+                <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                  {(['month', 'year'] as const).map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => setCashFlowPeriod(period)}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                        cashFlowPeriod === period
+                          ? 'bg-blue-600 text-white'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {period === 'month' ? t('month') : t('year')}
+                    </button>
+                  ))}
+                </div>
+              )}
+            />
           ) : (
             <div className="flex min-h-80 items-center justify-center">
               <p className="text-sm font-medium text-text-muted">{t('noData')}</p>

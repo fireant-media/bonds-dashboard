@@ -3,7 +3,7 @@ import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
-import ReactECharts from 'echarts-for-react';
+import ChartWithToolbar from './ChartWithToolbar';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 
@@ -1102,58 +1102,26 @@ export default function EnterpriseView({
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByTerm')}</h3>
-            <ReactECharts option={pieOptions} style={{ height: '320px' }} />
+            <ChartWithToolbar option={pieOptions} style={{ height: '320px' }} title={t('bondStructureByTerm')} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
-            <ReactECharts option={interestTypePieOptions} style={{ height: '300px' }} />
+            <ChartWithToolbar option={interestTypePieOptions} style={{ height: '300px' }} title={t('bondStructureByInterestType')} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('interestRateVsTerm')}</h3>
-            <ReactECharts option={bubbleOptions} style={{ height: '300px' }} />
+            <ChartWithToolbar option={bubbleOptions} style={{ height: '300px' }} title={t('interestRateVsTerm')} />
           </div>
           <div 
             className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
           >
-            <h3 className="text-base font-bold text-blue-600 dark:text-white mb-3 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
-            <ReactECharts option={columnOptions} style={{ height: '300px' }} />
+            <ChartWithToolbar option={columnOptions} style={{ height: '300px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
           </div>
         </div>
 
         <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
-          <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-center">
-            <div className="hidden sm:block" />
-            <h3 className="text-center text-base font-bold text-blue-600 dark:text-white transition-colors">{projectedCashFlowTitle}</h3>
-            <div className="flex items-center justify-center gap-1 justify-self-center bg-bg-base border border-border-base rounded-lg p-1 sm:justify-self-end">
-              <button
-                type="button"
-                onClick={() => setCashFlowPeriod('month')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
-                  cashFlowPeriod === 'month'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-text-muted hover:text-text-base'
-                }`}
-              >
-                {t('month')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setCashFlowPeriod('year')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
-                  cashFlowPeriod === 'year'
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-text-muted hover:text-text-base'
-                }`}
-              >
-                {t('year')}
-              </button>
-            </div>
-          </div>
           {loadingCashFlows && !hasProjectedCashFlowData ? (
             <div className="h-80 flex items-center justify-center">
               <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
@@ -1162,7 +1130,38 @@ export default function EnterpriseView({
               </div>
             </div>
           ) : hasProjectedCashFlowData ? (
-            <ReactECharts option={projectedCashFlowOptions} style={{ height: '360px' }} />
+            <ChartWithToolbar
+              option={projectedCashFlowOptions}
+              style={{ height: '360px' }}
+              allowMagicType
+              title={projectedCashFlowTitle}
+              actions={(
+                <div className="flex items-center justify-center gap-1 rounded-lg border border-border-base bg-bg-base p-1 sm:justify-self-end">
+                  <button
+                    type="button"
+                    onClick={() => setCashFlowPeriod('month')}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                      cashFlowPeriod === 'month'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-text-muted hover:text-text-base'
+                    }`}
+                  >
+                    {t('month')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCashFlowPeriod('year')}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                      cashFlowPeriod === 'year'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-text-muted hover:text-text-base'
+                    }`}
+                  >
+                    {t('year')}
+                  </button>
+                </div>
+              )}
+            />
           ) : (
             <div className="h-80 flex items-center justify-center text-sm font-medium text-text-muted">
               {t('noData')}

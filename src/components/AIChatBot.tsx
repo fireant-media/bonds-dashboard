@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Bot, User, Loader2, Sparkles, Minimize2, AlertTriangle } from 'lucide-react';
+import { Send, Bot, User, Loader2, MessageSquare, Minimize2, AlertTriangle } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
 import { useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -423,7 +423,7 @@ export default function AIChatBot() {
   };
 
   return (
-    <div className="ai-chatbot-shell fixed bottom-4 left-4 right-4 z-30 md:bottom-6 md:left-6 md:right-auto md:z-50">
+    <div className="ai-chatbot-shell fixed bottom-4 left-4 right-4 z-50 md:bottom-6 md:left-auto md:right-6">
       <AnimatePresence>
         {isOpen ? (
           <motion.div
@@ -436,7 +436,7 @@ export default function AIChatBot() {
             <div className="px-4 py-3 bg-bg-base/50 border-b border-border-base flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="h-9 w-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
-                  <Sparkles className="h-4.5 w-4.5 text-blue-500" />
+                  <MessageSquare className="h-4.5 w-4.5 text-blue-500" />
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-text-base truncate leading-tight">{t('chatBotTitle')}</h3>
@@ -565,10 +565,11 @@ export default function AIChatBot() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsOpen(true)}
-            className="flex items-center justify-center h-12 w-12 bg-blue-500 text-white rounded-xl shadow-lg shadow-blue-500/20 relative group md:h-14 md:w-14 md:rounded-2xl md:shadow-xl md:shadow-blue-500/30"
+            className="group relative flex h-9 w-12 items-center justify-center rounded-lg border border-blue-400/30 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/25 backdrop-blur-md transition-all hover:-translate-y-0.5 hover:shadow-blue-500/35 md:h-11 md:w-14 md:rounded-xl"
           >
-            <div className="absolute inset-0 bg-blue-500 rounded-xl blur-lg opacity-10 group-hover:opacity-30 transition-opacity md:rounded-2xl md:opacity-20 md:group-hover:opacity-40" />
-            <Sparkles className="h-5 w-5 relative z-10 md:h-6 md:w-6" />
+            <div className="absolute inset-0 rounded-lg bg-white/10 opacity-0 transition-opacity group-hover:opacity-100 md:rounded-xl" />
+            <div className="absolute inset-0 rounded-lg shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] md:rounded-xl" />
+            <MessageSquare className="relative z-10 h-5 w-5 md:h-6 md:w-6" />
           </motion.button>
         )}
       </AnimatePresence>

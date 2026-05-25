@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, Component, ReactNode } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ChartWithToolbar from './ChartWithToolbar';
 import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2, Bookmark } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
@@ -873,13 +873,21 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   };
 
   // Safe wrapper for chart rendering with error boundary
-  const safeRenderChart = (optionsGetter: () => any, fallbackMessage: string = 'Display Error') => {
+  const safeRenderChart = (
+    optionsGetter: () => any,
+    fallbackMessage: string = 'Display Error',
+    allowMagicType = false
+  ) => {
     try {
       console.log(`[safeRenderChart] Rendering ${fallbackMessage}`);
       const options = optionsGetter();
       if (!options) throw new Error('Options generator returned null');
       return (
-        <ReactECharts option={options} style={{ height: '100%', width: '100%' }} />
+        <ChartWithToolbar
+          option={options}
+          style={{ height: '100%', width: '100%' }}
+          allowMagicType={allowMagicType}
+        />
       );
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1053,7 +1061,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 <span className="text-[10px] text-text-muted font-bold tracking-tighter">%</span>
               </div>
               <div className="h-[250px] transition-colors">
-                {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'))}
+                {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'), true)}
               </div>
             </div>
           </div>
