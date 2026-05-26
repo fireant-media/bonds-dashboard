@@ -254,17 +254,27 @@ These are frequently overlooked issues that make UI look unprofessional:
 | **Content padding** | Account for fixed navbar height | Let content hide behind fixed elements |
 | **Consistent max-width** | Use same `max-w-6xl` or `max-w-7xl` | Mix different container widths |
 
+### FireAnt Bonds Dashboard Design Standard
+
+For this workspace, prefer the project design system at `design-system/bonddashboard/MASTER.md` when it conflicts with generic recommendations. The current direction is a compact financial SaaS interface with professional light/dark modes, warm-light surfaces, deep slate dark surfaces, subtle glass/elevation, and deterministic Walden chart colors.
+
 ### Chart Color Standard
 
 Use this exact palette for charts in this workspace:
 
-`['#3fb1e3', '#6be6c1', '#626c91', '#a0a7e6', '#c4ebad', '#96dee8']`
+`['#3FB1E3', '#6BE6C1', '#626C91', '#A0A7E6', '#C4EBAD', '#96DEE8']`
 
 Rules:
-- Use the palette sequentially by series index.
+- Keep normal color assignment deterministic; for two-series stacked or comparison bars, use blue/cyan for series 1 and indigo/purple for series 2 so adjacent values stay distinct.
 - Keep the same color assignment across renders.
-- Do not apply gradient fills to charts unless the user explicitly asks for them.
-- Use flat hex colors for all chart series and fills.
+- Light mode: use `#F5F7FB` chart/background context, `#FFFFFF` panels, `#1E293B` text, `#64748B` labels, very light grid `rgba(15,23,42,0.05)`, and low-opacity gradients.
+- Dark mode: use `#0F172A` background, `#131C31` panels, `#E5E7EB` text, `#94A3B8` labels, grid `rgba(255,255,255,0.06)`, and stronger gradients.
+- Use `bg-action-accent` (`#3FB1E3`) for primary/active backgrounds with `text-slate-950`; use `text-text-highlight` for readable text highlights.
+- Line charts should use smooth lines, stronger stroke contrast, and area gradients only when readability is preserved.
+- Bar charts may use subtle vertical gradients and soft shadows, lower opacity in light mode.
+- Horizontal bar charts must use a left-to-right gradient, not top-to-bottom.
+- Mixed bar/line charts use an indigo line in light mode and a brighter purple line in dark mode so the line stays legible over bars.
+- Keep ECharts canvas backgrounds transparent and render the light/dark surface on the containing card.
 
 ---
 

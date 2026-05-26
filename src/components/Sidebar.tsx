@@ -120,7 +120,7 @@ export default function Sidebar({
   }, [industryIssuedValues, t]);
 
   return (
-    <aside className="w-full bg-surface-bright lg:border-r border-border-base flex flex-col h-full overflow-hidden transition-colors duration-300">
+    <aside className="w-full bg-surface-bright/95 lg:border-r border-border-base flex flex-col h-full overflow-hidden transition-colors duration-300">
       <div className={cn("min-h-0 overflow-y-auto p-3 lg:p-4 transition-all duration-300", isOpen ? "w-full lg:w-64" : "w-full lg:w-14 lg:px-2")}>
         <nav className={cn(isOpen ? "space-y-1" : "flex justify-center gap-2 lg:block lg:space-y-1")}>
           {menuItems.map((item) => (
@@ -160,13 +160,13 @@ export default function Sidebar({
                   "w-full flex items-center rounded-lg transition-all duration-200 group active:scale-95",
                   isOpen ? "px-3 py-2.5 justify-between" : "p-2.5 justify-center",
                   activeTab === item.id
-                    ? "bg-blue-600/10 text-text-highlight font-semibold"
-                    : "text-text-muted hover:bg-surface-container-low hover:text-blue-600"
+                    ? "bg-action-accent text-slate-950 font-semibold shadow-md shadow-cyan-500/20"
+                    : "text-text-muted hover:bg-surface-container-low hover:text-text-highlight"
                 )}
                 title={!isOpen ? item.label : undefined}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id ? "text-text-highlight" : "text-text-muted group-hover:text-text-highlight")} />
+                  <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id ? "text-slate-950" : "text-text-muted group-hover:text-text-highlight")} />
                   {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id ? "font-semibold" : "font-medium")}>{item.label}</span>}
                 </div>
                 {isOpen && item.hasSubmenu && (
@@ -192,8 +192,8 @@ export default function Sidebar({
                       className={cn(
                         "w-full text-left px-4 py-2 text-sm leading-snug rounded-lg transition-colors flex items-start justify-between gap-2 group break-words",
                         activeTab === 'industry' && activeIndustry === sub.id
-                          ? "text-text-highlight font-semibold bg-blue-600/10"
-                          : "text-text-muted hover:text-blue-600 hover:bg-surface-container-low"
+                          ? "bg-action-accent text-slate-950 font-semibold shadow-md shadow-cyan-500/20"
+                          : "text-text-muted hover:text-text-highlight hover:bg-surface-container-low"
                       )}
                     >
                       <span className="min-w-0">{sub.label}</span>

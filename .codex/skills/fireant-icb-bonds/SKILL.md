@@ -7,6 +7,39 @@ description: FireAnt ICB bond issuance data workflow for bonds-dashboard. Use wh
 
 Use this workflow for industry tabs, issuer views, maturity views, and charts that depend on FireAnt bond data.
 
+## Vercel, Auth, And Env Rules
+
+This project uses an older Vercel `builds` configuration. Keep API rewrites in `vercel.json` pointing to TypeScript files with the `.ts` suffix:
+
+- Use `"src": "api/*.ts"` for the `@vercel/node` build entry.
+- Use `/api/proxy.ts?path=:path*`, not `/api/proxy?path=:path*`.
+- Use `/api/auth.ts?path=:path*`, not `/api/auth?path=:path*`.
+- Use `/api/news.ts`, `/api/news.ts?id=:id`, `/api/ai.ts?path=:path*`, and `/api/page-data.ts?view=:view`.
+- Do not add nested exact Vercel handlers such as `api/auth/login.ts` or `api/fireant/bonds/filter.ts` unless the Vercel build strategy is changed and tested end to end. The working production path relies on wildcard rewrites into top-level handlers.
+
+If deployed `POST /api/auth/login` or `POST /api/fireant/bonds/filter` returns `405 Method Not Allowed`, first compare `vercel.json` against the working pattern above. In this repo, extensionless destinations caused POST requests to miss the intended Node function.
+
+FireAnt OIDC login must use the deployed origin for callback URLs:
+
+- `src/auth/oidc.tsx` should use `APP_URL` from `src/api/config.ts`, not read `VITE_APP_BASE_URL` directly.
+- `src/api/config.ts` should prefer `window.location.origin` when `VITE_APP_BASE_URL` is empty.
+- If `VITE_APP_BASE_URL` is set to `http://localhost:3000` while running on `bonds.fireant.vn`, ignore that local value and use the browser origin.
+- On Vercel, set `VITE_APP_BASE_URL=https://bonds.fireant.vn` or leave it empty. Never deploy production with `VITE_APP_BASE_URL=http://localhost:3000`.
+- FireAnt OIDC must allow production callbacks: `/signin-callback`, `/signout-callback`, and `/silent-renew-callback` on `https://bonds.fireant.vn`.
+
+FireAnt REST base URL rules:
+
+- Use only `https://restv2.fireant.vn` for FireAnt REST APIs.
+- Do not reintroduce `https://rest2.fireant.vn` or `https://rests.fireant.vn`.
+- Server config should read `FIREANT_BASE_URL` / `VITE_FIREANT_BASE_URL` with fallback `https://restv2.fireant.vn`.
+- Client config should read `VITE_FIREANT_BASE_URL` with fallback `https://restv2.fireant.vn`.
+
+TypeScript project rules:
+
+- Keep `tsconfig.json` scoped with `include` for `server.ts`, `vite.config.ts`, `api/**/*.ts`, and `src/**/*`.
+- Keep `exclude` for `dist` and `node_modules`. With `allowJs: true`, omitting `exclude` makes TypeScript/IDE scan built assets in `dist`.
+- `baseUrl: "."` is valid; if the IDE marks it, check `include/exclude` and TypeScript server state before changing module paths.
+
 ## Page Data API For AI
 
 When chatbot or AI features need dashboard data, expose page-shaped payloads through `api/_lib/page-data.ts` and `api/page-data.ts` instead of reimplementing screen calculations inside the chatbot.

@@ -1,202 +1,168 @@
 # Design System Master File
 
 > **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
-> If that file exists, its rules **override** this Master file.
-> If not, strictly follow the rules below.
+> If that file exists, its rules override this Master file.
+> If not, follow the rules below.
 
 ---
 
-**Project:** BondDashboard
-**Generated:** 2026-05-13 19:52:36
-**Category:** Luxury/Premium Brand
+**Project:** FireAnt Bonds Dashboard
+**Updated:** 2026-05-26
+**Category:** Financial SaaS / Bond Analytics Dashboard
 
 ---
 
-## Global Rules
+## Design Direction
 
-### Color Palette
+FireAnt Bonds Dashboard uses a compact, high-contrast financial interface with professional light and dark modes. Light mode uses warm-light surfaces so charts do not feel washed out. Dark mode uses deep slate surfaces with higher chart saturation and controlled glow. The product should feel institutional, fast, and analytical rather than decorative.
 
-| Role | Hex | CSS Variable |
-|------|-----|--------------|
-| Primary | `#1C1917` | `--color-primary` |
-| Secondary | `#44403C` | `--color-secondary` |
-| CTA/Accent | `#CA8A04` | `--color-cta` |
-| Background | `#FAFAF9` | `--color-background` |
-| Text | `#0C0A09` | `--color-text` |
+- **Core mood:** premium data terminal, calm SaaS, compact operations.
+- **Primary interaction color:** Walden blue `#3FB1E3`, with Tailwind `blue-500`/`blue-600` acceptable for standard controls.
+- **Surface language:** crisp borders, soft elevation, subtle glass effect, clear focus states.
+- **Density:** compact spacing with enough breathing room for tables and chart controls.
 
-**Color Notes:** Premium black + gold accent
+---
 
-### Typography
+## Color Tokens
 
-- **Heading Font:** Satoshi
-- **Body Font:** General Sans
-- **Mood:** premium, modern, clean, sophisticated, versatile, balanced
-- **Google Fonts:** [Satoshi + General Sans](https://fonts.google.com/share?selection.family=DM+Sans:wght@400;500;700)
+| Role | Light | Dark | Tailwind Usage |
+|------|-------|------|----------------|
+| Background | `#F5F7FB` | `#0F172A` | `bg-bg-base` |
+| Surface | `#FFFFFF` | `#131C31` | `bg-bg-surface` |
+| Low Surface / Hover | `#EEF2FF` | `#17233A` | `bg-surface-container-low` |
+| Bright Surface / Glass | `#FFFFFF` | `#18243A` | `bg-surface-bright` |
+| Text | `#1E293B` | `#E5E7EB` | `text-text-base` |
+| Muted Text | `#64748B` | `#94A3B8` | `text-text-muted` |
+| Text Highlight | `#256F93` | `#3FB1E3` | `text-text-highlight` |
+| Action Accent | `#3FB1E3` | `#3FB1E3` | `bg-action-accent` |
+| Border | `rgba(15,23,42,0.06)` | `rgba(255,255,255,0.06)` | `border-border-base` |
 
-**CSS Import:**
-```css
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap');
+### Palette Rules
+
+- Use Walden blue and cyan/green as the dominant accent pair for active states, chart focus, primary buttons, search focus, and selected navigation.
+- Use `bg-action-accent` for active/primary button backgrounds, paired with `text-slate-950`.
+- Use `text-text-highlight` for links, selected labels, and ticker text; it is darker in light mode for readability.
+- Use warm-light backgrounds in light mode, not pure white across the full viewport.
+- Use deep slate surfaces in dark mode, not pure black.
+- Use semantic colors sparingly for status only: red for risk/error, emerald for success, amber for warnings.
+- Do not introduce one-off inline color styles for UI. Use theme tokens or standard Tailwind color scales.
+
+---
+
+## Chart Palette
+
+Use this fixed ECharts/D3 palette:
+
+```ts
+['#3FB1E3', '#6BE6C1', '#626C91', '#A0A7E6', '#C4EBAD', '#96DEE8']
 ```
 
-### Spacing Variables
+- Default series colors remain deterministic from the palette.
+- Single-series bars use the blue/cyan gradient pair: `#3FB1E3` to `#96DEE8`.
+- Comparison or stacked bars with two series use contrasting pairs: series 1 blue/cyan (`#3FB1E3` to `#96DEE8`) and series 2 indigo/purple (`#626C91` to `#A0A7E6`).
+- Additional bars may use the green pair (`#6BE6C1` to `#C4EBAD`) before cycling.
+- Keep assignments deterministic across renders.
+- Light chart theme: background `#F5F7FB`, panel `#FFFFFF`, labels `#64748B`, text `#1E293B`, grid `rgba(15,23,42,0.05)`, border `rgba(15,23,42,0.06)`.
+- Dark chart theme: background `#0F172A`, panel `#131C31`, labels `#94A3B8`, text `#E5E7EB`, grid `rgba(255,255,255,0.06)`, border `rgba(255,255,255,0.06)`.
+- Use lower gradient opacity in light mode so the pastel palette does not wash out labels.
+- Use stronger line/bar contrast and slightly stronger gradients in dark mode.
+- Donut charts use white separators in light mode and `#0F172A` separators in dark mode.
+- Candlestick charts use `#6BE6C1` for up candles and `#626C91` for down candles.
+- Mixed bar/line comparisons use a contrasting line stroke: `#626C91` in light mode and `#A0A7E6` in dark mode.
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--space-xs` | `4px` / `0.25rem` | Tight gaps |
-| `--space-sm` | `8px` / `0.5rem` | Icon gaps, inline spacing |
-| `--space-md` | `16px` / `1rem` | Standard padding |
-| `--space-lg` | `24px` / `1.5rem` | Section padding |
-| `--space-xl` | `32px` / `2rem` | Large gaps |
-| `--space-2xl` | `48px` / `3rem` | Section margins |
-| `--space-3xl` | `64px` / `4rem` | Hero padding |
+### Gradient Rules
 
-### Shadow Depths
+Light mode area gradients:
 
-| Level | Value | Usage |
-|-------|-------|-------|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.05)` | Subtle lift |
-| `--shadow-md` | `0 4px 6px rgba(0,0,0,0.1)` | Cards, buttons |
-| `--shadow-lg` | `0 10px 15px rgba(0,0,0,0.1)` | Modals, dropdowns |
-| `--shadow-xl` | `0 20px 25px rgba(0,0,0,0.15)` | Hero images, featured cards |
+- Blue: `rgba(63,177,227,0.22-0.28)` to `rgba(63,177,227,0.01)`.
+- Green: `rgba(107,230,193,0.20-0.24)` to `rgba(107,230,193,0.01)`.
+- Purple: `rgba(160,167,230,0.18-0.22)` to `rgba(160,167,230,0.01)`.
+
+Dark mode area gradients:
+
+- Blue: `rgba(63,177,227,0.45-0.65)` to `rgba(63,177,227,0.02)`.
+- Green: `rgba(107,230,193,0.45-0.55)` to `rgba(107,230,193,0.02)`.
+- Purple: `rgba(160,167,230,0.45-0.55)` to `rgba(160,167,230,0.02)`.
+
+- Horizontal bars run gradients left-to-right along the value direction.
 
 ---
 
-## Component Specs
+## Typography
+
+- Use `Manrope` for product UI.
+- Primary titles: `text-text-base font-bold`.
+- Section titles: `text-text-base font-semibold`.
+- Secondary content: `text-text-muted font-medium`.
+- Captions/meta: `text-text-muted/80 font-semibold uppercase text-xs`.
+- Never use `font-black`.
+- Do not use negative letter spacing.
+
+---
+
+## Components
 
 ### Buttons
 
-```css
-/* Primary Button */
-.btn-primary {
-  background: #CA8A04;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-
-.btn-primary:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
-
-/* Secondary Button */
-.btn-secondary {
-  background: transparent;
-  color: #1C1917;
-  border: 2px solid #1C1917;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
-  transition: all 200ms ease;
-  cursor: pointer;
-}
-```
+- Primary: `rounded-lg bg-action-accent text-slate-950 font-semibold shadow-md shadow-cyan-500/20 hover:opacity-90`.
+- Secondary: `rounded-lg border border-border-base bg-bg-surface text-text-base hover:border-blue-500 hover:text-blue-600`.
+- Icon buttons: square controls with lucide icons, `rounded-lg`, visible focus ring, and `cursor-pointer`.
+- Use `active:scale-95` only for buttons; avoid hover transforms that shift layout.
 
 ### Cards
 
-```css
-.card {
-  background: #FAFAF9;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: var(--shadow-md);
-  transition: all 200ms ease;
-  cursor: pointer;
-}
+- Default dashboard and chart cards use `rounded-lg border border-border-base bg-bg-surface shadow-sm`.
+- Light glass cards may use white at 70-80% opacity with blur and soft shadow.
+- Dark cards use deep slate panels with subtle border and avoid heavy glow.
+- KPI cards may add subtle blue shadow and a small blue indicator surface.
+- Avoid nested cards unless the inner element is a genuine repeated item or modal.
+- Card headings stay compact; do not use hero-scale typography inside dashboard panels.
 
-.card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-```
+### Tables
 
-### Inputs
+- Header text is uppercase.
+- Column unit appears on a second line under the title.
+- Titles use `whitespace-nowrap`.
+- Header styling follows `text-xs font-bold uppercase tracking-wider whitespace-nowrap`.
 
-```css
-.input {
-  padding: 12px 16px;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 200ms ease;
-}
+### Charts
 
-.input:focus {
-  border-color: #1C1917;
-  outline: none;
-  box-shadow: 0 0 0 3px #1C191720;
-}
-```
-
-### Modals
-
-```css
-.modal-overlay {
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-}
-
-.modal {
-  background: white;
-  border-radius: 16px;
-  padding: 32px;
-  box-shadow: var(--shadow-xl);
-  max-width: 500px;
-  width: 90%;
-}
-```
+- All chart options should use `CHART_PALETTE` from `src/utils/chart.ts`.
+- Tooltip surfaces must match app theme.
+- Chart canvases render with a transparent background; the containing card owns the surface color in both light and dark modes.
+- Axis labels use compact 10-12px equivalent styling in ECharts config.
+- Keep grid and legend compact; dashboard charts should prioritize data area.
+- Light mode tooltips are white/glass, never black.
+- Grid lines are very subtle; avoid strong grid contrast.
 
 ---
 
-## Style Guidelines
+## Layout
 
-**Style:** Liquid Glass
-
-**Keywords:** Flowing glass, morphing, smooth transitions, fluid effects, translucent, animated blur, iridescent, chromatic aberration
-
-**Best For:** Premium SaaS, high-end e-commerce, creative platforms, branding experiences, luxury portfolios
-
-**Key Effects:** Morphing elements (SVG/CSS), fluid animations (400-600ms curves), dynamic blur (backdrop-filter), color transitions
-
-### Page Pattern
-
-**Pattern Name:** Storytelling + Feature-Rich
-
-- **CTA Placement:** Above fold
-- **Section Order:** Hero > Features > CTA
+- Dashboard shell: fixed header, left navigation, right insight rail, scrollable main content.
+- Main content spacing: compact `gap-3` and `p-3`/`p-4` panels.
+- Landing page: product experience first, not marketing-only content. The first viewport should show actual dashboard data/charts.
+- Mobile: panels collapse into icon controls; no horizontal scroll.
 
 ---
 
-## Anti-Patterns (Do NOT Use)
+## Anti-Patterns
 
-- ❌ Cheap visuals
-- ❌ Fast animations
-
-### Additional Forbidden Patterns
-
-- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
-- ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer
-- ❌ **Layout-shifting hovers** — Avoid scale transforms that shift layout
-- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio
-- ❌ **Instant state changes** — Always use transitions (150-300ms)
-- ❌ **Invisible focus states** — Focus states must be visible for a11y
+- No arbitrary Tailwind class values in new UI (`text-[10px]`, `w-[245px]`, etc.).
+- No inline hex colors for interface elements.
+- No emoji icons; use `lucide-react`.
+- No random chart colors.
+- No `font-black`.
+- No card-heavy decorative landing page that hides the actual product.
+- No low-contrast glass surfaces.
 
 ---
 
 ## Pre-Delivery Checklist
 
-Before delivering any UI code, verify:
-
-- [ ] No emojis used as icons (use SVG instead)
-- [ ] All icons from consistent icon set (Heroicons/Lucide)
-- [ ] `cursor-pointer` on all clickable elements
-- [ ] Hover states with smooth transitions (150-300ms)
-- [ ] Light mode: text contrast 4.5:1 minimum
-- [ ] Focus states visible for keyboard navigation
-- [ ] `prefers-reduced-motion` respected
-- [ ] Responsive: 375px, 768px, 1024px, 1440px
-- [ ] No content hidden behind fixed navbars
-- [ ] No horizontal scroll on mobile
+- [ ] New UI uses standard Tailwind utilities.
+- [ ] All clickable elements have visible hover/focus states and `cursor-pointer`.
+- [ ] Chart colors come from the fixed palette.
+- [ ] Table headers are uppercase and unit lines are separate.
+- [ ] Light and dark themes both have readable contrast.
+- [ ] Responsive behavior checked at mobile, tablet, and desktop widths.

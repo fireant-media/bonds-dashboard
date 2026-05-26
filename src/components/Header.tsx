@@ -255,7 +255,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
   };
 
   return (
-    <header className="relative h-16 shrink-0 bg-surface-bright border-b border-border-base flex items-center gap-3 px-3 md:px-6 sticky top-0 z-50 transition-colors duration-300 shadow-sm">
+    <header className="relative h-16 shrink-0 bg-surface-bright/95 border-b border-border-base flex items-center gap-3 px-3 md:px-6 sticky top-0 z-50 transition-colors duration-300 shadow-md shadow-blue-950/5 backdrop-blur dark:shadow-black/20">
       <div className="flex min-w-0 flex-1 items-center">
         <div 
           className="flex min-w-0 items-center hover:cursor-pointer select-none group"
@@ -277,7 +277,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
             setShowDropdown(true);
             window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
           }}
-          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95 md:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95 md:hidden"
           aria-label={t('searchPlaceholder')}
           title={t('searchPlaceholder')}
         >
@@ -297,12 +297,12 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
             onFocus={() => setShowDropdown(true)}
             type="text"
             aria-label={t('searchPlaceholder')}
-            className="block w-full pl-10 pr-3 py-2 border border-border-base rounded-lg bg-surface-container-low text-sm text-text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            className="block w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-3 text-sm font-medium text-text-base placeholder-text-muted transition-all focus:border-text-highlight focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
             placeholder={t('searchPlaceholder')}
           />
 
           {showDropdown && (suggestions.length > 0 || isSearching) && (
-            <div className="absolute left-0 right-0 mt-2 z-50 rounded-lg border border-border-base bg-surface-bright shadow-lg max-h-80 md:max-h-96 overflow-y-auto">
+            <div className="absolute left-0 right-0 mt-2 z-50 max-h-80 overflow-y-auto rounded-lg border border-border-base bg-surface-bright shadow-xl shadow-blue-950/10 md:max-h-96 dark:shadow-black/30">
               {isSearching && (
                 <div className="px-4 py-3 text-sm text-text-muted">{t('loading')}...</div>
               )}
@@ -313,7 +313,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
                 <button
                   key={`${suggestion.type}:${suggestion.id}`}
                   onClick={() => handleSelectSuggestion(suggestion)}
-                  className="w-full text-left px-4 py-3 hover:bg-surface-container-low transition-colors cursor-pointer"
+                  className="w-full px-4 py-3 text-left transition-colors hover:bg-surface-container-low cursor-pointer"
                 >
                   <div className="text-sm font-semibold text-text-base">{suggestion.title}</div>
                   <div className="text-xs font-medium text-text-muted">{suggestion.subtitle || (suggestion.type === 'bond' ? t('bond') : t('enterprise'))}</div>
@@ -324,7 +324,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
         </div>
 
         {mobileSearchOpen && (
-          <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-lg md:hidden">
+          <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-xl shadow-blue-950/10 md:hidden">
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-4 w-4 text-text-muted" />
@@ -339,7 +339,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
                 onFocus={() => setShowDropdown(true)}
                 type="text"
                 aria-label={t('searchPlaceholder')}
-                className="block w-full pl-10 pr-10 py-3 border border-border-base rounded-lg bg-surface-container-low text-sm text-text-base placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="block w-full rounded-lg border border-border-base bg-bg-surface py-3 pl-10 pr-10 text-sm font-medium text-text-base placeholder-text-muted transition-all focus:border-text-highlight focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
                 placeholder={t('searchPlaceholder')}
               />
               <button
@@ -348,7 +348,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
                   setMobileSearchOpen(false);
                   setShowDropdown(false);
                 }}
-                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-text-muted transition-colors hover:text-blue-600"
+                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-text-muted transition-colors hover:text-text-highlight"
                 aria-label="Close search"
               >
                 <X className="h-4 w-4" />
@@ -356,7 +356,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
             </div>
 
             {showDropdown && (suggestions.length > 0 || isSearching) && (
-              <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-border-base bg-surface-bright shadow-lg">
+              <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-border-base bg-surface-bright shadow-xl shadow-blue-950/10">
                 {isSearching && (
                   <div className="px-4 py-3 text-sm text-text-muted">{t('loading')}...</div>
                 )}
@@ -380,7 +380,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
 
         <button
           onClick={toggleTheme}
-          className="p-2 text-text-muted hover:text-blue-600 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"
+          className="rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 shrink-0"
           title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
         >
           {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
@@ -388,7 +388,7 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
 
         <button
           onClick={toggleLanguage}
-          className="flex items-center gap-1.5 px-2.5 py-2 text-text-muted hover:text-blue-600 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 shrink-0"
           title={t('uiLanguage')}
         >
           <Languages className="h-5 w-5" />
@@ -398,18 +398,18 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
         <div ref={userMenuRef} className="relative">
           <button 
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-3 p-1.5 hover:bg-surface-container-low rounded-lg transition-all active:scale-95 shrink-0"
+            className="flex items-center gap-3 rounded-lg p-1.5 transition-all hover:bg-surface-container-low active:scale-95 shrink-0"
           >
             <div className="text-right hidden sm:block">
               <p className="text-xs font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>
             </div>
-            <div className="h-9 w-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold overflow-hidden">
+            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-action-accent font-bold text-slate-950 shadow-md shadow-cyan-500/20">
               {getInitials(authUser?.profile?.name || '')}
             </div>
           </button>
 
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-surface-bright rounded shadow-lg border border-border-base py-2 z-50">
+            <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg border border-border-base bg-surface-bright py-2 shadow-xl shadow-blue-950/10 dark:shadow-black/30">
               <button 
                 onClick={() => {
                   onProfileClick();

@@ -11,20 +11,32 @@
   --color-text-base: var(--text-base);
   --color-text-muted: var(--text-muted);
   --color-text-highlight: var(--text-highlight);
+  --color-action-accent: var(--action-accent);
   --color-border-base: var(--border-base);
+  --color-blue-50: #eaf8fd;
+  --color-blue-100: #d8f2fb;
+  --color-blue-200: #b9e7f6;
+  --color-blue-300: #96dee8;
+  --color-blue-400: #6bc9e8;
+  --color-blue-500: #3fb1e3;
+  --color-blue-600: #256f93;
+  --color-blue-700: #1f5f80;
+  --color-blue-800: #234f68;
+  --color-blue-900: #243f52;
   --font-sans: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
   --font-data-mono: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
-  --bg-base: #f7f7f5;
+  --bg-base: #f5f7fb;
   --bg-surface: #ffffff;
-  --surface-container-low: #f0f0ee;
+  --surface-container-low: #eef2ff;
   --surface-bright: #ffffff;
-  --text-base: #111111;
-  --text-muted: #4f4f4f;
-  --text-highlight: #2563eb;
-  --border-base: #d9d9d9;
+  --text-base: #1e293b;
+  --text-muted: #64748b;
+  --text-highlight: #256f93;
+  --action-accent: #3fb1e3;
+  --border-base: rgba(15, 23, 42, 0.06);
 }
 
 html,
@@ -37,25 +49,44 @@ body {
   overflow: hidden;
 }
 
+button,
+[role='button'],
+a {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
 body[data-app-view='login'] .ai-chatbot-shell {
   display: none;
 }
 
 .dark {
-  --bg-base: #081225;
-  --bg-surface: #0b1730;
-  --surface-container-low: #12203a;
-  --surface-bright: #152544;
-  --text-base: #e6eefc;
-  --text-muted: #9fb2d1;
-  --text-highlight: #4d93f9;
-  --border-base: #243758;
+  --bg-base: #0f172a;
+  --bg-surface: #131c31;
+  --surface-container-low: #17233a;
+  --surface-bright: #18243a;
+  --text-base: #e5e7eb;
+  --text-muted: #94a3b8;
+  --text-highlight: #3fb1e3;
+  --action-accent: #3fb1e3;
+  --border-base: rgba(255, 255, 255, 0.06);
 }
 
 @layer base {
   body {
     @apply bg-bg-base text-text-base font-sans transition-colors duration-300;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image:
+      radial-gradient(circle at top left, rgba(63, 177, 227, 0.10), transparent 28rem),
+      radial-gradient(circle at bottom right, rgba(160, 167, 230, 0.08), transparent 30rem);
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2 ring-offset-bg-base;
   }
   
   .fireant-content p {

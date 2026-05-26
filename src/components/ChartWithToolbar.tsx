@@ -4,6 +4,7 @@ import { formatNumber } from '../utils/format';
 import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { applyChartTheme, getChartTheme, resolveChartLegendColor } from '../utils/chart';
 
 interface ChartTableHeader {
   label: string;
@@ -221,7 +222,7 @@ function getLegendItems(option: any, seriesArray: any[]) {
   const palette = Array.isArray(option?.color) ? option.color : [];
   const items = seriesArray.map((series, index) => {
     const name = String(series?.name || legendData[index] || `Series ${index + 1}`);
-    const color = String(series?.itemStyle?.color || series?.color || palette[index % Math.max(palette.length, 1)] || '#4D93F9');
+    const color = resolveChartLegendColor(series?.itemStyle?.color || series?.color || palette[index % Math.max(palette.length, 1)], index);
     return { name, color };
   });
 
@@ -243,6 +244,7 @@ export default function ChartWithToolbar({
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDark);
   const chartRef = useRef<any>(null);
   const [showDataView, setShowDataView] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
@@ -258,7 +260,6 @@ export default function ChartWithToolbar({
   const baseChartMode = isMixedMagicChart ? 'original' : (firstSeriesType === 'line' ? 'line' : 'bar');
   const [chartMode, setChartMode] = useState<'original' | 'line' | 'bar'>(baseChartMode);
   const dataTable = useMemo(() => buildDataTable(option, t), [option, t]);
-  const legendItems = useMemo(() => getLegendItems(option, seriesArray), [option, seriesArray]);
 
   useEffect(() => {
     setChartMode(baseChartMode);
@@ -266,11 +267,11 @@ export default function ChartWithToolbar({
 
   const finalOption = useMemo(() => {
     if (!magicTypeCapable) {
-      return { ...option };
+      return applyChartTheme({ ...option }, isDark);
     }
 
     if (chartMode === 'original') {
-      return { ...option };
+      return applyChartTheme({ ...option }, isDark);
     }
 
     const transformedSeries = seriesArray.map((series: any, index: number) => {
@@ -288,23 +289,25 @@ export default function ChartWithToolbar({
     });
 
     if (Array.isArray(option?.series)) {
-      return { ...option, series: transformedSeries };
+      return applyChartTheme({ ...option, series: transformedSeries }, isDark);
     }
 
     if (option?.series) {
-      return { ...option, series: transformedSeries[0] };
+      return applyChartTheme({ ...option, series: transformedSeries[0] }, isDark);
     }
 
-    return { ...option };
-  }, [chartMode, magicTypeCapable, option, seriesArray]);
+    return applyChartTheme({ ...option }, isDark);
+  }, [chartMode, isDark, magicTypeCapable, option, seriesArray]);
+  const finalSeriesArray = useMemo(() => getSeriesArray(finalOption), [finalOption]);
+  const legendItems = useMemo(() => getLegendItems(finalOption, finalSeriesArray), [finalOption, finalSeriesArray]);
 
   const toolbarButtonClass = (disabled = false, active = false) => (
     `rounded-md p-1.5 transition-colors ${
       disabled
         ? 'cursor-not-allowed text-text-muted/60 opacity-60'
         : active
-          ? 'bg-blue-600 text-white hover:bg-blue-600 hover:text-white'
-          : 'text-text-muted hover:bg-bg-base hover:text-blue-600'
+          ? 'bg-action-accent text-slate-950 hover:bg-action-accent hover:text-slate-950'
+          : 'text-text-muted hover:bg-surface-container-low hover:text-text-highlight'
     }`
   );
 
@@ -314,7 +317,7 @@ export default function ChartWithToolbar({
     const url = instance.getDataURL({
       type: 'png',
       pixelRatio: 2,
-      backgroundColor: isDark ? '#0b1730' : '#ffffff',
+      backgroundColor: chartTheme.bg,
     });
     const link = document.createElement('a');
     link.href = url;
@@ -390,7 +393,7 @@ export default function ChartWithToolbar({
         ) : null}
         {title ? (
           <div className="min-w-0 text-center">
-            <div className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">
+            <div className="text-sm md:text-base font-bold text-text-base leading-snug break-words">
               {title}
             </div>
           </div>
@@ -417,26 +420,26 @@ export default function ChartWithToolbar({
           onClick={() => setShowDataView(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
+            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
+                <h3 className="text-sm font-bold text-text-base text-left leading-snug break-words">
                   {t('dataView')}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDataView(false)}
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-blue-600"
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
                 title="Close"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <div className="overflow-x-auto rounded-xl border border-border-base bg-bg-surface">
+              <div className="overflow-x-auto rounded-lg border border-border-base bg-bg-surface">
                 <table className="min-w-full border-collapse text-left bg-bg-surface">
                   <thead className="bg-surface-container-low">
                     <tr className="border-b border-border-base">
@@ -485,19 +488,19 @@ export default function ChartWithToolbar({
           onClick={() => setShowZoom(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
+            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">
                 {title ? (
                   <div className="min-w-0 text-center">
-                    <div className="text-sm font-bold leading-snug break-words text-blue-600 dark:text-white md:text-base">
+                    <div className="text-sm font-bold leading-snug break-words text-text-base md:text-base">
                       {title}
                     </div>
                   </div>
                 ) : (
-                  <h3 className="text-left text-sm font-bold leading-snug break-words text-blue-600 dark:text-white">
+                  <h3 className="text-left text-sm font-bold leading-snug break-words text-text-base">
                     {t('zoom')}
                   </h3>
                 )}
@@ -510,7 +513,7 @@ export default function ChartWithToolbar({
               <button
                 type="button"
                 onClick={() => setShowZoom(false)}
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-blue-600"
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
                 title="Close"
               >
                 <X className="h-4 w-4" />

@@ -19,7 +19,7 @@ interface TopInterestBond {
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard } from './ui/Card';
-import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, applyChartTheme, getChartTheme, getChartTooltip } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 import {
@@ -37,6 +37,7 @@ export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDark);
   const cachedData = getCache(MARKET_OVERVIEW_CACHE_KEY) || getCache('market_overview');
   const cachedIssuerStats = getCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY) || getCache('top_debt_200');
   const cachedIndustryData = getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
@@ -76,32 +77,32 @@ export default function MarketOverview() {
 
   // Common styles for consistency
   const chartColors = {
-    primary: isDark ? '#3b82f6' : '#2563eb',
-    secondary: isDark ? '#94a3b8' : '#64748b', // slate-400 : slate-500
+    primary: CHART_PALETTE[0],
+    secondary: CHART_PALETTE[2],
   };
 
   const legendStyle = {
     fontSize: 12,
-    color: isDark ? '#9ca3af' : '#666',
+    color: chartTheme.subText,
     fontFamily: 'Manrope',
   };
 
   const categoryLabelStyle = {
     fontSize: 12,
-    color: isDark ? '#e5e7eb' : '#333',
+    color: chartTheme.subText,
     fontWeight: 'bold' as const,
     fontFamily: 'Manrope',
   };
 
   const valueLabelStyle = {
     fontSize: 12,
-    color: isDark ? '#9ca3af' : '#666',
+    color: chartTheme.subText,
     fontFamily: 'Manrope',
   };
 
   const chartTitleStyle = {
     fontSize: 10,
-    color: isDark ? '#e5e7eb' : '#374151',
+    color: chartTheme.text,
     fontWeight: 'bold' as const,
     fontFamily: 'Manrope',
   };
@@ -578,6 +579,10 @@ export default function MarketOverview() {
       ]
     };
   }, [chartPalette, chartTooltip, chartTitleStyle, categoryLabelStyle, topIssuerDisplayData, t, tooltipTextStyle, valueLabelStyle, legendStyle]);
+  const themedTopIssuerOptions = useMemo(
+    () => applyChartTheme(topIssuerOptions, isDark),
+    [topIssuerOptions, isDark]
+  );
 
   const topInterestOptions = {
     color: chartPalette,
@@ -887,7 +892,7 @@ export default function MarketOverview() {
     const url = instance.getDataURL({
       type: 'png',
       pixelRatio: 2,
-      backgroundColor: isDark ? '#0b1730' : '#ffffff',
+      backgroundColor: chartTheme.bg,
     });
     const link = document.createElement('a');
     link.href = url;
@@ -907,7 +912,7 @@ export default function MarketOverview() {
     `rounded-md p-1.5 transition-colors ${
       disabled
         ? 'cursor-not-allowed text-text-muted/60 opacity-60'
-        : 'text-text-muted hover:bg-bg-base hover:text-blue-600'
+        : 'text-text-muted hover:bg-surface-container-low hover:text-text-highlight'
     }`
   );
 
@@ -933,7 +938,7 @@ export default function MarketOverview() {
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors cursor-pointer"
+            className="rounded-lg bg-action-accent px-6 py-2 font-bold text-slate-950 transition-colors hover:opacity-90 cursor-pointer"
           >
             {t('tryAgain')}
           </button>
@@ -944,9 +949,9 @@ export default function MarketOverview() {
 
   return (
     <div className="min-w-0 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-8 flex min-w-0 items-center justify-between border-b border-border-base bg-surface-container-low px-2 py-3 md:-mx-4 md:px-4">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
+          <h1 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
         </div>
       </div>
 
@@ -1011,7 +1016,7 @@ export default function MarketOverview() {
                 </button>
             </div>
             <div className="min-w-0 text-center">
-              <h3 className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words text-center">{topIssuerMetricTitle}</h3>
+              <h3 className="text-sm md:text-base font-bold text-text-base leading-snug break-words text-center">{topIssuerMetricTitle}</h3>
             </div>
             <div className="flex justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
@@ -1024,7 +1029,7 @@ export default function MarketOverview() {
                   disabled={loadingTopIssuerChart && topIssuerMetric === 'remainingDebt'}
                   className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                     topIssuerMetric === 'remainingDebt'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-action-accent text-slate-950'
                       : 'text-text-muted hover:text-text-base'
                   }`}
                 >
@@ -1039,7 +1044,7 @@ export default function MarketOverview() {
                   disabled={loadingTopIssuerChart && topIssuerMetric === 'issuedValue'}
                   className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                     topIssuerMetric === 'issuedValue'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-action-accent text-slate-950'
                       : 'text-text-muted hover:text-text-base'
                   }`}
                 >
@@ -1057,7 +1062,7 @@ export default function MarketOverview() {
                 </div>
               </div>
             ) : (
-              <ReactECharts ref={topIssuerChartRef} option={topIssuerOptions} style={{ height: '100%', width: '100%' }} />
+              <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
             )}
           </div>
         </Card>
@@ -1089,7 +1094,7 @@ export default function MarketOverview() {
                         disabled={loadingTopInterestChart && topInterestMetric === 'highest'}
                         className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                           topInterestMetric === 'highest'
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-action-accent text-slate-950'
                             : 'text-text-muted hover:text-text-base'
                         }`}
                       >
@@ -1104,7 +1109,7 @@ export default function MarketOverview() {
                         disabled={loadingTopInterestChart && topInterestMetric === 'lowest'}
                         className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                           topInterestMetric === 'lowest'
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-action-accent text-slate-950'
                             : 'text-text-muted hover:text-text-base'
                         }`}
                       >
@@ -1175,7 +1180,7 @@ export default function MarketOverview() {
                         onClick={() => setCashFlowPeriod(period)}
                         className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                           cashFlowPeriod === period
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-action-accent text-slate-950'
                             : 'text-text-muted hover:text-text-base'
                         }`}
                       >
@@ -1201,7 +1206,7 @@ export default function MarketOverview() {
           >
             <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
+                <h3 className="text-sm font-bold text-text-base text-left leading-snug break-words">
                   {t('dataView')}
                 </h3>
                 <p className="text-xs font-medium text-text-muted">
@@ -1211,7 +1216,7 @@ export default function MarketOverview() {
               <button
                 type="button"
                 onClick={() => setShowTopIssuerDataView(false)}
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-blue-600"
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
                 title="Close"
               >
                 <X className="h-4 w-4" />
@@ -1269,12 +1274,12 @@ export default function MarketOverview() {
           onClick={() => setShowTopIssuerZoom(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-surface-container shadow-2xl"
+            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
+                <h3 className="text-sm font-bold text-text-base text-left leading-snug break-words">
                   {topIssuerMetricTitle}
                 </h3>
                 <p className="text-xs font-medium text-text-muted">
@@ -1284,14 +1289,14 @@ export default function MarketOverview() {
               <button
                 type="button"
                 onClick={() => setShowTopIssuerZoom(false)}
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-blue-600"
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
                 title="Close"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="flex-1 min-h-0 p-4">
-              <ReactECharts option={topIssuerOptions} style={{ height: '100%', width: '100%' }} />
+              <ReactECharts option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
             </div>
           </div>
         </div>

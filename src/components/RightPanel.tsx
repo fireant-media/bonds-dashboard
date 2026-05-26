@@ -76,7 +76,7 @@ function NewsThumbnail({ news }: { news: NewsItem }) {
 
   if (!resolvedImage || hasError) {
     return (
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-surface-container-low text-text-highlight">
         <Newspaper className="h-5 w-5" />
       </div>
     );
@@ -295,8 +295,8 @@ export default function RightPanel({
         type="button"
         onClick={() => handlePanelTabClick('maturity')}
         className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
-          isOpen && activePanelTab === 'maturity' && "bg-blue-500 text-white hover:text-white"
+          "flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95",
+          isOpen && activePanelTab === 'maturity' && "border-text-highlight bg-action-accent text-slate-950 shadow-cyan-500/20 hover:text-slate-950"
         )}
         title={t('upcomingBonds')}
       >
@@ -306,8 +306,8 @@ export default function RightPanel({
         type="button"
         onClick={() => handlePanelTabClick('news')}
         className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:text-blue-600 active:scale-95",
-          isOpen && activePanelTab === 'news' && "bg-blue-500 text-white hover:text-white"
+          "flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-border-base bg-surface-bright text-text-muted shadow-lg transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95",
+          isOpen && activePanelTab === 'news' && "border-text-highlight bg-action-accent text-slate-950 shadow-cyan-500/20 hover:text-slate-950"
         )}
         title={t('relatedNews')}
       >
@@ -316,21 +316,21 @@ export default function RightPanel({
     </div>
 
     <aside className={cn(
-      "w-full bg-surface-bright lg:border-l border-border-base flex h-full flex-col overflow-hidden transition-colors duration-300",
+      "w-full bg-surface-bright/95 lg:border-l border-border-base flex h-full flex-col overflow-hidden transition-colors duration-300",
       !isOpen && "w-0 border-l-0"
     )}>
       <div className={cn("p-3 lg:p-2 transition-all duration-300 flex-1 min-h-0 flex flex-col", isOpen ? "w-full lg:w-64 lg:pr-10" : "w-0 p-0")}>
 
         {isOpen ? (
           <div className="custom-scrollbar flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col space-y-5 animate-in fade-in duration-500">
-            <div className="grid grid-cols-2 gap-1 rounded bg-surface-container-low p-1 lg:hidden">
+            <div className="grid grid-cols-2 gap-1 rounded-lg border border-border-base bg-surface-container-low p-1 lg:hidden">
               <button
                 type="button"
                 onClick={() => setActivePanelTab('maturity')}
                 className={cn(
                   "rounded-md px-2 py-2 text-xs font-bold transition-all active:scale-95",
                   activePanelTab === 'maturity'
-                    ? "bg-surface-bright text-text-highlight shadow-sm"
+                    ? "bg-action-accent text-slate-950 shadow-sm"
                     : "text-text-muted hover:text-text-base"
                 )}
               >
@@ -342,7 +342,7 @@ export default function RightPanel({
                 className={cn(
                   "rounded-md px-2 py-2 text-xs font-bold transition-all active:scale-95",
                   activePanelTab === 'news'
-                    ? "bg-surface-bright text-text-highlight shadow-sm"
+                    ? "bg-action-accent text-slate-950 shadow-sm"
                     : "text-text-muted hover:text-text-base"
                 )}
               >
@@ -364,9 +364,9 @@ export default function RightPanel({
                   </div>
                 ) : error ? (
                   <div className="flex flex-col items-center gap-2 py-4">
-                    <p className="text-[10px] text-red-500 text-center font-bold uppercase">{error}</p>
+                    <p className="text-xs text-red-500 text-center font-bold uppercase">{error}</p>
                     {error.includes('401') && (
-                      <p className="text-[10px] text-text-muted font-medium italic">
+                      <p className="text-xs text-text-muted font-medium italic">
                         {t('settings')}
                       </p>
                     )}
@@ -394,7 +394,7 @@ export default function RightPanel({
                             status: t('active')
                           });
                       }}
-                        className="p-3 bg-surface-container-low/60 rounded-lg border border-border-base hover:border-blue-500/30 transition-all group cursor-pointer active:scale-95"
+                        className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-sm shadow-slate-900/5 transition-all hover:border-text-highlight hover:bg-surface-container-low/70 group cursor-pointer active:scale-95 dark:shadow-black/10"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="min-w-0 whitespace-nowrap text-xs font-bold leading-none text-text-highlight transition-colors">
@@ -455,7 +455,7 @@ export default function RightPanel({
                   </div>
                 ) : newsError ? (
                   <div className="flex flex-col items-center gap-2 py-4 transition-colors">
-                    <p className="text-[10px] text-red-500 text-center font-bold uppercase">
+                    <p className="text-xs text-red-500 text-center font-bold uppercase">
                       {newsError === '401' ? t('authError401') : newsError}
                     </p>
                   </div>
@@ -466,7 +466,7 @@ export default function RightPanel({
                       href={news.originalUrl || news.url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-surface-container-low group cursor-pointer"
+                      className="flex items-center gap-3 rounded-lg border border-transparent p-2 transition-colors hover:border-border-base hover:bg-surface-container-low group cursor-pointer"
                     >
                       <NewsThumbnail news={news} />
                       <div className="min-w-0 flex-1">
@@ -488,7 +488,7 @@ export default function RightPanel({
             <button
               type="button"
               onClick={() => handlePanelTabClick('maturity')}
-              className="min-h-24 rounded-lg border border-border-base bg-surface-container-low/60 px-2 py-3 text-xs font-bold uppercase leading-snug text-text-muted hover:bg-blue-500/10 hover:text-blue-600 transition-all active:scale-95"
+              className="min-h-24 rounded-lg border border-border-base bg-bg-surface px-2 py-3 text-xs font-bold uppercase leading-snug text-text-muted transition-all hover:border-text-highlight hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
               title={t('upcomingBonds')}
             >
               <Calendar className="mx-auto mb-2 h-4 w-4" />
@@ -497,7 +497,7 @@ export default function RightPanel({
             <button
               type="button"
               onClick={() => handlePanelTabClick('news')}
-              className="min-h-24 rounded-lg border border-border-base bg-surface-container-low/60 px-2 py-3 text-xs font-bold uppercase leading-snug text-text-muted hover:bg-blue-500/10 hover:text-blue-600 transition-all active:scale-95"
+              className="min-h-24 rounded-lg border border-border-base bg-bg-surface px-2 py-3 text-xs font-bold uppercase leading-snug text-text-muted transition-all hover:border-text-highlight hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
               title={t('relatedNews')}
             >
               <Newspaper className="mx-auto mb-2 h-4 w-4" />

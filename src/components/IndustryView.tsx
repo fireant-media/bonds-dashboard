@@ -12,7 +12,7 @@ interface IndustryViewProps {
 import { Settings } from 'lucide-react';
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getAdaptiveBarWidth, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, getAdaptiveBarWidth, getChartTheme, getChartTooltip } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats } from '../services/industryBondData';
 import { MetricCard } from './ui/Card';
@@ -27,6 +27,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDark);
   const cacheKey = `industry_bond_group_v4_${industry}`;
   const cachedData = getCache(cacheKey);
   const [industryStats, setIndustryStats] = useState<any>(cachedData?.industryStats || null);
@@ -129,26 +130,26 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   };
 
   const chartColors = {
-    primary: isDark ? '#3b82f6' : '#2563eb', // blue-500 : blue-600
-    secondary: isDark ? '#94a3b8' : '#64748b', // slate-400 : slate-500
+    primary: CHART_PALETTE[0],
+    secondary: CHART_PALETTE[2],
   };
 
   const legendStyle = {
     fontSize: 12,
-    color: isDark ? '#9ca3af' : '#666',
+    color: chartTheme.subText,
     fontFamily: 'Manrope',
   };
 
   const categoryLabelStyle = {
     fontSize: 12,
-    color: isDark ? '#e5e7eb' : '#333',
+    color: chartTheme.subText,
     fontWeight: 'bold' as const,
     fontFamily: 'Manrope',
   };
 
   const valueLabelStyle = {
     fontSize: 12,
-    color: isDark ? '#9ca3af' : '#666',
+    color: chartTheme.subText,
     fontFamily: 'Manrope',
   };
 
@@ -157,7 +158,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const chartPalette = CHART_PALETTE;
   const chartTitleStyle = {
     fontSize: 10,
-    color: isDark ? '#e5e7eb' : '#374151',
+    color: chartTheme.text,
     fontWeight: 'bold' as const,
     fontFamily: 'Manrope',
   };
@@ -691,7 +692,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
+            className="rounded-lg bg-action-accent px-6 py-2 font-bold text-slate-950 transition-colors hover:opacity-90"
           >
             {t('tryAgain')}
           </button>
@@ -702,8 +703,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-8 border-b border-border-base bg-surface-container-low px-2 py-3 md:-mx-4 md:px-4">
-        <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+        <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 
       {/* KPI Cards */}
@@ -716,7 +717,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {/* Ranking - Double Height */}
         <div 
-          className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors lg:col-span-6"
+          className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
         >
           <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
             <ChartWithToolbar option={rankingOptions} style={{ height: '100%', width: '100%' }} title={t('debtRanking')} />
@@ -726,7 +727,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         <div className="col-span-12 flex flex-col gap-3 lg:col-span-6">
           {/* Market Share */}
           <div 
-            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors min-h-0"
+            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
           >
             <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
               <ChartWithToolbar option={marketShareOptions} style={{ height: '100%', width: '100%' }} title={t('marketShare')} />
@@ -735,7 +736,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
           {/* Interest Rates */}
           <div 
-            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors min-h-0"
+            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
           >
             <div className="min-h-72 flex-1 overflow-hidden md:min-h-80">
               <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
@@ -743,7 +744,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </div>
         </div>
 
-        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors">
+        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
           {issuedValueTreemapData.length > 0 ? (
             <div className="h-80 overflow-hidden md:h-96">
               <ChartWithToolbar option={issuedValueTreemapOptions} style={{ height: '100%', width: '100%' }} title={t('totalIssuedValueTitle')} />
@@ -757,7 +758,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
         {/* Combined Chart */}
         <div 
-          className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors"
+          className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
         >
           <div className="h-80 overflow-hidden md:h-96">
             <ChartWithToolbar
@@ -769,7 +770,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </div>
         </div>
 
-        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-4 shadow-sm transition-colors">
+        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
           {loadingCashFlows && !hasProjectedCashFlowData ? (
             <div className="flex min-h-80 flex-col items-center justify-center gap-3">
               <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -790,7 +791,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                       onClick={() => setCashFlowPeriod(period)}
                       className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                         cashFlowPeriod === period
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-action-accent text-slate-950'
                           : 'text-text-muted hover:text-text-base'
                       }`}
                     >

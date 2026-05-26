@@ -99,10 +99,10 @@ export function DataTable<T>({
   };
 
   return (
-    <div className={cn("rounded-lg border border-border-base bg-bg-surface shadow-sm", className)}>
+    <div className={cn("overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-full text-left">
-          <thead className="bg-blue-600 text-white">
+          <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
             <tr>
               {columns.map((column) => {
                 const isSorted = sort?.columnId === column.id;
@@ -129,9 +129,9 @@ export function DataTable<T>({
                     >
                       <span>
                         <span className="block">{column.header}</span>
-                        {column.unit && <span className="block text-white/80">{column.unit}</span>}
+                        {column.unit && <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">{column.unit}</span>}
                       </span>
-                      {column.sortable && <SortIcon className="h-3.5 w-3.5 shrink-0" />}
+                      {column.sortable && <SortIcon className="h-3.5 w-3.5 shrink-0 text-text-highlight" />}
                     </button>
                   </th>
                 );
@@ -141,7 +141,7 @@ export function DataTable<T>({
           <tbody className="divide-y divide-border-base">
             {visibleRows.length > 0 ? (
               visibleRows.map((row, index) => (
-                <tr key={getRowKey(row, index)} className="transition-colors hover:bg-surface-container-low">
+                <tr key={getRowKey(row, index)} className="transition-colors hover:bg-surface-container-low/70">
                   {columns.map((column) => (
                     <td
                       key={column.id}
@@ -169,7 +169,7 @@ export function DataTable<T>({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3 border-t border-border-base px-4 py-3">
+        <div className="flex items-center justify-between gap-3 border-t border-border-base bg-surface-container-low/70 px-4 py-3">
           <p className="text-xs font-semibold text-text-muted">
             {safePage} / {totalPages}
           </p>
@@ -178,7 +178,7 @@ export function DataTable<T>({
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage === 1}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base text-text-muted transition-colors hover:text-blue-600 disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-text-highlight hover:text-text-highlight disabled:opacity-40"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -186,7 +186,7 @@ export function DataTable<T>({
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage === totalPages}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base text-text-muted transition-colors hover:text-blue-600 disabled:opacity-40"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-text-highlight hover:text-text-highlight disabled:opacity-40"
             >
               <ChevronRight className="h-4 w-4" />
             </button>

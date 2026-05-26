@@ -22,7 +22,7 @@ import {
 import Logo from './Logo';
 import { getCache } from '../utils/cache';
 import { formatNumber } from '../utils/format';
-import { CHART_PALETTE } from '../utils/chart';
+import { CHART_PALETTE, getChartTheme, getChartTooltip } from '../utils/chart';
 import { useLanguage } from '../LanguageContext';
 import { useTheme } from '../ThemeContext';
 import { Language } from '../translations';
@@ -283,6 +283,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
   const { effectiveTheme, setTheme } = useTheme();
 
   const isDarkMode = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDarkMode);
   const billionVndUnit = t('unitBillionVND');
   const formatBillionVnd = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} ${billionVndUnit}`;
   const currentLanguageLabel = getCurrentLanguageLabel(language);
@@ -433,28 +434,31 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
   }, []);
 
   const industryVolumeOptions = {
-    backgroundColor: isDarkMode ? '#0f172a' : '#ffffff',
+    backgroundColor: 'transparent',
     color: CHART_PALETTE,
-    tooltip: { show: false },
+    tooltip: {
+      ...getChartTooltip(isDarkMode),
+      show: false,
+    },
     grid: { left: '2%', right: '2%', top: '12%', bottom: '2%', containLabel: true },
     xAxis: {
       type: 'category',
       data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => t(d.icbName as any)) : [],
       axisLabel: {
         fontSize: 10,
-        color: isDarkMode ? '#cbd5e1' : '#6b7280',
+        color: chartTheme.subText,
         fontFamily: 'Manrope',
         fontWeight: 'bold' as const,
         rotate: 45,
       },
       axisLine: {
         lineStyle: {
-          color: isDarkMode ? '#475569' : '#d1d5db',
+          color: chartTheme.axisLine,
         },
       },
       axisTick: {
         lineStyle: {
-          color: isDarkMode ? '#475569' : '#d1d5db',
+          color: chartTheme.axisLine,
         },
       },
     },
@@ -462,28 +466,31 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
       type: 'value',
       splitNumber: 4,
       splitLine: {
-        show: false,
+        show: true,
+        lineStyle: {
+          color: chartTheme.grid,
+        },
       },
       name: loginCopy.yAxisName,
       nameTextStyle: {
         fontSize: 10,
-        color: isDarkMode ? '#cbd5e1' : '#374151',
+        color: chartTheme.text,
         fontWeight: 'bold' as const,
         fontFamily: 'Manrope',
       },
       axisLine: {
         lineStyle: {
-          color: isDarkMode ? '#475569' : '#d1d5db',
+          color: chartTheme.axisLine,
         },
       },
       axisTick: {
         lineStyle: {
-          color: isDarkMode ? '#475569' : '#d1d5db',
+          color: chartTheme.axisLine,
         },
       },
       axisLabel: {
         fontSize: 10,
-        color: isDarkMode ? '#cbd5e1' : '#6b7280',
+        color: chartTheme.subText,
         fontFamily: 'Manrope',
         formatter: (value: number) => formatNumber(value, 0),
       },
@@ -493,14 +500,14 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
         name: t('issuedVolumeTitle'),
         type: 'bar',
         data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalIssuedVolume || 0) / 1000)) : [],
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        itemStyle: { borderRadius: [10, 10, 0, 0] },
         barWidth: '30%',
       },
       {
         name: t('listedVolume'),
         type: 'bar',
         data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalCurrentListedVolume || 0) / 1000)) : [],
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        itemStyle: { borderRadius: [10, 10, 0, 0] },
         barWidth: '30%',
       },
     ],
@@ -582,7 +589,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
 
   return (
     <div className="min-h-dvh overflow-x-hidden overflow-y-auto bg-bg-base text-text-base">
-      <header className="sticky top-0 z-30 border-b border-border-base bg-bg-surface/95 py-3 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-border-base bg-surface-bright/95 py-3 shadow-md shadow-blue-950/5 backdrop-blur-xl dark:shadow-black/20">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:px-6 xl:px-8">
           <div className="flex min-w-0 items-center justify-between gap-3 lg:justify-start">
             <button
@@ -600,7 +607,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                   key={item.label}
                   type="button"
                   onClick={() => scrollToSection(item.target)}
-                  className="rounded-lg px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
                 >
                   {item.label}
                 </button>
@@ -612,7 +619,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
             <button
               type="button"
               onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-muted transition-all hover:bg-surface-container-low hover:text-blue-600 active:scale-95"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
               title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
               aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
             >
@@ -621,7 +628,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
             <button
               type="button"
               onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-text-muted transition-all hover:bg-surface-container-low hover:text-blue-600 active:scale-95"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
               title={`${t('uiLanguage')}: ${t('languageName')}`}
               aria-label={`${t('uiLanguage')}: ${t('languageName')}`}
             >
@@ -632,7 +639,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
               type="button"
               onClick={onRegister}
               disabled={isSigningIn}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-blue-500 px-3 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border-base bg-bg-surface px-3 text-xs font-semibold text-text-base transition-colors hover:border-text-highlight hover:text-text-highlight disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
             >
               {loginCopy.registerButton}
             </button>
@@ -640,7 +647,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
               type="button"
               onClick={() => void handleLogin()}
               disabled={isSigningIn}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-blue-500 px-3 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-action-accent px-3 text-xs font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
             >
               {loginCopy.signInButton}
             </button>
@@ -665,7 +672,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
 
       <main>
         <section id="overview" className="relative overflow-hidden bg-bg-base px-3 pb-8 pt-8 sm:px-4 sm:pb-10 sm:pt-10 lg:px-6 lg:pb-12 lg:pt-12 xl:px-8">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/10 via-transparent to-blue-900/5" />
           <div className="mx-auto grid max-w-7xl items-start gap-8 xl:grid-cols-12">
             <motion.div
               initial={{ opacity: 0, y: 12 }}
@@ -685,7 +692,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                   type="button"
                   onClick={() => void handleLogin()}
                   disabled={isSigningIn}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 font-bold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:px-8 sm:py-4"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-action-accent px-6 py-3.5 font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-8 sm:py-4"
                 >
                   {loginCopy.primaryAction}
                   <ArrowRight className="h-4 w-4" />
@@ -693,7 +700,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                 <button
                   type="button"
                   onClick={() => scrollToSection('solutions')}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border-2 border-border-base bg-bg-surface px-6 py-3.5 font-semibold text-text-base transition-colors hover:bg-bg-base sm:px-8 sm:py-4"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border-base bg-bg-surface px-6 py-3.5 font-semibold text-text-base shadow-sm transition-colors hover:border-text-highlight hover:text-text-highlight sm:px-8 sm:py-4"
                 >
                   <PlayCircle className="h-4 w-4" />
                   {loginCopy.secondaryAction}
@@ -704,9 +711,9 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                 {heroStats.slice(0, 2).map((stat, index) => (
                   <div
                     key={stat.label}
-                    className="flex flex-col rounded-lg border border-border-base/70 bg-bg-surface/60 p-3 shadow-sm sm:border sm:bg-bg-surface/70 sm:p-4"
+                    className="flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 backdrop-blur sm:p-4 dark:shadow-black/20"
                   >
-                    <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+                    <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-container-low text-text-highlight">
                       <stat.icon className="h-4 w-4" />
                     </div>
                     <span className="text-xl font-bold text-text-base sm:text-2xl">
@@ -729,7 +736,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
               className="relative xl:col-span-7"
             >
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                <div className="data-card overflow-hidden rounded-xl border border-border-base bg-bg-surface p-4 shadow-sm sm:p-5 xl:col-span-12">
+                <div className="data-card overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-lg shadow-blue-950/5 backdrop-blur sm:p-5 xl:col-span-12 dark:shadow-black/20">
                   <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div className="min-w-0">
                       <h3 className="text-left text-sm font-semibold text-text-base">{loginCopy.chartTitle}</h3>
@@ -740,7 +747,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                         <span className="text-xs font-semibold text-text-muted">{loginCopy.issuedLabel}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[1] }} />
+                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[2] }} />
                         <span className="text-xs font-semibold text-text-muted">{loginCopy.listedLabel}</span>
                       </div>
                     </div>
@@ -757,7 +764,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                   </div>
                 </div>
 
-                <div className="data-card rounded-xl border border-border-base bg-bg-surface p-4 xl:col-span-4">
+                <div className="data-card rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 dark:shadow-black/20 xl:col-span-4">
                   <span className="mb-3 block text-sm font-semibold text-text-base">
                     {loginCopy.marketOverviewTitle}
                   </span>
@@ -789,7 +796,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                   </div>
                 </div>
 
-                <div className="data-card rounded-xl border border-border-base bg-bg-surface p-4 xl:col-span-8">
+                <div className="data-card rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 dark:shadow-black/20 xl:col-span-8">
                   <span className="mb-4 block text-sm font-semibold text-text-base">
                     {loginCopy.topIssuerTitle}
                   </span>
@@ -809,7 +816,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                           {item.label}
                         </span>
                         <div className="col-span-4 h-2 w-full overflow-hidden rounded-full bg-border-base/50 sm:col-span-5">
-                          <div className={`h-full rounded-full bg-blue-500 ${getHeatWidthClass(item.value)}`} />
+                          <div className={`h-full rounded-full bg-action-accent ${getHeatWidthClass(item.value)}`} />
                         </div>
                         <span className="col-span-6 min-w-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-text-muted sm:col-span-5 sm:text-sm">
                           {hasSnapshotBars
@@ -841,9 +848,9 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                 <motion.div
                   key={card.title}
                   whileHover={{ y: -3 }}
-                  className="rounded-xl border border-border-base bg-bg-surface p-6 transition-colors hover:border-blue-600/30"
+                  className="rounded-lg border border-border-base bg-surface-bright p-6 shadow-md shadow-slate-900/5 transition-colors hover:border-text-highlight dark:shadow-black/20"
                 >
-                  <card.icon className="mb-4 h-8 w-8 text-blue-600" />
+                  <card.icon className="mb-4 h-8 w-8 text-text-highlight" />
                   <h3 className="text-xl font-semibold text-text-base">{card.title}</h3>
                   <p className="mt-2 text-sm leading-7 text-text-muted">{card.description}</p>
                 </motion.div>

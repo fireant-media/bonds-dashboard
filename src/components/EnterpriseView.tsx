@@ -18,7 +18,7 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, getChartTheme, getChartTooltip } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
@@ -44,6 +44,7 @@ export default function EnterpriseView({
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDark);
   const cachedData = getCache('enterprise_list');
   const [searchTerm, setSearchTerm] = useState('');
   const [industryFilter, setIndustryFilter] = useState('All');
@@ -76,19 +77,17 @@ export default function EnterpriseView({
   const bondsPerPage = 10;
   const enterprisesPerPage = 10;
 
-  const chartColors = isDark 
-    ? ['#3b82f6', '#94a3b8', '#2563eb', '#60a5fa', '#bfdbfe', '#1d4ed8', '#93c5fd', '#cbd5e1', '#e2e8f0']
-    : ['#2563eb', '#64748b', '#3b82f6', '#60a5fa', '#bfdbfe', '#1d4ed8', '#93c5fd', '#cbd5e1', '#e2e8f0'];
+  const chartColors = CHART_PALETTE;
 
   const legendStyle = {
     fontSize: 10,
-    color: isDark ? '#9ca3af' : '#666',
+    color: chartTheme.subText,
     fontFamily: 'Manrope',
   };
 
   const axisLabelStyle = {
     fontSize: 10,
-    color: isDark ? '#9ca3af' : '#666',
+    color: chartTheme.subText,
     fontFamily: 'Manrope',
   };
 
@@ -97,7 +96,7 @@ export default function EnterpriseView({
 
   const chartTitleStyle = {
     fontSize: 10,
-    color: isDark ? '#e5e7eb' : '#374151',
+    color: chartTheme.text,
     fontWeight: 'bold' as const,
     fontFamily: 'Manrope',
   };
@@ -890,7 +889,7 @@ export default function EnterpriseView({
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors"
+            className="rounded-lg bg-action-accent px-6 py-2 font-bold text-slate-950 transition-colors hover:opacity-90"
           >
             {t('tryAgain')}
           </button>
@@ -908,9 +907,9 @@ export default function EnterpriseView({
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex items-start justify-between border-b border-border-base bg-surface-container-low px-2 py-3 md:-mx-4 md:px-4">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex items-start justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight md:text-4xl">
+            <h2 className="text-2xl font-bold text-text-base tracking-tight md:text-4xl">
               {language === 'en' && enterpriseProfile?.internationalName 
                 ? enterpriseProfile.internationalName 
                 : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
@@ -1035,17 +1034,17 @@ export default function EnterpriseView({
                 return activeBadges.map((badge, idx) => (
                   <div 
                     key={idx} 
-                    className="flex items-center px-4 py-1.5 bg-indigo-50/40 dark:bg-indigo-900/20 border border-indigo-100/50 dark:border-indigo-400/30 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all cursor-help h-[32px] shadow-sm select-none"
+                    className="flex h-8 items-center rounded-full border border-blue-100 bg-blue-50/80 px-4 py-1.5 shadow-sm transition-all hover:bg-blue-50 cursor-help select-none dark:border-blue-400/30 dark:bg-blue-900/20 dark:hover:bg-blue-900/30"
                     title={badge.tooltip}
                   >
-                    <span className="text-[10px] font-medium text-blue-600 mr-2 uppercase tracking-tight opacity-80">{badge.label}:</span>
-                    <span className="text-xs font-bold text-blue-600 leading-none">{badge.value}</span>
+                    <span className="mr-2 text-xs font-semibold uppercase text-text-highlight opacity-80">{badge.label}:</span>
+                    <span className="text-xs font-bold text-text-highlight leading-none">{badge.value}</span>
                   </div>
                 ));
               })() : loadingFinancial ? (
                 <div className="flex gap-2 animate-pulse">
                   {[1, 2, 3, 4, 5].map(idx => (
-                    <div key={idx} className="h-[32px] w-24 bg-bg-surface border border-border-base rounded-full"></div>
+                    <div key={idx} className="h-8 w-24 rounded-full border border-border-base bg-bg-surface"></div>
                   ))}
                 </div>
               ) : null}
@@ -1100,28 +1099,28 @@ export default function EnterpriseView({
         {/* Charts Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
             <ChartWithToolbar option={pieOptions} style={{ height: '320px' }} title={t('bondStructureByTerm')} />
           </div>
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
             <ChartWithToolbar option={interestTypePieOptions} style={{ height: '300px' }} title={t('bondStructureByInterestType')} />
           </div>
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
             <ChartWithToolbar option={bubbleOptions} style={{ height: '300px' }} title={t('interestRateVsTerm')} />
           </div>
           <div 
-            className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
             <ChartWithToolbar option={columnOptions} style={{ height: '300px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
           </div>
         </div>
 
-        <div className="bg-bg-surface p-4 rounded-lg border border-border-base shadow-sm transition-colors">
+        <div className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
           {loadingCashFlows && !hasProjectedCashFlowData ? (
             <div className="h-80 flex items-center justify-center">
               <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
@@ -1142,7 +1141,7 @@ export default function EnterpriseView({
                     onClick={() => setCashFlowPeriod('month')}
                     className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
                       cashFlowPeriod === 'month'
-                        ? 'bg-blue-600 text-white shadow-sm'
+                        ? 'bg-action-accent text-slate-950 shadow-sm'
                         : 'text-text-muted hover:text-text-base'
                     }`}
                   >
@@ -1153,7 +1152,7 @@ export default function EnterpriseView({
                     onClick={() => setCashFlowPeriod('year')}
                     className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
                       cashFlowPeriod === 'year'
-                        ? 'bg-blue-600 text-white shadow-sm'
+                        ? 'bg-action-accent text-slate-950 shadow-sm'
                         : 'text-text-muted hover:text-text-base'
                     }`}
                   >
@@ -1170,9 +1169,9 @@ export default function EnterpriseView({
         </div>
 
         {/* Bond List Table */}
-        <div className="bg-bg-surface rounded-lg border border-border-base shadow-sm overflow-hidden transition-colors">
+        <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
           <div className="p-4 border-b border-border-base flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <h3 className="text-sm font-bold text-blue-600 dark:text-white uppercase tracking-wider transition-colors">{t('bondList')}</h3>
+            <h3 className="text-sm font-bold text-text-base uppercase tracking-wider transition-colors">{t('bondList')}</h3>
             <div className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
               <ExportExcelButton loading={exportLoading} onClick={handleExportBonds} />
               <div className="relative">
@@ -1299,7 +1298,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(i + 1)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === i + 1 
-                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1312,7 +1311,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(1)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === 1 
-                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1322,7 +1321,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(2)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === 2 
-                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1335,7 +1334,7 @@ export default function EnterpriseView({
                           onClick={() => setBondPage(3)}
                           className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                             bondPage === 3 
-                              ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                              ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                               : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                           }`}
                         >
@@ -1349,7 +1348,7 @@ export default function EnterpriseView({
                         {bondPage < totalBondPages && (
                           <>
                             <button
-                              className="px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20"
+                              className="px-3 py-1 text-xs font-bold rounded-lg bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                             >
                               {bondPage}
                             </button>
@@ -1363,7 +1362,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(totalBondPages)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === totalBondPages 
-                          ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1393,21 +1392,21 @@ export default function EnterpriseView({
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-8 flex flex-col gap-3 border-b border-border-base bg-surface-container-low px-2 py-3 sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex flex-col gap-3 border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
         <div>
-          <h2 className="text-2xl font-bold text-blue-600 dark:text-white text-center transition-colors">{t('enterprise')}</h2>
+          <h2 className="text-2xl font-bold text-text-base text-center transition-colors">{t('enterprise')}</h2>
         </div>
         <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 items-stretch sm:items-center bg-bg-surface p-3 md:p-4 rounded-lg border border-border-base shadow-sm transition-colors">
-        <div className="relative flex-1 min-w-0 sm:min-w-[300px]">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 items-stretch sm:items-center rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
+        <div className="relative flex-1 min-w-0 sm:min-w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
           <input 
             type="text" 
             placeholder={t('searchPlaceholderEnterprises')}
-            className="w-full pl-10 pr-4 py-2 bg-bg-base border-border-base border rounded-xl text-sm text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all outline-none"
+            className="w-full rounded-lg border border-border-base bg-bg-base py-2 pl-10 pr-4 text-sm text-text-base outline-none transition-all focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1416,7 +1415,7 @@ export default function EnterpriseView({
           <div className="relative flex-1 sm:flex-none">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select 
-              className="w-full pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              className="w-full appearance-none rounded-lg border border-border-base bg-bg-base py-2 pl-9 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20 cursor-pointer"
               value={industryFilter}
               onChange={(e) => setIndustryFilter(e.target.value)}
             >
@@ -1431,7 +1430,7 @@ export default function EnterpriseView({
           <div className="relative flex-1 sm:flex-none">
             <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select
-              className="w-full pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              className="w-full appearance-none rounded-lg border border-border-base bg-bg-base py-2 pl-9 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20 cursor-pointer"
               value={issueValueSort}
               onChange={(e) => {
                 setIssueValueSort(e.target.value);
@@ -1446,7 +1445,7 @@ export default function EnterpriseView({
           <div className="relative flex-1 sm:flex-none">
             <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
             <select
-              className="w-full pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
+              className="w-full appearance-none rounded-lg border border-border-base bg-bg-base py-2 pl-9 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20 cursor-pointer"
               value={remainingDebtSort}
               onChange={(e) => {
                 setRemainingDebtSort(e.target.value);
@@ -1462,7 +1461,7 @@ export default function EnterpriseView({
       </div>
 
       {/* Enterprise Table */}
-      <div className="bg-bg-surface rounded-lg border border-border-base shadow-sm overflow-hidden transition-colors">
+      <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
         <div className="divide-y divide-border-base lg:hidden">
           {loading ? (
             <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</div>
@@ -1476,7 +1475,7 @@ export default function EnterpriseView({
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="text-base font-bold text-blue-600">{enterprise.ticker}</p>
+                    <p className="text-base font-bold text-text-highlight">{enterprise.ticker}</p>
                     <p className="mt-1 text-sm font-bold text-text-base">
                       {language === 'en' && enterpriseNamesEN[enterprise.ticker]
                         ? enterpriseNamesEN[enterprise.ticker]
@@ -1488,16 +1487,16 @@ export default function EnterpriseView({
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-bg-base p-3">
                   <div>
-                    <p className="text-[10px] font-semibold uppercase text-text-muted/80">{t('bondCodeCount')}</p>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('bondCodeCount')}</p>
                     <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.bondCount, 0)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase text-text-muted/80">{t('issuedValue')}</p>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('issuedValue')}</p>
                     <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.issuedValue, 2)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase text-text-muted/80">{t('remainingDebtTitle')}</p>
-                    <p className="mt-1 text-sm font-bold text-blue-600 dark:text-white">{formatNumber(enterprise.remainingDebt, 2)}</p>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('remainingDebtTitle')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-highlight">{formatNumber(enterprise.remainingDebt, 2)}</p>
                   </div>
                 </div>
               </button>
@@ -1508,19 +1507,19 @@ export default function EnterpriseView({
         </div>
 
         <div className="hidden overflow-x-auto lg:block">
-          <table className="w-full min-w-[720px] text-left">
+          <table className="w-full min-w-max text-left">
             <thead>
-              <tr className="bg-blue-600 text-white transition-colors">
-                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
-                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
+              <tr className="border-b border-border-base bg-surface-container-low text-text-muted transition-colors">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
                 <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount')}</th>
-                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
                     <span className="whitespace-nowrap leading-none">{t('remainingDebtTitle')}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
@@ -1537,7 +1536,7 @@ export default function EnterpriseView({
                 <tr 
                   key={enterprise.id} 
                   onClick={() => setSelectedEnterprise(enterprise)}
-                  className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
+                  className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                 >
                   <td className="px-6 py-5 text-center">
                     <span className="text-sm font-bold text-text-highlight">{enterprise.ticker}</span>
@@ -1549,7 +1548,7 @@ export default function EnterpriseView({
                           ? enterpriseNamesEN[enterprise.ticker] 
                           : t(enterprise.name as any, enterprise.ticker)}
                       </p>
-                      <p className="text-[10px] font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
+                      <p className="text-xs font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
                         {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
                       </p>
                     </div>
@@ -1575,7 +1574,7 @@ export default function EnterpriseView({
 
         {/* Enterprise Pagination Controls */}
         {totalEnterprisePages > 1 && (
-          <div className="p-4 border-t border-border-base flex items-center justify-end bg-bg-surface transition-colors">
+          <div className="p-4 border-t border-border-base flex items-center justify-end bg-surface-container-low/70 transition-colors">
             <div className="flex gap-2">
               <button 
                 onClick={() => setEnterprisePage(prev => Math.max(1, prev - 1))}
@@ -1592,7 +1591,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(i + 1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === i + 1 
-                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1605,7 +1604,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 1 
-                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1615,7 +1614,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(2)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 2 
-                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1628,7 +1627,7 @@ export default function EnterpriseView({
                         onClick={() => setEnterprisePage(3)}
                         className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                           enterprisePage === 3 
-                            ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                            ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                             : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                         }`}
                       >
@@ -1642,7 +1641,7 @@ export default function EnterpriseView({
                       {enterprisePage < totalEnterprisePages && (
                         <>
                           <button
-                            className="px-3 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20"
+                            className="px-3 py-1 text-xs font-bold rounded-lg bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           >
                             {enterprisePage}
                           </button>
@@ -1656,7 +1655,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(totalEnterprisePages)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === totalEnterprisePages 
-                        ? "bg-blue-600 text-white border-transparent shadow-md shadow-blue-600/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >

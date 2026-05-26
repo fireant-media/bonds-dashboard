@@ -15,7 +15,7 @@ export function ExportExcelButton({ loading = false, disabled = false, onClick }
       type="button"
       onClick={onClick}
       disabled={disabled || loading}
-      className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
+      className="inline-flex items-center gap-2 rounded-lg bg-action-accent px-3 py-2 text-xs font-bold uppercase tracking-wider text-slate-950 transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70 whitespace-nowrap shrink-0"
     >
       {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
       <span>{t('exportExcel')}</span>

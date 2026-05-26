@@ -450,7 +450,7 @@ export default function App() {
   const isProfileMode = activeTab === 'profile' || activeTab === 'help';
 
   return (
-    <div className="h-dvh overflow-hidden bg-surface-container-low font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
+    <div className="h-dvh overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
       <Header 
         onProfileClick={() => setActiveTab('profile')} 
         onHelpClick={() => setActiveTab('help')}
@@ -471,7 +471,7 @@ export default function App() {
             />
           )}
           <div className={cn(
-            "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright",
+            "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright/95 backdrop-blur",
             isSidebarOpen
               ? "fixed bottom-0 left-0 top-16 z-50 w-72 max-w-full border-r shadow-xl lg:static lg:z-auto lg:w-64 lg:shadow-none"
               : "hidden lg:block lg:w-14 lg:border-r"
@@ -492,14 +492,14 @@ export default function App() {
         <div className="flex-1 min-w-0 h-full overflow-hidden transition-all duration-300">
           <div className={cn(
             "flex h-full min-h-0 flex-col lg:flex-row items-stretch overflow-hidden transition-all duration-300",
-            !isProfileMode ? "bg-surface-container-low" : "h-full"
+            !isProfileMode ? "bg-bg-base" : "h-full"
           )}>
             {!isProfileMode && isMobileLayout && (
-              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-base bg-surface-bright px-3 py-2 lg:hidden">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
                 <button
                   type="button"
                   onClick={() => setIsSidebarOpen(true)}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95"
                   aria-label={t('showSidebar')}
                   title={t('showSidebar')}
                 >
@@ -510,8 +510,8 @@ export default function App() {
                     type="button"
                     onClick={() => handleRightPanelTabClick('maturity')}
                     className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95",
-                      isRightPanelOpen && rightPanelTab === 'maturity' && "bg-blue-500 text-white hover:text-white"
+                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95",
+                      isRightPanelOpen && rightPanelTab === 'maturity' && "border-text-highlight bg-action-accent text-slate-950 shadow-md shadow-cyan-500/20 hover:text-slate-950"
                     )}
                     title={t('upcomingBonds')}
                   >
@@ -521,8 +521,8 @@ export default function App() {
                     type="button"
                     onClick={() => handleRightPanelTabClick('news')}
                     className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-surface-container-low text-text-muted transition-all hover:text-blue-600 active:scale-95",
-                      isRightPanelOpen && rightPanelTab === 'news' && "bg-blue-500 text-white hover:text-white"
+                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95",
+                      isRightPanelOpen && rightPanelTab === 'news' && "border-text-highlight bg-action-accent text-slate-950 shadow-md shadow-cyan-500/20 hover:text-slate-950"
                     )}
                     title={t('relatedNews')}
                   >
@@ -600,7 +600,7 @@ export default function App() {
                 />
               )}
               <div className={cn(
-                "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright",
+                "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright/95 backdrop-blur",
                 isRightPanelOpen
                   ? "fixed bottom-0 right-0 top-16 z-40 w-80 max-w-full border-l shadow-xl lg:static lg:z-auto lg:w-64 lg:shadow-none"
                   : "w-0 border-0"
