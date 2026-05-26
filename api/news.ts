@@ -2,8 +2,6 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   FIREANT_ACCESS_TOKEN,
   FIREANT_BASE_URL,
-  FIREANT_NEWS_URL,
-  FIREANT_SYMBOL_NEWS_URL,
   FIREANT_WEB_URL,
   STATIC_FIREANT_URL,
 } from './_lib/config.js';
@@ -153,7 +151,6 @@ function pushUniqueUrl(urls: string[], url: string) {
 async function fetchPostDetail(postId: string, token: string | null) {
   const urls = [
     `${FIREANT_BASE_URL}/posts/get-post?postID=${encodeURIComponent(postId)}`,
-    `${FIREANT_NEWS_URL}/posts/get-post?postID=${encodeURIComponent(postId)}`,
   ];
 
   for (const url of urls) {
@@ -195,10 +192,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const urls: string[] = [];
     if (symbol && isValidSymbol(symbol)) {
-      pushUniqueUrl(urls, `${FIREANT_SYMBOL_NEWS_URL}/posts?symbol=${encodeURIComponent(symbol)}&type=1`);
       pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?symbol=${encodeURIComponent(symbol)}&type=1`);
     }
-    pushUniqueUrl(urls, `${FIREANT_NEWS_URL}/posts?type=1`);
     pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?type=1`);
 
     let lastStatus = 502;

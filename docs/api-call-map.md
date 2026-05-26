@@ -26,7 +26,7 @@ flowchart LR
   A --> N[src/services/newsService.ts]
   N --> N2[/api/news]
   N2 --> N3[api/news.ts]
-  N3 --> N4[rest2/restv2/rests.fireant.vn posts]
+  N3 --> N4[https://restv2.fireant.vn/posts]
 
   A --> AI[src/api/ai.ts]
   AI --> AI2[/api/ai/*]

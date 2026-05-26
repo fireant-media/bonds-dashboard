@@ -10,15 +10,14 @@ const readEnv = (...keys: string[]): string => {
   return "";
 };
 
-export const FIREANT_BASE_URL = readEnv("FIREANT_BASE_URL") || "https://restv2.fireant.vn";
+export const FIREANT_BASE_URL =
+  readEnv("FIREANT_BASE_URL", "VITE_FIREANT_BASE_URL") || "https://restv2.fireant.vn";
 
-export const FIREANT_NEWS_URL = readEnv("FIREANT_NEWS_URL") || "https://rest2.fireant.vn";
+export const TRADESTATION_BASE_URL =
+  readEnv("TRADESTATION_BASE_URL", "VITE_TRADESTATION_BASE_URL") || "https://tradestation.fireant.vn";
 
-export const FIREANT_SYMBOL_NEWS_URL = readEnv("FIREANT_SYMBOL_NEWS_URL") || "https://rests.fireant.vn";
-
-export const TRADESTATION_BASE_URL = readEnv("TRADESTATION_BASE_URL") || "https://tradestation.fireant.vn";
-
-export const OPENAI_BASE_URL = readEnv("OPENAI_BASE_URL", "FIREANT_AI_BASE_URL") || "https://openai.fireant.vn/v1";
+export const OPENAI_BASE_URL =
+  readEnv("OPENAI_BASE_URL", "FIREANT_AI_BASE_URL", "VITE_FIREANT_AI_BASE_URL") || "https://openai.fireant.vn/v1";
 
 export const OPENAI_API_KEY = readEnv(
   "OPENAI_API_KEY",
@@ -33,4 +32,5 @@ export const DEFAULT_AI_MODEL =
 
 export const FIREANT_WEB_URL = "https://fireant.vn";
 
-export const STATIC_FIREANT_URL = "https://static.fireant.vn";
+export const STATIC_FIREANT_URL =
+  readEnv("STATIC_FIREANT_URL", "VITE_STATIC_FIREANT_URL") || "https://static.fireant.vn";
