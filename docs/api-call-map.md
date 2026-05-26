@@ -4,19 +4,16 @@
 
 Source: [`vercel.json`](/d:/FireAnt/project/bonds-dashboard/vercel.json)
 
-- `/api/health/fireant` -> `api/health-fireant`
-- `/api/fireant/bonds/filter` -> `api/fireant/bonds/filter`
-- `/api/fireant/:path*` -> `api/proxy?path=:path*`
-- `/api/fa/:path*` -> `api/proxy?path=:path*`
-- `/api/news/:id` -> `api/news?id=:id`
-- `/api/news` -> `api/news`
-- `/api/page-data/:view` -> `api/page-data?view=:view`
-- `/api/page-data` -> `api/page-data`
-- `/api/ai/:path*` -> `api/ai?path=:path*`
-- `/api/auth/login` -> `api/auth/login`
-- `/api/auth/logout` -> `api/auth/logout`
-- `/api/auth/session` -> `api/auth/session`
-- `/api/auth/:path*` -> `api/auth?path=:path*`
+- `/api/health/fireant` -> `api/health-fireant.ts`
+- `/api/proxy` -> `api/proxy.ts`
+- `/api/fireant/:path*` -> `api/proxy.ts?path=:path*`
+- `/api/fa/:path*` -> `api/proxy.ts?path=:path*`
+- `/api/news/:id` -> `api/news.ts?id=:id`
+- `/api/news` -> `api/news.ts`
+- `/api/page-data/:view` -> `api/page-data.ts?view=:view`
+- `/api/page-data` -> `api/page-data.ts`
+- `/api/ai/:path*` -> `api/ai.ts?path=:path*`
+- `/api/auth/:path*` -> `api/auth.ts?path=:path*`
 
 ## 2) End-to-end flow diagram
 
@@ -53,12 +50,11 @@ flowchart LR
 ## 3) API handler is in which file?
 
 - FireAnt proxy handler: [`api/proxy.ts`](/d:/FireAnt/project/bonds-dashboard/api/proxy.ts)
-- FireAnt bonds/filter exact Vercel handler: [`api/fireant/bonds/filter.ts`](/d:/FireAnt/project/bonds-dashboard/api/fireant/bonds/filter.ts)
 - FireAnt route entry (alias files): [`api/fireant/[...path].ts`](/d:/FireAnt/project/bonds-dashboard/api/fireant/[...path].ts), [`api/fa/[...path].ts`](/d:/FireAnt/project/bonds-dashboard/api/fa/[...path].ts)
 - News aggregate API: [`api/news.ts`](/d:/FireAnt/project/bonds-dashboard/api/news.ts)
 - Page data API for AI/chatbot: [`api/page-data.ts`](/d:/FireAnt/project/bonds-dashboard/api/page-data.ts), [`api/_lib/page-data.ts`](/d:/FireAnt/project/bonds-dashboard/api/_lib/page-data.ts)
 - AI gateway API: [`api/ai.ts`](/d:/FireAnt/project/bonds-dashboard/api/ai.ts)
-- Auth mock/session API: [`api/auth.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth.ts), [`api/auth/login.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth/login.ts), [`api/auth/logout.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth/logout.ts), [`api/auth/session.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth/session.ts)
+- Auth mock/session API: [`api/auth.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth.ts)
 - FireAnt health check: [`api/health-fireant.ts`](/d:/FireAnt/project/bonds-dashboard/api/health-fireant.ts)
 - HTML fetch helper (host-limited): [`api/news-html.ts`](/d:/FireAnt/project/bonds-dashboard/api/news-html.ts)
 

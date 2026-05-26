@@ -183,13 +183,9 @@ async function getFireantToken(force = false) {
   return fireantToken || FIREANT_ACCESS_TOKEN || null;
 }
 
-export async function handleProxyRequest(
-  req: VercelRequest,
-  res: VercelResponse,
-  pathOverride?: string,
-) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { path: pathParam, ...otherQuery } = req.query;
-  const path = pathOverride || (Array.isArray(pathParam) ? pathParam.join('/') : (pathParam as string));
+  const path = Array.isArray(pathParam) ? pathParam.join('/') : (pathParam as string);
   
   if (!path) return res.status(400).json({ error: "Path is required" });
 
@@ -270,8 +266,4 @@ export async function handleProxyRequest(
       message: error?.message || "Unknown error",
     });
   }
-}
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  return handleProxyRequest(req, res);
 }

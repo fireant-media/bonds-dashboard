@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/**/*.ts",
+      "src": "api/*.ts",
       "use": "@vercel/node",
       "config": {
         "maxDuration": 30
@@ -19,55 +19,43 @@
   "rewrites": [
     {
       "source": "/api/health/fireant",
-      "destination": "/api/health-fireant"
+      "destination": "/api/health-fireant.ts"
     },
     {
-      "source": "/api/fireant/bonds/filter",
-      "destination": "/api/fireant/bonds/filter"
+      "source": "/api/proxy",
+      "destination": "/api/proxy.ts"
     },
     {
       "source": "/api/fireant/:path*",
-      "destination": "/api/proxy?path=:path*"
+      "destination": "/api/proxy.ts?path=:path*"
     },
     {
       "source": "/api/fa/:path*",
-      "destination": "/api/proxy?path=:path*"
+      "destination": "/api/proxy.ts?path=:path*"
     },
     {
       "source": "/api/news/:id",
-      "destination": "/api/news?id=:id"
+      "destination": "/api/news.ts?id=:id"
     },
     {
       "source": "/api/news",
-      "destination": "/api/news"
+      "destination": "/api/news.ts"
     },
     {
       "source": "/api/page-data/:view",
-      "destination": "/api/page-data?view=:view"
+      "destination": "/api/page-data.ts?view=:view"
     },
     {
       "source": "/api/page-data",
-      "destination": "/api/page-data"
+      "destination": "/api/page-data.ts"
     },
     {
       "source": "/api/ai/:path*",
-      "destination": "/api/ai?path=:path*"
-    },
-    {
-      "source": "/api/auth/login",
-      "destination": "/api/auth/login"
-    },
-    {
-      "source": "/api/auth/logout",
-      "destination": "/api/auth/logout"
-    },
-    {
-      "source": "/api/auth/session",
-      "destination": "/api/auth/session"
+      "destination": "/api/ai.ts?path=:path*"
     },
     {
       "source": "/api/auth/:path*",
-      "destination": "/api/auth?path=:path*"
+      "destination": "/api/auth.ts?path=:path*"
     },
     {
       "source": "/(.*)",
