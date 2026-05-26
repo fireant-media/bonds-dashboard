@@ -7,6 +7,7 @@ import {
 } from 'oidc-client';
 import { useAuthStore } from './authStore';
 import { getUserAccount } from '../api/users';
+import { APP_URL } from '../api/config';
 import { removeFireantToken, setFireantToken } from '../utils/token';
 
 const scopes = [
@@ -37,8 +38,7 @@ const scopes = [
 const oidcAuthority =
   import.meta.env.VITE_OIDC_AUTHORITY?.trim() || 'https://accounts.fireant.vn';
 const oidcClientId = import.meta.env.VITE_OIDC_CLIENT_ID?.trim();
-const appBaseUrl =
-  import.meta.env.VITE_APP_BASE_URL?.trim() || window.location.origin;
+const appBaseUrl = APP_URL;
 const isPopupWindow = () => Boolean(window.opener && window.opener !== window);
 
 const OIDC_STORAGE_PREFIX = 'oidc.';
