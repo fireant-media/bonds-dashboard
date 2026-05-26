@@ -13,6 +13,9 @@ Source: [`vercel.json`](/d:/FireAnt/project/bonds-dashboard/vercel.json)
 - `/api/page-data/:view` -> `api/page-data?view=:view`
 - `/api/page-data` -> `api/page-data`
 - `/api/ai/:path*` -> `api/ai?path=:path*`
+- `/api/auth/login` -> `api/auth/login`
+- `/api/auth/logout` -> `api/auth/logout`
+- `/api/auth/session` -> `api/auth/session`
 - `/api/auth/:path*` -> `api/auth?path=:path*`
 
 ## 2) End-to-end flow diagram
@@ -55,7 +58,7 @@ flowchart LR
 - News aggregate API: [`api/news.ts`](/d:/FireAnt/project/bonds-dashboard/api/news.ts)
 - Page data API for AI/chatbot: [`api/page-data.ts`](/d:/FireAnt/project/bonds-dashboard/api/page-data.ts), [`api/_lib/page-data.ts`](/d:/FireAnt/project/bonds-dashboard/api/_lib/page-data.ts)
 - AI gateway API: [`api/ai.ts`](/d:/FireAnt/project/bonds-dashboard/api/ai.ts)
-- Auth mock/session API: [`api/auth.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth.ts)
+- Auth mock/session API: [`api/auth.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth.ts), [`api/auth/login.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth/login.ts), [`api/auth/logout.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth/logout.ts), [`api/auth/session.ts`](/d:/FireAnt/project/bonds-dashboard/api/auth/session.ts)
 - FireAnt health check: [`api/health-fireant.ts`](/d:/FireAnt/project/bonds-dashboard/api/health-fireant.ts)
 - HTML fetch helper (host-limited): [`api/news-html.ts`](/d:/FireAnt/project/bonds-dashboard/api/news-html.ts)
 

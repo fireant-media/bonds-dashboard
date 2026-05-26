@@ -1,8 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export function handleAuthRequest(
+  req: VercelRequest,
+  res: VercelResponse,
+  pathOverride?: string,
+) {
   const pathParam = req.query.path;
-  const subPath = (Array.isArray(pathParam) ? pathParam[0] : (pathParam as string) || '').replace(/^\//, '');
+  const subPath = (
+    pathOverride ||
+    (Array.isArray(pathParam) ? pathParam[0] : (pathParam as string) || '')
+  ).replace(/^\//, '');
 
   if (subPath === 'login') {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -21,4 +28,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   return res.status(404).json({ error: `Auth route not found: ${subPath}` });
+}
+
+export default function handler(req: VercelRequest, res: VercelResponse) {
+  return handleAuthRequest(req, res);
 }
