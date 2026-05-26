@@ -9,6 +9,11 @@ export interface FireantRequestOptions extends RequestInit {
   query?: Record<string, QueryValue>;
 }
 
+export interface IndustryBondsFilterQuery {
+  icbCode?: string | number | null;
+  statusID?: number | null;
+}
+
 const inflightRequests = new Map<string, Promise<unknown>>();
 
 export class FireantApiError extends Error {
@@ -103,6 +108,19 @@ export const fireantApi = {
         StatusID: statusId,
       },
     }),
+  getBondsByIndustryFilter: (query: IndustryBondsFilterQuery = {}) =>
+    fireantRequest<any[]>("bonds/filter", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        icbCode: query.icbCode,
+        statusID: query.statusID,
+      }),
+    }),
+  getBondsFilter: (query: IndustryBondsFilterQuery = {}) =>
+    fireantApi.getBondsByIndustryFilter(query),
   filterBonds: (query: Record<string, string | number | boolean | null | undefined> = {}) =>
     fireantRequest<any[]>("bond_Filter", { query }),
   getBondStatisticsByIssuer: (top = 200, sortBy = 2, statusId = 1, isListing = 1) =>

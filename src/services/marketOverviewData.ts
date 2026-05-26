@@ -1,6 +1,8 @@
 import { fireantApi } from '../api/fireant';
+import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { getCache, setCache } from '../utils/cache';
-import { loadIndustryStatsByLevel, loadIssuerStatsSummary } from './industryBondData';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { loadIndustryBaseBondGroupData, loadIssuerStatsSummary } from './industryBondData';
 
 export interface TopDebtIssuer {
   issuerName: string;
@@ -26,24 +28,102 @@ export interface MarketOverviewPayload {
   industryData: IndustryData[];
 }
 
+export const MARKET_OVERVIEW_CACHE_KEY = 'market_overview';
+export const MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY = 'market_overview_issuer_stats';
+export const MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY = 'market_overview_top_interest';
+export const MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY = 'market_overview_industry_data';
+
 let marketOverviewPromise: Promise<MarketOverviewPayload> | null = null;
+let marketIssuerStatsPromise: Promise<TopDebtIssuer[]> | null = null;
+let marketTopInterestPromise: Promise<any[]> | null = null;
+let marketIndustryDataPromise: Promise<IndustryData[]> | null = null;
+
+const normalizeIndustryData = (industry: any): IndustryData => ({
+  icbName: String(industry?.icbName || ''),
+  totalCurrentListedValue: Number(industry?.totalCurrentListedValue || 0),
+  totalRemainingDebt: Number(industry?.totalRemainingDebt || 0),
+  bondCount: Number(industry?.bondCount || 0),
+  totalIssuedVolume: Number(industry?.totalIssuedVolume || 0),
+  totalCurrentListedVolume: Number(industry?.totalCurrentListedVolume || 0),
+});
+
+export const loadMarketOverviewIssuerStats = async (forceRefresh = false): Promise<TopDebtIssuer[]> => {
+  const cached = forceRefresh ? null : getCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY);
+  if (cached) return cached as TopDebtIssuer[];
+  if (marketIssuerStatsPromise) return marketIssuerStatsPromise;
+
+  marketIssuerStatsPromise = loadIssuerStatsSummary(200, forceRefresh)
+    .then((rows) => {
+      const data = Array.isArray(rows) ? rows : [];
+      setCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY, data);
+      return data;
+    })
+    .finally(() => {
+      marketIssuerStatsPromise = null;
+    });
+
+  return marketIssuerStatsPromise;
+};
+
+export const loadMarketOverviewTopInterestData = async (forceRefresh = false): Promise<any[]> => {
+  const cached = forceRefresh ? null : getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY);
+  if (cached) return cached as any[];
+  if (marketTopInterestPromise) return marketTopInterestPromise;
+
+  marketTopInterestPromise = fireantApi.getHighYieldBonds(10)
+    .then((rows) => {
+      const data = Array.isArray(rows) ? rows : [];
+      setCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY, data);
+      return data;
+    })
+    .finally(() => {
+      marketTopInterestPromise = null;
+    });
+
+  return marketTopInterestPromise;
+};
+
+export const loadMarketOverviewIndustryData = async (forceRefresh = false): Promise<IndustryData[]> => {
+  const cached = forceRefresh ? null : getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
+  if (cached) return cached as IndustryData[];
+  if (marketIndustryDataPromise) return marketIndustryDataPromise;
+
+  marketIndustryDataPromise = mapWithConcurrency(
+    INDUSTRY_NAV_ITEMS.filter((item) => item.statsLevel === 1),
+    3,
+    async (item) => {
+      const data = await loadIndustryBaseBondGroupData(item.id, forceRefresh);
+      return normalizeIndustryData(data.industryStats);
+    },
+  )
+    .then((settled) => getFulfilledValues(settled))
+    .then((data) => {
+      setCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY, data);
+      return data;
+    })
+    .finally(() => {
+      marketIndustryDataPromise = null;
+    });
+
+  return marketIndustryDataPromise;
+};
 
 export const loadMarketOverviewData = async (forceRefresh = false): Promise<MarketOverviewPayload> => {
-  const cachedOverview = forceRefresh ? null : getCache('market_overview');
+  const cachedOverview = forceRefresh ? null : getCache(MARKET_OVERVIEW_CACHE_KEY);
   if (cachedOverview) return cachedOverview;
 
   if (!marketOverviewPromise) {
     marketOverviewPromise = (async () => {
       const [issuerStatsRaw, highYieldRaw, industriesRaw] = await Promise.all([
-        loadIssuerStatsSummary(200, forceRefresh).catch((error) => {
+        loadMarketOverviewIssuerStats(forceRefresh).catch((error) => {
           console.error('Issuer stats fetch error', error);
           return [];
         }),
-        fireantApi.getHighYieldBonds(10).catch((error) => {
+        loadMarketOverviewTopInterestData(forceRefresh).catch((error) => {
           console.error('Interest fetch error', error);
           return [];
         }),
-        loadIndustryStatsByLevel(1, forceRefresh).catch((error) => {
+        loadMarketOverviewIndustryData(forceRefresh).catch((error) => {
           console.error('Industry fetch error', error);
           return [];
         }),
@@ -57,7 +137,7 @@ export const loadMarketOverviewData = async (forceRefresh = false): Promise<Mark
         industryData: Array.isArray(industriesRaw) ? industriesRaw : [],
       };
 
-      setCache('market_overview', payload);
+      setCache(MARKET_OVERVIEW_CACHE_KEY, payload);
       return payload;
     })().finally(() => {
       marketOverviewPromise = null;

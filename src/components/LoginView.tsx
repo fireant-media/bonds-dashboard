@@ -582,25 +582,25 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
 
   return (
     <div className="min-h-dvh overflow-x-hidden overflow-y-auto bg-bg-base text-text-base">
-      <header className="sticky top-0 z-30 h-16 border-b border-border-base bg-bg-surface/95 backdrop-blur-xl">
-        <div className="mx-auto flex h-full max-w-7xl items-center justify-between gap-3 px-3 sm:px-4 md:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-4">
+      <header className="sticky top-0 z-30 border-b border-border-base bg-bg-surface/95 py-3 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:px-6 xl:px-8">
+          <div className="flex min-w-0 items-center justify-between gap-3 lg:justify-start">
             <button
               type="button"
               onClick={() => scrollToSection('overview')}
-              className="flex items-center gap-2"
+              className="flex shrink-0 items-center gap-2"
               aria-label="Fireant"
             >
               <Logo />
             </button>
 
-            <nav className="hidden items-center gap-6 md:flex">
+            <nav className="hidden items-center gap-1 lg:flex">
               {loginCopy.navItems.map((item) => (
                 <button
                   key={item.label}
                   type="button"
                   onClick={() => scrollToSection(item.target)}
-                  className="rounded px-3 py-2 text-sm text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
                 >
                   {item.label}
                 </button>
@@ -608,7 +608,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
             </nav>
           </div>
 
-          <div className="flex min-w-0 items-center justify-end gap-1.5 sm:gap-2 md:gap-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 sm:justify-end sm:gap-3">
             <button
               type="button"
               onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
@@ -664,23 +664,23 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
       )}
 
       <main>
-        <section id="overview" className="relative overflow-hidden bg-bg-base px-4 pb-4 pt-10 sm:px-6 sm:pt-12 lg:px-8 lg:pb-12 lg:pt-12">
+        <section id="overview" className="relative overflow-hidden bg-bg-base px-3 pb-8 pt-8 sm:px-4 sm:pb-10 sm:pt-10 lg:px-6 lg:pb-12 lg:pt-12 xl:px-8">
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent" />
-          <div className="mx-auto grid max-w-7xl items-center gap-8 lg:grid-cols-12">
+          <div className="mx-auto grid max-w-7xl items-start gap-8 xl:grid-cols-12">
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45 }}
-              className="relative z-10 lg:col-span-6"
+              className="relative z-10 xl:col-span-5"
             >
-              <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-tight text-text-base sm:text-5xl xl:text-6xl">
+              <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-tight text-text-base sm:text-4xl md:text-5xl xl:text-6xl">
                 {loginCopy.heroTitle}
               </h1>
-              <p className="mt-5 max-w-2xl text-sm leading-7 text-text-muted sm:mt-6 sm:text-lg sm:leading-8">
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-text-muted sm:mt-5 sm:text-base sm:leading-8 md:text-lg">
                 {loginCopy.heroDescription}
               </p>
 
-              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:gap-4">
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4">
                 <button
                   type="button"
                   onClick={() => void handleLogin()}
@@ -700,24 +700,25 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                 </button>
               </div>
 
-              <div className="mt-6 grid grid-cols-2 gap-3 sm:flex sm:items-center sm:gap-8">
-                <div className="flex flex-col rounded-lg border border-border-base/70 bg-bg-surface/60 p-3 sm:border-0 sm:bg-transparent sm:p-0">
-                  <span className="text-2xl font-bold text-text-base">
-                    {snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,000+'}
-                  </span>
-                  <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
-                    {loginCopy.heroStats[0].label}
-                  </span>
-                </div>
-                <div className="hidden h-10 w-px bg-border-base sm:block" />
-                <div className="flex flex-col rounded-lg border border-border-base/70 bg-bg-surface/60 p-3 sm:border-0 sm:bg-transparent sm:p-0">
-                  <span className="text-2xl font-bold text-text-base">
-                    {snapshot ? formatNumber(snapshot.totalIssuers, 0) : '100+'}
-                  </span>
-                  <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
-                    {loginCopy.heroStats[1].label}
-                  </span>
-                </div>
+              <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4">
+                {heroStats.slice(0, 2).map((stat, index) => (
+                  <div
+                    key={stat.label}
+                    className="flex flex-col rounded-lg border border-border-base/70 bg-bg-surface/60 p-3 shadow-sm sm:border sm:bg-bg-surface/70 sm:p-4"
+                  >
+                    <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+                      <stat.icon className="h-4 w-4" />
+                    </div>
+                    <span className="text-xl font-bold text-text-base sm:text-2xl">
+                      {index === 0
+                        ? snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,000+'
+                        : snapshot ? formatNumber(snapshot.totalIssuers, 0) : '100+'}
+                    </span>
+                    <span className="mt-1 text-xs font-semibold uppercase tracking-widest text-text-muted">
+                      {stat.label}
+                    </span>
+                  </div>
+                ))}
               </div>
             </motion.div>
 
@@ -725,37 +726,38 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.05 }}
-              className="relative lg:col-span-6"
+              className="relative xl:col-span-7"
             >
-              <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-6">
-                <div className="data-card overflow-hidden rounded-xl border border-border-base bg-bg-surface p-4 shadow-sm lg:col-span-6 lg:p-5">
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div className="min-w-0">
-                    <h3 className="text-left text-sm font-semibold text-text-base">{loginCopy.chartTitle}</h3>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="data-card overflow-hidden rounded-xl border border-border-base bg-bg-surface p-4 shadow-sm sm:p-5 xl:col-span-12">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <h3 className="text-left text-sm font-semibold text-text-base">{loginCopy.chartTitle}</h3>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[0] }} />
+                        <span className="text-xs font-semibold text-text-muted">{loginCopy.issuedLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[1] }} />
+                        <span className="text-xs font-semibold text-text-muted">{loginCopy.listedLabel}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[0] }} />
-                      <span className="text-xs font-semibold text-text-muted">{loginCopy.issuedLabel}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[1] }} />
-                      <span className="text-xs font-semibold text-text-muted">{loginCopy.listedLabel}</span>
-                    </div>
+                  <div className="h-52 w-full overflow-hidden bg-bg-surface sm:h-64 lg:h-72">
+                    <ChartWithToolbar
+                      option={industryVolumeOptions}
+                      style={{ height: '100%', width: '100%' }}
+                      allowMagicType
+                      showToolbar={false}
+                      notMerge
+                      lazyUpdate
+                    />
                   </div>
                 </div>
-                <div className="h-56 w-full overflow-hidden bg-bg-surface pb-0 sm:h-72">
-                  <ChartWithToolbar
-                    option={industryVolumeOptions}
-                    style={{ height: '100%', width: '100%' }}
-                    allowMagicType
-                    notMerge
-                    lazyUpdate
-                  />
-                </div>
-              </div>
 
-              <div className="data-card rounded-xl border border-border-base bg-bg-surface p-4 lg:col-span-2">
+                <div className="data-card rounded-xl border border-border-base bg-bg-surface p-4 xl:col-span-4">
                   <span className="mb-3 block text-sm font-semibold text-text-base">
                     {loginCopy.marketOverviewTitle}
                   </span>
@@ -787,7 +789,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                   </div>
                 </div>
 
-              <div className="data-card rounded-xl border border-border-base bg-bg-surface p-4 lg:col-span-4">
+                <div className="data-card rounded-xl border border-border-base bg-bg-surface p-4 xl:col-span-8">
                   <span className="mb-4 block text-sm font-semibold text-text-base">
                     {loginCopy.topIssuerTitle}
                   </span>
@@ -802,12 +804,14 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                           { label: 'DIG', value: 53, debt: 45000 },
                         ]
                     ).map((item) => (
-                      <div key={item.label} className="flex items-center gap-3">
-                        <span className="w-10 shrink-0 text-sm font-semibold text-text-base">{item.label}</span>
-                        <div className="h-2 w-24 flex-none overflow-hidden rounded-full bg-border-base/50 sm:w-32 lg:w-40">
+                      <div key={item.label} className="grid grid-cols-12 items-center gap-2 sm:gap-3">
+                        <span className="col-span-2 truncate text-sm font-semibold text-text-base sm:col-span-2">
+                          {item.label}
+                        </span>
+                        <div className="col-span-4 h-2 w-full overflow-hidden rounded-full bg-border-base/50 sm:col-span-5">
                           <div className={`h-full rounded-full bg-blue-500 ${getHeatWidthClass(item.value)}`} />
                         </div>
-                        <span className="w-36 shrink-0 text-right text-xs font-medium tabular-nums text-text-muted sm:text-sm">
+                        <span className="col-span-6 min-w-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-text-muted sm:col-span-5 sm:text-sm">
                           {hasSnapshotBars
                             ? formatBillionVnd(item.debt)
                             : item.debt
@@ -824,7 +828,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
         </section>
 
         <section id="solutions" className="-mt-8 border-t border-border-base bg-bg-surface py-16 lg:-mt-10">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 xl:px-8">
             <div className="text-center">
               <h2 className="text-3xl font-semibold text-text-base">{loginCopy.whyTitle}</h2>
               <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-text-muted">
@@ -849,7 +853,7 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
         </section>
 
         <section id="about" className="relative border-t border-border-base bg-bg-surface py-20">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 xl:px-8">
             <div className="grid gap-6 lg:grid-cols-4">
               <div>
                 <div className="flex items-center gap-3">

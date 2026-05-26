@@ -23,6 +23,21 @@ export const INDUSTRY_NAV_ITEMS: IndustryNavItem[] = [
   { id: 'InfrastructureServices', labelKey: 'infrastructureServicesIndustry', code: '65', statsTop: 1000, statsLevel: 1, targetNames: ['Các dịch vụ hạ tầng'], priority: 130, icbCode: '65' },
 ];
 
+export const INDUSTRY_FILTER_CODE_GROUPS: Record<string, { include: string[]; exclude: string[] }> = {
+  Financials: {
+    include: ['30'],
+    exclude: ['3010', '30202005'],
+  },
+  Banking: {
+    include: ['3010'],
+    exclude: [],
+  },
+  Securities: {
+    include: ['30202005'],
+    exclude: [],
+  },
+};
+
 export const INDUSTRY_NAV_ITEM_BY_ID = INDUSTRY_NAV_ITEMS.reduce<Record<string, IndustryNavItem>>((acc, item) => {
   acc[item.id] = item;
   return acc;
@@ -185,4 +200,22 @@ export const getIndustryStatsIcbCode = (stats: any) => {
     stats?.industryCode;
 
   return candidate ? String(candidate) : undefined;
+};
+
+export const getIndustryFilterCodes = (industryId: string) => {
+  const industry = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
+  const override = INDUSTRY_FILTER_CODE_GROUPS[industry.id];
+
+  const include = (override?.include?.length ? override.include : [industry.icbCode || industry.code]).filter(Boolean);
+  const exclude = (override?.exclude || []).filter(Boolean);
+
+  return {
+    include: Array.from(new Set(include.map(String))),
+    exclude: Array.from(new Set(exclude.map(String))),
+  };
+};
+
+export const isFinancialsResidualIndustry = (industryId: string) => {
+  const industry = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
+  return industry.id === 'Financials';
 };

@@ -4,9 +4,10 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
-import { getIndustryIssuedValue, hasBondIssuers, INDUSTRY_NAV_ITEMS } from '../constants/industries';
-import { loadDedupedIndustrySymbols, loadIndustryStats } from '../services/industryBondData';
+import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
+import { loadIndustryBaseBondGroupData } from '../services/industryBondData';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -49,30 +50,33 @@ export default function Sidebar({
 
     const loadIndustryIssuedValues = async () => {
       const cached = getCache('sidebar_industry_issued_values');
-      if (cached) {
+      if (cached && Object.keys(cached).length > 0) {
         setIndustryIssuedValues(cached);
         return;
       }
 
       try {
-        const symbolGroups = await loadDedupedIndustrySymbols();
-        const statsEntries = await Promise.all(
-          INDUSTRY_NAV_ITEMS.map(async (item) => [item.id, await loadIndustryStats(item.id)] as const)
+        const statsEntries = await mapWithConcurrency(
+          INDUSTRY_NAV_ITEMS,
+          3,
+          async (item) => [item.id, await loadIndustryBaseBondGroupData(item.id)] as const
         );
-        const statsById = Object.fromEntries(statsEntries);
+        const statsById = Object.fromEntries(getFulfilledValues(statsEntries).map(([id, data]) => [id, data]));
 
         const nextIssuedValues = INDUSTRY_NAV_ITEMS.reduce<Record<string, number>>((acc, item) => {
-          const hasSymbols = (symbolGroups[item.id] || []).length > 0;
-          const stats = statsById[item.id];
-          const issuedValue = getIndustryIssuedValue(stats);
+          const stats = statsById[item.id]?.industryStats;
+          const issuedValue = Number(stats?.totalIssuedValue || 0);
+          const bondCount = Number(stats?.bondCount || 0);
 
-          if (hasSymbols && hasBondIssuers({ ...stats, totalIssuedValue: issuedValue })) {
+          if (bondCount > 0 && issuedValue > 0) {
             acc[item.id] = issuedValue;
           }
           return acc;
         }, {});
 
-        setCache('sidebar_industry_issued_values', nextIssuedValues);
+        if (Object.keys(nextIssuedValues).length > 0) {
+          setCache('sidebar_industry_issued_values', nextIssuedValues);
+        }
         if (isMounted) setIndustryIssuedValues(nextIssuedValues);
       } catch (error) {
         console.error('Failed to load sidebar industry order', error);
@@ -93,11 +97,12 @@ export default function Sidebar({
       issuedValue: industryIssuedValues?.[item.id],
     }));
 
-    if (!industryIssuedValues) return items;
+    if (!industryIssuedValues || Object.keys(industryIssuedValues).length === 0) return items;
 
-    return items
-      .filter((item) => typeof item.issuedValue === 'number')
-      .sort((a, b) => (b.issuedValue || 0) - (a.issuedValue || 0));
+    const visibleItems = items.filter((item) => typeof item.issuedValue === 'number');
+    return visibleItems.length > 0
+      ? visibleItems.sort((a, b) => (b.issuedValue || 0) - (a.issuedValue || 0))
+      : items;
   }, [industryIssuedValues, t]);
 
   return (

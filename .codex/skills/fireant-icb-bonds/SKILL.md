@@ -69,13 +69,15 @@ After this pass, `Financials` means “Tài chính khác”: financial symbols n
 
 ## Grouped Bond Data
 
-For each final industry symbol group:
+For each final industry group:
 
-1. Fetch bonds for each issuer symbol with `getIssuerBonds(symbol)`.
-2. Deduplicate bonds by `bondCode`.
-3. Fetch bond detail with `getBond(bondCode)` when chart values need `totalIssuedValue`, `currentListedValue`, or cash flows.
-4. Merge issuer symbol/name onto every bond.
-5. Group by industry ID and issuer symbol.
+1. Fetch bonds by industry code with `fireantApi.getBondsByIndustryFilter({ icbCode, statusID: 1 })`.
+This wrapper maps to `POST /bonds/filter` with JSON body `{ icbCode, statusID }`.
+2. For `Financials`, fetch `30`, `3010`, and `30202005` in parallel and exclude the child industry bonds from the residual `Financials` bucket.
+3. Deduplicate bonds by `bondCode`.
+4. Fetch bond detail with `getBond(bondCode)` when chart values need `totalIssuedValue`, `currentListedValue`, or cash flows.
+5. Merge issuer symbol/name onto every bond.
+6. Group by industry ID and issuer symbol.
 
 The final grouped shape should support:
 
@@ -84,6 +86,13 @@ The final grouped shape should support:
 - `issuerSummaries`: issuer-level totals for ranking and market-share charts.
 - `industryStats`: industry totals for KPI cards.
 - `projectedCashFlowBuckets`: month buckets for cash-flow charts.
+
+Industry pages should render in stages:
+
+1. Show any cached industry data immediately.
+2. Load industry bond rows first so ranking/market-share cards can render early.
+3. Fetch bond detail in the background and replace the cached data when it arrives.
+4. Keep chart state stable while data upgrades, instead of resetting to empty between stages.
 
 ## Fetch Concurrency
 
@@ -109,6 +118,8 @@ Recommended concurrency:
 - Issuer profiles / translated names: `5`
 
 Prefer the async pool over chunked loops. A pool starts the next request as soon as one finishes, while still capping concurrent load against FireAnt APIs.
+
+For industry bond filtering, prefer the dedicated wrapper `getBondsByIndustryFilter`. It hides the FireAnt-specific REST call shape while keeping the industry callsite explicit.
 
 For expensive grouped industry loaders, keep an in-flight promise map alongside persistent cache. This prevents React StrictMode remounts, quick tab switches, or duplicate callers from starting the same industry calculation twice before the first result is cached.
 

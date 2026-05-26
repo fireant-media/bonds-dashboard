@@ -22,7 +22,16 @@ import { Card, MetricCard } from './ui/Card';
 import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
-import { loadMarketOverviewData, type IndustryData, type TopDebtIssuer } from '../services/marketOverviewData';
+import {
+  loadMarketOverviewIndustryData,
+  loadMarketOverviewIssuerStats,
+  loadMarketOverviewTopInterestData,
+  MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY,
+  MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY,
+  MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY,
+  type IndustryData,
+  type TopDebtIssuer,
+} from '../services/marketOverviewData';
 import { loadIssuerStatsSummary } from '../services/industryBondData';
 
 export default function MarketOverview() {
@@ -30,12 +39,26 @@ export default function MarketOverview() {
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const cachedData = getCache('market_overview');
-  const cachedIssuerStats = getCache('top_debt_200');
-  const [issuerStatsData, setIssuerStatsData] = useState<TopDebtIssuer[]>(cachedData?.issuerStatsData || cachedIssuerStats || cachedData?.topDebtData || []);
-  const [topInterestData, setTopInterestData] = useState<any[]>(cachedData?.topInterestData || []);
+  const cachedIssuerStats = getCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY) || getCache('top_debt_200');
+  const cachedIndustryData = getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
+  const cachedTopInterestData = getCache('market_top_interest_bonds') || getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY);
+  const hasSeedData = Boolean(
+    (Array.isArray(cachedIssuerStats) && cachedIssuerStats.length > 0)
+    || (Array.isArray(cachedIndustryData) && cachedIndustryData.length > 0)
+    || (Array.isArray(cachedTopInterestData) && cachedTopInterestData.length > 0)
+    || cachedData
+  );
+  const [issuerStatsData, setIssuerStatsData] = useState<TopDebtIssuer[]>(
+    (Array.isArray(cachedIssuerStats) ? cachedIssuerStats : cachedData?.issuerStatsData || cachedData?.topDebtData || [])
+  );
+  const [topInterestData, setTopInterestData] = useState<any[]>(
+    (Array.isArray(cachedTopInterestData) ? cachedTopInterestData : cachedData?.topInterestData || [])
+  );
   const [topInterestMetric, setTopInterestMetric] = useState<'highest' | 'lowest'>('highest');
   const [loadingTopInterestChart, setLoadingTopInterestChart] = useState(false);
-  const [industryData, setIndustryData] = useState<IndustryData[]>(cachedData?.industryData || []);
+  const [industryData, setIndustryData] = useState<IndustryData[]>(
+    (Array.isArray(cachedIndustryData) ? cachedIndustryData : cachedData?.industryData || [])
+  );
   const [topIssuerMetric, setTopIssuerMetric] = useState<'remainingDebt' | 'issuedValue'>('remainingDebt');
   const [loadingTopIssuerChart, setLoadingTopIssuerChart] = useState(false);
   const [showTopIssuerDataView, setShowTopIssuerDataView] = useState(false);
@@ -43,7 +66,7 @@ export default function MarketOverview() {
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(getCache('market_projected_cash_flows') || {});
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
-  const [loading, setLoading] = useState(!cachedData);
+  const [loading, setLoading] = useState(!hasSeedData);
   const [error, setError] = useState<string | null>(null);
   const topIssuerChartRef = useRef<any>(null);
 
@@ -196,38 +219,51 @@ export default function MarketOverview() {
 
   useEffect(() => {
     let isMounted = true;
-    const fetchData = async () => {
-      if (cachedData) {
-        setIssuerStatsData(cachedData.issuerStatsData || cachedData.topDebtData || []);
-        setTopInterestData(cachedData.topInterestData || []);
-        setIndustryData(cachedData.industryData || []);
-        setLoading(false);
-      }
+    setError(null);
+    if (!hasSeedData) setLoading(true);
 
-      setError(null);
-      if (!cachedData) setLoading(true);
-      try {
-        const data = await loadMarketOverviewData();
-        if (!isMounted) return;
-        setIssuerStatsData(data.issuerStatsData);
-        setTopInterestData(data.topInterestData);
-        setIndustryData(data.industryData);
-      } catch (error) {
-        if (!isMounted) return;
-        console.error('Error fetching market data:', error);
-        if (!cachedData) {
-          if (error instanceof Error && error.message.includes('401')) {
-            setError(t('tokenError401'));
-          } else {
-            setError(error instanceof Error ? error.message : t('error'));
-          }
+    const fail = (error: unknown) => {
+      if (!isMounted) return;
+      console.error('Error fetching market data:', error);
+      if (!hasSeedData) {
+        if (error instanceof Error && error.message.includes('401')) {
+          setError(t('tokenError401'));
+        } else {
+          setError(error instanceof Error ? error.message : t('error'));
         }
-      } finally {
-        if (isMounted) setLoading(false);
       }
     };
 
-    void fetchData();
+    void loadMarketOverviewIssuerStats()
+      .then((data) => {
+        if (!isMounted) return;
+        setIssuerStatsData(data);
+        setCache('top_debt_200', data);
+        setLoading(false);
+      })
+      .catch(fail);
+
+    void loadMarketOverviewTopInterestData()
+      .then((data) => {
+        if (!isMounted) return;
+        if (!Array.isArray(getCache('market_top_interest_bonds'))) {
+          setTopInterestData(data);
+        }
+        setLoading(false);
+      })
+      .catch(fail);
+
+    void loadMarketOverviewIndustryData()
+      .then((data) => {
+        if (!isMounted) return;
+        setIndustryData(data);
+        setLoading(false);
+      })
+      .catch(fail)
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
     return () => { isMounted = false; };
   }, []);
 
@@ -238,6 +274,7 @@ export default function MarketOverview() {
       if (Array.isArray(freshIssuers)) {
         setIssuerStatsData(freshIssuers);
         setCache('top_debt_200', freshIssuers);
+        setCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY, freshIssuers);
       }
     } catch (error) {
       console.error('Top issuer chart refresh error', error);

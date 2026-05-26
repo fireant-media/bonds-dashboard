@@ -1,5 +1,6 @@
 import { fireantApi, fireantRequest } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
 
 type ProcedureResult<T> =
@@ -78,6 +79,7 @@ const ISSUER_PROFILE_CACHE_PREFIX = 'issuer_profile_';
 const categoryPromises = new Map<string, Promise<BondCategoryItem[]>>();
 const filterPromises = new Map<string, Promise<BondDataRow[]>>();
 const detailPromises = new Map<string, Promise<any>>();
+const detailBatchPromises = new Map<string, Promise<any[]>>();
 const issuerProfilePromises = new Map<string, Promise<any>>();
 
 const toNumber = (value: unknown) => {
@@ -105,6 +107,8 @@ const buildQueryCacheKey = (prefix: string, query: Record<string, unknown>) => {
     .sort(([a], [b]) => a.localeCompare(b));
   return `${prefix}${JSON.stringify(entries)}`;
 };
+
+const normalizeBondCode = (value: unknown) => asString(value).toUpperCase();
 
 const extractRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => {
   if (!payload) return [];
@@ -303,8 +307,40 @@ export const loadIssuerBondsByFilter = async (issuerSymbol: string): Promise<Bon
     IssuerSymbol: issuerSymbol,
   });
 
+export const loadBondsByIndustryFilter = async (
+  icbCode: string | number,
+  statusID = 1,
+): Promise<BondDataRow[]> => {
+  const normalizedIcbCode = asString(icbCode);
+  const normalizedStatus = Number(statusID);
+  if (!normalizedIcbCode) return [];
+  if (normalizedStatus !== 0 && normalizedStatus !== 1) return [];
+
+  const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
+    endpoint: "bonds/filter",
+    icbCode: normalizedIcbCode,
+    statusID: normalizedStatus,
+  });
+  const cached = getCache(cacheKey);
+  if (cached) return cached as BondDataRow[];
+
+  const payload = await fireantApi.getBondsByIndustryFilter({
+    icbCode: normalizedIcbCode,
+    statusID: normalizedStatus,
+  });
+
+  const rows = extractRows(payload as ProcedureResult<BondDataRow>)
+    .map(normalizeBondRow)
+    .filter((item) => Boolean(item.bondCode));
+
+  setCache(cacheKey, rows);
+  return rows;
+};
+
+export const loadBondsByIndustryStatus = loadBondsByIndustryFilter;
+
 export const loadBondDetail = async (code: string, forceRefresh = false) => {
-  const normalizedCode = asString(code);
+  const normalizedCode = normalizeBondCode(code);
   if (!normalizedCode) return null;
 
   const cacheKey = `${BOND_DETAIL_CACHE_PREFIX}${normalizedCode}`;
@@ -325,6 +361,79 @@ export const loadBondDetail = async (code: string, forceRefresh = false) => {
 
   detailPromises.set(normalizedCode, promise);
   return promise;
+};
+
+export interface LoadBondDetailsOptions {
+  concurrency?: number;
+  forceRefresh?: boolean;
+}
+
+export const loadBondDetailsByCodes = async (
+  codes: Array<string | number | null | undefined>,
+  options: LoadBondDetailsOptions = {},
+) => {
+  const normalizedCodes = Array.from(
+    new Set(codes.map((code) => normalizeBondCode(code)).filter(Boolean)),
+  );
+  if (normalizedCodes.length === 0) return [];
+
+  const concurrency = Math.max(1, Math.min(Math.floor(options.concurrency ?? 8), 10));
+  const forceRefresh = Boolean(options.forceRefresh);
+  const batchKey = buildQueryCacheKey('bond_detail_batch_v1_', {
+    codes: normalizedCodes.join(','),
+    concurrency,
+    forceRefresh,
+  });
+
+  const inflight = detailBatchPromises.get(batchKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const cachedDetails = new Map<string, any>();
+    const missingCodes: string[] = [];
+
+    normalizedCodes.forEach((code) => {
+      if (!forceRefresh) {
+        const cached = getCache(`${BOND_DETAIL_CACHE_PREFIX}${code}`);
+        if (cached) {
+          cachedDetails.set(code, cached);
+          return;
+        }
+      }
+
+      missingCodes.push(code);
+    });
+
+    const fetchedDetails = getFulfilledValues(
+      await mapWithConcurrency(missingCodes, concurrency, async (code) => loadBondDetail(code, forceRefresh)),
+    );
+
+    fetchedDetails.forEach((detail: any) => {
+      const detailCode = normalizeBondCode(detail?.detail?.bondCode || detail?.bondCode || detail?.code);
+      if (detailCode) cachedDetails.set(detailCode, detail);
+    });
+
+    return normalizedCodes
+      .map((code) => cachedDetails.get(code))
+      .filter(Boolean);
+  })().finally(() => {
+    detailBatchPromises.delete(batchKey);
+  });
+
+  detailBatchPromises.set(batchKey, promise);
+  return promise;
+};
+
+export const loadBondDetailsMapByCodes = async (
+  codes: Array<string | number | null | undefined>,
+  options: LoadBondDetailsOptions = {},
+) => {
+  const details = await loadBondDetailsByCodes(codes, options);
+  return details.reduce<Record<string, any>>((acc, detail: any) => {
+    const code = normalizeBondCode(detail?.detail?.bondCode || detail?.bondCode || detail?.code);
+    if (code) acc[code] = detail;
+    return acc;
+  }, {});
 };
 
 export const loadIssuerProfile = async (symbol: string, forceRefresh = false) => {

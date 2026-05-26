@@ -70,17 +70,25 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       }
 
       try {
-        const stats = await loadIndustryStats(String(industry));
+        const statsPromise = loadIndustryStats(String(industry));
+        const basePromise = loadIndustryBaseBondGroupData(String(industry));
+        const groupPromise = loadIndustryBondGroupData(String(industry));
+
+        const [statsResult, baseResult] = await Promise.allSettled([statsPromise, basePromise]);
         if (!isMounted) return;
-        setIndustryStats(stats);
+
+        if (statsResult.status === 'fulfilled' && statsResult.value) {
+          setIndustryStats(statsResult.value);
+        }
+
+        if (baseResult.status === 'fulfilled' && baseResult.value) {
+          setIndustryStats(baseResult.value.industryStats);
+          setRankingData(baseResult.value.issuerSummaries);
+        }
+
         setLoading(false);
 
-        const baseGroupedData = await loadIndustryBaseBondGroupData(String(industry));
-        if (!isMounted) return;
-        setIndustryStats(baseGroupedData.industryStats);
-        setRankingData(baseGroupedData.issuerSummaries);
-
-        const groupedData = await loadIndustryBondGroupData(String(industry));
+        const groupedData = await groupPromise;
         if (!isMounted) return;
 
         setIndustryStats(groupedData.industryStats);

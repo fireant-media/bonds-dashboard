@@ -20,6 +20,8 @@ interface ChartWithToolbarProps {
   style?: CSSProperties;
   className?: string;
   allowMagicType?: boolean;
+  showToolbar?: boolean;
+  showZoomButton?: boolean;
   notMerge?: boolean;
   lazyUpdate?: boolean;
   title?: ReactNode;
@@ -209,11 +211,30 @@ function getSeriesType(series: any) {
   return String(series?.type || 'bar');
 }
 
+function getLegendItems(option: any, seriesArray: any[]) {
+  const legendData = Array.isArray(option?.legend)
+    ? option.legend.flatMap((item) => (Array.isArray(item?.data) ? item.data : []))
+    : Array.isArray(option?.legend?.data)
+      ? option.legend.data
+      : [];
+
+  const palette = Array.isArray(option?.color) ? option.color : [];
+  const items = seriesArray.map((series, index) => {
+    const name = String(series?.name || legendData[index] || `Series ${index + 1}`);
+    const color = String(series?.itemStyle?.color || series?.color || palette[index % Math.max(palette.length, 1)] || '#4D93F9');
+    return { name, color };
+  });
+
+  return items.filter((item, index, self) => self.findIndex((entry) => entry.name === item.name) === index);
+}
+
 export default function ChartWithToolbar({
   option,
   style,
   className,
   allowMagicType = false,
+  showToolbar = true,
+  showZoomButton = true,
   notMerge,
   lazyUpdate,
   title,
@@ -237,6 +258,7 @@ export default function ChartWithToolbar({
   const baseChartMode = isMixedMagicChart ? 'original' : (firstSeriesType === 'line' ? 'line' : 'bar');
   const [chartMode, setChartMode] = useState<'original' | 'line' | 'bar'>(baseChartMode);
   const dataTable = useMemo(() => buildDataTable(option, t), [option, t]);
+  const legendItems = useMemo(() => getLegendItems(option, seriesArray), [option, seriesArray]);
 
   useEffect(() => {
     setChartMode(baseChartMode);
@@ -309,59 +331,63 @@ export default function ChartWithToolbar({
   return (
     <div className={`flex min-h-0 flex-col ${className || ''}`} style={style}>
       <div className="mb-1 flex flex-col gap-1">
-        <div className="flex items-center justify-end gap-1 text-text-muted">
-          <button
-            type="button"
-            onClick={() => setShowDataView(true)}
-            className={toolbarButtonClass()}
-            title={t('dataView')}
-            aria-label={t('dataView')}
-          >
-            <TableProperties className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setChartMode('line')}
-            disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'line')}
-            className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'line')}
-            title="Line chart"
-          >
-            <LineChart className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setChartMode('bar')}
-            disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'bar')}
-            className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'bar')}
-            title="Column chart"
-          >
-            <BarChart3 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={handleReset}
-            className={toolbarButtonClass()}
-            title="Reset"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={handleDownload}
-            className={toolbarButtonClass()}
-            title="Download"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowZoom(true)}
-            className={toolbarButtonClass()}
-            title="Zoom"
-          >
-            <Maximize2 className="h-4 w-4" />
-          </button>
-        </div>
+        {showToolbar ? (
+          <div className="flex items-center justify-end gap-1 text-text-muted">
+            <button
+              type="button"
+              onClick={() => setShowDataView(true)}
+              className={toolbarButtonClass()}
+              title={t('dataView')}
+              aria-label={t('dataView')}
+            >
+              <TableProperties className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMode('line')}
+              disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'line')}
+              className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'line')}
+              title="Line chart"
+            >
+              <LineChart className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMode('bar')}
+              disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'bar')}
+              className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'bar')}
+              title="Column chart"
+            >
+              <BarChart3 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className={toolbarButtonClass()}
+              title="Reset"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              className={toolbarButtonClass()}
+              title="Download"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            {showZoomButton ? (
+              <button
+                type="button"
+                onClick={() => setShowZoom(true)}
+                className={toolbarButtonClass()}
+                title="Zoom"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {title ? (
           <div className="min-w-0 text-center">
             <div className="text-sm md:text-base font-bold text-blue-600 dark:text-white leading-snug break-words">
@@ -459,14 +485,27 @@ export default function ChartWithToolbar({
           onClick={() => setShowZoom(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-surface-container shadow-2xl"
+            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-blue-600 dark:text-white text-left leading-snug break-words">
-                  {t('zoom')}
-                </h3>
+            <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
+              <div className="min-w-0 flex-1">
+                {title ? (
+                  <div className="min-w-0 text-center">
+                    <div className="text-sm font-bold leading-snug break-words text-blue-600 dark:text-white md:text-base">
+                      {title}
+                    </div>
+                  </div>
+                ) : (
+                  <h3 className="text-left text-sm font-bold leading-snug break-words text-blue-600 dark:text-white">
+                    {t('zoom')}
+                  </h3>
+                )}
+                {actions ? (
+                  <div className="mt-2 flex min-w-0 justify-center md:justify-end">
+                    {actions}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -477,7 +516,66 @@ export default function ChartWithToolbar({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex-1 min-h-0 p-4">
+            <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
+              {legendItems.length > 0 ? (
+                <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border-base pb-3">
+                  {legendItems.map((item) => (
+                    <div key={item.name} className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: item.color }} />
+                      <span className="text-xs font-semibold text-text-muted">{item.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mb-2 flex items-center justify-end gap-1 text-text-muted">
+                <button
+                  type="button"
+                  onClick={() => setShowDataView(true)}
+                  className={toolbarButtonClass()}
+                  title={t('dataView')}
+                  aria-label={t('dataView')}
+                >
+                  <TableProperties className="h-4 w-4" />
+                </button>
+                {magicTypeCapable ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setChartMode('line')}
+                      disabled={(!isMixedMagicChart && chartMode === 'line')}
+                      className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'line')}
+                      title="Line chart"
+                    >
+                      <LineChart className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChartMode('bar')}
+                      disabled={(!isMixedMagicChart && chartMode === 'bar')}
+                      className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'bar')}
+                      title="Column chart"
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className={toolbarButtonClass()}
+                  title="Reset"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className={toolbarButtonClass()}
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+              </div>
               <ReactECharts
                 option={finalOption}
                 style={{ height: '100%', width: '100%' }}

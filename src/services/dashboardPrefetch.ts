@@ -1,6 +1,7 @@
 import { fireantApi } from '../api/fireant';
-import { loadDedupedIndustrySymbols, loadIndustryBaseBondGroupData, loadIndustryStats, loadIndustryStatsByLevel, loadIssuerStatsSummary } from './industryBondData';
+import { loadDedupedIndustrySymbols, loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIssuerStatsSummary } from './industryBondData';
 import { loadMaturingBonds } from './bondData';
+import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 
 let coreWarmupPromise: Promise<void> | null = null;
 const industryWarmupPromises = new Map<string, Promise<void>>();
@@ -20,12 +21,12 @@ export const warmDashboardCoreData = () => {
   coreWarmupPromise = (async () => {
     await Promise.allSettled([
       loadIssuerStatsSummary(200),
-      loadIndustryStatsByLevel(1),
       fireantApi.getHighYieldBonds(10),
       loadMaturingBonds(30),
       loadMaturingBonds(90),
       loadMaturingBonds(180),
       loadDedupedIndustrySymbols(),
+      ...INDUSTRY_NAV_ITEMS.filter((item) => item.statsLevel === 1).map((item) => loadIndustryBaseBondGroupData(item.id)),
     ]);
   })().finally(() => {
     coreWarmupPromise = null;
@@ -49,8 +50,8 @@ export const warmIndustryData = (industryId: string) => {
 
   const promise = (async () => {
     await Promise.allSettled([
-      loadIndustryStats(normalizedId),
       loadIndustryBaseBondGroupData(normalizedId),
+      loadIndustryBondGroupData(normalizedId),
     ]);
   })().finally(() => {
     industryWarmupPromises.delete(normalizedId);
