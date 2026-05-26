@@ -22,6 +22,10 @@
       "destination": "/api/health-fireant"
     },
     {
+      "source": "/api/fireant/bonds/filter",
+      "destination": "/api/fireant/bonds/filter"
+    },
+    {
       "source": "/api/fireant/:path*",
       "destination": "/api/proxy?path=:path*"
     },

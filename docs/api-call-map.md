@@ -5,6 +5,7 @@
 Source: [`vercel.json`](/d:/FireAnt/project/bonds-dashboard/vercel.json)
 
 - `/api/health/fireant` -> `api/health-fireant`
+- `/api/fireant/bonds/filter` -> `api/fireant/bonds/filter`
 - `/api/fireant/:path*` -> `api/proxy?path=:path*`
 - `/api/fa/:path*` -> `api/proxy?path=:path*`
 - `/api/news/:id` -> `api/news?id=:id`
@@ -49,6 +50,7 @@ flowchart LR
 ## 3) API handler is in which file?
 
 - FireAnt proxy handler: [`api/proxy.ts`](/d:/FireAnt/project/bonds-dashboard/api/proxy.ts)
+- FireAnt bonds/filter exact Vercel handler: [`api/fireant/bonds/filter.ts`](/d:/FireAnt/project/bonds-dashboard/api/fireant/bonds/filter.ts)
 - FireAnt route entry (alias files): [`api/fireant/[...path].ts`](/d:/FireAnt/project/bonds-dashboard/api/fireant/[...path].ts), [`api/fa/[...path].ts`](/d:/FireAnt/project/bonds-dashboard/api/fa/[...path].ts)
 - News aggregate API: [`api/news.ts`](/d:/FireAnt/project/bonds-dashboard/api/news.ts)
 - Page data API for AI/chatbot: [`api/page-data.ts`](/d:/FireAnt/project/bonds-dashboard/api/page-data.ts), [`api/_lib/page-data.ts`](/d:/FireAnt/project/bonds-dashboard/api/_lib/page-data.ts)
