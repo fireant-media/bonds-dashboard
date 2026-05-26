@@ -268,11 +268,22 @@ export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDa
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const payload = await tryProcedure<ProcedureResult<BondDataRow>>(
-      'bond_Filter',
-      query as Record<string, string | number | boolean | null | undefined>,
-      async () => fallbackFilterBonds(query) as unknown as ProcedureResult<BondDataRow>,
-    );
+    let payload: ProcedureResult<BondDataRow>;
+
+    if (query.IssuerSymbol || (query.MaturityDateFrom && query.MaturityDateTo)) {
+      payload = await fallbackFilterBonds(query) as unknown as ProcedureResult<BondDataRow>;
+    } else if (query.ICBCode) {
+      payload = await fireantApi.getBondsByIndustryFilter({
+        icbCode: query.ICBCode,
+        statusID: query.StatusID ?? 1,
+      }) as unknown as ProcedureResult<BondDataRow>;
+    } else {
+      payload = await tryProcedure<ProcedureResult<BondDataRow>>(
+        'bond_Filter',
+        query as Record<string, string | number | boolean | null | undefined>,
+        async () => fallbackFilterBonds(query) as unknown as ProcedureResult<BondDataRow>,
+      );
+    }
 
     const rows = extractRows(payload).map(normalizeBondRow).filter((item) => Boolean(item.bondCode));
     setCache(cacheKey, rows);

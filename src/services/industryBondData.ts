@@ -79,10 +79,10 @@ type ProcedureResult<T> =
     };
 
 const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
-const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v1_';
-const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v2_';
-const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v3_';
-const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v2_';
+const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v2_';
+const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v3_';
+const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v4_';
+const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v3_';
 const ISSUER_STATS_CACHE_PREFIX = 'issuer_stats_api_v1_';
 let symbolGroupsPromise: Promise<Record<string, string[]>> | null = null;
 const industryStatsPromises = new Map<string, Promise<IndustryStats>>();
@@ -104,19 +104,64 @@ const toBillionVnd = (value: unknown) => {
 
 const normalizeCode = (value: unknown) => String(value ?? '').trim();
 
-const getBondIndustryCode = (bond: any) =>
-  normalizeCode(
-    bond?.icbCode ??
-    bond?.ICBCode ??
-    bond?.bondInfos?.ICBCode ??
-    bond?.bondInfos?.icbCode ??
-    bond?.raw?.icbCode ??
-    bond?.raw?.ICBCode ??
-    bond?.raw?.bondInfos?.ICBCode ??
-    bond?.infoObj?.icbCode ??
-    bond?.infoObj?.icbCodeLv1 ??
-    bond?.industryCode
-  );
+const getBondIndustryCodes = (bond: any) => {
+  const candidates = [
+    bond?.icbCode,
+    bond?.ICBCode,
+    bond?.icbCodeLv4,
+    bond?.ICBCodeLv4,
+    bond?.icbCodeLv3,
+    bond?.ICBCodeLv3,
+    bond?.icbCodeLv2,
+    bond?.ICBCodeLv2,
+    bond?.icbCodeLv1,
+    bond?.ICBCodeLv1,
+    bond?.industryCode,
+    bond?.bondInfos?.ICBCode,
+    bond?.bondInfos?.icbCode,
+    bond?.bondInfos?.ICBCodeLv4,
+    bond?.bondInfos?.icbCodeLv4,
+    bond?.bondInfos?.ICBCodeLv3,
+    bond?.bondInfos?.icbCodeLv3,
+    bond?.bondInfos?.ICBCodeLv2,
+    bond?.bondInfos?.icbCodeLv2,
+    bond?.bondInfos?.ICBCodeLv1,
+    bond?.bondInfos?.icbCodeLv1,
+    bond?.raw?.icbCode,
+    bond?.raw?.ICBCode,
+    bond?.raw?.icbCodeLv4,
+    bond?.raw?.ICBCodeLv4,
+    bond?.raw?.icbCodeLv3,
+    bond?.raw?.ICBCodeLv3,
+    bond?.raw?.icbCodeLv2,
+    bond?.raw?.ICBCodeLv2,
+    bond?.raw?.icbCodeLv1,
+    bond?.raw?.ICBCodeLv1,
+    bond?.raw?.industryCode,
+    bond?.raw?.bondInfos?.ICBCode,
+    bond?.raw?.bondInfos?.icbCode,
+    bond?.raw?.bondInfos?.ICBCodeLv4,
+    bond?.raw?.bondInfos?.icbCodeLv4,
+    bond?.raw?.bondInfos?.ICBCodeLv3,
+    bond?.raw?.bondInfos?.icbCodeLv3,
+    bond?.raw?.bondInfos?.ICBCodeLv2,
+    bond?.raw?.bondInfos?.icbCodeLv2,
+    bond?.raw?.bondInfos?.ICBCodeLv1,
+    bond?.raw?.bondInfos?.icbCodeLv1,
+    bond?.infoObj?.icbCode,
+    bond?.infoObj?.ICBCode,
+    bond?.infoObj?.icbCodeLv4,
+    bond?.infoObj?.ICBCodeLv4,
+    bond?.infoObj?.icbCodeLv3,
+    bond?.infoObj?.ICBCodeLv3,
+    bond?.infoObj?.icbCodeLv2,
+    bond?.infoObj?.ICBCodeLv2,
+    bond?.infoObj?.icbCodeLv1,
+    bond?.infoObj?.ICBCodeLv1,
+  ];
+
+  return Array.from(new Set(candidates.map(normalizeCode).filter(Boolean)));
+};
 
 const getBondIssuerSymbol = (bond: any, fallbackSymbol = '') =>
   normalizeCode(
@@ -143,8 +188,8 @@ const getBondIssuerName = (bond: any, fallbackSymbol = '') =>
 const getBondCode = (bond: any) => normalizeCode(bond?.bondCode || bond?.code || bond?.id);
 
 const isExcludedBond = (bond: any, excludedCodes: Set<string>) => {
-  const bondIndustryCode = getBondIndustryCode(bond);
-  return Boolean(bondIndustryCode && excludedCodes.has(bondIndustryCode));
+  const bondIndustryCodes = getBondIndustryCodes(bond);
+  return bondIndustryCodes.some((code) => excludedCodes.has(code));
 };
 
 const extractRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => {

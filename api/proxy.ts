@@ -4,6 +4,107 @@ import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL } from './_lib/
 let fireantToken: string | null = null;
 let lastTokenFetch = 0;
 
+type QueryValue = string | string[] | undefined;
+
+interface UpstreamTarget {
+  path: string;
+  query: Record<string, string | string[] | number | boolean | null | undefined>;
+  method?: string;
+  body?: unknown;
+}
+
+const getQueryValue = (value: QueryValue) => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === 'string' ? raw.trim() : '';
+};
+
+const getQueryNumber = (value: QueryValue) => {
+  const numberValue = Number(getQueryValue(value));
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+};
+
+const getMaturityDays = (fromDate: string, toDate: string) => {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return undefined;
+
+  return Math.max(1, Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)));
+};
+
+function resolveUpstreamTarget(path: string, query: Record<string, QueryValue>, req: VercelRequest): UpstreamTarget {
+  if (path === 'bond_Filter') {
+    const issuerSymbol = getQueryValue(query.IssuerSymbol);
+    if (issuerSymbol) {
+      return {
+        path: `bonds/issuer/${encodeURIComponent(issuerSymbol)}`,
+        query: {},
+        method: 'GET',
+      };
+    }
+
+    const icbCode = getQueryValue(query.ICBCode);
+    if (icbCode) {
+      return {
+        path: 'bonds/filter',
+        query: {},
+        method: 'POST',
+        body: {
+          icbCode,
+          statusID: getQueryNumber(query.StatusID) ?? 1,
+        },
+      };
+    }
+
+    const maturityFrom = getQueryValue(query.MaturityDateFrom);
+    const maturityTo = getQueryValue(query.MaturityDateTo);
+    const days = maturityFrom && maturityTo ? getMaturityDays(maturityFrom, maturityTo) : undefined;
+    if (days) {
+      return {
+        path: 'bonds/stats/bonds/maturing-soon',
+        query: { days },
+        method: 'GET',
+      };
+    }
+  }
+
+  if (path === 'bond_StatisticsByIssuer') {
+    return {
+      path: 'bonds/stats/issuers/top-debt',
+      query: { top: getQueryNumber(query.Top) ?? 200 },
+      method: 'GET',
+    };
+  }
+
+  if (path === 'bond_GetCategoryList') {
+    const option = getQueryNumber(query.Option);
+    if (option === 5) {
+      return {
+        path: 'bonds/stats/industries',
+        query: {
+          top: getQueryNumber(query.Top) ?? 1000,
+          level: getQueryNumber(query.ICBLevel) ?? 1,
+        },
+        method: 'GET',
+      };
+    }
+
+    if (option === 0) {
+      return {
+        path: 'bonds/stats/issuers/top-debt',
+        query: { top: getQueryNumber(query.Top) ?? 200 },
+        method: 'GET',
+      };
+    }
+  }
+
+  return {
+    path,
+    query,
+    method: req.method,
+    body: req.body,
+  };
+}
+
 function getRequestToken(req: VercelRequest): string | null {
   const headerToken = req.headers.authorization;
   const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
@@ -88,17 +189,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   if (!path) return res.status(400).json({ error: "Path is required" });
 
+  const target = resolveUpstreamTarget(path, otherQuery as Record<string, QueryValue>, req);
+
   const queryObj = new URLSearchParams();
-  Object.entries(otherQuery).forEach(([key, value]) => {
+  Object.entries(target.query).forEach(([key, value]) => {
     if (Array.isArray(value)) {
       value.forEach(v => queryObj.append(key, v));
-    } else if (value !== undefined) {
+    } else if (value !== undefined && value !== null) {
       queryObj.append(key, value as string);
     }
   });
   
   const queryString = queryObj.toString();
-  const url = `${FIREANT_BASE_URL}/${path}${queryString ? `?${queryString}` : ""}`;
+  const url = `${FIREANT_BASE_URL}/${target.path}${queryString ? `?${queryString}` : ""}`;
 
   console.log(`[Vercel Proxy] ${req.method} ${url}`);
 
@@ -116,10 +219,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
     }
 
+    if (target.method !== 'GET' && target.method !== 'HEAD') {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(url, {
-      method: req.method,
+      method: target.method || req.method,
       headers,
-      body: req.method === 'GET' || req.method === 'HEAD' ? undefined : JSON.stringify(req.body),
+      body: target.method === 'GET' || target.method === 'HEAD' ? undefined : JSON.stringify(target.body),
       signal: AbortSignal.timeout(20000),
     });
 
@@ -153,7 +260,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     return sendUpstreamResponse(res, response.status, response.data);
   } catch (error: any) {
-    console.error(`[Vercel Proxy Error] ${path}:`, error?.stack || error?.message || error);
+    console.error(`[Vercel Proxy Error] ${target.path}:`, error?.stack || error?.message || error);
     return res.status(500).json({
       error: "Failed to proxy request",
       message: error?.message || "Unknown error",

@@ -28,14 +28,24 @@ Required/used variables:
 
 ```bash
 VITE_FIREANT_ACCESS_TOKEN=
+VITE_FIREANT_BASE_URL=https://restv2.fireant.vn
+VITE_TRADESTATION_BASE_URL=https://tradestation.fireant.vn
+VITE_FIREANT_AI_BASE_URL=https://openai.fireant.vn/v1
+VITE_STATIC_FIREANT_URL=https://static.fireant.vn
 VITE_OIDC_AUTHORITY=https://accounts.fireant.vn
 VITE_OIDC_CLIENT_ID=
-VITE_APP_BASE_URL=http://localhost:3000
+VITE_APP_BASE_URL=
 SESSION_SECRET=
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://openai.fireant.vn/v1
 OPENAI_DEFAULT_MODEL=gpt-5.4-mini
+FIREANT_BASE_URL=https://restv2.fireant.vn
+TRADESTATION_BASE_URL=https://tradestation.fireant.vn
+FIREANT_NEWS_URL=https://rest2.fireant.vn
+FIREANT_SYMBOL_NEWS_URL=https://rests.fireant.vn
 ```
+
+`VITE_APP_BASE_URL` can be empty. The browser app falls back to `window.location.origin`, so Vercel production does not inherit `http://localhost:3000` from local development.
 
 ## Development
 

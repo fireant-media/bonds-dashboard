@@ -27,7 +27,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
-  const cacheKey = `industry_bond_group_v2_${industry}`;
+  const cacheKey = `industry_bond_group_v4_${industry}`;
   const cachedData = getCache(cacheKey);
   const [industryStats, setIndustryStats] = useState<any>(cachedData?.industryStats || null);
   const [rankingData, setRankingData] = useState<any[]>(cachedData?.issuerSummaries || cachedData?.rankingData || []);
@@ -614,7 +614,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '12%', bottom: '20%', left: '10%', right: '8%' },
+    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%' },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -623,6 +623,22 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
       }
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none'
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 18,
+        bottom: 24,
+        filterMode: 'none',
+        brushSelect: false,
+        textStyle: valueLabelStyle
+      }
+    ],
     yAxis: {
       type: 'value',
       name: t('unitBillionVND'),

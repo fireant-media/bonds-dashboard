@@ -13,6 +13,7 @@ import {
   OPENAI_API_KEY,
   OPENAI_BASE_URL,
 } from "./api/_lib/config";
+import { handlePageDataRequest } from "./api/_lib/page-data";
 
 dotenv.config();
 
@@ -810,6 +811,18 @@ async function startServer() {
     } catch (err) {
       return res.json(newsCache || []);
     }
+  });
+
+  app.all(["/api/page-data", "/api/page-data/:view"], async (req, res) => {
+    const result = await handlePageDataRequest({
+      method: req.method,
+      view: req.params.view || String(req.query.view || ''),
+      query: req.query as Record<string, string | string[] | undefined>,
+      body: req.body,
+    });
+
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    return res.status(result.status).json(result.data);
   });
 
   // =============================================

@@ -1,19 +1,20 @@
 import { fireantApi } from '../api/fireant';
-import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { getCache, setCache } from '../utils/cache';
-import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
-import { loadIndustryBaseBondGroupData, loadIssuerStatsSummary } from './industryBondData';
+import { loadIssuerStatsSummary } from './industryBondData';
 
 export interface TopDebtIssuer {
   issuerName: string;
   issuerSymbol: string;
+  totalIssuedVolume?: number;
   totalIssuedValue: number;
   totalRemainingDebt: number;
   bondCount: number;
 }
 
 export interface IndustryData {
+  icbCode: string;
   icbName: string;
+  totalIssuedValue: number;
   totalCurrentListedValue: number;
   totalRemainingDebt: number;
   bondCount: number;
@@ -28,10 +29,10 @@ export interface MarketOverviewPayload {
   industryData: IndustryData[];
 }
 
-export const MARKET_OVERVIEW_CACHE_KEY = 'market_overview';
+export const MARKET_OVERVIEW_CACHE_KEY = 'market_overview_v2';
 export const MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY = 'market_overview_issuer_stats';
 export const MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY = 'market_overview_top_interest';
-export const MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY = 'market_overview_industry_data';
+export const MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY = 'market_overview_industry_level_1_stats_v1';
 
 let marketOverviewPromise: Promise<MarketOverviewPayload> | null = null;
 let marketIssuerStatsPromise: Promise<TopDebtIssuer[]> | null = null;
@@ -39,7 +40,9 @@ let marketTopInterestPromise: Promise<any[]> | null = null;
 let marketIndustryDataPromise: Promise<IndustryData[]> | null = null;
 
 const normalizeIndustryData = (industry: any): IndustryData => ({
+  icbCode: String(industry?.icbCode || ''),
   icbName: String(industry?.icbName || ''),
+  totalIssuedValue: Number(industry?.totalIssuedValue || 0),
   totalCurrentListedValue: Number(industry?.totalCurrentListedValue || 0),
   totalRemainingDebt: Number(industry?.totalRemainingDebt || 0),
   bondCount: Number(industry?.bondCount || 0),
@@ -88,15 +91,8 @@ export const loadMarketOverviewIndustryData = async (forceRefresh = false): Prom
   if (cached) return cached as IndustryData[];
   if (marketIndustryDataPromise) return marketIndustryDataPromise;
 
-  marketIndustryDataPromise = mapWithConcurrency(
-    INDUSTRY_NAV_ITEMS.filter((item) => item.statsLevel === 1),
-    3,
-    async (item) => {
-      const data = await loadIndustryBaseBondGroupData(item.id, forceRefresh);
-      return normalizeIndustryData(data.industryStats);
-    },
-  )
-    .then((settled) => getFulfilledValues(settled))
+  marketIndustryDataPromise = fireantApi.getIndustries(1000, 1)
+    .then((rows) => (Array.isArray(rows) ? rows : []).map(normalizeIndustryData))
     .then((data) => {
       setCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY, data);
       return data;

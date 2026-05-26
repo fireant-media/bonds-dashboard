@@ -23,9 +23,8 @@ import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 import {
-  loadMarketOverviewIndustryData,
-  loadMarketOverviewIssuerStats,
-  loadMarketOverviewTopInterestData,
+  loadMarketOverviewData,
+  MARKET_OVERVIEW_CACHE_KEY,
   MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY,
   MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY,
   MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY,
@@ -38,10 +37,11 @@ export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
-  const cachedData = getCache('market_overview');
+  const cachedData = getCache(MARKET_OVERVIEW_CACHE_KEY) || getCache('market_overview');
   const cachedIssuerStats = getCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY) || getCache('top_debt_200');
   const cachedIndustryData = getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
   const cachedTopInterestData = getCache('market_top_interest_bonds') || getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY);
+  const cachedProjectedCashFlows = getCache('market_projected_cash_flows') || {};
   const hasSeedData = Boolean(
     (Array.isArray(cachedIssuerStats) && cachedIssuerStats.length > 0)
     || (Array.isArray(cachedIndustryData) && cachedIndustryData.length > 0)
@@ -64,8 +64,12 @@ export default function MarketOverview() {
   const [showTopIssuerDataView, setShowTopIssuerDataView] = useState(false);
   const [showTopIssuerZoom, setShowTopIssuerZoom] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
-  const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(getCache('market_projected_cash_flows') || {});
-  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
+  const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(cachedProjectedCashFlows);
+  const [loadingCashFlows, setLoadingCashFlows] = useState(
+    Object.keys(cachedProjectedCashFlows).length === 0
+    && Array.isArray(cachedIssuerStats)
+    && cachedIssuerStats.length > 0
+  );
   const [loading, setLoading] = useState(!hasSeedData);
   const [error, setError] = useState<string | null>(null);
   const topIssuerChartRef = useRef<any>(null);
@@ -170,29 +174,21 @@ export default function MarketOverview() {
   };
 
   const marketKpis = useMemo(() => {
-    const issuerTotals = issuerStatsData.reduce(
-      (totals, issuer) => ({
-        bondCount: totals.bondCount + toNumber(issuer.bondCount),
-        issuedValue: totals.issuedValue + toNumber(issuer.totalIssuedValue),
-        remainingDebt: totals.remainingDebt + toNumber(issuer.totalRemainingDebt)
+    return industryData.reduce(
+      (totals, industry) => ({
+        bondCount: totals.bondCount + toNumber(industry.bondCount),
+        issuedVolume: totals.issuedVolume + toNumber(industry.totalIssuedVolume),
+        issuedValue: totals.issuedValue + toNumber(industry.totalIssuedValue),
+        remainingDebt: totals.remainingDebt + toNumber(industry.totalRemainingDebt),
       }),
       {
         bondCount: 0,
+        issuedVolume: 0,
         issuedValue: 0,
-        remainingDebt: 0
+        remainingDebt: 0,
       }
     );
-
-    const issuedVolume = industryData.reduce(
-      (total, industry) => total + toNumber(industry.totalIssuedVolume),
-      0
-    );
-
-    return {
-      ...issuerTotals,
-      issuedVolume
-    };
-  }, [issuerStatsData, industryData]);
+  }, [industryData]);
 
   const kpiCards = [
     {
@@ -234,30 +230,43 @@ export default function MarketOverview() {
       }
     };
 
-    void loadMarketOverviewIssuerStats()
-      .then((data) => {
-        if (!isMounted) return;
-        setIssuerStatsData(data);
-        setCache('top_debt_200', data);
-        setLoading(false);
-      })
-      .catch(fail);
+    const applyOverviewPayload = (payload: any) => {
+      const issuers = Array.isArray(payload?.issuerStatsData) ? payload.issuerStatsData : [];
+      const refreshedTopInterest = getCache('market_top_interest_bonds');
+      const topInterest = Array.isArray(refreshedTopInterest)
+        ? refreshedTopInterest
+        : Array.isArray(payload?.topInterestData)
+          ? payload.topInterestData
+          : [];
+      const industries = Array.isArray(payload?.industryData) ? payload.industryData : [];
 
-    void loadMarketOverviewTopInterestData()
-      .then((data) => {
-        if (!isMounted) return;
-        if (!Array.isArray(getCache('market_top_interest_bonds'))) {
-          setTopInterestData(data);
-        }
-        setLoading(false);
-      })
-      .catch(fail);
+      setIssuerStatsData(issuers);
+      setTopInterestData(topInterest);
+      setIndustryData(industries);
+      setCache('top_debt_200', issuers);
+      if (issuers.length > 0 && Object.keys(getCache('market_projected_cash_flows') || {}).length === 0) {
+        setLoadingCashFlows(true);
+      }
+    };
 
-    void loadMarketOverviewIndustryData()
-      .then((data) => {
+    if (!hasSeedData) {
+      void loadMarketOverviewData()
+        .then((payload) => {
+          if (!isMounted) return;
+          applyOverviewPayload(payload);
+        })
+        .catch(fail)
+        .finally(() => {
+          if (isMounted) setLoading(false);
+        });
+
+      return () => { isMounted = false; };
+    }
+
+    void loadMarketOverviewData()
+      .then((payload) => {
         if (!isMounted) return;
-        setIndustryData(data);
-        setLoading(false);
+        applyOverviewPayload(payload);
       })
       .catch(fail)
       .finally(() => {
@@ -724,18 +733,18 @@ export default function MarketOverview() {
     },
     series: [
       { 
-        name: t('listedValueTitle'), 
+        name: t('totalIssuedValueTitle'), 
         type: 'bar', 
         data: industryData.length > 0 
-          ? industryData.map(d => Math.round(d.totalCurrentListedValue / 1000000000)) 
+          ? industryData.map(d => Math.round(d.totalIssuedValue / 1000000000)) 
           : [], 
         itemStyle: { } 
       },
       { 
-        name: t('remainingDebtTitle'), 
+        name: t('listedValueTitle'), 
         type: 'bar', 
         data: industryData.length > 0 
-          ? industryData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
+          ? industryData.map(d => Math.round(d.totalCurrentListedValue / 1000000000)) 
           : [], 
         itemStyle: { } 
       }
@@ -752,7 +761,7 @@ export default function MarketOverview() {
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)} ${t('unitThousandShares')}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)} ${t('bondunits')}`;
         });
         return res;
       }
@@ -767,7 +776,7 @@ export default function MarketOverview() {
     yAxis: { 
       type: 'value', 
       splitLine: { show: false },
-      name: t('unitThousandShares'),
+      name: t('bondunits'),
       nameGap: 28,
       nameTextStyle: chartTitleStyle,
       axisLabel: { 
@@ -779,14 +788,14 @@ export default function MarketOverview() {
       {
         name: t('issuedVolumeTitle'),
         type: 'bar',
-        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalIssuedVolume / 1000)) : [],
+        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalIssuedVolume)) : [],
         itemStyle: { borderRadius: [4, 4, 0, 0] },
         barWidth: '30%'
       },
       {
         name: t('listedVolume'),
         type: 'bar',
-        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalCurrentListedVolume / 1000)) : [],
+        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalCurrentListedVolume)) : [],
         itemStyle: { borderRadius: [4, 4, 0, 0] },
         barWidth: '30%'
       }
@@ -816,7 +825,7 @@ export default function MarketOverview() {
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { left: '3%', right: '8%', top: '12%', bottom: '14%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '12%', bottom: '28%', containLabel: true },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -825,6 +834,22 @@ export default function MarketOverview() {
         rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
       }
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none'
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 18,
+        bottom: 24,
+        filterMode: 'none',
+        brushSelect: false,
+        textStyle: valueLabelStyle
+      }
+    ],
     yAxis: {
       type: 'value',
       splitLine: { show: false },
@@ -1128,30 +1153,39 @@ export default function MarketOverview() {
 
         <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ChartWithToolbar
-              option={projectedCashFlowOptions}
-              style={{ height: '100%', width: '100%' }}
-              allowMagicType
-              title={projectedCashFlowTitle}
-              actions={(
-                <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                  {(['month', 'year'] as const).map((period) => (
-                    <button
-                      key={period}
-                      type="button"
-                      onClick={() => setCashFlowPeriod(period)}
-                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                        cashFlowPeriod === period
-                          ? 'bg-blue-600 text-white'
-                          : 'text-text-muted hover:text-text-base'
-                      }`}
-                    >
-                      {period === 'month' ? t('month') : t('year')}
-                    </button>
-                  ))}
+            {loadingCashFlows && !hasProjectedCashFlowData ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-text-muted">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
+                  {t('loading')}
                 </div>
-              )}
-            />
+              </div>
+            ) : (
+              <ChartWithToolbar
+                option={projectedCashFlowOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={projectedCashFlowTitle}
+                actions={(
+                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                    {(['month', 'year'] as const).map((period) => (
+                      <button
+                        key={period}
+                        type="button"
+                        onClick={() => setCashFlowPeriod(period)}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          cashFlowPeriod === period
+                            ? 'bg-blue-600 text-white'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {period === 'month' ? t('month') : t('year')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              />
+            )}
           </div>
         </Card>
       </div>

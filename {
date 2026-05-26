@@ -1,1 +1,0 @@
-import('./api/detail.ts').then(() = ok')).catch((err) = console.error(err); process.exit(1); }); 

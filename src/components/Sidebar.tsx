@@ -5,9 +5,8 @@ import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
-import { loadIndustryBaseBondGroupData } from '../services/industryBondData';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
-import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { fireantApi } from '../api/fireant';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -34,7 +33,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const [isIndustryOpen, setIsIndustryOpen] = useState(false);
   const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
-    () => getCache('sidebar_industry_issued_values')
+    () => getCache('sidebar_industry_issued_values_v2')
   );
   const { t } = useLanguage();
 
@@ -49,23 +48,38 @@ export default function Sidebar({
     let isMounted = true;
 
     const loadIndustryIssuedValues = async () => {
-      const cached = getCache('sidebar_industry_issued_values');
+      const cached = getCache('sidebar_industry_issued_values_v2');
       if (cached && Object.keys(cached).length > 0) {
         setIndustryIssuedValues(cached);
         return;
       }
 
       try {
-        const statsEntries = await mapWithConcurrency(
-          INDUSTRY_NAV_ITEMS,
-          3,
-          async (item) => [item.id, await loadIndustryBaseBondGroupData(item.id)] as const
-        );
-        const statsById = Object.fromEntries(getFulfilledValues(statsEntries).map(([id, data]) => [id, data]));
+        const [level1Rows, level2Rows, level4Rows] = await Promise.all([
+          fireantApi.getIndustries(1000, 1).catch(() => []),
+          fireantApi.getIndustries(1000, 2).catch(() => []),
+          fireantApi.getIndustries(1000, 4).catch(() => []),
+        ]);
+        const statsByCode = new Map<string, any>();
+
+        [...level1Rows, ...level2Rows, ...level4Rows].forEach((row: any) => {
+          const code = String(row?.icbCode || '').trim();
+          if (code && !statsByCode.has(code)) statsByCode.set(code, row);
+        });
 
         const nextIssuedValues = INDUSTRY_NAV_ITEMS.reduce<Record<string, number>>((acc, item) => {
-          const stats = statsById[item.id]?.industryStats;
-          const issuedValue = Number(stats?.totalIssuedValue || 0);
+          const stats = statsByCode.get(item.code);
+          let issuedValue = Number(stats?.totalIssuedValue || 0);
+
+          if (item.id === 'Financials') {
+            issuedValue = Math.max(
+              0,
+              issuedValue
+                - Number(statsByCode.get('3010')?.totalIssuedValue || 0)
+                - Number(statsByCode.get('30202005')?.totalIssuedValue || 0)
+            );
+          }
+
           const bondCount = Number(stats?.bondCount || 0);
 
           if (bondCount > 0 && issuedValue > 0) {
@@ -75,7 +89,7 @@ export default function Sidebar({
         }, {});
 
         if (Object.keys(nextIssuedValues).length > 0) {
-          setCache('sidebar_industry_issued_values', nextIssuedValues);
+          setCache('sidebar_industry_issued_values_v2', nextIssuedValues);
         }
         if (isMounted) setIndustryIssuedValues(nextIssuedValues);
       } catch (error) {
@@ -172,6 +186,7 @@ export default function Sidebar({
                         void warmIndustryData(sub.id);
                       }}
                       onClick={() => {
+                        void warmIndustryData(sub.id);
                         setActiveIndustry(sub.id);
                       }}
                       className={cn(

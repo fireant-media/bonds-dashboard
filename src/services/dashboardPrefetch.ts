@@ -1,7 +1,6 @@
 import { fireantApi } from '../api/fireant';
 import { loadDedupedIndustrySymbols, loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIssuerStatsSummary } from './industryBondData';
 import { loadMaturingBonds } from './bondData';
-import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 
 let coreWarmupPromise: Promise<void> | null = null;
 const industryWarmupPromises = new Map<string, Promise<void>>();
@@ -26,7 +25,6 @@ export const warmDashboardCoreData = () => {
       loadMaturingBonds(90),
       loadMaturingBonds(180),
       loadDedupedIndustrySymbols(),
-      ...INDUSTRY_NAV_ITEMS.filter((item) => item.statsLevel === 1).map((item) => loadIndustryBaseBondGroupData(item.id)),
     ]);
   })().finally(() => {
     coreWarmupPromise = null;

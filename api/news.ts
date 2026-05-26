@@ -150,6 +150,30 @@ function pushUniqueUrl(urls: string[], url: string) {
   if (!urls.includes(url)) urls.push(url);
 }
 
+async function fetchPostDetail(postId: string, token: string | null) {
+  const urls = [
+    `${FIREANT_BASE_URL}/posts/get-post?postID=${encodeURIComponent(postId)}`,
+    `${FIREANT_NEWS_URL}/posts/get-post?postID=${encodeURIComponent(postId)}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const result = await fetchPosts(url, token);
+      if (!result.ok) continue;
+
+      const payload = result.data && typeof result.data === 'object'
+        ? result.data as Record<string, unknown>
+        : null;
+      const post = payload?.data || payload?.post || payload?.item || payload || null;
+      if (post && typeof post === 'object') return post as FireantPost;
+    } catch (error: any) {
+      console.warn(`[News API] Failed to fetch detail ${postId} from ${new URL(url).hostname}: ${error?.message || error}`);
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -161,6 +185,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const token = getRequestToken(req) || FIREANT_ACCESS_TOKEN || null;
     const rawSymbol = Array.isArray(req.query.symbol) ? req.query.symbol[0] : req.query.symbol;
     const symbol = normalizeText(rawSymbol).toLowerCase();
+    const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+    const postId = normalizeText(rawId);
+
+    if (postId) {
+      const detail = await fetchPostDetail(postId, token);
+      if (detail) return res.status(200).json(mapPost(detail, 0));
+    }
 
     const urls: string[] = [];
     if (symbol && isValidSymbol(symbol)) {
@@ -182,7 +213,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const posts = extractPosts(result.data);
         if (result.ok && posts.length > 0) {
-          return res.status(200).json(posts.map(mapPost));
+          const mappedPosts = posts.map(mapPost);
+          if (postId) {
+            const matchedPost = mappedPosts.find((post) => post.id === postId);
+            if (matchedPost) return res.status(200).json(matchedPost);
+            continue;
+          }
+
+          return res.status(200).json(mappedPosts);
         }
       } catch (error: any) {
         lastError = error?.message || 'Unknown fetch error';
@@ -190,7 +228,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    return res.status(502).json({
+    return res.status(postId ? 404 : 502).json({
       error: 'Could not fetch news',
       message: 'Upstream FireAnt news API returned no usable data',
       status: lastStatus,
