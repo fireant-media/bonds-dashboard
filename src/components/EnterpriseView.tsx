@@ -18,7 +18,7 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
@@ -495,12 +495,47 @@ export default function EnterpriseView({
     return acc;
   }, {});
   const pieData = Object.entries(termData)
-    .map(([name, value]) => ({ name, value }))
+    .map(([name, value]) => ({ name: `${name} ${t('monthUnit')}`, value, term: name }))
     .sort((a, b) => {
-      const valA = parseInt(a.name) || 0;
-      const valB = parseInt(b.name) || 0;
+      const valA = parseInt(a.term || a.name) || 0;
+      const valB = parseInt(b.term || b.name) || 0;
       return valA - valB;
     });
+  const pieLegendRows = splitLegendItems(pieData.map((item) => item.name), 5, 2);
+  const pieLegendBase = {
+    orient: 'horizontal' as const,
+    itemWidth: 16,
+    itemHeight: 10,
+    itemGap: 12,
+    textStyle: {
+      ...legendStyle,
+      width: 84,
+      overflow: 'truncate' as const,
+      align: 'left' as const,
+      padding: [0, 0, 0, 6] as [number, number, number, number],
+    },
+  };
+  const pieLegendConfig = pieLegendRows.length > 1
+      ? [
+        {
+          ...pieLegendBase,
+          bottom: 24,
+          left: 'center' as const,
+          data: pieLegendRows[0],
+        },
+        {
+          ...pieLegendBase,
+          bottom: 0,
+          left: 'center' as const,
+          data: pieLegendRows[1],
+        },
+      ]
+    : {
+        ...pieLegendBase,
+        bottom: 0,
+        left: 'center' as const,
+        data: pieLegendRows[0],
+      };
 
   const interestTypeData = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -517,6 +552,31 @@ export default function EnterpriseView({
       name, 
       value
     }));
+  const interestTypePieLegendGroups = splitLegendItems(interestTypePieData.map((item) => item.name), 5, 2);
+  const interestTypePieLegendBase = {
+    textStyle: legendStyle,
+  };
+  const interestTypePieLegendConfig = interestTypePieLegendGroups.length > 1
+    ? [
+        {
+          ...interestTypePieLegendBase,
+          bottom: 28,
+          left: 'center' as const,
+          data: interestTypePieLegendGroups[0],
+        },
+        {
+          ...interestTypePieLegendBase,
+          bottom: 0,
+          left: 'center' as const,
+          data: interestTypePieLegendGroups[1],
+        },
+      ]
+    : {
+        ...interestTypePieLegendBase,
+        bottom: 0,
+        left: 'center' as const,
+        data: interestTypePieLegendGroups[0],
+      };
 
   const bubbleGroups = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -685,21 +745,7 @@ export default function EnterpriseView({
       textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
-    legend: { 
-      bottom: 0, 
-      left: 'center',
-      width: 300,
-      itemWidth: 26,
-      itemHeight: 14,
-      itemGap: 10,
-      textStyle: { 
-        ...legendStyle,
-        width: 88,
-        overflow: 'truncate',
-        align: 'left',
-        padding: [0, 10, 0, 5]
-      } 
-    },
+    legend: pieLegendConfig,
     series: [{
       type: 'pie',
       radius: ['30%', '60%'],
@@ -721,11 +767,7 @@ export default function EnterpriseView({
       textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
-    legend: { 
-      bottom: 0, 
-      left: 'center',
-      textStyle: legendStyle
-    },
+    legend: interestTypePieLegendConfig,
     series: [{
       type: 'pie',
       radius: ['40%', '70%'],
@@ -828,7 +870,7 @@ export default function EnterpriseView({
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '12%', bottom: '20%', left: '10%', right: '8%' },
+    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%', containLabel: true },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -837,6 +879,22 @@ export default function EnterpriseView({
         rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
       }
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none',
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 18,
+        bottom: 24,
+        filterMode: 'none',
+        brushSelect: false,
+        textStyle: axisLabelStyle,
+      },
+    ],
     yAxis: {
       type: 'value',
       name: t('unitBillionVND'),
@@ -1099,12 +1157,155 @@ export default function EnterpriseView({
           <div 
             className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <ChartWithToolbar option={pieOptions} style={{ height: '320px' }} title={t('bondStructureByTerm')} />
+            <ChartWithToolbar
+              option={pieOptions}
+              style={{ height: '320px' }}
+              title={t('bondStructureByTerm')}
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  legend: pieLegendRows.length > 1
+                    ? [
+                        {
+                          bottom: 24,
+                          left: 'center',
+                          orient: 'horizontal',
+                          itemWidth: 16,
+                          itemHeight: 10,
+                          itemGap: 12,
+                          textStyle: {
+                            ...legendStyle,
+                            width: 84,
+                            overflow: 'truncate',
+                            align: 'left',
+                            padding: [0, 0, 0, 6],
+                          },
+                          data: pieLegendRows[0],
+                        },
+                        {
+                          bottom: 0,
+                          left: 'center',
+                          orient: 'horizontal',
+                          itemWidth: 16,
+                          itemHeight: 10,
+                          itemGap: 12,
+                          textStyle: {
+                            ...legendStyle,
+                            width: 84,
+                            overflow: 'truncate',
+                            align: 'left',
+                            padding: [0, 0, 0, 6],
+                          },
+                          data: pieLegendRows[1],
+                        }
+                      ]
+                    : {
+                      bottom: 0,
+                      left: 'center',
+                      orient: 'horizontal',
+                      itemWidth: 16,
+                      itemHeight: 10,
+                        itemGap: 12,
+                        textStyle: {
+                          ...legendStyle,
+                          width: 84,
+                          overflow: 'truncate',
+                          align: 'left',
+                          padding: [0, 0, 0, 6],
+                        },
+                        data: pieLegendRows[0],
+                      },
+                  series: [
+                    {
+                      center: ['35%', '50%'],
+                      radius: ['34%', '63%'],
+                      label: {
+                        show: true,
+                        position: 'outside',
+                        formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                        color: isDark ? '#e5e7eb' : '#1e293b',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                      },
+                      labelLine: {
+                        show: true,
+                        length: 12,
+                        length2: 10,
+                        smooth: true,
+                      },
+                      emphasis: {
+                        label: {
+                          show: true,
+                          fontSize: '12',
+                          fontWeight: 'bold',
+                          formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                        }
+                      },
+                    },
+                  ],
+                },
+              }}
+            />
           </div>
           <div 
             className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <ChartWithToolbar option={interestTypePieOptions} style={{ height: '300px' }} title={t('bondStructureByInterestType')} />
+            <ChartWithToolbar
+              option={interestTypePieOptions}
+              style={{ height: '300px' }}
+              title={t('bondStructureByInterestType')}
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  legend: {
+                    left: 'center',
+                    bottom: 6,
+                    top: undefined,
+                    itemWidth: 16,
+                    itemHeight: 10,
+                    itemGap: 18,
+                    textStyle: {
+                      ...legendStyle,
+                      width: 160,
+                      overflow: 'truncate',
+                      align: 'center',
+                    },
+                  },
+                  series: [
+                    {
+                      center: ['50%', '44%'],
+                      radius: ['44%', '74%'],
+                      label: {
+                        show: true,
+                        position: 'outside',
+                        formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                        color: isDark ? '#e5e7eb' : '#1e293b',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                      },
+                      labelLine: {
+                        show: true,
+                        length: 12,
+                        length2: 10,
+                        smooth: true,
+                      },
+                      emphasis: {
+                        label: {
+                          show: true,
+                          fontSize: '12',
+                          fontWeight: 'bold',
+                          formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                        }
+                      },
+                    },
+                  ],
+                },
+              }}
+            />
           </div>
           <div 
             className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"

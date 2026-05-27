@@ -12,7 +12,7 @@ interface IndustryViewProps {
 import { Settings } from 'lucide-react';
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats } from '../services/industryBondData';
 import { MetricCard } from './ui/Card';
@@ -182,8 +182,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       return [
         { 
           label: t('issuedVolumeTitle'), 
-          value: formatNumber(industryStats.totalIssuedVolume / 1_000_000, 2),
-          unit: t('unitMillionShares')
+          value: formatNumber(industryStats.totalIssuedVolume, 0),
+          unit: t('unitBond')
         },
         { 
           label: t('totalIssuedValueTitle'), 
@@ -197,8 +197,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         },
         { 
           label: t('listedVolume'), 
-          value: formatNumber(industryStats.totalCurrentListedVolume / 1_000_000, 2),
-          unit: t('unitMillionShares')
+          value: formatNumber(industryStats.totalCurrentListedVolume, 0),
+          unit: t('unitBond')
         },
         { 
           label: t('listedValueTitle'), 
@@ -304,6 +304,35 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       }
     }
 
+    const legendGroups = splitLegendItems(chartData.map((item) => item.name), 5, 2);
+    const legendBase = {
+      orient: 'vertical' as const,
+      itemWidth: 8,
+      itemHeight: 8,
+      textStyle: legendStyle,
+    };
+    const legendConfig = legendGroups.length > 1
+      ? [
+          {
+            ...legendBase,
+            right: '22%',
+            top: 'middle',
+            data: legendGroups[0],
+          },
+          {
+            ...legendBase,
+            right: '5%',
+            top: 'middle',
+            data: legendGroups[1],
+          },
+        ]
+      : {
+          ...legendBase,
+          right: '5%',
+          top: 'middle',
+          data: legendGroups[0],
+        };
+
     return {
       color: chartPalette,
       tooltip: { 
@@ -318,26 +347,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           return `${displayName}<br/>${t('marketShare')}: ${highlightChartTooltipValue(params.percent, '%')}<br/>${t('remainingDebtTitle')}: ${highlightChartTooltipValue(formatNumber(Math.round(params.value / 1000000000), 0), ` ${t('unitBillionVND')}`)}`;
         }
       },
-      legend: [
-        { 
-          orient: 'vertical',
-          right: '22%', 
-          top: 'middle', 
-          itemWidth: 8, 
-          itemHeight: 8, 
-          textStyle: legendStyle,
-          data: chartData.slice(0, 5).map(d => d.name)
-        },
-        { 
-          orient: 'vertical',
-          right: '5%', 
-          top: 'middle', 
-          itemWidth: 8, 
-          itemHeight: 8, 
-          textStyle: legendStyle,
-          data: chartData.slice(5, 10).map(d => d.name)
-        }
-      ],
+      legend: legendConfig,
       series: [{
         name: t('marketShare'),
         type: 'pie',
@@ -346,14 +356,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         avoidLabelOverlap: false,
         itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
         label: { show: false },
-        emphasis: {
-          label: {
-            show: true,
-            fontSize: 12,
-            fontWeight: 'bold',
-            formatter: '{b}: {d}%'
-          }
-        },
+        emphasis: { label: { show: true, fontSize: 12, fontWeight: 'bold', formatter: '{d}%' } },
         data: chartData
       }]
     };
@@ -728,7 +731,46 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
           >
             <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-              <ChartWithToolbar option={marketShareOptions} style={{ height: '100%', width: '100%' }} title={t('marketShare')} />
+              <ChartWithToolbar
+                option={marketShareOptions}
+                style={{ height: '100%', width: '100%' }}
+                title={t('marketShare')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    series: [
+                      {
+                        center: ['33%', '50%'],
+                        radius: ['42%', '72%'],
+                        label: {
+                          show: true,
+                          position: 'outside',
+                          formatter: '{d}%',
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                          fontSize: 11,
+                          fontWeight: 'bold',
+                        },
+                        labelLine: {
+                          show: true,
+                          length: 12,
+                          length2: 10,
+                          smooth: true,
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            fontSize: 12,
+                            fontWeight: 'bold',
+                            formatter: '{d}%',
+                            color: isDark ? '#e5e7eb' : '#1e293b',
+                          }
+                        },
+                      },
+                    ],
+                  },
+                }}
+              />
             </div>
           </div>
 
@@ -745,7 +787,25 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
           {issuedValueTreemapData.length > 0 ? (
             <div className="h-80 overflow-hidden md:h-96">
-              <ChartWithToolbar option={issuedValueTreemapOptions} style={{ height: '100%', width: '100%' }} title={t('totalIssuedValueTitle')} />
+              <ChartWithToolbar
+                option={issuedValueTreemapOptions}
+                style={{ height: '100%', width: '100%' }}
+                title={t('totalIssuedValueTitle')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    series: [
+                      {
+                        label: {
+                          fontSize: 12,
+                          fontWeight: 'bold',
+                        },
+                      },
+                    ],
+                  },
+                }}
+              />
             </div>
           ) : (
             <div className="flex min-h-80 items-center justify-center">

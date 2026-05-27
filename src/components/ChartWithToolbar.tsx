@@ -4,11 +4,14 @@ import { formatNumber } from '../utils/format';
 import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
-import { applyChartTheme, getChartTheme, resolveChartLegendColor } from '../utils/chart';
+import { applyChartTheme, getChartTheme } from '../utils/chart';
+import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
 interface ChartTableHeader {
   label: string;
   unit?: string;
+  align?: 'left' | 'right' | 'center';
+  kind?: 'text' | 'number';
 }
 
 interface ChartTable {
@@ -27,6 +30,12 @@ interface ChartWithToolbarProps {
   lazyUpdate?: boolean;
   title?: ReactNode;
   actions?: ReactNode;
+  zoomConfig?: {
+    shellClassName?: string;
+    chartStyle?: CSSProperties;
+    option?: any;
+    scale?: number;
+  };
 }
 
 function getSeriesArray(option: any): any[] {
@@ -46,6 +55,10 @@ function getAxisUnit(option: any, axisKey: 'xAxis' | 'yAxis') {
   const axis = Array.isArray(option?.[axisKey]) ? option[axisKey][0] : option?.[axisKey];
   const unit = axis?.name;
   return typeof unit === 'string' && unit.trim() ? unit.trim() : '';
+}
+
+function getTitleText(title: ReactNode) {
+  return typeof title === 'string' || typeof title === 'number' ? String(title) : '';
 }
 
 function formatCell(value: unknown) {
@@ -96,7 +109,13 @@ function flattenTreemap(data: any[], t: (key: any) => string, prefix = ''): Char
     }
   });
 
-  return { headers: [{ label: t('name') }, { label: t('value') }], rows };
+  return {
+    headers: [
+      { label: t('name'), align: 'left', kind: 'text' },
+      { label: t('value'), align: 'right', kind: 'number' },
+    ],
+    rows,
+  };
 }
 
 function buildDataTable(option: any, t: (key: any) => string): ChartTable {
@@ -117,9 +136,9 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
     ]);
     return {
       headers: [
-        { label: t('name') },
-        { label: t('value') },
-        { label: t('percent') },
+        { label: t('name'), align: 'left', kind: 'text' },
+        { label: t('value'), align: 'right', kind: 'number' },
+        { label: t('percent'), align: 'right', kind: 'number' },
       ],
       rows
     };
@@ -150,10 +169,10 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
 
     return {
       headers: [
-        { label: t('name') },
-        { label: 'X' },
-        { label: 'Y' },
-        { label: 'Z' },
+        { label: t('name'), align: 'left', kind: 'text' },
+        { label: 'X', align: 'right', kind: 'number' },
+        { label: 'Y', align: 'right', kind: 'number' },
+        { label: 'Z', align: 'right', kind: 'number' },
       ],
       rows
     };
@@ -169,10 +188,12 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
     ]);
     return {
       headers: [
-        { label: t('category') },
+        { label: t('category'), align: 'left', kind: 'text' },
         ...series.map((item, index) => ({
           label: String(item?.name || `${t('series')} ${index + 1}`),
           unit: valueUnit,
+          align: 'right' as const,
+          kind: 'number' as const,
         })),
       ],
       rows,
@@ -192,8 +213,8 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
 
     return {
       headers: [
-        { label: t('series') },
-        { label: t('value'), unit: yAxisUnit || xAxisUnit },
+        { label: t('series'), align: 'left', kind: 'text' },
+        { label: t('value'), unit: yAxisUnit || xAxisUnit, align: 'right', kind: 'number' },
       ],
       rows
     };
@@ -201,8 +222,8 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
 
   return {
     headers: [
-      { label: t('field') },
-      { label: t('value'), unit: yAxisUnit || xAxisUnit },
+      { label: t('field'), align: 'left', kind: 'text' },
+      { label: t('value'), unit: yAxisUnit || xAxisUnit, align: 'right', kind: 'number' },
     ],
     rows: []
   };
@@ -212,21 +233,87 @@ function getSeriesType(series: any) {
   return String(series?.type || 'bar');
 }
 
-function getLegendItems(option: any, seriesArray: any[]) {
-  const legendData = Array.isArray(option?.legend)
-    ? option.legend.flatMap((item) => (Array.isArray(item?.data) ? item.data : []))
-    : Array.isArray(option?.legend?.data)
-      ? option.legend.data
-      : [];
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
 
-  const palette = Array.isArray(option?.color) ? option.color : [];
-  const items = seriesArray.map((series, index) => {
-    const name = String(series?.name || legendData[index] || `Series ${index + 1}`);
-    const color = resolveChartLegendColor(series?.itemStyle?.color || series?.color || palette[index % Math.max(palette.length, 1)], index);
-    return { name, color };
+function mergeZoomOption(base: any, override: any): any {
+  if (!isPlainObject(base)) return override;
+  if (!isPlainObject(override)) return base;
+
+  const result: Record<string, any> = { ...base };
+
+  Object.entries(override).forEach(([key, value]) => {
+    const baseValue = result[key];
+    if (Array.isArray(value) && Array.isArray(baseValue)) {
+      result[key] = value.map((item, index) => (
+        isPlainObject(item) && isPlainObject(baseValue[index])
+          ? mergeZoomOption(baseValue[index], item)
+          : item
+      ));
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      result[key] = value;
+      return;
+    }
+
+    if (isPlainObject(value) && isPlainObject(baseValue)) {
+      result[key] = mergeZoomOption(baseValue, value);
+      return;
+    }
+
+    result[key] = value;
   });
 
-  return items.filter((item, index, self) => self.findIndex((entry) => entry.name === item.name) === index);
+  return result;
+}
+
+function scaleNumeric(value: unknown, factor: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return value;
+  return Math.round(value * factor * 10) / 10;
+}
+
+function scaleChartOption(value: any, factor: number): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => scaleChartOption(item, factor));
+  }
+
+  if (!isPlainObject(value)) return value;
+
+  const result: Record<string, any> = {};
+
+  Object.entries(value).forEach(([key, entry]) => {
+    if (key === 'data' || key === 'seriesLayoutBy') {
+      result[key] = entry;
+      return;
+    }
+
+    if (key === 'fontSize' || key === 'itemWidth' || key === 'itemHeight' || key === 'itemGap' || key === 'nameGap' || key === 'borderWidth' || key === 'radius') {
+      result[key] = scaleNumeric(entry, factor);
+      return;
+    }
+
+    if (key === 'width' && typeof entry === 'number') {
+      result[key] = Math.round(entry * factor);
+      return;
+    }
+
+    if (key === 'height' && typeof entry === 'number') {
+      result[key] = Math.round(entry * factor);
+      return;
+    }
+
+    if (key === 'textStyle' || key === 'axisLabel' || key === 'nameTextStyle' || key === 'label' || key === 'emphasis' || key === 'tooltip' || key === 'legend' || key === 'dataZoom' || key === 'title') {
+      result[key] = scaleChartOption(entry, factor);
+      return;
+    }
+
+    result[key] = scaleChartOption(entry, factor);
+  });
+
+  return result;
 }
 
 export default function ChartWithToolbar({
@@ -240,6 +327,7 @@ export default function ChartWithToolbar({
   lazyUpdate,
   title,
   actions,
+  zoomConfig,
 }: ChartWithToolbarProps) {
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
@@ -260,6 +348,16 @@ export default function ChartWithToolbar({
   const baseChartMode = isMixedMagicChart ? 'original' : (firstSeriesType === 'line' ? 'line' : 'bar');
   const [chartMode, setChartMode] = useState<'original' | 'line' | 'bar'>(baseChartMode);
   const dataTable = useMemo(() => buildDataTable(option, t), [option, t]);
+  const dataViewColumns: ChartDataTableColumn[] = useMemo(() => (
+    dataTable.headers.map((header) => ({
+      label: header.label,
+      unit: header.unit,
+      align: header.align,
+      kind: header.kind,
+    }))
+  ), [dataTable.headers]);
+  const dataViewTitle = getTitleText(title);
+  const dataViewFileName = dataViewTitle || t('dataView');
 
   useEffect(() => {
     setChartMode(baseChartMode);
@@ -298,8 +396,56 @@ export default function ChartWithToolbar({
 
     return applyChartTheme({ ...option }, isDark);
   }, [chartMode, isDark, magicTypeCapable, option, seriesArray]);
-  const finalSeriesArray = useMemo(() => getSeriesArray(finalOption), [finalOption]);
-  const legendItems = useMemo(() => getLegendItems(finalOption, finalSeriesArray), [finalOption, finalSeriesArray]);
+  const zoomSeriesArray = useMemo(() => getSeriesArray(finalOption), [finalOption]);
+  const zoomSeriesTypes = useMemo(
+    () => Array.from(new Set(zoomSeriesArray.map((series) => getSeriesType(series)).filter(Boolean))),
+    [zoomSeriesArray]
+  );
+  const zoomChartType = zoomSeriesTypes[0] || firstSeriesType;
+  const isComboZoomChart = zoomSeriesTypes.length > 1;
+  const zoomScale = zoomConfig?.scale ?? 1.25;
+  const zoomShellClass = useMemo(() => {
+    if (zoomConfig?.shellClassName) return zoomConfig.shellClassName;
+
+    if (zoomChartType === 'pie') {
+      return 'flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl';
+    }
+
+    if (zoomChartType === 'treemap' || zoomChartType === 'candlestick' || zoomChartType === 'scatter' || zoomChartType === 'effectScatter' || zoomChartType === 'bubble' || isComboZoomChart) {
+      return 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl';
+    }
+
+    return 'flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl';
+  }, [isComboZoomChart, zoomChartType, zoomConfig?.shellClassName]);
+  const zoomChartStyle = useMemo<CSSProperties>(() => {
+    if (zoomConfig?.chartStyle) return zoomConfig.chartStyle;
+
+    if (zoomChartType === 'pie') {
+      return { height: '100%', width: '100%' };
+    }
+
+    if (zoomChartType === 'treemap') {
+      return { height: '100%', width: '100%' };
+    }
+
+    if (zoomChartType === 'candlestick') {
+      return { height: '100%', width: '100%' };
+    }
+
+    if (zoomChartType === 'scatter' || zoomChartType === 'effectScatter' || zoomChartType === 'bubble') {
+      return { height: '100%', width: '100%' };
+    }
+
+    if (isComboZoomChart) {
+      return { height: '100%', width: '100%' };
+    }
+
+    return { height: '100%', width: '100%' };
+  }, [isComboZoomChart, zoomChartType, zoomConfig?.chartStyle]);
+  const zoomOption = useMemo(() => {
+    const merged = zoomConfig?.option ? mergeZoomOption(finalOption, zoomConfig.option) : finalOption;
+    return scaleChartOption(merged, zoomScale);
+  }, [finalOption, zoomConfig?.option, zoomScale]);
 
   const toolbarButtonClass = (disabled = false, active = false) => (
     `rounded-md p-1.5 transition-colors ${
@@ -331,6 +477,29 @@ export default function ChartWithToolbar({
     setChartMode(baseChartMode);
   };
 
+  useEffect(() => {
+    if (!showZoom) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      chartRef.current?.getEchartsInstance?.()?.resize?.();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [showZoom, chartMode, finalOption, zoomChartType]);
+
+  useEffect(() => {
+    if (!showZoom) return;
+
+    const handleResize = () => {
+      chartRef.current?.getEchartsInstance?.()?.resize?.();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [showZoom]);
+
   return (
     <div className={`flex min-h-0 flex-col ${className || ''}`} style={style}>
       <div className="mb-1 flex flex-col gap-1">
@@ -350,7 +519,7 @@ export default function ChartWithToolbar({
               onClick={() => setChartMode('line')}
               disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'line')}
               className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'line')}
-              title="Line chart"
+              title={t('lineChart')}
             >
               <LineChart className="h-4 w-4" />
             </button>
@@ -359,7 +528,7 @@ export default function ChartWithToolbar({
               onClick={() => setChartMode('bar')}
               disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'bar')}
               className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'bar')}
-              title="Column chart"
+              title={t('columnChart')}
             >
               <BarChart3 className="h-4 w-4" />
             </button>
@@ -367,7 +536,7 @@ export default function ChartWithToolbar({
               type="button"
               onClick={handleReset}
               className={toolbarButtonClass()}
-              title="Reset"
+              title={t('reset')}
             >
               <RotateCcw className="h-4 w-4" />
             </button>
@@ -375,7 +544,7 @@ export default function ChartWithToolbar({
               type="button"
               onClick={handleDownload}
               className={toolbarButtonClass()}
-              title="Download"
+              title={t('download')}
             >
               <Download className="h-4 w-4" />
             </button>
@@ -384,7 +553,7 @@ export default function ChartWithToolbar({
                 type="button"
                 onClick={() => setShowZoom(true)}
                 className={toolbarButtonClass()}
-                title="Zoom"
+                title={t('zoom')}
               >
                 <Maximize2 className="h-4 w-4" />
               </button>
@@ -414,98 +583,88 @@ export default function ChartWithToolbar({
         />
       </div>
 
-      {showDataView && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
-          onClick={() => setShowDataView(false)}
-        >
-          <div
-            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-text-base text-left leading-snug break-words">
-                  {t('dataView')}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDataView(false)}
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
-                title="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              <div className="overflow-x-auto rounded-lg border border-border-base bg-bg-surface">
-                <table className="min-w-full border-collapse text-left bg-bg-surface">
-                  <thead className="bg-surface-container-low">
-                    <tr className="border-b border-border-base">
-                      {dataTable.headers.map((header) => (
-                        <th
-                          key={`${header.label}-${header.unit || ''}`}
-                          className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted"
-                        >
-                          <span className="block">{header.label}</span>
-                          {header.unit ? (
-                            <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
-                              {header.unit}
-                            </span>
-                          ) : null}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dataTable.rows.length > 0 ? dataTable.rows.map((row, rowIndex) => (
-                      <tr key={`row-${rowIndex}`} className="border-b border-border-base/70 bg-bg-surface last:border-b-0">
-                        {row.map((cell, cellIndex) => (
-                          <td key={`${rowIndex}-${cellIndex}`} className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">
-                            {cell || '-'}
-                          </td>
-                        ))}
-                      </tr>
-                    )) : (
-                      <tr>
-                        <td className="px-3 py-4 text-sm text-text-muted" colSpan={dataTable.headers.length}>
-                          {t('noData')}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ChartDataViewModal
+        isOpen={showDataView}
+        title={dataViewTitle || t('dataView')}
+        columns={dataViewColumns}
+        rows={dataTable.rows}
+        onClose={() => setShowDataView(false)}
+        fileNameBase={dataViewFileName}
+        sheetName={dataViewFileName}
+      />
 
       {showZoom && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
           onClick={() => setShowZoom(false)}
         >
-          <div
-            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className={zoomShellClass} onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">
+                {showToolbar ? (
+                  <div className="flex items-center justify-end gap-1 text-right text-text-muted">
+                    <button
+                      type="button"
+                      onClick={() => setShowDataView(true)}
+                      className={toolbarButtonClass()}
+                      title={t('dataView')}
+                      aria-label={t('dataView')}
+                    >
+                      <TableProperties className="h-4 w-4" />
+                    </button>
+                    {magicTypeCapable ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setChartMode('line')}
+                          disabled={(!isMixedMagicChart && chartMode === 'line')}
+                          className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'line')}
+                          title={t('lineChart')}
+                        >
+                          <LineChart className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setChartMode('bar')}
+                          disabled={(!isMixedMagicChart && chartMode === 'bar')}
+                          className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'bar')}
+                          title={t('columnChart')}
+                        >
+                          <BarChart3 className="h-4 w-4" />
+                        </button>
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleReset}
+                      className={toolbarButtonClass()}
+                      title={t('reset')}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownload}
+                      className={toolbarButtonClass()}
+                      title={t('download')}
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
                 {title ? (
-                  <div className="min-w-0 text-center">
-                    <div className="text-sm font-bold leading-snug break-words text-text-base md:text-base">
+                  <div className="min-w-0 pt-3 text-center">
+                    <div className="text-base font-bold leading-snug break-words text-text-base md:text-2xl">
                       {title}
                     </div>
                   </div>
                 ) : (
-                  <h3 className="text-left text-sm font-bold leading-snug break-words text-text-base">
+                  <h3 className="pt-3 text-center text-sm font-bold leading-snug break-words text-text-base">
                     {t('zoom')}
                   </h3>
                 )}
                 {actions ? (
-                  <div className="mt-2 flex min-w-0 justify-center md:justify-end">
+                  <div className="mt-3 flex min-w-0 justify-end text-right">
                     {actions}
                   </div>
                 ) : null}
@@ -514,74 +673,16 @@ export default function ChartWithToolbar({
                 type="button"
                 onClick={() => setShowZoom(false)}
                 className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
-                title="Close"
+                title={t('close')}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
-              {legendItems.length > 0 ? (
-                <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border-base pb-3">
-                  {legendItems.map((item) => (
-                    <div key={item.name} className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: item.color }} />
-                      <span className="text-xs font-semibold text-text-muted">{item.name}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <div className="mb-2 flex items-center justify-end gap-1 text-text-muted">
-                <button
-                  type="button"
-                  onClick={() => setShowDataView(true)}
-                  className={toolbarButtonClass()}
-                  title={t('dataView')}
-                  aria-label={t('dataView')}
-                >
-                  <TableProperties className="h-4 w-4" />
-                </button>
-                {magicTypeCapable ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setChartMode('line')}
-                      disabled={(!isMixedMagicChart && chartMode === 'line')}
-                      className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'line')}
-                      title="Line chart"
-                    >
-                      <LineChart className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChartMode('bar')}
-                      disabled={(!isMixedMagicChart && chartMode === 'bar')}
-                      className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'bar')}
-                      title="Column chart"
-                    >
-                      <BarChart3 className="h-4 w-4" />
-                    </button>
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className={toolbarButtonClass()}
-                  title="Reset"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className={toolbarButtonClass()}
-                  title="Download"
-                >
-                  <Download className="h-4 w-4" />
-                </button>
-              </div>
               <ReactECharts
-                option={finalOption}
-                style={{ height: '100%', width: '100%' }}
+                ref={chartRef}
+                option={zoomOption}
+                style={zoomChartStyle}
                 notMerge={notMerge}
                 lazyUpdate={lazyUpdate}
               />

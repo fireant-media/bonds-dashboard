@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
+import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -500,6 +501,14 @@ export default function MarketOverview() {
     ]));
   }, [topIssuerDisplayData, t]);
 
+  const topIssuerDataViewColumns: ChartDataTableColumn[] = useMemo(() => ([
+    { label: t('rank'), align: 'center', kind: 'text' },
+    { label: t('enterprise'), align: 'left', kind: 'text' },
+    { label: t('ticker'), align: 'left', kind: 'text' },
+    { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+    { label: t('totalIssuedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+  ]), [t]);
+
   const topIssuerOptions = useMemo(() => {
     const labels = topIssuerDisplayData.length > 0
       ? topIssuerDisplayData.map((d) => d.issuerSymbol || getTopIssuerDisplayName(d))
@@ -976,7 +985,7 @@ export default function MarketOverview() {
                   type="button"
                   disabled
                   className={topIssuerToolbarButtonClass()}
-                  title="Line chart"
+                  title={t('lineChart')}
                 >
                   <LineChart className="h-4 w-4" />
                 </button>
@@ -984,7 +993,7 @@ export default function MarketOverview() {
                   type="button"
                   disabled
                   className={topIssuerToolbarButtonClass()}
-                  title="Column chart"
+                  title={t('columnChart')}
                 >
                   <BarChart3 className="h-4 w-4" />
                 </button>
@@ -992,7 +1001,7 @@ export default function MarketOverview() {
                   type="button"
                   onClick={handleTopIssuerReset}
                   className={topIssuerToolbarButtonClass()}
-                  title="Reset"
+                  title={t('reset')}
                 >
                   <RotateCcw className="h-4 w-4" />
                 </button>
@@ -1000,7 +1009,7 @@ export default function MarketOverview() {
                   type="button"
                   onClick={handleTopIssuerDownload}
                   className={topIssuerToolbarButtonClass()}
-                  title="Download"
+                  title={t('download')}
                 >
                   <Download className="h-4 w-4" />
                 </button>
@@ -1193,78 +1202,15 @@ export default function MarketOverview() {
         </Card>
       </div>
 
-      {showTopIssuerDataView && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
-          onClick={() => setShowTopIssuerDataView(false)}
-        >
-          <div
-            className="flex h-full max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-text-base text-left leading-snug break-words">
-                  {t('dataView')}
-                </h3>
-                <p className="text-xs font-medium text-text-muted">
-                  {topIssuerMetricTitle}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowTopIssuerDataView(false)}
-                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
-                title="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              <div className="overflow-x-auto rounded-xl border border-border-base bg-bg-surface">
-                <table className="min-w-full border-collapse text-left bg-bg-surface">
-                  <thead className="bg-surface-container-low">
-                    <tr className="border-b border-border-base">
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        {t('rank')}
-                      </th>
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        {t('enterprise')}
-                      </th>
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        {t('ticker')}
-                      </th>
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        <span className="block">Remaining debt</span>
-                        <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
-                          {t('unitBillionVND')}
-                        </span>
-                      </th>
-                      <th className="px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-text-muted">
-                        <span className="block">Issued value</span>
-                        <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
-                          {t('unitBillionVND')}
-                        </span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topIssuerDataViewRows.map((row, index) => (
-                      <tr key={`${row[2] || row[1]}-${index}`} className="border-b border-border-base/70 bg-bg-surface last:border-b-0">
-                        <td className="bg-bg-surface px-3 py-3 text-sm font-semibold text-text-base">{row[0]}</td>
-                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">{row[1]}</td>
-                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-muted">{row[2] || '-'}</td>
-                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">{row[3]}</td>
-                        <td className="bg-bg-surface px-3 py-3 text-sm font-medium text-text-base">{row[4]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ChartDataViewModal
+        isOpen={showTopIssuerDataView}
+        title={topIssuerMetricTitle}
+        columns={topIssuerDataViewColumns}
+        rows={topIssuerDataViewRows}
+        onClose={() => setShowTopIssuerDataView(false)}
+        fileNameBase={`top-issuer-${topIssuerMetric}`}
+        sheetName={topIssuerMetricTitle}
+      />
 
       {showTopIssuerZoom && (
         <div
@@ -1275,25 +1221,101 @@ export default function MarketOverview() {
             className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-border-base px-4 py-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold text-text-base text-left leading-snug break-words">
-                  {topIssuerMetricTitle}
-                </h3>
-                <p className="text-xs font-medium text-text-muted">
-                  Zoom
-                </p>
+            <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-end gap-1 text-text-muted">
+                  <button
+                    type="button"
+                    onClick={() => setShowTopIssuerDataView(true)}
+                    className={topIssuerToolbarButtonClass()}
+                    title={t('dataView')}
+                    aria-label={t('dataView')}
+                  >
+                    <TableProperties className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className={topIssuerToolbarButtonClass(true)}
+                    title={t('lineChart')}
+                  >
+                    <LineChart className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className={topIssuerToolbarButtonClass(true)}
+                    title={t('columnChart')}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTopIssuerReset}
+                    className={topIssuerToolbarButtonClass()}
+                    title={t('reset')}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTopIssuerDownload}
+                    className={topIssuerToolbarButtonClass()}
+                    title={t('download')}
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="min-w-0 pt-3 text-center">
+                  <h3 className="text-base font-bold leading-snug break-words text-text-base md:text-2xl">
+                    {topIssuerMetricTitle}
+                  </h3>
+                </div>
+                <div className="mt-3 flex justify-end text-right">
+                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTopIssuerMetric('remainingDebt');
+                        refreshTopIssuerChart('remainingDebt');
+                      }}
+                      disabled={loadingTopIssuerChart && topIssuerMetric === 'remainingDebt'}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                        topIssuerMetric === 'remainingDebt'
+                          ? 'bg-action-accent text-slate-950'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {t('remainingDebtTitle')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTopIssuerMetric('issuedValue');
+                        refreshTopIssuerChart('issuedValue');
+                      }}
+                      disabled={loadingTopIssuerChart && topIssuerMetric === 'issuedValue'}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                        topIssuerMetric === 'issuedValue'
+                          ? 'bg-action-accent text-slate-950'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {t('totalIssuedValueTitle')}
+                    </button>
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowTopIssuerZoom(false)}
                 className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
-                title="Close"
+                title={t('close')}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex-1 min-h-0 p-4">
+            <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
               <ReactECharts option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
             </div>
           </div>

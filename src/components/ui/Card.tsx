@@ -29,7 +29,7 @@ export function MetricCard({ label, value, unit }: MetricCardProps) {
   return (
     <Card className="group relative p-3">
       <div className="absolute inset-x-0 top-0 h-1 bg-action-accent" />
-      <div className="flex min-w-0 min-h-28 flex-col justify-between gap-3 text-left">
+      <div className="flex min-w-0 min-h-28 flex-col items-center justify-between gap-3 text-center">
         <p className="w-full break-words text-xs font-semibold uppercase leading-snug tracking-wider text-text-muted/80">{label}</p>
         <p className="w-full break-words text-xl font-bold leading-tight text-text-base transition-colors md:text-2xl">
           {value}

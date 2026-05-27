@@ -194,6 +194,31 @@ export const resolveChartLegendColor = (color: unknown, fallbackIndex: number) =
   return getGradientLegendColor(color) || getChartColor(fallbackIndex);
 };
 
+export const splitEvenly = <T,>(items: T[], parts = 2): T[][] => {
+  if (parts <= 1) return [items.slice()];
+  const total = Array.isArray(items) ? items.length : 0;
+  const baseSize = Math.floor(total / parts);
+  const remainder = total % parts;
+  const groups: T[][] = [];
+  let cursor = 0;
+
+  for (let index = 0; index < parts; index += 1) {
+    const size = baseSize + (index < remainder ? 1 : 0);
+    groups.push(items.slice(cursor, cursor + size));
+    cursor += size;
+  }
+
+  return groups;
+};
+
+export const splitLegendItems = <T,>(items: T[], threshold = 5, parts = 2): T[][] => {
+  if (!Array.isArray(items) || items.length <= threshold) {
+    return [Array.isArray(items) ? items.slice() : []];
+  }
+
+  return splitEvenly(items, parts);
+};
+
 const styleAxis = (axis: unknown, isDark: boolean, axisRole: 'category' | 'value') => {
   if (!isPlainObject(axis)) return axis;
   const theme = getChartTheme(isDark);
