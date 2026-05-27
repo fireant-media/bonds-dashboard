@@ -79,6 +79,7 @@ flowchart LR
 
 ## 6) News detail route
 
+- News list retrieval in both `server.ts` and `api/news.ts` maps to FireAnt REST route `GET /posts?type=1`; do not use the retired `/posts/get-posts-by-group` request.
 - `RightPanel` calls `/api/news/:id` to resolve missing thumbnails.
 - Vercel rewrites `/api/news/:id` to `api/news?id=:id`.
 - `api/news.ts` first tries `/posts/get-post?postID={id}` and falls back to matching the post from list endpoints.

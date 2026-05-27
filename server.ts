@@ -223,6 +223,40 @@ async function startServer() {
   let globalFallbackImage: string | null = "https://images.unsplash.com/photo-1611974717482-58a2523e16c2?q=80&w=2070&auto=format&fit=crop";
   let lastTokenFetch = 0;
 
+  const isNewsPost = (value: unknown): value is Record<string, any> => {
+    if (!value || typeof value !== "object") return false;
+    const post = value as Record<string, any>;
+    return Boolean((post.postID || post.id) && typeof post.title === "string");
+  };
+
+  const extractNewsPosts = (payload: unknown, depth = 0): Record<string, any>[] => {
+    if (!payload || depth > 10) return [];
+    if (Array.isArray(payload)) return payload.filter(isNewsPost);
+    if (typeof payload !== "object") return [];
+
+    const value = payload as Record<string, any>;
+    const candidates = [
+      value.data,
+      value.posts,
+      value.items,
+      value.records,
+      value.list,
+      value.NEWS_STREAM?.posts,
+    ];
+
+    for (const candidate of candidates) {
+      const posts = extractNewsPosts(candidate, depth + 1);
+      if (posts.length > 0) return posts;
+    }
+
+    for (const candidate of Object.values(value)) {
+      const posts = extractNewsPosts(candidate, depth + 1);
+      if (posts.length > 0) return posts;
+    }
+
+    return [];
+  };
+
   async function getFireantToken(force = false, retryCount = 0): Promise<string | null> {
     const now = Date.now();
     
@@ -286,7 +320,7 @@ async function startServer() {
         if (token) {
           fireantToken = token;
           lastTokenFetch = now;
-          console.log(`[Token] Successfully obtained Fireant access token: ${token.substring(0, 15)}...`);
+          console.log("[Token] Successfully obtained Fireant access token.");
         } else {
           console.warn("[Token] Access token not found in __NEXT_DATA__ after search");
           // If we had a token but couldn't find a new one during force refresh, 
@@ -295,8 +329,7 @@ async function startServer() {
         }
 
         // Try to get a fallback image
-        const newsStream = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM;
-        const firstPost = newsStream?.posts?.[0];
+        const firstPost = extractNewsPosts(data)[0];
         if (firstPost) {
           let fallbackImg = firstPost.images?.[0]?.imageUrl || 
                             (firstPost.images?.[0]?.imageID ? `${STATIC_FIREANT_URL}/News/Image/${firstPost.images[0].imageID}` : null) ||
@@ -347,6 +380,24 @@ async function startServer() {
     return FINANCE_FALLBACKS[idx];
   };
 
+  const buildNewsPostUrl = (post: Record<string, any>) => {
+    const postId = post.postID || post.id;
+    const title = typeof post.title === "string" ? post.title.trim() : "";
+    if (!postId) return `${FIREANT_WEB_URL}/bai-viet`;
+    if (!title) return `${FIREANT_WEB_URL}/bai-viet/${postId}`;
+
+    const slug = title
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\u0111/g, "d")
+      .replace(/\u0110/g, "D")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    return `${FIREANT_WEB_URL}/bai-viet/${slug}/${postId}`;
+  };
+
   const refreshNews = async (retryCount = 0): Promise<any[] | null> => {
     if (isRefreshingNews && retryCount === 0) return newsCache;
     isRefreshingNews = true;
@@ -355,15 +406,16 @@ async function startServer() {
       console.log(`[News] Refreshing news from Fireant (Attempt ${retryCount + 1})...`);
       
       let token = await getFireantToken();
-      let posts = null;
+      let posts: Record<string, any>[] | null = null;
+      let retryableFailure = false;
 
       // Plan A: Use REST API if token is available
       if (token) {
         try {
           console.log("[News] Attempting to fetch via REST API...");
-          const apiResponse = await axios.get(`${FIREANT_BASE_URL}/posts/get-posts-by-group`, {
+          const apiResponse = await axios.get(`${FIREANT_BASE_URL}/posts`, {
             params: {
-              groupID: 'NEWS_STREAM',
+              type: 1,
               offset: 0,
               limit: 40
             },
@@ -377,22 +429,26 @@ async function startServer() {
             validateStatus: (status) => status < 500
           });
 
-          if (apiResponse.status === 200 && apiResponse.data && Array.isArray(apiResponse.data)) {
-            posts = apiResponse.data;
+          const apiPosts = extractNewsPosts(apiResponse.data);
+          if (apiResponse.status === 200 && apiPosts.length > 0) {
+            posts = apiPosts;
             console.log(`[News] Successfully fetched ${posts.length} items via REST API.`);
           } else if (apiResponse.status === 401) {
-            console.warn(`[News] REST API 401 Unauthorized with token: ${token.substring(0, 10)}...`);
+            console.warn("[News] REST API returned 401 Unauthorized.");
             if (retryCount < 1) {
               console.log("[News] Forcing token refresh and retrying...");
               await getFireantToken(true);
               isRefreshingNews = false;
               return refreshNews(retryCount + 1);
             }
+          } else if (apiResponse.status === 200) {
+            console.warn("[News] REST API returned no usable posts.");
           } else {
             console.log(`[News] REST API returned status ${apiResponse.status}`);
           }
         } catch (apiErr: any) {
           console.log(`[News] REST API axios error: ${apiErr.message}`);
+          retryableFailure = true;
         }
       }
 
@@ -420,15 +476,24 @@ async function startServer() {
             const scriptEndIdx = html.indexOf('</script>', jsonStart);
             const jsonStr = html.substring(jsonStart, scriptEndIdx);
             const data = JSON.parse(jsonStr);
-            posts = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM?.posts;
+            posts = extractNewsPosts(data);
           }
         } catch (scrapErr: any) {
           console.error(`[News] Scraping error: ${scrapErr.message}`);
+          retryableFailure = true;
         }
       }
       
-      if (!posts || !Array.isArray(posts)) {
-        throw new Error("Could not find posts via API or scraping");
+      if (!posts || posts.length === 0) {
+        if (retryableFailure && retryCount < 2) {
+          console.warn("[News] Transient upstream failure; retrying refresh.");
+          isRefreshingNews = false;
+          return refreshNews(retryCount + 1);
+        }
+
+        console.warn("[News] No usable posts returned by FireAnt sources; serving cached news if available.");
+        isRefreshingNews = false;
+        return newsCache;
       }
 
       // Map to our NewsItem format
@@ -484,8 +549,8 @@ async function startServer() {
           image: image || globalFallbackImage,
           images: allImages,
           date: post.date,
-          url: `${FIREANT_WEB_URL}/bai-viet/${post.postID}`,
-          originalUrl: post.postSourceUrl || post.link || null,
+          url: buildNewsPostUrl(post),
+          originalUrl: post.postSourceUrl || post.link || buildNewsPostUrl(post),
           category: post.postGroup?.name || 'Market'
         };
       });
@@ -497,12 +562,6 @@ async function startServer() {
       return mappedNews;
     } catch (error: any) {
       console.error(`[News] Refresh failed: ${error.message}`);
-      
-      if (retryCount < 2) {
-        isRefreshingNews = false;
-        return await refreshNews(retryCount + 1);
-      }
-      
       isRefreshingNews = false;
       return newsCache;
     }
@@ -629,8 +688,8 @@ async function startServer() {
           image: image,
           images: allImages,
           date: post.date,
-          url: `${FIREANT_WEB_URL}/bai-viet/${post.postID}`,
-          originalUrl: post.postSourceUrl || post.link || null,
+          url: buildNewsPostUrl(post),
+          originalUrl: post.postSourceUrl || post.link || buildNewsPostUrl(post),
           category: post.postGroup?.name || 'Market'
         });
       }
@@ -773,8 +832,8 @@ async function startServer() {
               image: image,
               images: allImages,
               date: post.date,
-              url: `${FIREANT_WEB_URL}/bai-viet/${post.postID}`,
-              originalUrl: post.postSourceUrl || post.link || null,
+              url: buildNewsPostUrl(post),
+              originalUrl: post.postSourceUrl || post.link || buildNewsPostUrl(post),
               category: post.postGroup?.name || 'Market'
             });
           }

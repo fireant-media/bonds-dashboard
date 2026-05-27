@@ -19,7 +19,7 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
 import { loadBondDetail } from '../services/bondData';
-import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
 
 interface BondDetailPopupProps {
@@ -313,10 +313,10 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         formatter: (params: any) => {
           let res = `${params[0].name}<br/>`;
           params.forEach((p: any) => {
-            res += `${p.marker} ${p.seriesName}: ${formatNumber(p.value || 0, 2)} ${t('unitBillionShort')}<br/>`;
+            res += `${p.marker} ${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value || 0, 2), ` ${t('unitBillionShort')}`)}<br/>`;
           });
           const total = params.reduce((sum: number, p: any) => sum + (p.value || 0), 0);
-          res += `<strong>${t('total')}: ${formatNumber(total || 0, 2)} ${t('unitBillionShort')}</strong>`;
+          res += `<strong>${t('total')}: ${highlightChartTooltipValue(formatNumber(total || 0, 2), ` ${t('unitBillionShort')}`)}</strong>`;
           return res;
         },
       },

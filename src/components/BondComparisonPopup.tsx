@@ -8,7 +8,7 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
-import { CHART_PALETTE, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl, fireantApi } from '../api/fireant';
 import { ExportExcelButton } from './ui/ExportExcelButton';
@@ -604,7 +604,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         trigger: 'item',
         confine: true,
         textStyle: tooltipTextStyle,
-        formatter: (params: any) => `${params.name}: ${params.value[0]}`
+        formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(params.value[0])}`
       },
       grid: { top: 60, bottom: 60, left: 50, right: 50 },
       xAxis: {
@@ -695,7 +695,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                   <span style="font-size: 11px;">${p.seriesName}</span>
                 </span>
                 <span style="font-weight: bold; font-family: 'Manrope';">
-                  ${formatValue(p.value)}${unit}
+                  ${highlightChartTooltipValue(formatValue(p.value), unit)}
                 </span>
               </div>`;
           });
@@ -774,7 +774,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         confine: true,
         borderColor: isDark ? '#334155' : '#e2e8f0',
         textStyle: tooltipTextStyle,
-        formatter: (params: any) => `${params[0].name}: <b>${formatInterestRate(params[0].value)}%</b>`
+        formatter: (params: any) => `${params[0].name}: ${highlightChartTooltipValue(formatInterestRate(params[0].value), '%')}`
       },
       grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
       xAxis: {

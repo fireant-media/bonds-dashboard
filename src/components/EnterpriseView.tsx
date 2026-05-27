@@ -18,7 +18,7 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getChartTheme, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
@@ -683,7 +683,7 @@ export default function EnterpriseView({
       trigger: 'item',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
+      formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
     legend: { 
       bottom: 0, 
@@ -705,7 +705,7 @@ export default function EnterpriseView({
       radius: ['30%', '60%'],
       center: ['50%', '36%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 8 },
       label: { show: false },
       emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
       data: pieData
@@ -719,7 +719,7 @@ export default function EnterpriseView({
       trigger: 'item',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
+      formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
     legend: { 
       bottom: 0, 
@@ -731,7 +731,7 @@ export default function EnterpriseView({
       radius: ['40%', '70%'],
       center: ['50%', '45%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 8 },
       label: { show: false },
       emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
       data: interestTypePieData
@@ -745,7 +745,7 @@ export default function EnterpriseView({
       trigger: 'item',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${params.data[0]} ${t('monthUnit')}<br/>${t('interestRate')}: ${formatInterestRate(params.data[1])}%<br/>${t('listedVolume')}: ${formatNumber(params.data[2] || 0, 0)}`
+      formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${highlightChartTooltipValue(params.data[0], ` ${t('monthUnit')}`)}<br/>${t('interestRate')}: ${highlightChartTooltipValue(formatInterestRate(params.data[1]), '%')}<br/>${t('listedVolume')}: ${highlightChartTooltipValue(formatNumber(params.data[2] || 0, 0))}`
     },
     legend: {
       bottom: 0,
@@ -778,7 +778,7 @@ export default function EnterpriseView({
       trigger: 'axis',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${formatNumber(params[0].value, 2)} ${t('unitBillionVND')}`
+      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 2), ` ${t('unitBillionVND')}`)}`
     },
     grid: { top: '15%', bottom: '15%', left: '15%', right: '5%' },
     xAxis: { type: 'category', data: sortedYears, axisLabel: axisLabelStyle },
@@ -808,16 +808,16 @@ export default function EnterpriseView({
       ...chartTooltip,
       trigger: 'axis',
       confine: true,
-      axisPointer: { type: 'shadow' },
+      axisPointer: { type: 'line' },
       textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         let content = `${params[0].name}<br/>`;
         let total = 0;
         params.forEach((param: any) => {
           total += param.value || 0;
-          content += `${param.marker} ${param.seriesName}: ${formatNumber(param.value || 0, 2)} ${t('unitBillionVND')}<br/>`;
+          content += `${param.marker} ${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value || 0, 2), ` ${t('unitBillionVND')}`)}<br/>`;
         });
-        content += `<strong>${t('totalCashFlow')}: ${formatNumber(total, 2)} ${t('unitBillionVND')}</strong>`;
+        content += `<strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
         return content;
       }
     },
@@ -850,19 +850,17 @@ export default function EnterpriseView({
     series: [
       {
         name: t('totalInterestPayable'),
-        type: 'bar',
+        type: 'line',
         stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 0),
         data: projectedCashFlowData.interest,
-        itemStyle: { borderRadius: 0 },
-        barWidth: '45%'
       },
       {
         name: t('totalPrincipalPayable'),
-        type: 'bar',
+        type: 'line',
         stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 1),
         data: projectedCashFlowData.principal,
-        itemStyle: { borderRadius: 0 },
-        barWidth: '45%'
       }
     ]
   };
@@ -1202,8 +1200,8 @@ export default function EnterpriseView({
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left border-collapse">
-              <thead className="bg-blue-600 text-white">
+            <table className="w-full min-w-full text-left border-collapse">
+              <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
@@ -1237,7 +1235,7 @@ export default function EnterpriseView({
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-border-base">
                 {paginatedBonds.map((bond, idx) => (
                   <tr 
                     key={bond.id} 
@@ -1245,7 +1243,7 @@ export default function EnterpriseView({
                       setBondEnterpriseName(language === 'en' && enterpriseProfile?.internationalName ? enterpriseProfile.internationalName : selectedEnterprise.name);
                       setSelectedBond(bond);
                     }}
-                    className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
+                    className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <span className="text-sm font-bold text-text-highlight group-hover:underline">{bond.code}</span>

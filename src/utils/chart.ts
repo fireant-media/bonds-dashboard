@@ -117,6 +117,23 @@ export const getChartBarGradient = (horizontal = false, index = 0) => {
     : verticalGradient(pair[0], pair[1]);
 };
 
+export const getComparisonAreaSeriesStyle = (isDark: boolean, index = 0) => {
+  const color = index % 2 === 0 ? '#3FB1E3' : (isDark ? '#A0A7E6' : '#626C91');
+
+  return {
+    color,
+    smooth: true,
+    symbol: 'none',
+    lineStyle: {
+      color,
+      width: getChartTheme(isDark).lineWidth,
+    },
+    areaStyle: {
+      color: getChartAreaGradient(isDark, index % 2 === 0 ? 0 : 2),
+    },
+  };
+};
+
 export const getChartTooltip = (isDark: boolean) => {
   const theme = getChartTheme(isDark);
 
@@ -124,7 +141,7 @@ export const getChartTooltip = (isDark: boolean) => {
     backgroundColor: isDark ? 'rgba(19,28,49,0.96)' : 'rgba(255,255,255,0.96)',
     borderColor: theme.border,
     borderWidth: 1,
-    extraCssText: `box-shadow: ${theme.tooltipShadow}; border-radius: 12px; backdrop-filter: blur(16px);`,
+    extraCssText: `box-shadow: ${theme.tooltipShadow}; border-radius: 12px; backdrop-filter: blur(16px); padding: 10px 12px;`,
     textStyle: {
       color: theme.text,
       fontFamily: 'Manrope',
@@ -133,6 +150,10 @@ export const getChartTooltip = (isDark: boolean) => {
     },
   };
 };
+
+export const highlightChartTooltipValue = (value: string | number, unit = '') => (
+  `<span class="chart-tooltip-value">${value}${unit}</span>`
+);
 
 export const getChartColor = (index: number) => CHART_BASE_PALETTE[index % CHART_BASE_PALETTE.length];
 
@@ -230,7 +251,12 @@ const styleSeries = (series: any, index: number, isDark: boolean, horizontalBar:
   const itemStyle = isPlainObject(series.itemStyle) ? { ...series.itemStyle } : {};
 
   if (type === 'line') {
-    const lineColor = hasBarSeries ? (isDark ? '#A0A7E6' : '#626C91') : baseColor;
+    const configuredColor = typeof series.lineStyle?.color === 'string'
+      ? series.lineStyle.color
+      : typeof series.color === 'string'
+        ? series.color
+        : '';
+    const lineColor = configuredColor || (hasBarSeries ? (isDark ? '#A0A7E6' : '#626C91') : baseColor);
     nextSeries.smooth = series.smooth ?? true;
     nextSeries.symbol = series.symbol ?? 'none';
     nextSeries.lineStyle = {
@@ -281,7 +307,7 @@ const styleSeries = (series: any, index: number, isDark: boolean, horizontalBar:
     };
   }
 
-  if (!nextSeries.color && !itemStyle.color && type !== 'bar') {
+  if (!nextSeries.color && !itemStyle.color && type !== 'bar' && type !== 'pie') {
     nextSeries.color = baseColor;
   }
 

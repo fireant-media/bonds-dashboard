@@ -60,6 +60,13 @@ button:disabled,
   cursor: not-allowed;
 }
 
+.chart-tooltip-value {
+  color: var(--text-highlight);
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 body[data-app-view='login'] .ai-chatbot-shell {
   display: none;
 }

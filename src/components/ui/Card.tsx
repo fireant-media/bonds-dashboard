@@ -30,11 +30,11 @@ export function MetricCard({ label, value, unit }: MetricCardProps) {
     <Card className="group relative p-3">
       <div className="absolute inset-x-0 top-0 h-1 bg-action-accent" />
       <div className="flex min-w-0 min-h-28 flex-col justify-between gap-3 text-left">
-        <p className="w-full whitespace-nowrap text-xs font-semibold uppercase leading-none tracking-wider text-text-muted/80">{label}</p>
-        <p className="w-full whitespace-nowrap text-2xl font-bold leading-none text-text-base transition-colors sm:text-xl md:text-2xl">
+        <p className="w-full break-words text-xs font-semibold uppercase leading-snug tracking-wider text-text-muted/80">{label}</p>
+        <p className="w-full break-words text-xl font-bold leading-tight text-text-base transition-colors md:text-2xl">
           {value}
         </p>
-        <p className="w-full whitespace-nowrap text-xs font-semibold uppercase leading-none text-text-muted">{unit}</p>
+        <p className="w-full break-words text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
       </div>
     </Card>
   );

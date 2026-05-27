@@ -304,10 +304,6 @@ export default function App() {
     }
   };
 
-  const handleRegister = () => {
-    window.open('https://www.fireant.vn/Account/Register', '_blank', 'noopener,noreferrer');
-  };
-
   const handleSearchSelect = async (suggestion: SearchSuggestion) => {
     if (suggestion.type === 'enterprise') {
       const cachedEnterprises = (getCache('enterprise_list') || []) as Enterprise[];
@@ -443,7 +439,7 @@ export default function App() {
 
   if (!user) {
     return (
-      <LoginView onRegister={handleRegister} onSignIn={signIn} isSigningIn={authLoading} />
+      <LoginView onSignIn={signIn} isSigningIn={authLoading} />
     );
   }
 

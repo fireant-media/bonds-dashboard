@@ -12,7 +12,6 @@ import {
   LineChart,
   Languages,
   Moon,
-  PlayCircle,
   ShieldCheck,
   Sun,
   TrendingUp,
@@ -29,7 +28,6 @@ import { Language } from '../translations';
 import { loadMarketOverviewData } from '../services/marketOverviewData';
 
 interface LoginViewProps {
-  onRegister: () => void;
   onSignIn: () => Promise<void> | void;
   isSigningIn?: boolean;
 }
@@ -82,45 +80,6 @@ type CacheIndustryRow = {
   totalIssuedVolume?: number;
   totalCurrentListedVolume?: number;
 };
-
-const navItems = [
-  { label: 'Tính năng', target: 'features' },
-  { label: 'Giải pháp', target: 'solutions' },
-  { label: 'Giới thiệu', target: 'about' },
-];
-
-const featureCards = [
-  {
-    icon: TrendingUp,
-    title: 'Phân tích chuyên sâu',
-    description: 'Phân tích dư nợ, lợi suất và quy mô phát hành theo thời gian thực trong một giao diện tập trung.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Quản trị rủi ro',
-    description: 'Theo dõi áp lực đáo hạn và tín hiệu biến động để hỗ trợ quyết định nhanh hơn.',
-  },
-  {
-    icon: BarChart3,
-    title: 'Tích hợp API',
-    description: 'Kết nối dữ liệu thị trường, tổ chức phát hành và ngành trong một luồng hiển thị nhất quán.',
-  },
-];
-
-const footerColumns = [
-  {
-    title: 'Product',
-    items: ['Dashboard', 'Market Data', 'Realtime Flow'],
-  },
-  {
-    title: 'Company',
-    items: ['About', 'Contact', 'Support'],
-  },
-  {
-    title: 'Legal',
-    items: ['Privacy Policy', 'Terms of Service', 'Security'],
-  },
-];
 
 const formatBillion = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} tỷ`;
 
@@ -276,7 +235,7 @@ const getHeatWidthClass = (value: number) => {
 
 const getCurrentLanguageLabel = (language: Language) => (language === 'vi' ? 'VI' : 'EN');
 
-export default function LoginView({ onRegister, onSignIn, isSigningIn = false }: LoginViewProps) {
+export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
   const [snapshot, setSnapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
   const [loginError, setLoginError] = useState<string | null>(null);
   const { t, language, setLanguage } = useLanguage();
@@ -289,19 +248,12 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
   const currentLanguageLabel = getCurrentLanguageLabel(language);
   const loginCopy = language === 'vi'
     ? {
-        navItems: [
-          { label: 'Tính năng', target: 'solutions' },
-          { label: 'Giải pháp', target: 'solutions' },
-          { label: 'Giới thiệu', target: 'about' },
-        ],
         errorTitle: 'Lỗi đăng nhập',
         errorHint: 'Kiểm tra console (F12) để xem chi tiết lỗi.',
         heroTitle: 'Làm Chủ Thị Trường Trái Phiếu Với Fireant',
         heroDescription:
           'Nền tảng dữ liệu và phân tích trái phiếu dành cho nhà đầu tư chuyên nghiệp - trực quan, tốc độ cao và tập trung vào quyết định đầu tư.',
         primaryAction: 'Bắt Đầu Ngay',
-        secondaryAction: 'Xem Demo',
-        registerButton: 'Đăng ký tài khoản',
         signInButton: 'Đăng nhập',
         heroStats: [
           { label: 'Mã trái phiếu' },
@@ -319,19 +271,12 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
         whyTitle: 'Tại Sao Chọn Fireant?',
         whyDescription:
           'Công cụ phân tích chuyên sâu và dữ liệu thị trường được thiết kế để bạn nhìn nhanh, hiểu nhanh và hành động nhanh.',
-        aboutDescription: 'Phân tích trái phiếu cấp độ tổ chức cho nhà đầu tư hiện đại.',
-        copyright: '© 2024 Fireant Analytics. All rights reserved.',
         loadingSnapshot: 'Đang chờ cache dữ liệu',
         unknownIndustry: 'Chưa xác định',
         debtSuffix: 'dư nợ',
         debtUnitSuffix: 'tỷ VND',
         maturityLabel: 'Đáo hạn 90 ngày',
         maturityDetail: 'Giám sát thanh khoản',
-        footerColumns: [
-          { title: 'Sản phẩm', items: ['Bảng điều khiển', 'Dữ liệu thị trường', 'Dòng chảy thời gian thực'] },
-          { title: 'Công ty', items: ['Giới thiệu', 'Liên hệ', 'Hỗ trợ'] },
-          { title: 'Pháp lý', items: ['Chính sách bảo mật', 'Điều khoản dịch vụ', 'Bảo mật'] },
-        ],
         featureCards: [
           {
             icon: TrendingUp,
@@ -351,19 +296,12 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
         ],
       }
     : {
-        navItems: [
-          { label: 'Features', target: 'solutions' },
-          { label: 'Solutions', target: 'solutions' },
-          { label: 'About', target: 'about' },
-        ],
         errorTitle: 'Login error',
         errorHint: 'Check the console (F12) for error details.',
         heroTitle: 'Take Control of the Bond Market with Fireant',
         heroDescription:
           'An institutional bond data and analytics platform for professional investors - intuitive, fast, and focused on investment decisions.',
         primaryAction: 'Get Started',
-        secondaryAction: 'View Demo',
-        registerButton: 'Create account',
         signInButton: 'Sign in',
         heroStats: [
           { label: 'Bond codes' },
@@ -381,19 +319,12 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
         whyTitle: 'Why Choose Fireant?',
         whyDescription:
           'Deep analysis tools and market data designed so you can scan faster, understand faster, and act faster.',
-        aboutDescription: 'Institutional-grade bond analysis for modern investors.',
-        copyright: '© 2024 Fireant Analytics. All rights reserved.',
         loadingSnapshot: 'Waiting for cached data',
         unknownIndustry: 'Unspecified',
         debtSuffix: 'outstanding debt',
         debtUnitSuffix: 'Billion VND',
         maturityLabel: '90-day maturity',
         maturityDetail: 'Liquidity monitoring',
-        footerColumns: [
-          { title: 'Product', items: ['Dashboard', 'Market Data', 'Realtime Flow'] },
-          { title: 'Company', items: ['About', 'Contact', 'Support'] },
-          { title: 'Legal', items: ['Privacy Policy', 'Terms of Service', 'Security'] },
-        ],
         featureCards: [
           {
             icon: TrendingUp,
@@ -590,32 +521,20 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
   return (
     <div className="min-h-dvh overflow-x-hidden overflow-y-auto bg-bg-base text-text-base">
       <header className="sticky top-0 z-30 border-b border-border-base bg-surface-bright/95 py-3 shadow-md shadow-blue-950/5 backdrop-blur-xl dark:shadow-black/20">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:px-6 xl:px-8">
-          <div className="flex min-w-0 items-center justify-between gap-3 lg:justify-start">
+        <div className="mx-auto flex max-w-7xl flex-col items-stretch gap-3 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 lg:px-6 xl:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => scrollToSection('overview')}
-              className="flex shrink-0 items-center gap-2"
-              aria-label="Fireant"
+              className="flex shrink-0 items-center gap-3"
+              aria-label="FireAnt Bond Dashboard"
             >
               <Logo />
+              <span className="whitespace-nowrap border-l border-border-base pl-3 text-sm font-semibold text-blue-400">Bond Dashboard</span>
             </button>
-
-            <nav className="hidden items-center gap-1 lg:flex">
-              {loginCopy.navItems.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  onClick={() => scrollToSection(item.target)}
-                  className="rounded-lg px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
-                >
-                  {item.label}
-                </button>
-              ))}
-            </nav>
           </div>
 
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 sm:justify-end sm:gap-3">
+          <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
             <button
               type="button"
               onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
@@ -628,20 +547,12 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
             <button
               type="button"
               onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2.5 text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2 text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
               title={`${t('uiLanguage')}: ${t('languageName')}`}
               aria-label={`${t('uiLanguage')}: ${t('languageName')}`}
             >
               <Languages className="h-5 w-5" />
-              <span className="text-xs font-bold uppercase">{currentLanguageLabel}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onRegister}
-              disabled={isSigningIn}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-border-base bg-bg-surface px-3 text-xs font-semibold text-text-base transition-colors hover:border-text-highlight hover:text-text-highlight disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
-            >
-              {loginCopy.registerButton}
+              <span className="hidden text-xs font-bold uppercase sm:inline">{currentLanguageLabel}</span>
             </button>
             <button
               type="button"
@@ -696,14 +607,6 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
                 >
                   {loginCopy.primaryAction}
                   <ArrowRight className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection('solutions')}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border-base bg-bg-surface px-6 py-3.5 font-semibold text-text-base shadow-sm transition-colors hover:border-text-highlight hover:text-text-highlight sm:px-8 sm:py-4"
-                >
-                  <PlayCircle className="h-4 w-4" />
-                  {loginCopy.secondaryAction}
                 </button>
               </div>
 
@@ -859,40 +762,6 @@ export default function LoginView({ onRegister, onSignIn, isSigningIn = false }:
           </div>
         </section>
 
-        <section id="about" className="relative border-t border-border-base bg-bg-surface py-20">
-          <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 xl:px-8">
-            <div className="grid gap-6 lg:grid-cols-4">
-              <div>
-                <div className="flex items-center gap-3">
-                  <Logo />
-                </div>
-                <p className="mt-4 max-w-xs text-sm leading-7 text-text-muted">
-                  {loginCopy.aboutDescription}
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-3 lg:col-span-3">
-                {loginCopy.footerColumns.map((group) => (
-                  <div key={group.title} className="rounded-lg bg-bg-surface p-4">
-                    <p className="text-xs font-medium uppercase tracking-widest text-text-muted/80">{group.title}</p>
-                    <div className="mt-3 space-y-2">
-                      {group.items.map((item) => (
-                        <p key={item} className="text-sm text-text-muted">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-8 pt-5 text-sm text-text-muted">
-              <p>{loginCopy.copyright}</p>
-            </div>
-          </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-border-base" />
-        </section>
       </main>
     </div>
   );

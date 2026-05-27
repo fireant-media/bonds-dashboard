@@ -12,7 +12,7 @@ interface IndustryViewProps {
 import { Settings } from 'lucide-react';
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getAdaptiveBarWidth, getChartTheme, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats } from '../services/industryBondData';
 import { MetricCard } from './ui/Card';
@@ -182,8 +182,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       return [
         { 
           label: t('issuedVolumeTitle'), 
-          value: formatNumber(industryStats.totalIssuedVolume, 0), 
-          unit: t('bondunits') 
+          value: formatNumber(industryStats.totalIssuedVolume / 1_000_000, 2),
+          unit: t('unitMillionShares')
         },
         { 
           label: t('totalIssuedValueTitle'), 
@@ -197,8 +197,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         },
         { 
           label: t('listedVolume'), 
-          value: formatNumber(industryStats.totalCurrentListedVolume, 0), 
-          unit: t('bondunits') 
+          value: formatNumber(industryStats.totalCurrentListedVolume / 1_000_000, 2),
+          unit: t('unitMillionShares')
         },
         { 
           label: t('listedValueTitle'), 
@@ -235,7 +235,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           const symbol = params[0].name;
           const issuer = rankingData.find(d => d.issuerSymbol === symbol);
           const displayName = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
-          return `${displayName}<br/>${params[0].marker}${params[0].seriesName}: ${formatNumber(params[0].value, 0)} Tỷ VND`;
+          return `${displayName}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 0), ` ${t('unitBillionVND')}`)}`;
         }
       },
       grid: { left: '3%', right: '8%', top: '3%', bottom: '3%', containLabel: true },
@@ -315,7 +315,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           const symbol = params.name;
           const issuer = rankingData.find(d => d.issuerSymbol === symbol);
           const displayName = (symbol === t('others')) ? t('others') : (issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol);
-          return `${displayName}<br/>${t('marketShare')}: ${params.percent}%<br/>${t('remainingDebtTitle')}: ${formatNumber(Math.round(params.value / 1000000000), 0)} ${t('unitBillionVND')}`;
+          return `${displayName}<br/>${t('marketShare')}: ${highlightChartTooltipValue(params.percent, '%')}<br/>${t('remainingDebtTitle')}: ${highlightChartTooltipValue(formatNumber(Math.round(params.value / 1000000000), 0), ` ${t('unitBillionVND')}`)}`;
         }
       },
       legend: [
@@ -377,7 +377,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         confine: true,
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
-          return `${params[0].name}: ${formatInterestRate(params[0].value)}%`;
+          return `${params[0].name}: ${highlightChartTooltipValue(formatInterestRate(params[0].value), '%')}`;
         }
       },
       grid: { left: '10%', right: '4%', bottom: '6%', top: '12%', containLabel: true },
@@ -442,7 +442,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         const data = params?.data || {};
         const displayName = data.fullName || data.name || '';
         const value = Number(data.value || 0);
-        return `${displayName}<br/>${t('totalIssuedValueTitle')}: ${formatNumber(value, 0)} ${t('unitBillionVND')}`;
+        return `${displayName}<br/>${t('totalIssuedValueTitle')}: ${highlightChartTooltipValue(formatNumber(value, 0), ` ${t('unitBillionVND')}`)}`;
       },
     },
     series: [
@@ -502,7 +502,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           const issuer = rankingData.find(d => d.issuerSymbol === symbol);
           let res = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
           params.forEach((p: any) => {
-            res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)}${p.seriesName === t('remainingDebtTitle') ? ' ' + t('unitBillionVND') : ''}`;
+            res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), p.seriesName === t('remainingDebtTitle') ? ` ${t('unitBillionVND')}` : '')}`;
           });
           return res;
         }
@@ -595,16 +595,16 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       ...chartTooltip,
       trigger: 'axis',
       confine: true,
-      axisPointer: { type: 'shadow' },
+      axisPointer: { type: 'line' },
       textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         let content = `${params[0].name}<br/>`;
         let total = 0;
         params.forEach((param: any) => {
           total += param.value || 0;
-          content += `${param.marker} ${param.seriesName}: ${formatNumber(param.value || 0, 2)} ${t('unitBillionVND')}<br/>`;
+          content += `${param.marker} ${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value || 0, 2), ` ${t('unitBillionVND')}`)}<br/>`;
         });
-        content += `<strong>${t('totalCashFlow')}: ${formatNumber(total, 2)} ${t('unitBillionVND')}</strong>`;
+        content += `<strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
         return content;
       }
     },
@@ -653,19 +653,17 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     series: [
       {
         name: t('totalInterestPayable'),
-        type: 'bar',
+        type: 'line',
         stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 0),
         data: projectedCashFlowData.interest,
-        itemStyle: { borderRadius: 0 },
-        barWidth: getAdaptiveBarWidth(projectedCashFlowData.labels.length)
       },
       {
         name: t('totalPrincipalPayable'),
-        type: 'bar',
+        type: 'line',
         stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 1),
         data: projectedCashFlowData.principal,
-        itemStyle: { borderRadius: 0 },
-        barWidth: getAdaptiveBarWidth(projectedCashFlowData.labels.length)
       }
     ]
   };

@@ -264,21 +264,21 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-blue-600 dark:text-white transition-colors">{t('watchList')}</h1>
+          <h1 className="text-2xl font-bold text-text-base transition-colors">{t('watchList')}</h1>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-border-base bg-bg-surface px-4 py-3 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">{t('totalTrackedBonds')}</p>
-            <p className="mt-2 text-xl font-bold text-text-base dark:text-white">{summary.total}</p>
+          <div className="rounded-lg border border-border-base bg-bg-surface/95 px-4 py-3 shadow-sm">
+            <p className="break-words text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('totalTrackedBonds')}</p>
+            <p className="mt-2 break-words text-xl font-bold text-text-base">{summary.total}</p>
           </div>
-          <div className="rounded-2xl border border-border-base bg-bg-surface px-4 py-3 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">{t('maturityWarning')}</p>
-            <p className="mt-2 text-xl font-bold text-red-600 dark:text-white">{summary.urgent}</p>
+          <div className="rounded-lg border border-border-base bg-bg-surface/95 px-4 py-3 shadow-sm">
+            <p className="break-words text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('maturityWarning')}</p>
+            <p className="mt-2 break-words text-xl font-bold text-red-600 dark:text-red-400">{summary.urgent}</p>
           </div>
-          <div className="rounded-2xl border border-border-base bg-bg-surface px-4 py-3 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">{t('maturityNext90')}</p>
-            <p className="mt-2 text-xl font-bold text-orange-600 dark:text-white">{summary.next90}</p>
+          <div className="rounded-lg border border-border-base bg-bg-surface/95 px-4 py-3 shadow-sm">
+            <p className="break-words text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('maturityNext90')}</p>
+            <p className="mt-2 break-words text-xl font-bold text-orange-600 dark:text-orange-400">{summary.next90}</p>
           </div>
         </div>
       </div>
@@ -306,11 +306,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-bg-base p-3">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('interestRate')}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('interestRate')}</p>
                     <p className="mt-1 text-sm font-bold text-green-600 dark:text-green-500">{formatInterestRate(bond.interestRate)}%</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('maturityDate')}</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('maturityDate')}</p>
                     <p className="mt-1 text-sm font-bold text-text-base">{formatDate(bond.maturityDate)}</p>
                   </div>
                   <div className="col-span-2 flex items-center justify-between">
@@ -346,9 +346,9 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
       <div className="hidden overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-sm transition-colors lg:block">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left border-collapse">
+          <table className="w-full min-w-full text-left border-collapse">
             <thead>
-              <tr className="bg-blue-600 text-white transition-colors">
+              <tr className="border-b border-border-base bg-surface-container-low text-text-muted transition-colors">
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {t('bondCode')}
                 </th>
@@ -384,7 +384,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                       className={cn(
                         'cursor-pointer transition-colors group',
                         index % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface',
-                        'hover:bg-indigo-50 dark:hover:bg-indigo-900/20'
+                        'hover:bg-surface-container-low/70'
                       )}
                     >
                       <td className="px-6 py-5 whitespace-nowrap text-center border-none">
@@ -392,12 +392,12 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                       </td>
 
                       <td className="px-6 py-5 text-left border-none">
-                        <div className="max-w-[300px]">
+                        <div className="max-w-xs">
                           <p className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
                             {t(bond.issuerName as any, bond.ticker)}
                           </p>
                           {bond.industry && (
-                            <p className="text-[10px] text-text-muted font-semibold group-hover:text-text-highlight transition-colors">
+                            <p className="text-xs text-text-muted font-semibold group-hover:text-text-highlight transition-colors">
                               {t(bond.industry as any)}
                             </p>
                           )}
@@ -417,7 +417,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                           <span className={cn('inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold uppercase transition-colors', status.color)}>
                             {status.label}
                           </span>
-                          <p className="text-[10px] font-bold text-text-muted tracking-wider transition-colors group-hover:text-text-highlight">
+                          <p className="text-xs font-bold text-text-muted tracking-wider transition-colors group-hover:text-text-highlight">
                             {t('remainingPrefix')} {bond.daysLeft} {t('daysUnit').toLowerCase()}
                           </p>
                         </div>

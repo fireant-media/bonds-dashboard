@@ -19,7 +19,7 @@ interface TopInterestBond {
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard } from './ui/Card';
-import { CHART_PALETTE, applyChartTheme, getChartTheme, getChartTooltip } from '../utils/chart';
+import { CHART_PALETTE, applyChartTheme, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 import {
@@ -199,8 +199,8 @@ export default function MarketOverview() {
     },
     {
       label: t('totalIssuedVolume'),
-      value: formatNumber(marketKpis.issuedVolume, 0),
-      unit: t('bondunits')
+      value: formatNumber(marketKpis.issuedVolume / 1_000_000, 2),
+      unit: t('unitMillionShares')
     },
     {
       label: t('totalIssuedValueTitle'),
@@ -527,7 +527,7 @@ export default function MarketOverview() {
           let content = `${issuerLabel} (${symbol})`;
           params.forEach((param: any) => {
             const unit = param.seriesName === t('bondLotsTitle') ? '' : ` ${t('unitBillionVND')}`;
-            content += `<br/>${param.marker}${param.seriesName}: ${formatNumber(param.value, 0)}${unit}`;
+            content += `<br/>${param.marker}${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value, 0), unit)}`;
           });
           return content;
         }
@@ -592,7 +592,7 @@ export default function MarketOverview() {
       confine: true,
       textStyle: tooltipTextStyle,
       formatter: (params: any) => {
-        return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${formatInterestRate(params[0].value)}%`;
+        return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatInterestRate(params[0].value), '%')}`;
       }
     },
     grid: { left: '5%', right: '8%', top: '14%', bottom: '10%', containLabel: true },
@@ -641,7 +641,7 @@ export default function MarketOverview() {
         const issuer = topDebtData.find(d => d.issuerSymbol === symbol);
         let res = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)}${p.seriesName === t('remainingDebtTitle') ? ' ' + t('unitBillionVND') : ''}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), p.seriesName === t('remainingDebtTitle') ? ` ${t('unitBillionVND')}` : '')}`;
         });
         return res;
       }
@@ -712,7 +712,7 @@ export default function MarketOverview() {
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)} ${t('unitBillionVND')}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), ` ${t('unitBillionVND')}`)}`;
         });
         return res;
       }
@@ -766,7 +766,7 @@ export default function MarketOverview() {
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)} ${t('bondunits')}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), ` ${t('bondunits')}`)}`;
         });
         return res;
       }
@@ -813,14 +813,14 @@ export default function MarketOverview() {
       ...chartTooltip,
       trigger: 'axis',
       confine: true,
-      axisPointer: { type: 'shadow' },
+      axisPointer: { type: 'line' },
       textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         const interest = params.find((param: any) => param.seriesName === t('totalInterestPayable'))?.value || 0;
         const principal = params.find((param: any) => param.seriesName === t('totalPrincipalPayable'))?.value || 0;
         const total = interest + principal;
 
-        return `${params[0].name}<br/>${params[0].marker} ${t('totalInterestPayable')}: ${formatNumber(interest, 2)} ${t('unitBillionVND')}<br/>${params[1].marker} ${t('totalPrincipalPayable')}: ${formatNumber(principal, 2)} ${t('unitBillionVND')}<br/><strong>${t('totalCashFlow')}: ${formatNumber(total, 2)} ${t('unitBillionVND')}</strong>`;
+        return `${params[0].name}<br/>${params[0].marker} ${t('totalInterestPayable')}: ${highlightChartTooltipValue(formatNumber(interest, 2), ` ${t('unitBillionVND')}`)}<br/>${params[1].marker} ${t('totalPrincipalPayable')}: ${highlightChartTooltipValue(formatNumber(principal, 2), ` ${t('unitBillionVND')}`)}<br/><strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
       }
     },
     legend: {
@@ -869,19 +869,17 @@ export default function MarketOverview() {
     series: [
       {
         name: t('totalInterestPayable'),
-        type: 'bar',
+        type: 'line',
         stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 0),
         data: projectedCashFlowData.interest,
-        itemStyle: { borderRadius: 0 },
-        barWidth: '45%'
       },
       {
         name: t('totalPrincipalPayable'),
-        type: 'bar',
+        type: 'line',
         stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 1),
         data: projectedCashFlowData.principal,
-        itemStyle: { borderRadius: 0 },
-        barWidth: '45%'
       }
     ]
   };

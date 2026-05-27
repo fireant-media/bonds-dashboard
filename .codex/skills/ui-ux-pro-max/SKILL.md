@@ -273,8 +273,15 @@ Rules:
 - Line charts should use smooth lines, stronger stroke contrast, and area gradients only when readability is preserved.
 - Bar charts may use subtle vertical gradients and soft shadows, lower opacity in light mode.
 - Horizontal bar charts must use a left-to-right gradient, not top-to-bottom.
+- Projected cash-flow charts use smooth stacked area lines with the same two-series mapping as industry-volume bars: blue/cyan for series 1 and indigo/purple for series 2.
 - Mixed bar/line charts use an indigo line in light mode and a brighter purple line in dark mode so the line stays legible over bars.
 - Keep ECharts canvas backgrounds transparent and render the light/dark surface on the containing card.
+- Apply the shared chart theme to issuer-detail charts as well; donut separators must inherit the light/dark panel rule rather than local surface colors.
+- Do not apply a single series-level color to pie/donut charts; each slice must remain distinguishable through the fixed palette.
+- Tooltip numeric values use the shared bold `text-text-highlight` treatment with tabular numerals; series labels stay neutral.
+- Metric card label, value, and unit text must wrap when the grid narrows.
+- Dense finance table headers use the theme low surface and muted text tokens, reserving saturated blue for actions.
+- Application headers always preserve the complete FireAnt icon and wordmark and show `Bond Dashboard` as a `text-blue-400` descriptor; wrap mobile controls below the identity instead of hiding brand content.
 
 ---
 

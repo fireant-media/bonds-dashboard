@@ -255,21 +255,18 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
   };
 
   return (
-    <header className="relative h-16 shrink-0 bg-surface-bright/95 border-b border-border-base flex items-center gap-3 px-3 md:px-6 sticky top-0 z-50 transition-colors duration-300 shadow-md shadow-blue-950/5 backdrop-blur dark:shadow-black/20">
-      <div className="flex min-w-0 flex-1 items-center">
-        <div 
-          className="flex min-w-0 items-center hover:cursor-pointer select-none group"
-          onClick={onLogoClick}
-        >
-          <div className="flex min-w-0 items-end gap-3 md:gap-6 lg:gap-10">
-            <div className="flex shrink-0 items-center gap-2 origin-left">
-              <Logo />
-            </div>
-          </div>
-        </div>
-      </div>
+    <header className="relative sticky top-0 z-50 flex min-h-16 shrink-0 flex-wrap items-center gap-2 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:flex-nowrap sm:gap-3 md:h-16 md:px-6 md:py-0">
+      <button
+        type="button"
+        className="flex shrink-0 items-center gap-3 select-none"
+        onClick={onLogoClick}
+        aria-label="FireAnt Bond Dashboard"
+      >
+        <Logo />
+        <span className="whitespace-nowrap border-l border-border-base pl-3 text-sm font-semibold text-blue-400">Bond Dashboard</span>
+      </button>
 
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+      <div className="ml-auto flex basis-full items-center justify-end gap-1 pt-2 sm:min-w-0 sm:basis-auto sm:flex-1 sm:pt-0 sm:gap-2">
         <button
           type="button"
           onClick={() => {
@@ -379,26 +376,32 @@ export default function Header({ onProfileClick, onHelpClick, onLogoClick, onLog
         )}
 
         <button
+          type="button"
           onClick={toggleTheme}
-          className="rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 shrink-0"
+          className="shrink-0 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
           title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+          aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
         >
           {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>
 
         <button
+          type="button"
           onClick={toggleLanguage}
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 shrink-0"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
           title={t('uiLanguage')}
+          aria-label={t('uiLanguage')}
         >
           <Languages className="h-5 w-5" />
-          <span className="text-xs font-bold uppercase">{language}</span>
+          <span className="hidden text-xs font-bold uppercase sm:inline">{language}</span>
         </button>
 
         <div ref={userMenuRef} className="relative">
           <button 
+            type="button"
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-3 rounded-lg p-1.5 transition-all hover:bg-surface-container-low active:scale-95 shrink-0"
+            className="flex shrink-0 items-center gap-3 rounded-lg p-1.5 transition-all hover:bg-surface-container-low active:scale-95"
+            aria-label={t('profile')}
           >
             <div className="text-right hidden sm:block">
               <p className="text-xs font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>

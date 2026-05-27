@@ -168,6 +168,7 @@ For expensive grouped industry loaders, keep an in-flight promise map alongside 
 - Market overview KPI cards map level-1 industry stats by summing: `bondCount`, `totalIssuedVolume`, `totalIssuedValue`, and `totalRemainingDebt`.
 - Market overview value-by-industry chart uses `totalIssuedValue` and `totalCurrentListedValue`.
 - Market overview volume-by-industry chart uses `totalIssuedVolume` and `totalCurrentListedVolume`.
+- Market overview total issued volume KPI and industry issued/listed volume KPIs display volume as millions of bonds at the UI boundary (`volume / 1_000_000`); keep raw service values unchanged.
 - Market overview projected cash-flow charts must include x-axis `dataZoom` for both month and year modes.
 - Industry projected cash-flow charts must include x-axis `dataZoom` for both month and year modes.
 - Dashboard core warmup must not fetch grouped data for every industry. When a user opens or hovers a specific industry, fetch that industry first with `warmIndustryData(industryId)` / `loadIndustryBaseBondGroupData(industryId)` / `loadIndustryBondGroupData(industryId)`.
