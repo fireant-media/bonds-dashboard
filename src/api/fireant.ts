@@ -146,7 +146,7 @@ export const fireantApi = {
   getFinancialData: (symbol: string, type = "Q", count = 4) =>
     fireantRequest<any>(`symbols/${encodeURIComponent(symbol)}/financial-data`, { query: { type, count } }),
   searchSymbols: (q: string) => fireantRequest<any>("symbols/search", { query: { q } }),
-  getTopDebtIssuers: (top = 200) => fireantRequest<any[]>("bonds/stats/issuers/top-debt", { query: { top } }),
+  getTopDebtIssuers: (top = 1000) => fireantRequest<any[]>("bonds/stats/issuers/top-debt", { query: { top } }),
   getMaturingSoon: (days: number) => fireantRequest<any[]>("bonds/stats/bonds/maturing-soon", { query: { days } }),
   getHighYieldBonds: (top = 10) => fireantRequest<any[]>("bonds/stats/bonds/high-yield", { query: { top } }),
   getIndustries: (top = 1000, level = 1) => fireantRequest<any[]>("bonds/stats/industries", { query: { top, level } }),

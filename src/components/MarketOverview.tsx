@@ -492,19 +492,15 @@ export default function MarketOverview() {
   );
 
   const topIssuerDataViewRows = useMemo(() => {
-    return topIssuerDisplayData.map((issuer, index) => ([
-      String(index + 1),
-      getTopIssuerDisplayName(issuer),
+    return topIssuerDisplayData.map((issuer) => ([
       issuer.issuerSymbol || '',
       formatNumber(issuer.totalRemainingDebt / 1000000000, 0),
       formatNumber(issuer.totalIssuedValue / 1000000000, 0),
     ]));
-  }, [topIssuerDisplayData, t]);
+  }, [topIssuerDisplayData]);
 
   const topIssuerDataViewColumns: ChartDataTableColumn[] = useMemo(() => ([
-    { label: t('rank'), align: 'center', kind: 'text' },
-    { label: t('enterprise'), align: 'left', kind: 'text' },
-    { label: t('ticker'), align: 'left', kind: 'text' },
+    { label: t('ticker'), align: 'center', kind: 'text' },
     { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
     { label: t('totalIssuedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
   ]), [t]);
@@ -595,6 +591,10 @@ export default function MarketOverview() {
 
   const topInterestOptions = {
     color: chartPalette,
+    __dataView: {
+      categoryLabel: t('bondCode'),
+      categoryAlign: 'center',
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'axis',
@@ -640,6 +640,10 @@ export default function MarketOverview() {
 
   const debtLotsOptions = {
     color: chartPalette,
+    __dataView: {
+      categoryLabel: t('ticker'),
+      categoryAlign: 'center',
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'axis',
@@ -713,6 +717,10 @@ export default function MarketOverview() {
 
   const industryValueOptions = {
     color: chartPalette,
+    __dataView: {
+      categoryLabel: t('marketTitle'),
+      categoryAlign: 'left',
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'axis',
@@ -767,6 +775,10 @@ export default function MarketOverview() {
 
   const industryVolumeOptions = {
     color: chartPalette,
+    __dataView: {
+      categoryLabel: t('marketTitle'),
+      categoryAlign: 'left',
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'axis',
@@ -818,6 +830,10 @@ export default function MarketOverview() {
 
   const projectedCashFlowOptions = {
     color: chartPalette,
+    __dataView: {
+      categoryLabel: t('year'),
+      categoryAlign: 'center',
+    },
     tooltip: {
       ...chartTooltip,
       trigger: 'axis',

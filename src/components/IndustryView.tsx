@@ -28,7 +28,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const chartTheme = getChartTheme(isDark);
-  const cacheKey = `industry_bond_group_v4_${industry}`;
+  const cacheKey = `industry_bond_group_v6_${industry}`;
   const cachedData = getCache(cacheKey);
   const [industryStats, setIndustryStats] = useState<any>(cachedData?.industryStats || null);
   const [rankingData, setRankingData] = useState<any[]>(cachedData?.issuerSummaries || cachedData?.rankingData || []);

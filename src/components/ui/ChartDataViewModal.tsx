@@ -323,23 +323,17 @@ export function ChartDataViewModal({
 
         <div className="flex-1 overflow-auto p-4">
           <div className="overflow-x-auto rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20">
-            <table className="w-full min-w-full border-collapse text-left">
+            <table className="w-full min-w-max border-collapse text-left">
               <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
                 <tr className="border-b border-border-base">
                   {columns.map((column, index) => (
                     <th
                       key={`${column.label}-${column.unit || ''}-${index}`}
-                      className={`px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
-                        column.align === 'right'
-                          ? 'text-right'
-                          : column.align === 'center'
-                            ? 'text-center'
-                            : 'text-left'
-                      }`}
+                      className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center"
                     >
                       <span className="block">{column.label}</span>
                       {column.unit ? (
-                        <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">
+                        <span className="block text-center text-xs font-semibold uppercase tracking-wider text-text-muted/80">
                           ({column.unit})
                         </span>
                       ) : null}
@@ -351,12 +345,12 @@ export function ChartDataViewModal({
                 {visibleRows.length > 0 ? visibleRows.map((row, rowIndex) => (
                   <tr
                     key={`chart-data-row-${rowIndex}`}
-                    className="transition-colors hover:bg-surface-container-low/70"
+                    className={`cursor-default transition-colors ${rowIndex % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                   >
                     {columns.map((column, columnIndex) => (
                       <td
                         key={`${rowIndex}-${columnIndex}`}
-                        className={`px-4 py-3 text-sm font-medium text-text-base whitespace-nowrap ${
+                        className={`px-6 py-5 text-sm font-medium text-text-base whitespace-nowrap ${
                           column.align === 'right'
                             ? 'text-right tabular-nums'
                             : column.align === 'center'
@@ -371,7 +365,7 @@ export function ChartDataViewModal({
                 )) : (
                   <tr>
                     <td
-                      className="px-4 py-10 text-center text-sm font-medium text-text-muted"
+                      className="px-6 py-10 text-center text-sm font-medium text-text-muted"
                       colSpan={columns.length}
                     >
                       {t('noData')}

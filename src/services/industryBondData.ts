@@ -79,9 +79,9 @@ type ProcedureResult<T> =
     };
 
 const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
-const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v2_';
-const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v3_';
-const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v4_';
+const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v3_';
+const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v5_';
+const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v6_';
 const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v3_';
 const ISSUER_STATS_CACHE_PREFIX = 'issuer_stats_api_v1_';
 let symbolGroupsPromise: Promise<Record<string, string[]>> | null = null;
@@ -215,6 +215,15 @@ const normalizeIssuerStats = (issuer: any): IssuerStatsSummary => ({
   avgFloatingRate: toNumber(issuer?.avgFloatingRate || issuer?.floatingRate),
 });
 
+const buildRemainingDebtMap = (issuerStats: IssuerStatsSummary[]) => {
+  return new Map(
+    issuerStats.map((issuer) => [
+      String(issuer.issuerSymbol || '').toUpperCase(),
+      toNumber(issuer.totalRemainingDebt),
+    ] as const)
+  );
+};
+
 export const loadIssuerStatsSummary = async (top = 200, forceRefresh = false): Promise<IssuerStatsSummary[]> => {
   const cacheKey = `${ISSUER_STATS_CACHE_PREFIX}${top}`;
   const cached = forceRefresh ? null : getCache(cacheKey);
@@ -294,6 +303,7 @@ const mergeBondDetail = (bond: any, detailData: any) => {
     issuerSymbol: detail.issuerSymbol || bond.infoObj?.issuerSymbol,
     totalIssuedValue: toNumber(detail.totalIssuedValue || bond.totalIssuedValue || historyItem?.value),
     currentListedValue: toNumber(detail.currentListedValue || bond.currentListedValue || historyItem?.value),
+    totalRemainingDebt: toNumber(detail.totalRemainingDebt || bond.totalRemainingDebt),
     currentListedVolume: toNumber(detail.currentListedVolume || bond.currentListedVolume || historyItem?.volume),
     bondRate: toNumber(detail.bondRate || detail.interestRate || detail.couponRate || bond.bondRate),
     bondRateType: detail.bondRateType || detail.interestRateType || detail.couponRateType || bond.bondRateType,
@@ -431,7 +441,9 @@ export const loadIndustryBaseBondGroupData = async (industryId: string, forceRef
   const promise = (async () => {
     const bonds = await loadIndustryBondRows(industry.id, forceRefresh);
     const symbols = Array.from(new Set(bonds.map((bond) => getBondIssuerSymbol(bond)).filter(Boolean)));
-    const issuerSummaries = buildIssuerSummaries(bonds);
+    const issuerStats = await loadIssuerStatsSummary(1000, forceRefresh);
+    const remainingDebtByIssuer = buildRemainingDebtMap(issuerStats);
+    const issuerSummaries = buildIssuerSummaries(bonds, remainingDebtByIssuer);
     const industryStats = buildIndustryStats(issuerSummaries, bonds);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
@@ -491,18 +503,20 @@ const buildProjectedCashFlowBuckets = (bonds: any[]) => {
   return Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
 };
 
-const buildIssuerSummaries = (bonds: any[]) => {
+const buildIssuerSummaries = (bonds: any[], remainingDebtByIssuer = new Map<string, number>()) => {
   const issuers = new Map<string, IndustryIssuerSummary>();
 
   bonds.forEach((bond) => {
     const issuerSymbol = String(bond.issuerSymbol || bond.infoObj?.issuerSymbol || '');
     if (!issuerSymbol) return;
+    const normalizedIssuerSymbol = issuerSymbol.toUpperCase();
+    const remainingDebt = remainingDebtByIssuer.get(normalizedIssuerSymbol) ?? 0;
 
     const current = issuers.get(issuerSymbol) || {
       issuerSymbol,
       issuerName: getBondIssuerName(bond, issuerSymbol),
       totalIssuedValue: 0,
-      totalRemainingDebt: 0,
+      totalRemainingDebt: remainingDebt,
       totalDebtFull: 0,
       totalIssuedVolume: 0,
       totalCurrentListedValue: 0,
@@ -515,12 +529,15 @@ const buildIssuerSummaries = (bonds: any[]) => {
     const currentListedVolume = toNumber(bond.currentListedVolume);
 
     current.totalIssuedValue += issuedValue;
-    current.totalRemainingDebt += currentListedValue;
     current.totalDebtFull += issuedValue;
     current.totalIssuedVolume += currentListedVolume;
     current.totalCurrentListedValue += currentListedValue;
     current.totalCurrentListedVolume += currentListedVolume;
     current.bondCount += 1;
+
+    if (current.totalRemainingDebt === 0 && remainingDebt > 0) {
+      current.totalRemainingDebt = remainingDebt;
+    }
 
     issuers.set(issuerSymbol, current);
   });
@@ -588,7 +605,9 @@ export const loadIndustryBondGroupData = async (industryId: string, forceRefresh
       return detailData ? mergeBondDetail(bond, detailData) : bond;
     });
 
-    const issuerSummaries = buildIssuerSummaries(detailedBonds);
+    const issuerStats = await loadIssuerStatsSummary(1000, forceRefresh);
+    const remainingDebtByIssuer = buildRemainingDebtMap(issuerStats);
+    const issuerSummaries = buildIssuerSummaries(detailedBonds, remainingDebtByIssuer);
     const industryStats = buildIndustryStats(issuerSummaries, detailedBonds);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,

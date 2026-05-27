@@ -19,6 +19,13 @@ interface ChartTable {
   rows: string[][];
 }
 
+interface ChartDataViewConfig {
+  categoryLabel?: string;
+  categoryUnit?: string;
+  categoryAlign?: 'left' | 'right' | 'center';
+  categoryKind?: 'text' | 'number';
+}
+
 interface ChartWithToolbarProps {
   option: any;
   style?: CSSProperties;
@@ -119,6 +126,7 @@ function flattenTreemap(data: any[], t: (key: any) => string, prefix = ''): Char
 }
 
 function buildDataTable(option: any, t: (key: any) => string): ChartTable {
+  const dataView = option?.__dataView as ChartDataViewConfig | undefined;
   const series = getSeriesArray(option);
   const xAxisData = getAxisData(option, 'xAxis');
   const yAxisData = getAxisData(option, 'yAxis');
@@ -188,7 +196,12 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
     ]);
     return {
       headers: [
-        { label: t('category'), align: 'left', kind: 'text' },
+        {
+          label: dataView?.categoryLabel || t('category'),
+          unit: dataView?.categoryUnit,
+          align: dataView?.categoryAlign || 'left',
+          kind: dataView?.categoryKind || 'text',
+        },
         ...series.map((item, index) => ({
           label: String(item?.name || `${t('series')} ${index + 1}`),
           unit: valueUnit,
