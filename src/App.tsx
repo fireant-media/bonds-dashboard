@@ -535,9 +535,9 @@ export default function App() {
                   isProfileMode
                     ? "w-full"
                     : activeTab === 'overview'
-                      ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                    ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
                       : activeTab === 'maturity-list' || activeTab === 'watchlist'
-                        ? "w-full pt-2 pb-3 pl-2 pr-1 sm:pt-3 sm:pl-3 sm:pr-2 md:pt-4 md:pb-4 md:px-4 lg:pt-4 lg:pl-4 lg:pr-2 xl:pt-4 xl:pl-4 xl:pr-3"
+                        ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
                         : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
                 )}
               >

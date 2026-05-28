@@ -83,6 +83,7 @@ const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
 const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v6_';
 const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v9_';
 const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v10_';
+const INDUSTRY_BOND_LOOKUP_CACHE_PREFIX = 'industry_bond_lookup_v1_';
 const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v5_';
 const INDUSTRY_STATS_ROWS_CACHE_PREFIX = 'industry_stats_rows_v2_';
 const ISSUER_STATS_CACHE_PREFIX = 'issuer_stats_api_v1_';
@@ -92,6 +93,7 @@ const industryStatsRowsPromises = new Map<string, Promise<IndustryStats[]>>();
 const industryBondRowsPromises = new Map<string, Promise<any[]>>();
 const industryBondBasePromises = new Map<string, Promise<IndustryBondGroupData>>();
 const industryBondGroupPromises = new Map<string, Promise<IndustryBondGroupData>>();
+const industryBondLookupPromises = new Map<string, Promise<string | null>>();
 const issuerStatsPromises = new Map<string, Promise<IssuerStatsSummary[]>>();
 
 const toNumber = (value: unknown) => {
@@ -808,5 +810,40 @@ export const loadIndustryBondGroupData = async (industryId: string, forceRefresh
   });
 
   industryBondGroupPromises.set(industry.id, promise);
+  return promise;
+};
+
+export const loadBondIndustryByFilter = async (bondCode: string, forceRefresh = false): Promise<string | null> => {
+  const normalizedCode = normalizeCode(bondCode).toUpperCase();
+  if (!normalizedCode) return null;
+
+  const cacheKey = `${INDUSTRY_BOND_LOOKUP_CACHE_PREFIX}${normalizedCode}`;
+  const cached = forceRefresh ? null : getCache(cacheKey);
+  if (cached) return cached as string | null;
+
+  const inflight = industryBondLookupPromises.get(normalizedCode);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const searchOrder = [...INDUSTRY_NAV_ITEMS]
+      .sort((left, right) => left.priority - right.priority)
+      .map((industry) => industry.id);
+
+    const results = await mapWithConcurrency(searchOrder, 4, async (industryId) => {
+      const baseData = await loadIndustryBaseBondGroupData(industryId, forceRefresh);
+      const matched = Array.isArray(baseData.bonds)
+        && baseData.bonds.some((bond) => getBondCode(bond).toUpperCase() === normalizedCode);
+      return matched ? industryId : null;
+    });
+
+    const match = getFulfilledValues(results).find((industryId): industryId is string => Boolean(industryId));
+    const resolvedIndustry = match || null;
+    setCache(cacheKey, resolvedIndustry);
+    return resolvedIndustry;
+  })().finally(() => {
+    industryBondLookupPromises.delete(normalizedCode);
+  });
+
+  industryBondLookupPromises.set(normalizedCode, promise);
   return promise;
 };

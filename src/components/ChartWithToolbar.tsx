@@ -35,11 +35,13 @@ interface ChartWithToolbarProps {
   allowMagicType?: boolean;
   showToolbar?: boolean;
   showZoomButton?: boolean;
+  showDataZoomSliderOnHover?: boolean;
   notMerge?: boolean;
   lazyUpdate?: boolean;
   title?: ReactNode;
   titleAlign?: 'left' | 'center' | 'right';
   actions?: ReactNode;
+  actionsPlacement?: 'inline' | 'below';
   zoomConfig?: {
     shellClassName?: string;
     chartStyle?: CSSProperties;
@@ -344,6 +346,31 @@ function scaleChartOption(value: any, factor: number): any {
   return result;
 }
 
+function setDataZoomSliderVisibility(option: any, visible: boolean): any {
+  if (Array.isArray(option)) {
+    return option.map((item) => setDataZoomSliderVisibility(item, visible));
+  }
+
+  if (!isPlainObject(option)) return option;
+
+  const result: Record<string, any> = { ...option };
+
+  if (Array.isArray(result.dataZoom)) {
+    result.dataZoom = result.dataZoom.map((entry: any) => {
+      if (!isPlainObject(entry)) return entry;
+      if (String(entry.type || '') !== 'slider') return entry;
+      return { ...entry, show: visible };
+    });
+  }
+
+  Object.entries(result).forEach(([key, value]) => {
+    if (key === 'dataZoom') return;
+    result[key] = setDataZoomSliderVisibility(value, visible);
+  });
+
+  return result;
+}
+
 export default function ChartWithToolbar({
   option,
   style,
@@ -351,11 +378,13 @@ export default function ChartWithToolbar({
   allowMagicType = false,
   showToolbar = true,
   showZoomButton = true,
+  showDataZoomSliderOnHover = false,
   notMerge,
   lazyUpdate,
   title,
   titleAlign = 'center',
   actions,
+  actionsPlacement = 'below',
   zoomConfig,
 }: ChartWithToolbarProps) {
   const { effectiveTheme } = useTheme();
@@ -366,6 +395,7 @@ export default function ChartWithToolbar({
   const [showDataView, setShowDataView] = useState(false);
   const [showDataViewBackButton, setShowDataViewBackButton] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
+  const [showSlider, setShowSlider] = useState(!showDataZoomSliderOnHover);
   const seriesArray = useMemo(() => getSeriesArray(option), [option]);
   const firstSeriesType = getSeriesType(seriesArray[0]);
   const magicTypeCapable = allowMagicType && seriesArray.length > 0 && seriesArray.every((series) => {
@@ -476,6 +506,14 @@ export default function ChartWithToolbar({
     const merged = zoomConfig?.option ? mergeZoomOption(finalOption, zoomConfig.option) : finalOption;
     return scaleChartOption(merged, zoomScale);
   }, [finalOption, zoomConfig?.option, zoomScale]);
+  const renderedOption = useMemo(
+    () => (showDataZoomSliderOnHover ? setDataZoomSliderVisibility(finalOption, showSlider) : finalOption),
+    [finalOption, showDataZoomSliderOnHover, showSlider]
+  );
+  const renderedZoomOption = useMemo(
+    () => (showDataZoomSliderOnHover ? setDataZoomSliderVisibility(zoomOption, showSlider) : zoomOption),
+    [showDataZoomSliderOnHover, showSlider, zoomOption]
+  );
 
   const toolbarButtonClass = (disabled = false, active = false) => (
     `rounded-md p-1.5 transition-colors ${
@@ -486,6 +524,9 @@ export default function ChartWithToolbar({
           : 'text-text-muted hover:bg-surface-container-low hover:text-text-highlight'
     }`
   );
+
+  const hoverToolbarClass =
+    'flex h-7 items-center justify-end gap-1 text-text-muted opacity-0 pointer-events-none transition-opacity duration-200 ease-out group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
 
   const handleDownload = async () => {
     const instance = chartRef.current?.getEchartsInstance?.();
@@ -550,10 +591,15 @@ export default function ChartWithToolbar({
   }, [showZoom]);
 
   return (
-    <div className={`flex min-h-0 flex-col ${className || ''}`} style={style}>
-      <div className="mb-1 flex flex-col gap-1">
+    <div
+      className={`group flex min-h-0 flex-col ${className || ''}`}
+      style={style}
+      onMouseEnter={showDataZoomSliderOnHover ? () => setShowSlider(true) : undefined}
+      onMouseLeave={showDataZoomSliderOnHover ? () => setShowSlider(false) : undefined}
+    >
+      <div className="flex flex-col gap-1">
         {showToolbar ? (
-          <div className="flex items-center justify-end gap-1 text-text-muted">
+          <div className={hoverToolbarClass}>
             <button
               type="button"
               onClick={() => openDataView(false)}
@@ -610,40 +656,62 @@ export default function ChartWithToolbar({
           </div>
         ) : null}
         {(title || actions) ? (
-          <div className="flex items-center gap-3">
-            {titleAlign === 'center' ? <div className="flex flex-1" /> : null}
-
-            <div
-              className={
-                titleAlign === 'left'
-                  ? 'flex min-w-0 flex-1 justify-start'
-                  : titleAlign === 'right'
-                    ? 'flex min-w-0 flex-1 justify-end'
-                    : 'flex min-w-0 flex-1 justify-center'
-              }
-            >
-              {title ? (
-                <div className={titleAlign === 'left' ? 'min-w-0 text-left' : titleAlign === 'right' ? 'min-w-0 text-right' : 'min-w-0 text-center'}>
-                  <div className="text-sm font-bold leading-snug break-words text-text-base md:text-base">
-                    {title}
-                  </div>
+          <div className="flex flex-col gap-2">
+            {actionsPlacement === 'inline' ? (
+              <div className="flex items-center gap-3">
+                <div
+                  className={
+                    titleAlign === 'left'
+                      ? 'flex min-w-0 flex-1 justify-start'
+                      : titleAlign === 'right'
+                        ? 'flex min-w-0 flex-1 justify-end'
+                        : 'flex min-w-0 flex-1 justify-center'
+                  }
+                >
+                  {title ? (
+                    <div className={titleAlign === 'left' ? 'min-w-0 text-left' : titleAlign === 'right' ? 'min-w-0 text-right' : 'min-w-0 text-center'}>
+                      <div className="line-clamp-2 text-sm font-bold leading-snug text-text-base md:text-base">
+                        {title}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
 
-            <div className={titleAlign === 'right' ? 'flex flex-1 justify-start' : 'flex flex-1 justify-end'}>
-              {actions ? actions : null}
-            </div>
+                {actions ? (
+                  <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                    {actions}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <div className="flex min-w-0 justify-center text-center">
+                  {title ? (
+                    <div className="min-w-0 max-w-3xl">
+                      <div className="line-clamp-2 text-sm font-bold leading-snug text-text-base md:text-base">
+                        {title}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {actions ? (
+                  <div className="flex min-w-0 justify-end text-right">
+                    {actions}
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>
       <div className="min-h-0 flex-1">
-        <ReactECharts
-          ref={chartRef}
-          option={finalOption}
-          style={{ height: '100%', width: '100%' }}
-          notMerge={notMerge}
-          lazyUpdate={lazyUpdate}
+          <ReactECharts
+            ref={chartRef}
+            option={renderedOption}
+            style={{ height: '100%', width: '100%' }}
+            notMerge={notMerge}
+            lazyUpdate={lazyUpdate}
         />
       </div>
 
@@ -664,11 +732,16 @@ export default function ChartWithToolbar({
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
           onClick={() => setShowZoom(false)}
         >
-          <div className={zoomShellClass} onClick={(event) => event.stopPropagation()}>
+          <div
+            className={`group ${zoomShellClass}`}
+            onClick={(event) => event.stopPropagation()}
+            onMouseEnter={showDataZoomSliderOnHover ? () => setShowSlider(true) : undefined}
+            onMouseLeave={showDataZoomSliderOnHover ? () => setShowSlider(false) : undefined}
+          >
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">
                 {showToolbar ? (
-                  <div className="flex items-center justify-end gap-1 text-right text-text-muted">
+                  <div className={`${hoverToolbarClass} text-right`}>
                     <button
                       type="button"
                       onClick={() => openDataView(true)}
@@ -720,17 +793,17 @@ export default function ChartWithToolbar({
                 ) : null}
                 {title ? (
                   <div className="min-w-0 pt-3 text-center">
-                    <div className="text-base font-bold leading-snug break-words text-text-base md:text-2xl">
+                    <div className="line-clamp-2 text-base font-bold leading-snug text-text-base md:text-2xl">
                       {title}
                     </div>
                   </div>
                 ) : (
-                  <h3 className="pt-3 text-center text-sm font-bold leading-snug break-words text-text-base">
+                  <h3 className="line-clamp-2 pt-3 text-center text-sm font-bold leading-snug text-text-base">
                     {t('zoom')}
                   </h3>
                 )}
                 {actions ? (
-                  <div className="mt-3 flex min-w-0 justify-end text-right">
+                  <div className="mt-2 flex min-w-0 justify-end text-right">
                     {actions}
                   </div>
                 ) : null}
@@ -747,7 +820,7 @@ export default function ChartWithToolbar({
             <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
               <ReactECharts
                 ref={chartRef}
-                option={zoomOption}
+                option={renderedZoomOption}
                 style={zoomChartStyle}
                 notMerge={notMerge}
                 lazyUpdate={lazyUpdate}

@@ -28,17 +28,20 @@ interface ChartDataViewModalProps {
 
 interface SortState {
   columnIndex: number;
-  direction: 'asc' | 'desc';
+  direction: 'asc' | 'desc' | null;
 }
 
 const parseSortValue = (value: string | number | null | undefined) => {
   if (value == null) return null;
   if (typeof value === 'number') return value;
 
-  const normalized = String(value)
+  const raw = String(value)
     .replace(/\s+/g, '')
-    .replace(/%/g, '')
-    .replace(/,/g, '');
+    .replace(/%/g, '');
+
+  const normalized = raw.includes(',')
+    ? raw.replace(/\./g, '').replace(/,/g, '.')
+    : raw.replace(/\./g, '');
 
   if (!normalized) return null;
 
@@ -129,7 +132,7 @@ export function ChartDataViewModal({
   }, [rows, searchText]);
 
   const visibleRows = useMemo(() => {
-    if (!sortState) return filteredRows;
+    if (!sortState || sortState.direction == null) return filteredRows;
 
     const column = columns[sortState.columnIndex];
     if (!column) return filteredRows;
@@ -160,15 +163,24 @@ export function ChartDataViewModal({
     }))
     .filter((option) => option.index > 0 && option.kind === 'number');
 
-  const selectedSortOption = sortOptions.find((option) => option.index === sortState?.columnIndex) || sortOptions[0] || null;
+  const selectedSortOption = sortOptions.find((option) => option.index === sortState?.columnIndex) || null;
 
-  const updateSort = (columnIndex: number, direction?: 'asc' | 'desc') => {
+  const updateSortColumn = (columnIndex: number) => {
     const column = columns[columnIndex];
     if (!column) return;
 
-    setSortState({
+    setSortState((current) => ({
       columnIndex,
-      direction: direction || 'desc',
+      direction: current?.direction ?? null,
+    }));
+  };
+
+  const updateSortDirection = (direction: 'asc' | 'desc') => {
+    if (!sortState) return;
+
+    setSortState({
+      columnIndex: sortState.columnIndex,
+      direction,
     });
   };
 
@@ -283,7 +295,7 @@ export function ChartDataViewModal({
                       return;
                     }
 
-                    updateSort(Number(rawValue), sortState?.direction || 'desc');
+                    updateSortColumn(Number(rawValue));
                   }}
                   className="w-full appearance-none rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-500/50"
                 >
@@ -301,7 +313,7 @@ export function ChartDataViewModal({
                   type="button"
                   onClick={() => {
                     if (!selectedSortOption) return;
-                    updateSort(selectedSortOption.index, 'asc');
+                    updateSortDirection('asc');
                   }}
                   className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
                     sortState?.direction === 'asc'
@@ -317,7 +329,7 @@ export function ChartDataViewModal({
                   type="button"
                   onClick={() => {
                     if (!selectedSortOption) return;
-                    updateSort(selectedSortOption.index, 'desc');
+                    updateSortDirection('desc');
                   }}
                   className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
                     sortState?.direction === 'desc'

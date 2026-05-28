@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Building2, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowUpDown, Building2, ChevronDown, Filter, Trash2 } from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { Card } from './ui/Card';
+import { ExportExcelButton } from './ui/ExportExcelButton';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItem, type WatchlistItem } from '../utils/watchlist';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 import { buildIndustrySymbolLookup, resolveIndustryKeyFromCandidates, resolveIndustryKeyFromSymbolGroups } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+import { exportRowsToExcel } from '../utils/excel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -21,6 +24,11 @@ interface WatchlistBond extends WatchlistItem {
   industry?: string;
 }
 
+type StatusFilter = 'all' | 'very-near' | 'near' | 'monitor' | 'medium-term' | 'long-term';
+type InterestSort = 'high-to-low' | 'low-to-high';
+type MaturitySort = 'near' | 'far';
+type MenuKey = 'status' | 'interest' | 'maturity';
+
 interface WatchlistViewProps {
   setSelectedBond: (bond: Bond | null) => void;
   setBondEnterpriseName: (name: string) => void;
@@ -29,6 +37,7 @@ interface WatchlistViewProps {
 function getStatusMeta(daysLeft: number, t: (key: any, ticker?: string) => string) {
   if (daysLeft < 30) {
     return {
+      value: 'very-near' as const,
       label: t('statusVeryNear'),
       color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30',
     };
@@ -36,6 +45,7 @@ function getStatusMeta(daysLeft: number, t: (key: any, ticker?: string) => strin
 
   if (daysLeft <= 90) {
     return {
+      value: 'near' as const,
       label: t('statusNear'),
       color: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-400/30',
     };
@@ -43,6 +53,7 @@ function getStatusMeta(daysLeft: number, t: (key: any, ticker?: string) => strin
 
   if (daysLeft <= 180) {
     return {
+      value: 'monitor' as const,
       label: t('statusMonitor'),
       color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-400/30',
     };
@@ -50,12 +61,14 @@ function getStatusMeta(daysLeft: number, t: (key: any, ticker?: string) => strin
 
   if (daysLeft <= 270) {
     return {
+      value: 'medium-term' as const,
       label: t('statusMediumTerm'),
       color: 'bg-blue-600/5 text-blue-600 border-blue-600/10',
     };
   }
 
   return {
+    value: 'long-term' as const,
     label: t('statusLongTerm'),
     color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30',
   };
@@ -105,6 +118,12 @@ function needsIssuerLookup(bond: WatchlistBond) {
 export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }: WatchlistViewProps) {
   const { t, language } = useLanguage();
   const [bonds, setBonds] = useState<WatchlistBond[]>([]);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [interestSort, setInterestSort] = useState<InterestSort>('high-to-low');
+  const [maturitySort, setMaturitySort] = useState<MaturitySort>('near');
+  const [exportLoading, setExportLoading] = useState(false);
+  const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const refresh = () => {
@@ -116,6 +135,17 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
     refresh();
     return onWatchlistUpdated(refresh);
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
   useEffect(() => {
@@ -251,6 +281,15 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     return { total, urgent, next90 };
   }, [bonds]);
 
+  const warningLevels = useMemo(() => ([
+    { value: 'all', label: t('allStatuses') },
+    { value: 'very-near', label: t('statusVeryNear') },
+    { value: 'near', label: t('statusNear') },
+    { value: 'monitor', label: t('statusMonitor') },
+    { value: 'medium-term', label: t('statusMediumTerm') },
+    { value: 'long-term', label: t('statusLongTerm') },
+  ]), [t]);
+
   const handleOpenBond = (bond: WatchlistBond) => {
     setBondEnterpriseName(bond.issuerName);
     setSelectedBond(bond);
@@ -260,32 +299,252 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     removeWatchlistItem(bond.code);
   };
 
+  const handleExportExcel = async () => {
+    setExportLoading(true);
+    try {
+      exportRowsToExcel({
+        fileNameBase: 'Watchlist',
+        sheetName: t('watchList'),
+        rows: sortedBonds,
+        columns: [
+          { header: t('bondCode'), value: (bond) => bond.code },
+          { header: t('issuerName'), value: (bond) => t(bond.issuerName as any, bond.ticker) },
+          { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => `${formatInterestRate(bond.interestRate)}%` },
+          { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
+          { header: t('situation'), value: (bond) => getStatusMeta(bond.daysLeft, t).label },
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const filteredBonds = useMemo(() => {
+    return bonds.filter((bond) => {
+      const status = getStatusMeta(bond.daysLeft, t);
+      return statusFilter === 'all' || status.value === statusFilter;
+    });
+  }, [bonds, statusFilter, t]);
+
+  const sortedBonds = useMemo(() => {
+    return [...filteredBonds].sort((a, b) => {
+      const interestDiff = interestSort === 'high-to-low'
+        ? b.interestRate - a.interestRate
+        : a.interestRate - b.interestRate;
+
+      if (Math.abs(interestDiff) > 0.0001) {
+        return interestDiff;
+      }
+
+      const maturityA = new Date(a.maturityDate).getTime();
+      const maturityB = new Date(b.maturityDate).getTime();
+      const maturityDiff = maturitySort === 'near'
+        ? maturityA - maturityB
+        : maturityB - maturityA;
+
+      if (maturityDiff !== 0) {
+        return maturityDiff;
+      }
+
+      return b.addedAt - a.addedAt;
+    });
+  }, [filteredBonds, interestSort, maturitySort]);
+
+  const currentStatusLabel = warningLevels.find((level) => level.value === statusFilter)?.label || t('allStatuses');
+  const hasAnyStatusFilter = statusFilter !== 'all';
+  const statusOptions = useMemo(() => {
+    const seen = new Map<StatusFilter, string>();
+    bonds.forEach((bond) => {
+      const status = getStatusMeta(bond.daysLeft, t);
+      if (!seen.has(status.value)) {
+        seen.set(status.value, status.label);
+      }
+    });
+
+    return [
+      { value: 'all' as StatusFilter, label: t('allStatuses') },
+    ...Array.from(seen.entries()).map(([value, label]) => ({ value, label })),
+    ];
+  }, [bonds, t]);
+
+  const watchlistStatCards = useMemo(() => ([
+    {
+      label: t('totalTrackedBonds'),
+      value: summary.total,
+      valueClassName: 'text-text-base',
+      accentClassName: 'bg-blue-500',
+    },
+    {
+      label: t('maturityWarning'),
+      value: summary.urgent,
+      valueClassName: 'text-red-600 dark:text-red-400',
+      accentClassName: 'bg-red-500',
+    },
+    {
+      label: t('maturityNext90'),
+      value: summary.next90,
+      valueClassName: 'text-orange-600 dark:text-orange-400',
+      accentClassName: 'bg-orange-500',
+    },
+  ]), [summary.next90, summary.total, summary.urgent, t]);
+
   return (
-    <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="mb-8 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-text-base transition-colors">{t('watchList')}</h1>
+    <div className="min-w-0 transition-colors duration-300">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight break-words text-text-base transition-colors">{t('watchList')}</h1>
+        </div>
+      </div>
+
+      <div className="mb-6 space-y-4">
+        <div className="flex justify-center">
+          <div className="grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-3">
+            {watchlistStatCards.map((card) => (
+              <Card key={card.label} className="group relative p-3">
+                <div className={`absolute inset-x-0 top-0 h-1 ${card.accentClassName}`} />
+                <div className="flex min-w-0 min-h-28 flex-col items-center justify-between gap-3 text-center">
+                  <p className="w-full break-words text-xs font-semibold uppercase leading-snug tracking-wider text-text-muted/80">{card.label}</p>
+                  <p className={`w-full break-words text-xl font-bold leading-tight md:text-2xl ${card.valueClassName}`}>
+                    {card.value}
+                  </p>
+                  <p className="w-full break-words text-xs font-semibold uppercase leading-snug text-transparent">.</p>
+                </div>
+              </Card>
+            ))}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-border-base bg-bg-surface/95 px-4 py-3 shadow-sm">
-            <p className="break-words text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('totalTrackedBonds')}</p>
-            <p className="mt-2 break-words text-xl font-bold text-text-base">{summary.total}</p>
-          </div>
-          <div className="rounded-lg border border-border-base bg-bg-surface/95 px-4 py-3 shadow-sm">
-            <p className="break-words text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('maturityWarning')}</p>
-            <p className="mt-2 break-words text-xl font-bold text-red-600 dark:text-red-400">{summary.urgent}</p>
-          </div>
-          <div className="rounded-lg border border-border-base bg-bg-surface/95 px-4 py-3 shadow-sm">
-            <p className="break-words text-xs font-bold uppercase tracking-wider text-text-muted/80">{t('maturityNext90')}</p>
-            <p className="mt-2 break-words text-xl font-bold text-orange-600 dark:text-orange-400">{summary.next90}</p>
+        <div className="flex justify-end">
+          <div ref={menuRef} className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOpenMenu((current) => (current === 'status' ? null : 'status'))}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low md:w-auto"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'status'}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-blue-600" />
+                  <span>{hasAnyStatusFilter ? currentStatusLabel : t('situation')}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 text-text-muted" />
+              </button>
+
+              {openMenu === 'status' && (
+                <div className="absolute left-0 top-full z-20 mt-2 min-w-56 rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {statusOptions.map((level) => (
+                    <button
+                      key={level.value}
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter(level.value as StatusFilter);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        statusFilter === level.value
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{level.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOpenMenu((current) => (current === 'interest' ? null : 'interest'))}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low sm:w-auto"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'interest'}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <ArrowUpDown className="h-4 w-4 text-blue-600" />
+                  <span>{t('interestRate')}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 text-text-muted" />
+              </button>
+              {openMenu === 'interest' && (
+                <div className="absolute right-0 top-full z-20 mt-2 min-w-56 rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {[
+                    { value: 'high-to-low', label: t('highToLow') },
+                    { value: 'low-to-high', label: t('lowToHigh') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setInterestSort(option.value as InterestSort);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        interestSort === option.value
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOpenMenu((current) => (current === 'maturity' ? null : 'maturity'))}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low sm:w-auto"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'maturity'}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <ArrowUpDown className="h-4 w-4 text-blue-600" />
+                  <span>{t('maturityDateSort')}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 text-text-muted" />
+              </button>
+              {openMenu === 'maturity' && (
+                <div className="absolute right-0 top-full z-20 mt-2 min-w-56 rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {[
+                    { value: 'near', label: t('nearest') },
+                    { value: 'far', label: t('farthest') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setMaturitySort(option.value as MaturitySort);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        maturitySort === option.value
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <ExportExcelButton loading={exportLoading} disabled={bonds.length === 0} onClick={handleExportExcel} />
           </div>
         </div>
       </div>
 
       <div className="space-y-3 lg:hidden">
-        {bonds.length > 0 ? (
-          bonds.map((bond) => {
+        {sortedBonds.length > 0 ? (
+          sortedBonds.map((bond) => {
             const status = getStatusMeta(bond.daysLeft, t);
             return (
               <button
@@ -338,7 +597,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center">
             <div className="flex flex-col items-center gap-3 text-text-muted">
               <Building2 className="h-8 w-8" />
-              <p className="text-sm font-bold uppercase transition-colors">{t('noBondsFound')}</p>
+              <p className="text-sm font-bold transition-colors">Chưa có mã trái phiếu đang theo dõi</p>
             </div>
           </div>
         )}
@@ -374,8 +633,8 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
             </thead>
 
             <tbody className="divide-y divide-border-base transition-colors">
-              {bonds.length > 0 ? (
-                bonds.map((bond, index) => {
+              {sortedBonds.length > 0 ? (
+                sortedBonds.map((bond, index) => {
                   const status = getStatusMeta(bond.daysLeft, t);
                   return (
                     <tr
@@ -445,7 +704,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                   <td colSpan={6} className="px-6 py-12 text-center">
                     <div className="flex flex-col items-center gap-3 text-text-muted">
                       <Building2 className="h-8 w-8" />
-                      <p className="text-sm font-bold uppercase transition-colors">{t('noBondsFound')}</p>
+                      <p className="text-sm font-bold transition-colors">Chưa có mã trái phiếu đang theo dõi</p>
                     </div>
                   </td>
                 </tr>

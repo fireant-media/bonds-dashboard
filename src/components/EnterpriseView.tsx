@@ -1333,6 +1333,7 @@ export default function EnterpriseView({
               style={{ height: '360px' }}
               allowMagicType
               title={projectedCashFlowTitle}
+              showDataZoomSliderOnHover
               zoomConfig={{
                 shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                 chartStyle: { height: '100%', width: '100%' },

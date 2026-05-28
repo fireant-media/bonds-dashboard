@@ -214,3 +214,60 @@ Industry tabs should render directly from grouped industry data:
 - Monthly/yearly projected cash flow: `projectedCashFlowBuckets`.
 
 Do not use `top_debt_200` as the primary source for industry charts when grouped ICB bond data is required.
+
+## Bond Detail Assessment
+
+Use this rule for the `Đánh giá` section in the bond detail popup, specifically the item renamed to `Mức lãi suất so với ngành`.
+
+### Purpose
+
+Evaluate a corporate bond's interest rate relative to peer bonds in the same industry.
+
+### Output
+
+- `Thấp`
+- `Trung bình`
+- `Cao`
+- `null` when there is not enough peer data to evaluate
+
+### Normalization
+
+- `remainingTerm = maturityDate - today`
+- `termGroup`:
+  - `short_term` when remaining term is less than 36 months
+  - `long_term` when remaining term is 36 months or more
+- `rateType`:
+  - `fixed`
+  - `floating`
+- Never compare fixed and floating bonds directly.
+
+### Peer Group Construction
+
+Start with:
+
+- `industry + rateType + termGroup`
+
+If peer bond count is below 5, expand in this order:
+
+1. Drop `termGroup`, keep `industry + rateType`
+2. If still below 5, drop `rateType`, keep `industry`
+
+### Threshold Rules
+
+- If `peerBondCount >= 5`, use dynamic percentiles:
+  - `lãi suất < P25` -> `Thấp`
+  - `P25 <= lãi suất <= P75` -> `Trung bình`
+  - `lãi suất > P75` -> `Cao`
+- If `industryPeerCount` is from 2 to 4, use the industry's median:
+  - below median -> `Thấp`
+  - near median -> `Trung bình`
+  - above median -> `Cao`
+  - include `confidence: low`
+- If `industryPeerCount < 2`, return `null`
+
+### Absolute Rules
+
+- Do not use fixed hardcoded thresholds.
+- Do not compare across other industries.
+- Do not compare floating with fixed.
+- Recalculate thresholds whenever bond data changes or on daily refresh.

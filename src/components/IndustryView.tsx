@@ -625,6 +625,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const interestOptions = getInterestOptions();
 
   const issuedValueTreemapData = useMemo(() => {
+    const totalIssuedValue = visibleRankingData.reduce((sum, item) => sum + (item.totalIssuedValue || 0), 0);
+
     return [...visibleRankingData]
       .filter((item) => item.totalIssuedValue > 0)
       .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
@@ -633,6 +635,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         value: item.totalIssuedValue / 1000000000,
         fullName: t(item.issuerName as any, item.issuerSymbol),
         issuerSymbol: item.issuerSymbol,
+        showValueLine: totalIssuedValue > 0
+          ? (item.totalIssuedValue / totalIssuedValue) >= 0.045 || (item.totalIssuedValue / 1000000000) >= 40
+          : false,
         itemStyle: {
           color: chartPalette[index % chartPalette.length],
         },
@@ -643,13 +648,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     const data = params?.data || {};
     const value = Number(params?.value || 0);
     const name = String(params?.name || data?.fullName || '').trim();
-    const valueText = `${formatNumber(value, 3)} ${t('unitBillionVND')}`;
-    const compactLength = name.length + valueText.length;
+    const showValueLine = data?.showValueLine === true;
 
     if (!name || value <= 0) return '';
-    if (compactLength > 28) return '';
-    if (compactLength > 20) {
-      return `{name|${name}}\n{value|${formatNumber(value, 3)}}\n{unit|${t('unitBillionVND')}}`;
+    const valueText = `${formatNumber(value, 3)} ${t('unitBillionVND')}`;
+
+    if (!showValueLine) {
+      return `{name|${name}}`;
     }
 
     return `{name|${name}}\n{value|${valueText}}`;
@@ -657,14 +662,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const getIssuedValueTreemapOptions = () => ({
     color: chartPalette,
-      __dataView: {
-        columns: [
-          { label: t('ticker'), align: 'center', kind: 'text' },
-          { label: t('issuedValueShort'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
-          { label: t('weight'), unit: '%', align: 'right', kind: 'number' },
-        ],
-        rows: issuedValueDataViewRows,
-      },
+    __dataView: {
+      columns: [
+        { label: t('ticker'), align: 'center', kind: 'text' },
+        { label: t('issuedValueShort'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+        { label: t('weight'), unit: '%', align: 'right', kind: 'number' },
+      ],
+      rows: issuedValueDataViewRows,
+    },
     tooltip: {
       ...chartTooltip,
       trigger: 'item',
@@ -1033,6 +1038,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                 style={{ height: '100%', width: '100%' }}
                 title={industryIssuedValueTreemapLabel}
                 zoomConfig={{
+                  scale: 1.1,
                   shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                   chartStyle: { height: '100%', width: '100%' },
                   option: {
@@ -1040,46 +1046,40 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                       {
                         labelLayout: (params: any) => {
                           const rect = params?.rect || {};
-                          const x = Number(rect.x || 0);
-                          const y = Number(rect.y || 0);
                           const width = Number(rect.width || 0);
                           const height = Number(rect.height || 0);
 
                           return {
-                            x: x + width / 2,
-                            y: y + height / 2,
+                            width,
+                            height,
                             align: 'center',
                             verticalAlign: 'middle',
+                            hideOverlap: true,
                           };
                         },
                         label: {
                           show: true,
-                          position: 'inside',
                           formatter: buildTreemapZoomLabel,
+                          position: 'inside',
                           align: 'center',
                           verticalAlign: 'middle',
                           padding: 0,
                           color: isDark ? '#ffffff' : '#111827',
-                          fontSize: 12,
+                          fontSize: 14,
+                          fontFamily: 'Manrope',
                           fontWeight: 'normal',
+                          overflow: 'none',
+                          lineHeight: 18,
                           rich: {
                             name: {
-                              fontWeight: 'bold',
-                              lineHeight: 16,
-                              align: 'center',
                               color: isDark ? '#ffffff' : '#111827',
+                              fontWeight: 'bold',
+                              lineHeight: 18,
                             },
                             value: {
-                              fontWeight: 'normal',
-                              lineHeight: 16,
-                              align: 'center',
                               color: isDark ? '#ffffff' : '#111827',
-                            },
-                            unit: {
                               fontWeight: 'normal',
-                              lineHeight: 14,
-                              align: 'center',
-                              color: isDark ? '#d1d5db' : '#374151',
+                              lineHeight: 18,
                             },
                           },
                         },
@@ -1124,6 +1124,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
               style={{ height: '360px', width: '100%' }}
               allowMagicType
               title={projectedCashFlowTitle}
+              showDataZoomSliderOnHover
               zoomConfig={{
                 shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                 chartStyle: { height: '100%', width: '100%' },

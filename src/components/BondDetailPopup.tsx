@@ -18,7 +18,9 @@ import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } f
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondComparisonPopup from './BondComparisonPopup';
-import { loadBondDetail } from '../services/bondData';
+import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
+import { loadBondIndustryByFilter, loadIndustryBaseBondGroupData, type IndustryBondGroupData } from '../services/industryBondData';
+import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
 
@@ -28,6 +30,17 @@ interface BondDetailPopupProps {
   onClose: () => void;
 }
 
+type BondDetailView = Bond & {
+  bondRateType?: string;
+  industryId?: string;
+  industryName?: string;
+  industryCode?: string;
+  icbCodeLv1?: string;
+  icbCodeLv2?: string;
+  icbNameLv1?: string;
+  icbNameLv2?: string;
+};
+
 export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
@@ -35,12 +48,15 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   const chartPalette = CHART_PALETTE;
   const chartTooltip = getChartTooltip(isDark);
 
-  const [bondDetails, setBondDetails] = useState<Bond | null>(null);
+  const [bondDetails, setBondDetails] = useState<BondDetailView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
   const [isTracked, setIsTracked] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('month');
+  const [issuerProfile, setIssuerProfile] = useState<any>(null);
+  const [bondIndustryId, setBondIndustryId] = useState<string | null>(null);
+  const [industryBondGroup, setIndustryBondGroup] = useState<IndustryBondGroupData | null>(null);
 
   const formatTerm = (rawTerm: any) => {
     if (!rawTerm || rawTerm === 'N/A') return 'N/A';
@@ -89,7 +105,15 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           term: detail.tenorPeriod ? formatTerm(detail.tenorPeriod) : formatTerm(bond.term),
           issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : bond.issueDate,
           maturityDate: detail.maturityDate ? detail.maturityDate.split('T')[0] : bond.maturityDate,
+          industryId: detail.industryId || detail.icbNameLv2 || detail.industryName,
+          industryName: detail.industryName || detail.icbNameLv2,
+          industryCode: detail.industryCode || detail.icbCodeLv2,
+          icbCodeLv1: detail.icbCodeLv1 || detail.ICBCodeLv1,
+          icbCodeLv2: detail.icbCodeLv2 || detail.ICBCodeLv2,
+          icbNameLv1: detail.icbNameLv1 || detail.ICBNameLv1,
+          icbNameLv2: detail.icbNameLv2 || detail.ICBNameLv2,
           interestType,
+          bondRateType: detail.bondRateType || detail.interestRateType || detail.couponRateType,
           interestRate,
           listedVolume,
           issuedValue: issueValue,
@@ -125,7 +149,110 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     };
   }, [bond, t]);
 
+  useEffect(() => {
+    let isActive = true;
+    const symbol = String(bondDetails?.enterpriseId || bond.enterpriseId || '').trim();
+
+    if (!symbol) {
+      setIssuerProfile(null);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const fetchProfile = async () => {
+      try {
+        const profile = await loadIssuerProfile(symbol);
+        if (isActive) {
+          setIssuerProfile(profile);
+        }
+      } catch (error) {
+        console.error('Error fetching issuer profile for bond assessment:', error);
+        if (isActive) {
+          setIssuerProfile(null);
+        }
+      }
+    };
+
+    fetchProfile();
+
+    return () => {
+      isActive = false;
+    };
+  }, [bond.enterpriseId, bondDetails?.enterpriseId]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const fetchBondIndustry = async () => {
+      try {
+        const resolved = await loadBondIndustryByFilter(bond.code);
+        if (isActive) {
+          setBondIndustryId(resolved);
+        }
+      } catch (error) {
+        console.error('Error resolving bond industry from filter flow:', error);
+        if (isActive) {
+          setBondIndustryId(null);
+        }
+      }
+    };
+
+    fetchBondIndustry();
+
+    return () => {
+      isActive = false;
+    };
+  }, [bond.code]);
+
   const currentBond = bondDetails || bond;
+
+  const resolvedIndustryId = useMemo(() => resolveIndustryKeyFromCandidates(
+    bondIndustryId,
+    bondDetails?.industryId,
+    bondDetails?.industryName,
+    bondDetails?.industryCode,
+    issuerProfile?.industryId,
+    issuerProfile?.industry,
+    issuerProfile?.industryName,
+    issuerProfile?.icbCodeLv2,
+    issuerProfile?.icbNameLv2,
+    issuerProfile?.icbCodeLv1,
+    issuerProfile?.icbNameLv1,
+    currentBond.enterpriseId,
+    enterpriseName,
+  ), [bondIndustryId, bondDetails, issuerProfile, currentBond.enterpriseId, enterpriseName]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!resolvedIndustryId) {
+      setIndustryBondGroup(null);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const fetchIndustryPeers = async () => {
+      try {
+        const data = await loadIndustryBaseBondGroupData(resolvedIndustryId);
+        if (isActive) {
+          setIndustryBondGroup(data);
+        }
+      } catch (error) {
+        console.error('Error fetching industry peer bonds for assessment:', error);
+        if (isActive) {
+          setIndustryBondGroup(null);
+        }
+      }
+    };
+
+    fetchIndustryPeers();
+
+    return () => {
+      isActive = false;
+    };
+  }, [resolvedIndustryId]);
 
   const parseTermMonths = (rawTerm: any) => {
     if (rawTerm === undefined || rawTerm === null) return undefined;
@@ -136,6 +263,38 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     return match ? Number(match[0]) : undefined;
   };
 
+  const getRemainingTermMonths = (maturityDate?: string) => {
+    if (!maturityDate) return null;
+
+    const maturity = new Date(maturityDate);
+    if (Number.isNaN(maturity.getTime())) return null;
+
+    const today = new Date();
+    const months = (maturity.getFullYear() - today.getFullYear()) * 12 + (maturity.getMonth() - today.getMonth());
+    return maturity.getDate() < today.getDate() ? months - 1 : months;
+  };
+
+  const getRateTypeKey = (value: unknown) => {
+    const text = String(value || '').toLowerCase();
+    if (!text) return '';
+    if (text.includes('float') || text.includes('thả nổi') || text.includes('tha noi')) return 'floating';
+    if (text.includes('fixed') || text.includes('cố định') || text.includes('co dinh')) return 'fixed';
+    return '';
+  };
+
+  const percentile = (values: number[], p: number) => {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const rank = (p / 100) * (sorted.length - 1);
+    const lower = Math.floor(rank);
+    const upper = Math.ceil(rank);
+    if (lower === upper) return sorted[lower];
+    const weight = rank - lower;
+    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+  };
+
+  const median = (values: number[]) => percentile(values, 50);
+
   const maturityInfo = useMemo(() => {
     if (!currentBond.maturityDate) return null;
     const maturity = new Date(currentBond.maturityDate);
@@ -144,6 +303,86 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const diffDays = Math.ceil((maturity.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     return { days: Math.max(diffDays, 0), isNear: diffDays >= 0 && diffDays <= 90 };
   }, [currentBond.maturityDate]);
+
+  const industryInterestRateAssessment = useMemo(() => {
+    const rate = Number(currentBond.interestRate || 0);
+    const rateTypeKey = getRateTypeKey(
+      (bondDetails as BondDetailView | null)?.bondRateType ||
+      currentBond.interestType ||
+      '',
+    );
+    const remainingTermMonths = getRemainingTermMonths(currentBond.maturityDate) ?? parseTermMonths(currentBond.term) ?? null;
+    const industryBonds = Array.isArray(industryBondGroup?.bonds) ? industryBondGroup.bonds : [];
+
+    if (!resolvedIndustryId || !rateTypeKey || remainingTermMonths === null || rate <= 0) {
+      return {
+        level: 'unknown' as const,
+        confidence: null as 'low' | null,
+        peerCount: 0,
+      };
+    }
+
+    const sameRateTypePeers = industryBonds.filter((bondRow: any) => {
+      const code = String(bondRow?.bondCode || bondRow?.code || '').trim().toUpperCase();
+      if (code && code === String(currentBond.code || '').trim().toUpperCase()) return false;
+      return getRateTypeKey(bondRow?.bondRateType || bondRow?.interestRateType || bondRow?.couponRateType || bondRow?.interestType) === rateTypeKey;
+    });
+
+    const currentTermGroup = remainingTermMonths < 36 ? 'short_term' : 'long_term';
+    const withTermGroup = sameRateTypePeers.filter((bondRow: any) => {
+      const peerTermMonths = getRemainingTermMonths(bondRow?.maturityDate);
+      if (peerTermMonths === null) return false;
+      const peerTermGroup = peerTermMonths < 36 ? 'short_term' : 'long_term';
+      return peerTermGroup === currentTermGroup;
+    });
+
+    const termGroupValues = withTermGroup
+      .map((bondRow: any) => Number(bondRow?.bondRate || bondRow?.couponRate || 0))
+      .filter((value) => value > 0);
+
+    const sameRateValues = sameRateTypePeers
+      .map((bondRow: any) => Number(bondRow?.bondRate || bondRow?.couponRate || 0))
+      .filter((value) => value > 0);
+
+    if (termGroupValues.length >= 5) {
+      const p25 = percentile(termGroupValues, 25);
+      const p75 = percentile(termGroupValues, 75);
+      const level = rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium';
+      return {
+        level,
+        confidence: null,
+        peerCount: termGroupValues.length,
+      };
+    }
+
+    if (sameRateValues.length >= 5) {
+      const p25 = percentile(sameRateValues, 25);
+      const p75 = percentile(sameRateValues, 75);
+      const level = rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium';
+      return {
+        level,
+        confidence: null,
+        peerCount: sameRateValues.length,
+      };
+    }
+
+    if (sameRateValues.length >= 2 && sameRateValues.length <= 4) {
+      const medianValue = median(sameRateValues);
+      const epsilon = 0.0001;
+      const level = rate < medianValue - epsilon ? 'low' : rate > medianValue + epsilon ? 'high' : 'medium';
+      return {
+        level,
+        confidence: 'low' as const,
+        peerCount: sameRateValues.length,
+      };
+    }
+
+    return {
+      level: 'unknown' as const,
+      confidence: null as 'low' | null,
+      peerCount: sameRateValues.length,
+    };
+  }, [bondDetails, currentBond.code, currentBond.interestRate, currentBond.interestType, currentBond.maturityDate, industryBondGroup?.bonds, resolvedIndustryId]);
 
   const details = useMemo(() => {
     const rawType = String(currentBond.interestType || '').trim();
@@ -214,19 +453,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const maturityPressure =
       daysLeft === undefined ? 'unknown' : daysLeft < 90 ? 'high' : daysLeft <= 180 ? 'medium' : 'low';
     const interestRate = Number(currentBond.interestRate || 0);
-    const termMonths = parseTermMonths(currentBond.term) ?? 0;
-    const interestRateLevel =
-      termMonths <= 36
-        ? interestRate < 8
-          ? 'low'
-          : interestRate <= 10
-          ? 'medium'
-          : 'high'
-        : interestRate < 10
-        ? 'low'
-        : interestRate <= 12
-        ? 'medium'
-        : 'high';
+    const interestRateLevel = industryInterestRateAssessment.level as 'high' | 'medium' | 'low' | 'unknown';
+    const interestRateConfidence = industryInterestRateAssessment.confidence;
     const issuedValue = Number(currentBond.issuedValue || 0);
     const issueScaleLevel = issuedValue < 300 ? 'small' : issuedValue <= 1000 ? 'medium' : 'large';
 
@@ -242,6 +470,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         evidence: `${formatInterestRate(interestRate)}%`,
         icon: TrendingUp,
         meta: getLevelMeta(interestRateLevel),
+        confidence: interestRateConfidence,
       },
       {
         label: t('issueScaleLevel'),
@@ -250,7 +479,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         meta: getLevelMeta(issueScaleLevel),
       },
     ];
-  }, [currentBond, maturityInfo?.days, t]);
+  }, [currentBond, industryInterestRateAssessment, maturityInfo?.days, t]);
 
   const getCashFlowOptions = () => {
     if (!bondDetails?.cashFlows) return {};
@@ -293,15 +522,15 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     const cashFlowData = Array.from(groupedCashFlows.values()).sort((a, b) => a.sortValue - b.sortValue);
     const dates = cashFlowData.map((cf) => cf.label);
-    const categoryCount = cashFlowData.length;
-    const barWidth = categoryCount <= 1 ? 24 : categoryCount <= 3 ? 20 : categoryCount <= 6 ? 16 : 12;
-    const barMaxWidth = categoryCount <= 1 ? 30 : categoryCount <= 3 ? 24 : categoryCount <= 6 ? 20 : 16;
-
-    const baseBarSeries = {
-      type: 'bar',
+    const baseLineSeries = {
+      type: 'line',
       stack: 'total',
-      barWidth,
-      barMaxWidth,
+      symbol: 'circle',
+      symbolSize: 5,
+      smooth: true,
+      lineStyle: {
+        width: 2,
+      },
     };
 
     return {
@@ -328,11 +557,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         type: 'value',
         axisLabel: { fontSize: 10, formatter: (value: number) => formatNumber(value, 0) },
       },
-      barCategoryGap: '50%',
-      barGap: '0%',
       series: [
-        { ...baseBarSeries, name: t('principal'), data: cashFlowData.map((cf) => cf.principalAmount) },
-        { ...baseBarSeries, name: t('interest'), data: cashFlowData.map((cf) => cf.interestAmount) },
+        { ...baseLineSeries, name: t('principal'), data: cashFlowData.map((cf) => cf.principalAmount) },
+        { ...baseLineSeries, name: t('interest'), data: cashFlowData.map((cf) => cf.interestAmount) },
       ],
     };
   };
@@ -445,6 +672,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                   allowMagicType
                   title={cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
                   titleAlign="left"
+                  actionsPlacement="inline"
                   actions={(
                     <div className="inline-flex shrink-0 rounded-xl border border-border-base bg-bg-surface p-1">
                       {(['month', 'year'] as const).map((period) => (
@@ -492,7 +720,12 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                         </td>
 
                         <td className={`w-1/3 px-3 py-2 text-center text-xs font-semibold ${item.meta.className}`}>
-                          {item.meta.label}
+                          <span className="block">{item.meta.label}</span>
+                          {item.confidence ? (
+                            <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-widest text-text-muted/80">
+                              {t('confidenceLow')}
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}

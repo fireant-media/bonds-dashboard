@@ -971,6 +971,9 @@ export default function MarketOverview() {
     }`
   );
 
+  const hoverToolbarClass =
+    'flex h-7 items-center justify-end gap-1 text-text-muted opacity-0 pointer-events-none transition-opacity duration-200 ease-out group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
+
   if (loading) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
@@ -1017,9 +1020,9 @@ export default function MarketOverview() {
           ))}
         </div>
 
-        <Card className="col-span-12 flex flex-col p-3 md:p-4 lg:col-span-6 min-h-0">
-          <div className="mb-1 flex min-w-0 flex-col gap-1">
-            <div className="flex items-center justify-end gap-1 text-text-muted">
+        <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className={hoverToolbarClass}>
                 <button
                   type="button"
                   onClick={() => openTopIssuerDataView(false)}
@@ -1071,7 +1074,7 @@ export default function MarketOverview() {
                 </button>
             </div>
             <div className="min-w-0 text-center">
-              <h3 className="text-sm md:text-base font-bold text-text-base leading-snug break-words text-center">{topIssuerMetricTitle}</h3>
+              <h3 className="text-center text-sm font-bold leading-snug break-words text-text-base md:text-base">{topIssuerMetricTitle}</h3>
             </div>
             <div className="flex justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
@@ -1122,8 +1125,8 @@ export default function MarketOverview() {
           </div>
         </Card>
 
-        <div className="col-span-12 flex flex-col space-y-3 lg:col-span-6 min-h-0">
-          <Card className="flex flex-1 flex-col p-3 md:p-4 min-h-0">
+        <div className="col-span-12 flex min-h-0 flex-col space-y-3 lg:col-span-6">
+          <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               {loadingTopInterestChart && topInterestChartData.length === 0 ? (
                 <div className="flex h-full items-center justify-center">
@@ -1177,7 +1180,7 @@ export default function MarketOverview() {
             </div>
           </Card>
 
-          <Card className="flex flex-1 flex-col p-3 md:p-4 min-h-0">
+          <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               <ChartWithToolbar
                 option={debtLotsOptions}
@@ -1189,7 +1192,7 @@ export default function MarketOverview() {
           </Card>
         </div>
 
-        <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
+        <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4">
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
             <ChartWithToolbar
               option={industryValueOptions}
@@ -1211,7 +1214,7 @@ export default function MarketOverview() {
           </div>
         </Card>
 
-        <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
+        <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4">
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
             {loadingCashFlows && !hasProjectedCashFlowData ? (
               <div className="flex h-full items-center justify-center">
@@ -1221,16 +1224,17 @@ export default function MarketOverview() {
                 </div>
               </div>
             ) : (
-              <ChartWithToolbar
-                option={projectedCashFlowOptions}
-                style={{ height: '100%', width: '100%' }}
-                allowMagicType
-                title={projectedCashFlowTitle}
-                zoomConfig={{
-                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                  chartStyle: { height: '100%', width: '100%' },
-                  option: {
-                    grid: { bottom: '22%' },
+                <ChartWithToolbar
+                  option={projectedCashFlowOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  allowMagicType
+                  title={projectedCashFlowTitle}
+                  showDataZoomSliderOnHover
+                  zoomConfig={{
+                    shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                    chartStyle: { height: '100%', width: '100%' },
+                    option: {
+                      grid: { bottom: '22%' },
                     legend: {
                       bottom: 8,
                     },
@@ -1294,12 +1298,12 @@ export default function MarketOverview() {
           onClick={() => setShowTopIssuerZoom(false)}
         >
           <div
-            className="flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
+            className="group flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-end gap-1 text-text-muted">
+                <div className={hoverToolbarClass}>
                   <button
                     type="button"
                     onClick={() => openTopIssuerDataView(true)}
@@ -1343,11 +1347,11 @@ export default function MarketOverview() {
                   </button>
                 </div>
                 <div className="min-w-0 pt-3 text-center">
-                  <h3 className="text-base font-bold leading-snug break-words text-text-base md:text-2xl">
+                  <h3 className="line-clamp-2 text-base font-bold leading-snug text-text-base md:text-2xl">
                     {topIssuerMetricTitle}
                   </h3>
                 </div>
-                <div className="mt-3 flex justify-end text-right">
+                <div className="mt-2 flex justify-end text-right">
                   <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                     <button
                       type="button"
