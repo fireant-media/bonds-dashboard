@@ -150,5 +150,7 @@ export const fireantApi = {
   getMaturingSoon: (days: number) => fireantRequest<any[]>("bonds/stats/bonds/maturing-soon", { query: { days } }),
   getHighYieldBonds: (top = 10) => fireantRequest<any[]>("bonds/stats/bonds/high-yield", { query: { top } }),
   getIndustries: (top = 1000, level = 1) => fireantRequest<any[]>("bonds/stats/industries", { query: { top, level } }),
+  getBankingIndustries: (top = 1000) => fireantRequest<any[]>("bonds/stats/industries", { query: { top, level: 2 } }),
+  getSecuritiesIndustries: (top = 1000) => fireantRequest<any[]>("bonds/stats/industries", { query: { top, level: 4 } }),
   getIcbSymbols: (code: string) => fireantRequest<any[]>(`icb/${encodeURIComponent(code)}/symbols`),
 };

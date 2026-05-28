@@ -95,20 +95,31 @@ export const resolveIndustryLabelKey = (...candidates: Array<unknown>) => {
 };
 
 export const resolveIndustryKeyFromCandidates = (...candidates: Array<unknown>) => {
+  const resolvedKeys: string[] = [];
+
   for (const candidate of candidates) {
     const value = String(candidate || '').trim();
     if (!value || value.toLowerCase() === 'n/a') continue;
 
     if (/^\d+$/.test(value)) {
       const byCode = INDUSTRY_NAV_ITEMS.find((item) => item.code === value || item.icbCode === value);
-      if (byCode) return byCode.labelKey;
+      if (byCode) {
+        resolvedKeys.push(byCode.labelKey);
+        continue;
+      }
     }
 
     const resolved = resolveIndustryLabelKey(value);
-    if (resolved) return resolved;
+    if (resolved) resolvedKeys.push(resolved);
   }
 
-  return '';
+  const prioritized = resolvedKeys.find((key) => key === 'Securities' || key === 'Banking');
+  if (prioritized) return prioritized;
+
+  const firstNonFinancials = resolvedKeys.find((key) => key && key !== 'Financials');
+  if (firstNonFinancials) return firstNonFinancials;
+
+  return resolvedKeys[0] || '';
 };
 
 export const resolveEnterpriseIndustryFromCandidates = (...candidates: Array<unknown>) =>

@@ -4,7 +4,7 @@ import { formatNumber } from '../utils/format';
 import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
-import { applyChartTheme, getChartTheme } from '../utils/chart';
+import { applyChartTheme, downloadChartImage, getChartTheme } from '../utils/chart';
 import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
 interface ChartTableHeader {
@@ -24,6 +24,8 @@ interface ChartDataViewConfig {
   categoryUnit?: string;
   categoryAlign?: 'left' | 'right' | 'center';
   categoryKind?: 'text' | 'number';
+  columns?: ChartDataTableColumn[];
+  rows?: Array<Array<string | number | null | undefined>>;
 }
 
 interface ChartWithToolbarProps {
@@ -36,6 +38,7 @@ interface ChartWithToolbarProps {
   notMerge?: boolean;
   lazyUpdate?: boolean;
   title?: ReactNode;
+  titleAlign?: 'left' | 'center' | 'right';
   actions?: ReactNode;
   zoomConfig?: {
     shellClassName?: string;
@@ -132,6 +135,18 @@ function buildDataTable(option: any, t: (key: any) => string): ChartTable {
   const yAxisData = getAxisData(option, 'yAxis');
   const xAxisUnit = getAxisUnit(option, 'xAxis');
   const yAxisUnit = getAxisUnit(option, 'yAxis');
+
+  if (dataView?.columns) {
+    return {
+      headers: dataView.columns.map((column) => ({
+        label: column.label,
+        unit: column.unit,
+        align: column.align,
+        kind: column.kind,
+      })),
+      rows: (dataView.rows || []).map((row) => row.map((cell) => formatCell(cell))),
+    };
+  }
 
   const firstSeriesType = String(series[0]?.type || '');
   const firstSeriesData = Array.isArray(series[0]?.data) ? series[0].data : [];
@@ -339,6 +354,7 @@ export default function ChartWithToolbar({
   notMerge,
   lazyUpdate,
   title,
+  titleAlign = 'center',
   actions,
   zoomConfig,
 }: ChartWithToolbarProps) {
@@ -348,6 +364,7 @@ export default function ChartWithToolbar({
   const chartTheme = getChartTheme(isDark);
   const chartRef = useRef<any>(null);
   const [showDataView, setShowDataView] = useState(false);
+  const [showDataViewBackButton, setShowDataViewBackButton] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
   const seriesArray = useMemo(() => getSeriesArray(option), [option]);
   const firstSeriesType = getSeriesType(seriesArray[0]);
@@ -470,24 +487,43 @@ export default function ChartWithToolbar({
     }`
   );
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     const instance = chartRef.current?.getEchartsInstance?.();
     if (!instance) return;
-    const url = instance.getDataURL({
-      type: 'png',
-      pixelRatio: 2,
+    await downloadChartImage(instance, {
+      fileName: 'chart.png',
+      title: dataViewTitle,
       backgroundColor: chartTheme.bg,
+      textColor: chartTheme.text,
+      titleAlign,
     });
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'chart.png';
-    link.click();
   };
 
   const handleReset = () => {
     const instance = chartRef.current?.getEchartsInstance?.();
     instance?.restore?.();
     setChartMode(baseChartMode);
+  };
+
+  const openDataView = (fromZoom = false) => {
+    setShowDataViewBackButton(fromZoom);
+    setShowDataView(true);
+    if (fromZoom) {
+      setShowZoom(false);
+    }
+  };
+
+  const closeDataView = () => {
+    setShowDataView(false);
+    setShowDataViewBackButton(false);
+  };
+
+  const handleDataViewBack = () => {
+    const shouldRestoreZoom = showDataViewBackButton;
+    closeDataView();
+    if (shouldRestoreZoom) {
+      setShowZoom(true);
+    }
   };
 
   useEffect(() => {
@@ -520,7 +556,7 @@ export default function ChartWithToolbar({
           <div className="flex items-center justify-end gap-1 text-text-muted">
             <button
               type="button"
-              onClick={() => setShowDataView(true)}
+              onClick={() => openDataView(false)}
               className={toolbarButtonClass()}
               title={t('dataView')}
               aria-label={t('dataView')}
@@ -573,16 +609,31 @@ export default function ChartWithToolbar({
             ) : null}
           </div>
         ) : null}
-        {title ? (
-          <div className="min-w-0 text-center">
-            <div className="text-sm md:text-base font-bold text-text-base leading-snug break-words">
-              {title}
+        {(title || actions) ? (
+          <div className="flex items-center gap-3">
+            {titleAlign === 'center' ? <div className="flex flex-1" /> : null}
+
+            <div
+              className={
+                titleAlign === 'left'
+                  ? 'flex min-w-0 flex-1 justify-start'
+                  : titleAlign === 'right'
+                    ? 'flex min-w-0 flex-1 justify-end'
+                    : 'flex min-w-0 flex-1 justify-center'
+              }
+            >
+              {title ? (
+                <div className={titleAlign === 'left' ? 'min-w-0 text-left' : titleAlign === 'right' ? 'min-w-0 text-right' : 'min-w-0 text-center'}>
+                  <div className="text-sm font-bold leading-snug break-words text-text-base md:text-base">
+                    {title}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          </div>
-        ) : null}
-        {actions ? (
-          <div className="flex min-w-0 justify-center md:justify-end">
-            {actions}
+
+            <div className={titleAlign === 'right' ? 'flex flex-1 justify-start' : 'flex flex-1 justify-end'}>
+              {actions ? actions : null}
+            </div>
           </div>
         ) : null}
       </div>
@@ -601,7 +652,9 @@ export default function ChartWithToolbar({
         title={dataViewTitle || t('dataView')}
         columns={dataViewColumns}
         rows={dataTable.rows}
-        onClose={() => setShowDataView(false)}
+        onClose={closeDataView}
+        onBack={handleDataViewBack}
+        showBackButton={showDataViewBackButton}
         fileNameBase={dataViewFileName}
         sheetName={dataViewFileName}
       />
@@ -618,7 +671,7 @@ export default function ChartWithToolbar({
                   <div className="flex items-center justify-end gap-1 text-right text-text-muted">
                     <button
                       type="button"
-                      onClick={() => setShowDataView(true)}
+                      onClick={() => openDataView(true)}
                       className={toolbarButtonClass()}
                       title={t('dataView')}
                       aria-label={t('dataView')}

@@ -321,7 +321,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         },
       },
       legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 10 } },
-      grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+      grid: { left: '3%', right: '4%', bottom: '16%', containLabel: true },
       xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, rotate: 45 } },
       yAxis: {
         name: t('unitBillionVND'),
@@ -425,29 +425,6 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
           </div>
 
           <div className="col-span-12 flex min-h-0 flex-col bg-bg-base/30 p-4 transition-colors lg:col-span-7 md:p-5">
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="text-left text-base font-bold tracking-tight text-text-base transition-colors">
-                {cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
-              </h3>
-
-              <div className="inline-flex shrink-0 rounded-xl border border-border-base bg-bg-surface p-1">
-                {(['month', 'year'] as const).map((period) => (
-                  <button
-                    key={period}
-                    type="button"
-                    onClick={() => setCashFlowPeriod(period)}
-                    className={
-                      cashFlowPeriod === period
-                        ? 'rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors'
-                        : 'rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-bg-base hover:text-text-base'
-                    }
-                  >
-                    {period === 'month' ? t('month') : t('year')}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="flex h-80 items-center justify-center transition-colors">
               {loading ? (
                 <div className="flex flex-col items-center gap-3">
@@ -462,7 +439,31 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                   )}
                 </div>
               ) : (
-                <ChartWithToolbar option={getCashFlowOptions()} style={{ height: '100%', width: '100%' }} allowMagicType />
+                <ChartWithToolbar
+                  option={getCashFlowOptions()}
+                  style={{ height: '100%', width: '100%' }}
+                  allowMagicType
+                  title={cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
+                  titleAlign="left"
+                  actions={(
+                    <div className="inline-flex shrink-0 rounded-xl border border-border-base bg-bg-surface p-1">
+                      {(['month', 'year'] as const).map((period) => (
+                        <button
+                          key={period}
+                          type="button"
+                          onClick={() => setCashFlowPeriod(period)}
+                          className={
+                            cashFlowPeriod === period
+                              ? 'rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors'
+                              : 'rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-bg-base hover:text-text-base'
+                          }
+                        >
+                          {period === 'month' ? t('month') : t('year')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                />
               )}
             </div>
 

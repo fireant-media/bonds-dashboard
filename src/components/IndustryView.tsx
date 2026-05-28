@@ -14,7 +14,7 @@ import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
-import { loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats } from '../services/industryBondData';
+import { loadDedupedIndustrySymbols, loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats, loadResidualFinancialIndustryStats } from '../services/industryBondData';
 import { MetricCard } from './ui/Card';
 
 interface ProjectedCashFlowBucket {
@@ -28,88 +28,234 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const chartTheme = getChartTheme(isDark);
-  const cacheKey = `industry_bond_group_v6_${industry}`;
+  const cacheKey = `industry_bond_group_v10_${industry}`;
+  const statsCacheKey = `industry_stats_api_v5_${industry}`;
   const cachedData = getCache(cacheKey);
-  const [industryStats, setIndustryStats] = useState<any>(cachedData?.industryStats || null);
+  const cachedStats = getCache(statsCacheKey);
+  const [industryStats, setIndustryStats] = useState<any>(cachedStats || cachedData?.industryStats || null);
   const [rankingData, setRankingData] = useState<any[]>(cachedData?.issuerSummaries || cachedData?.rankingData || []);
+  const [industryBonds, setIndustryBonds] = useState<any[]>(cachedData?.bonds || []);
+  const [financialChildSymbols, setFinancialChildSymbols] = useState<Set<string> | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(
     cachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {}
   );
-  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
-  const [loading, setLoading] = useState(!cachedData);
+  const [loadingCashFlows, setLoadingCashFlows] = useState(!cachedData);
+  const [loading, setLoading] = useState(!cachedData && !cachedStats);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const nextCachedData = getCache(cacheKey);
+    const nextCachedStats = getCache(statsCacheKey);
     setCashFlowPeriod('year');
-    setIndustryStats(nextCachedData?.industryStats || null);
+    setIndustryStats(nextCachedStats || nextCachedData?.industryStats || null);
     setRankingData(nextCachedData?.issuerSummaries || nextCachedData?.rankingData || []);
+    setIndustryBonds(nextCachedData?.bonds || []);
     setProjectedCashFlowBuckets(nextCachedData?.projectedCashFlowBuckets || {});
-    setLoading(!nextCachedData);
-    setLoadingCashFlows(false);
-  }, [industry, cacheKey]);
+    setLoading(!nextCachedData && !nextCachedStats);
+    setLoadingCashFlows(!nextCachedData);
+  }, [industry, cacheKey, statsCacheKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (industry !== 'Financials') {
+      setFinancialChildSymbols(null);
+      return;
+    }
+
+    const loadChildSymbols = async () => {
+      try {
+        const symbolGroups = await loadDedupedIndustrySymbols();
+        if (cancelled) return;
+
+        const grouped = new Set<string>([
+          ...(symbolGroups.Banking || []),
+          ...(symbolGroups.Securities || []),
+        ].map((symbol) => String(symbol || '').trim().toUpperCase()).filter(Boolean));
+
+        setFinancialChildSymbols(grouped);
+      } catch (error) {
+        console.warn('Failed to load financial child symbols', error);
+        if (!cancelled) setFinancialChildSymbols(null);
+      }
+    };
+
+    void loadChildSymbols();
+    return () => {
+      cancelled = true;
+    };
+  }, [industry]);
+
+  const visibleRankingData = useMemo(() => {
+    if (industry !== 'Financials' || !financialChildSymbols) return rankingData;
+
+    return rankingData.filter((item) => {
+      const symbol = String(item?.issuerSymbol || '').trim().toUpperCase();
+      return !symbol || !financialChildSymbols.has(symbol);
+    });
+  }, [industry, financialChildSymbols, rankingData]);
+
+  const visibleIndustryBonds = useMemo(() => {
+    if (industry !== 'Financials' || !financialChildSymbols) return industryBonds;
+
+    return industryBonds.filter((bond) => {
+      const symbol = String(bond?.issuerSymbol || bond?.infoObj?.issuerSymbol || '').trim().toUpperCase();
+      return !symbol || !financialChildSymbols.has(symbol);
+    });
+  }, [industry, financialChildSymbols, industryBonds]);
+
+  const visibleProjectedCashFlowBuckets = useMemo(() => {
+    const buckets = new Map<string, ProjectedCashFlowBucket>();
+
+    const ensureBucket = (dateString: string) => {
+      const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) return null;
+
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const bucketKey = cashFlowPeriod === 'month' ? `${year}-${String(month).padStart(2, '0')}` : String(year);
+      const label = cashFlowPeriod === 'month' ? `T${month}/${year}` : String(year);
+
+      if (!buckets.has(bucketKey)) {
+        buckets.set(bucketKey, { label, interest: 0, principal: 0 });
+      }
+
+      return buckets.get(bucketKey)!;
+    };
+
+    visibleIndustryBonds.forEach((bond) => {
+      if (Array.isArray(bond.cashFlows) && bond.cashFlows.length > 0) {
+        bond.cashFlows.forEach((cashFlow: any) => {
+          if (!cashFlow?.paymentDate) return;
+
+          const bucket = ensureBucket(cashFlow.paymentDate);
+          if (!bucket) return;
+
+          bucket.interest += Number(cashFlow.interestAmount || 0) / 1000000000;
+          bucket.principal += Number(cashFlow.principalAmount || 0) / 1000000000;
+        });
+        return;
+      }
+
+      const fallbackDate = bond.maturityDate || bond.paymentDate;
+      const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
+      if (!fallbackDate || !fallbackPrincipal) return;
+
+      const bucket = ensureBucket(fallbackDate);
+      if (bucket) bucket.principal += Number(fallbackPrincipal || 0) / 1000000000;
+    });
+
+    return Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
+  }, [cashFlowPeriod, visibleIndustryBonds]);
 
   useEffect(() => {
     let isMounted = true;
+    let hasAnyData = Boolean(cachedData || cachedStats);
+    let hasProjectedData = Boolean(cachedData?.projectedCashFlowBuckets && Object.keys(cachedData.projectedCashFlowBuckets).length > 0);
+    let firstError: string | null = null;
 
     const fetchIndustryData = async () => {
       const cachedGroupData = getCache(cacheKey);
+      const cachedIndustryStats = getCache(statsCacheKey);
       if (cachedGroupData) {
         if (!isMounted) return;
-        setIndustryStats(cachedGroupData.industryStats);
+        if (!cachedIndustryStats) {
+          setIndustryStats(cachedGroupData.industryStats);
+        }
         setRankingData(cachedGroupData.issuerSummaries || cachedGroupData.rankingData || []);
+        setIndustryBonds(cachedGroupData.bonds || []);
         setProjectedCashFlowBuckets(cachedGroupData.projectedCashFlowBuckets || {});
         setLoading(false);
         setLoadingCashFlows(false);
+        hasAnyData = true;
+        hasProjectedData = Object.keys(cachedGroupData.projectedCashFlowBuckets || {}).length > 0;
+      }
+      if (cachedIndustryStats && !cachedGroupData) {
+        if (!isMounted) return;
+        setIndustryStats(cachedIndustryStats);
+        setLoading(false);
+        hasAnyData = true;
       }
 
       setError(null);
-      if (!cachedGroupData) {
+      if (!cachedGroupData && !cachedIndustryStats) {
         setLoading(true);
         setLoadingCashFlows(true);
       }
 
-      try {
-        const statsPromise = loadIndustryStats(String(industry));
-        const basePromise = loadIndustryBaseBondGroupData(String(industry));
-        const groupPromise = loadIndustryBondGroupData(String(industry));
-
-        const [statsResult, baseResult] = await Promise.allSettled([statsPromise, basePromise]);
-        if (!isMounted) return;
-
-        if (statsResult.status === 'fulfilled' && statsResult.value) {
-          setIndustryStats(statsResult.value);
+      const registerError = (error: unknown) => {
+        if (firstError) return;
+        if (error instanceof Error && error.message.includes('401')) {
+          firstError = t('tokenError401');
+          return;
         }
+        firstError = error instanceof Error ? error.message : t('error');
+      };
 
-        if (baseResult.status === 'fulfilled' && baseResult.value) {
-          setIndustryStats(baseResult.value.industryStats);
-          setRankingData(baseResult.value.issuerSummaries);
-        }
-
+      const applyIndustryStats = (stats: any) => {
+        if (!isMounted || !stats) return;
+        setIndustryStats(stats);
         setLoading(false);
+        hasAnyData = true;
+      };
 
-        const groupedData = await groupPromise;
-        if (!isMounted) return;
+      const applyBaseData = (baseData: any) => {
+        if (!isMounted || !baseData) return;
+        if (!getCache(statsCacheKey)) {
+          setIndustryStats(baseData.industryStats);
+        }
+        setRankingData(baseData.issuerSummaries || []);
+        setIndustryBonds(baseData.bonds || []);
+        setLoading(false);
+        hasAnyData = true;
+      };
 
-        setIndustryStats(groupedData.industryStats);
-        setRankingData(groupedData.issuerSummaries);
-        setProjectedCashFlowBuckets(groupedData.projectedCashFlowBuckets);
-      } catch (error) {
-        if (!isMounted) return;
-        console.error('Error fetching industry data:', error);
-        if (!cachedGroupData) {
-          if (error instanceof Error && error.message.includes('401')) {
-            setError(t('tokenError401'));
-          } else {
-            setError(error instanceof Error ? error.message : t('error'));
-          }
+      const applyGroupData = (groupData: any) => {
+        if (!isMounted || !groupData) return;
+        if (!getCache(statsCacheKey)) {
+          setIndustryStats(groupData.industryStats);
         }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-          setLoadingCashFlows(false);
-        }
+        setRankingData(groupData.issuerSummaries || []);
+        setIndustryBonds(groupData.bonds || []);
+        setProjectedCashFlowBuckets(groupData.projectedCashFlowBuckets || {});
+        setLoading(false);
+        setLoadingCashFlows(false);
+        hasAnyData = true;
+        hasProjectedData = Object.keys(groupData.projectedCashFlowBuckets || {}).length > 0;
+      };
+
+      const statsPromise = (industry === 'Financials'
+        ? loadResidualFinancialIndustryStats()
+        : loadIndustryStats(String(industry)))
+        .then(applyIndustryStats)
+        .catch((error) => {
+          console.error('Error fetching industry stats:', error);
+          registerError(error);
+        });
+
+      const basePromise = loadIndustryBaseBondGroupData(String(industry))
+        .then(applyBaseData)
+        .catch((error) => {
+          console.error('Error fetching industry base data:', error);
+          registerError(error);
+        });
+
+      const groupPromise = loadIndustryBondGroupData(String(industry))
+        .then(applyGroupData)
+        .catch((error) => {
+          console.error('Error fetching industry group data:', error);
+          registerError(error);
+        });
+
+      await Promise.allSettled([statsPromise, basePromise, groupPromise]);
+
+      if (!isMounted) return;
+      if (!hasAnyData && firstError) {
+        setError(firstError);
+      }
+      if (!hasProjectedData) {
+        setLoadingCashFlows(false);
       }
     };
 
@@ -117,7 +263,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     return () => {
       isMounted = false;
     };
-  }, [industry, cacheKey]);
+  }, [industry, cacheKey, statsCacheKey, cachedData, cachedStats, t]);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
@@ -162,6 +308,11 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     fontWeight: 'bold' as const,
     fontFamily: 'Manrope',
   };
+  const industryIssuedValueLabel = language === 'vi' ? 'Giá trị phát hành' : 'Issued Value';
+  const industryInitialDebtLabel = language === 'vi' ? 'Dư nợ ban đầu' : 'Initial Debt';
+  const industryIssuedValueTreemapLabel = language === 'vi'
+    ? 'Giá trị phát hành của các doanh nghiệp trong ngành'
+    : 'Issued Value of companies in the industry';
   const getDateKey = (dateString: string, period: 'month' | 'year') => {
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) return null;
@@ -186,12 +337,12 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           unit: t('unitBond')
         },
         { 
-          label: t('totalIssuedValueTitle'), 
+          label: industryIssuedValueLabel, 
           value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2), 
           unit: t('unitBillionVND') 
         },
         { 
-          label: t('initialDebtFull'), 
+          label: industryInitialDebtLabel, 
           value: formatNumber(industryStats.totalDebtFull / 1000000000, 2), 
           unit: t('unitBillionVND') 
         },
@@ -217,15 +368,52 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   };
 
   const kpis = getKpis();
+  const rankingDataViewRows = useMemo(() => (
+    (() => {
+      const totalRemainingDebt = visibleRankingData.reduce((sum, current) => sum + (current.totalRemainingDebt || 0), 0);
+      return [...visibleRankingData]
+        .filter((item) => item.totalRemainingDebt > 0)
+        .sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt)
+        .map((item) => [
+          item.issuerSymbol,
+          item.totalRemainingDebt / 1000000,
+          totalRemainingDebt > 0 ? (item.totalRemainingDebt / totalRemainingDebt) * 100 : 0,
+        ]);
+    })()
+  ), [visibleRankingData]);
+  const issuedValueDataViewRows = useMemo(() => {
+    const totalIssuedValue = visibleRankingData.reduce((sum, item) => sum + (item.totalIssuedValue || 0), 0);
+    return [...visibleRankingData]
+      .filter((item) => item.totalIssuedValue > 0)
+      .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
+      .map((item) => [
+        item.issuerSymbol,
+        item.totalIssuedValue / 1000000000,
+        totalIssuedValue > 0 ? (item.totalIssuedValue / totalIssuedValue) * 100 : 0,
+      ]);
+  }, [visibleRankingData]);
+  const combinedDataViewRows = useMemo(() => {
+    return [...visibleRankingData]
+      .sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt)
+      .map((item) => [
+        item.issuerSymbol,
+        item.totalRemainingDebt / 1000000000,
+        item.bondCount,
+      ]);
+  }, [visibleRankingData]);
 
   const getRankingOptions = () => {
-    const displayData = [...rankingData].reverse();
+    const displayData = [...visibleRankingData].reverse();
     const categoryCount = displayData.length;
-    const maxDebt = rankingData.length > 0 ? Math.max(...rankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
+    const maxDebt = visibleRankingData.length > 0 ? Math.max(...visibleRankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
     const interval = (industry === 'Banking' || industry === 'RealEstate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
 
     return {
       color: chartPalette,
+      __dataView: {
+        categoryLabel: t('ticker'),
+        categoryAlign: 'center',
+      },
       tooltip: { 
         ...chartTooltip,
         trigger: 'axis',
@@ -233,7 +421,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           const symbol = params[0].name;
-          const issuer = rankingData.find(d => d.issuerSymbol === symbol);
+          const issuer = visibleRankingData.find(d => d.issuerSymbol === symbol);
           const displayName = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
           return `${displayName}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 0), ` ${t('unitBillionVND')}`)}`;
         }
@@ -268,12 +456,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const rankingOptions = getRankingOptions();
 
   const getMarketShareOptions = () => {
-    const hasData = rankingData.length > 0;
+    const hasData = visibleRankingData.length > 0;
     let chartData: { value: number; name: string; itemStyle: { color: string } }[] = [];
+    const totalRemainingDebt = visibleRankingData.reduce((sum, item) => sum + (item.totalRemainingDebt || 0), 0);
 
     if (hasData) {
-      const totalDebt = rankingData.reduce((sum, item) => sum + item.totalRemainingDebt, 0);
-      const top9 = rankingData.slice(0, 9);
+      const totalDebt = totalRemainingDebt;
+      const top9 = visibleRankingData.slice(0, 9);
       const top9Debt = top9.reduce((sum, item) => sum + item.totalRemainingDebt, 0);
       const othersDebt = totalDebt - top9Debt;
 
@@ -335,6 +524,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
     return {
       color: chartPalette,
+      __dataView: {
+        columns: [
+          { label: t('ticker'), align: 'center', kind: 'text' },
+          { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+          { label: t('weight'), unit: '%', align: 'right', kind: 'number' },
+        ],
+        rows: rankingDataViewRows,
+      },
       tooltip: { 
         ...chartTooltip,
         trigger: 'item',
@@ -342,7 +539,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           const symbol = params.name;
-          const issuer = rankingData.find(d => d.issuerSymbol === symbol);
+          const issuer = visibleRankingData.find(d => d.issuerSymbol === symbol);
           const displayName = (symbol === t('others')) ? t('others') : (issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol);
           return `${displayName}<br/>${t('marketShare')}: ${highlightChartTooltipValue(params.percent, '%')}<br/>${t('remainingDebtTitle')}: ${highlightChartTooltipValue(formatNumber(Math.round(params.value / 1000000000), 0), ` ${t('unitBillionVND')}`)}`;
         }
@@ -371,9 +568,17 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       { name: t('floatingInterest'), value: industryStats.floatingRate }
     ] : [];
     const categoryCount = data.length;
+    const interestDataViewRows = data.map((item) => [item.name, item.value]);
 
     return {
       color: chartPalette,
+      __dataView: {
+        columns: [
+          { label: t('interestType'), align: 'center', kind: 'text' },
+          { label: t('interestRate'), unit: '%', align: 'right', kind: 'number' },
+        ],
+        rows: interestDataViewRows,
+      },
       tooltip: { 
         ...chartTooltip,
         trigger: 'axis',
@@ -398,7 +603,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         axisLabel: valueLabelStyle 
       },
       series: [{
-        name: `${t('interestRate')} (%)`,
+        name: t('interestRate'),
         type: 'bar',
         barWidth: getAdaptiveBarWidth(categoryCount),
         data: data.map(d => d.value),
@@ -420,22 +625,46 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const interestOptions = getInterestOptions();
 
   const issuedValueTreemapData = useMemo(() => {
-    return [...rankingData]
+    return [...visibleRankingData]
       .filter((item) => item.totalIssuedValue > 0)
       .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
       .map((item, index) => ({
         name: item.issuerSymbol,
-        value: Math.round(item.totalIssuedValue / 1000000000),
+        value: item.totalIssuedValue / 1000000000,
         fullName: t(item.issuerName as any, item.issuerSymbol),
         issuerSymbol: item.issuerSymbol,
         itemStyle: {
           color: chartPalette[index % chartPalette.length],
         },
       }));
-  }, [rankingData, chartPalette, t]);
+  }, [visibleRankingData, chartPalette, t]);
+
+  const buildTreemapZoomLabel = (params: any) => {
+    const data = params?.data || {};
+    const value = Number(params?.value || 0);
+    const name = String(params?.name || data?.fullName || '').trim();
+    const valueText = `${formatNumber(value, 3)} ${t('unitBillionVND')}`;
+    const compactLength = name.length + valueText.length;
+
+    if (!name || value <= 0) return '';
+    if (compactLength > 28) return '';
+    if (compactLength > 20) {
+      return `{name|${name}}\n{value|${formatNumber(value, 3)}}\n{unit|${t('unitBillionVND')}}`;
+    }
+
+    return `{name|${name}}\n{value|${valueText}}`;
+  };
 
   const getIssuedValueTreemapOptions = () => ({
     color: chartPalette,
+      __dataView: {
+        columns: [
+          { label: t('ticker'), align: 'center', kind: 'text' },
+          { label: t('issuedValueShort'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+          { label: t('weight'), unit: '%', align: 'right', kind: 'number' },
+        ],
+        rows: issuedValueDataViewRows,
+      },
     tooltip: {
       ...chartTooltip,
       trigger: 'item',
@@ -445,12 +674,12 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         const data = params?.data || {};
         const displayName = data.fullName || data.name || '';
         const value = Number(data.value || 0);
-        return `${displayName}<br/>${t('totalIssuedValueTitle')}: ${highlightChartTooltipValue(formatNumber(value, 0), ` ${t('unitBillionVND')}`)}`;
+        return `${displayName}<br/>${industryIssuedValueLabel}: ${highlightChartTooltipValue(formatNumber(value, 3), ` ${t('unitBillionVND')}`)}`;
       },
     },
     series: [
       {
-        name: t('totalIssuedValueTitle'),
+        name: industryIssuedValueTreemapLabel,
         type: 'treemap',
         roam: false,
         nodeClick: false,
@@ -489,11 +718,19 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const issuedValueTreemapOptions = getIssuedValueTreemapOptions();
 
   const getCombinedOptions = () => {
-    const displayData = rankingData;
+    const displayData = visibleRankingData;
     const categoryCount = displayData.length;
 
     return {
       color: chartPalette,
+      __dataView: {
+        columns: [
+          { label: t('ticker'), align: 'center', kind: 'text' },
+          { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+          { label: t('bondLotsTitle'), unit: t('unitLot'), align: 'right', kind: 'number' },
+        ],
+        rows: combinedDataViewRows,
+      },
       tooltip: { 
         ...chartTooltip,
         trigger: 'axis',
@@ -502,7 +739,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           const symbol = params[0].name;
-          const issuer = rankingData.find(d => d.issuerSymbol === symbol);
+          const issuer = visibleRankingData.find(d => d.issuerSymbol === symbol);
           let res = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
           params.forEach((p: any) => {
             res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), p.seriesName === t('remainingDebtTitle') ? ` ${t('unitBillionVND')}` : '')}`;
@@ -565,7 +802,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const projectedCashFlowData = useMemo(() => {
     const buckets = new Map<string, ProjectedCashFlowBucket>();
 
-    Object.entries(projectedCashFlowBuckets).forEach(([key, value]) => {
+    Object.entries(visibleProjectedCashFlowBuckets).forEach(([key, value]) => {
       const keyInfo = getDateKey(`${key}-01`, cashFlowPeriod);
       if (!keyInfo) return;
 
@@ -585,7 +822,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     const total = sortedEntries.map(([, value]) => value.interest + value.principal);
 
     return { labels, interest, principal, total };
-  }, [projectedCashFlowBuckets, cashFlowPeriod]);
+  }, [visibleProjectedCashFlowBuckets, cashFlowPeriod]);
 
   const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
   const projectedCashFlowTitle = language === 'vi'
@@ -594,6 +831,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const projectedCashFlowOptions = {
     color: chartPalette,
+    __dataView: {
+      categoryLabel: t('year'),
+      categoryAlign: 'center',
+    },
     tooltip: {
       ...chartTooltip,
       trigger: 'axis',
@@ -790,17 +1031,60 @@ export default function IndustryView({ industry }: IndustryViewProps) {
               <ChartWithToolbar
                 option={issuedValueTreemapOptions}
                 style={{ height: '100%', width: '100%' }}
-                title={t('totalIssuedValueTitle')}
+                title={industryIssuedValueTreemapLabel}
                 zoomConfig={{
                   shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                   chartStyle: { height: '100%', width: '100%' },
                   option: {
                     series: [
                       {
-                        label: {
-                          fontSize: 12,
-                          fontWeight: 'bold',
+                        labelLayout: (params: any) => {
+                          const rect = params?.rect || {};
+                          const x = Number(rect.x || 0);
+                          const y = Number(rect.y || 0);
+                          const width = Number(rect.width || 0);
+                          const height = Number(rect.height || 0);
+
+                          return {
+                            x: x + width / 2,
+                            y: y + height / 2,
+                            align: 'center',
+                            verticalAlign: 'middle',
+                          };
                         },
+                        label: {
+                          show: true,
+                          position: 'inside',
+                          formatter: buildTreemapZoomLabel,
+                          align: 'center',
+                          verticalAlign: 'middle',
+                          padding: 0,
+                          color: isDark ? '#ffffff' : '#111827',
+                          fontSize: 12,
+                          fontWeight: 'normal',
+                          rich: {
+                            name: {
+                              fontWeight: 'bold',
+                              lineHeight: 16,
+                              align: 'center',
+                              color: isDark ? '#ffffff' : '#111827',
+                            },
+                            value: {
+                              fontWeight: 'normal',
+                              lineHeight: 16,
+                              align: 'center',
+                              color: isDark ? '#ffffff' : '#111827',
+                            },
+                            unit: {
+                              fontWeight: 'normal',
+                              lineHeight: 14,
+                              align: 'center',
+                              color: isDark ? '#d1d5db' : '#374151',
+                            },
+                          },
+                        },
+                        upperLabel: { show: false },
+                        breadcrumb: { show: false },
                       },
                     ],
                   },
@@ -840,6 +1124,32 @@ export default function IndustryView({ industry }: IndustryViewProps) {
               style={{ height: '360px', width: '100%' }}
               allowMagicType
               title={projectedCashFlowTitle}
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  grid: { bottom: '22%' },
+                  legend: {
+                    bottom: 8,
+                  },
+                  dataZoom: [
+                    {
+                      type: 'inside',
+                      xAxisIndex: 0,
+                      filterMode: 'none',
+                    },
+                    {
+                      type: 'slider',
+                      xAxisIndex: 0,
+                      height: 18,
+                      bottom: 44,
+                      filterMode: 'none',
+                      brushSelect: false,
+                      textStyle: valueLabelStyle,
+                    },
+                  ],
+                },
+              }}
               actions={(
                 <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                   {(['month', 'year'] as const).map((period) => (

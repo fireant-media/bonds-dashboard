@@ -437,3 +437,121 @@ export const getAdaptiveBarWidth = (categoryCount: number) => {
   if (categoryCount <= 5) return '55%';
   return '65%';
 };
+
+type DownloadChartImageOptions = {
+  fileName: string;
+  title?: string;
+  backgroundColor: string;
+  textColor: string;
+  titleAlign?: 'left' | 'center' | 'right';
+  pixelRatio?: number;
+};
+
+const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const lines: string[] = [];
+  let currentLine = words[0];
+
+  for (let index = 1; index < words.length; index += 1) {
+    const nextLine = `${currentLine} ${words[index]}`;
+    if (ctx.measureText(nextLine).width <= maxWidth) {
+      currentLine = nextLine;
+    } else {
+      lines.push(currentLine);
+      currentLine = words[index];
+    }
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+};
+
+export const downloadChartImage = async (instance: any, options: DownloadChartImageOptions) => {
+  if (!instance) return;
+
+  const {
+    fileName,
+    title = '',
+    backgroundColor,
+    textColor,
+    titleAlign = 'center',
+    pixelRatio = 2,
+  } = options;
+
+  const chartUrl = instance.getDataURL({
+    type: 'png',
+    pixelRatio,
+    backgroundColor,
+  });
+
+  if (!title.trim()) {
+    const link = document.createElement('a');
+    link.href = chartUrl;
+    link.download = fileName;
+    link.click();
+    return;
+  }
+
+  const image = new Image();
+  image.src = chartUrl;
+
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error('Failed to load chart image'));
+  });
+
+  const titlePaddingX = 32;
+  const titlePaddingTop = 24;
+  const titlePaddingBottom = 20;
+  const titleFontSize = 18;
+  const titleLineHeight = 24;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+
+  context.font = `700 ${titleFontSize}px Manrope, sans-serif`;
+  const maxTitleWidth = Math.max(0, canvas.width - (titlePaddingX * 2));
+  const lines = wrapText(context, title, maxTitleWidth);
+  const titleHeight = Math.max(titleLineHeight, lines.length * titleLineHeight);
+  canvas.height = image.height + titlePaddingTop + titleHeight + titlePaddingBottom;
+
+  context.fillStyle = backgroundColor;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, titlePaddingTop + titleHeight + titlePaddingBottom, image.width, image.height);
+
+  context.font = `700 ${titleFontSize}px Manrope, sans-serif`;
+  context.fillStyle = textColor;
+  context.textBaseline = 'top';
+  context.textAlign = titleAlign;
+
+  const baseY = titlePaddingTop;
+  const centerX = canvas.width / 2;
+  const leftX = titlePaddingX;
+  const rightX = canvas.width - titlePaddingX;
+  const startX = titleAlign === 'left' ? leftX : titleAlign === 'right' ? rightX : centerX;
+  const availableWidth = Math.max(0, canvas.width - (titlePaddingX * 2));
+
+  lines.forEach((line, index) => {
+    let outputLine = line;
+    if (context.measureText(outputLine).width > availableWidth) {
+      while (outputLine.length > 1 && context.measureText(`${outputLine}…`).width > availableWidth) {
+        outputLine = outputLine.slice(0, -1);
+      }
+      outputLine = `${outputLine}…`;
+    }
+
+    context.fillText(outputLine, startX, baseY + (index * titleLineHeight));
+  });
+
+  const link = document.createElement('a');
+  link.href = canvas.toDataURL('image/png');
+  link.download = fileName;
+  link.click();
+};

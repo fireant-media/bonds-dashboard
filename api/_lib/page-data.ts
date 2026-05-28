@@ -251,18 +251,18 @@ const normalizeBondRow = (bond: any) => ({
 });
 
 const normalizeIndustryStat = (stat: any) => ({
-  icbCode: normalizeText(stat?.icbCode),
-  icbName: normalizeText(stat?.icbName),
-  bondCount: toNumber(stat?.bondCount),
-  totalIssuedVolume: toNumber(stat?.totalIssuedVolume),
-  totalIssuedValue: toNumber(stat?.totalIssuedValue),
-  totalCurrentListedVolume: toNumber(stat?.totalCurrentListedVolume),
-  totalCurrentListedValue: toNumber(stat?.totalCurrentListedValue),
-  totalDebtFull: toNumber(stat?.totalDebtFull),
-  totalRemainingDebt: toNumber(stat?.totalRemainingDebt),
-  avgRate: toNumber(stat?.avgRate),
-  avgCouponRate: toNumber(stat?.avgCouponRate),
-  floatingRate: toNumber(stat?.floatingRate),
+  icbCode: normalizeText(stat?.icbCode || stat?.ICBCode || stat?.icbCodeLv1 || stat?.ICBCodeLv1 || stat?.icbCodeLv2 || stat?.ICBCodeLv2 || stat?.icbCodeLv3 || stat?.ICBCodeLv3 || stat?.icbCodeLv4 || stat?.ICBCodeLv4),
+  icbName: normalizeText(stat?.icbName || stat?.ICBName || stat?.icbNameLv1 || stat?.ICBNameLv1 || stat?.icbNameLv2 || stat?.ICBNameLv2 || stat?.icbNameLv3 || stat?.ICBNameLv3 || stat?.icbNameLv4 || stat?.ICBNameLv4),
+  bondCount: toNumber(stat?.bondCount || stat?.BondCount),
+  totalIssuedVolume: toNumber(stat?.totalIssuedVolume || stat?.TotalIssuedVolume),
+  totalIssuedValue: toNumber(stat?.totalIssuedValue || stat?.TotalIssuedValue),
+  totalCurrentListedVolume: toNumber(stat?.totalCurrentListedVolume || stat?.TotalCurrentListedVolume),
+  totalCurrentListedValue: toNumber(stat?.totalCurrentListedValue || stat?.TotalCurrentListedValue),
+  totalDebtFull: toNumber(stat?.totalDebtFull || stat?.TotalDebtFull),
+  totalRemainingDebt: toNumber(stat?.totalRemainingDebt || stat?.TotalRemainingDebt),
+  avgRate: toNumber(stat?.avgRate || stat?.AvgRate),
+  avgCouponRate: toNumber(stat?.avgCouponRate || stat?.AvgCouponRate),
+  floatingRate: toNumber(stat?.floatingRate || stat?.avgFloatingRate || stat?.FloatingRate || stat?.AvgFloatingRate),
 });
 
 const buildKpiCards = (stats: any) => [
@@ -468,7 +468,12 @@ async function getIndustryStatsForPage(industry: IndustryItem) {
       ? fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 4 } }).catch(() => [])
       : Promise.resolve([]),
   ]);
-  const byCode = new Map([...getRows(level1), ...getRows(level2), ...getRows(level4)].map((row: any) => [String(row.icbCode), normalizeIndustryStat(row)]));
+  const byCode = new Map(
+    [...getRows(level1), ...getRows(level2), ...getRows(level4)].map((row: any) => {
+      const normalized = normalizeIndustryStat(row);
+      return [String(normalized.icbCode), normalized];
+    }),
+  );
 
   if (industry.id === 'Financials') {
     const financials = byCode.get('30') || normalizeIndustryStat({});

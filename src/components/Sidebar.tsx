@@ -57,8 +57,8 @@ export default function Sidebar({
       try {
         const [level1Rows, level2Rows, level4Rows] = await Promise.all([
           fireantApi.getIndustries(1000, 1).catch(() => []),
-          fireantApi.getIndustries(1000, 2).catch(() => []),
-          fireantApi.getIndustries(1000, 4).catch(() => []),
+          fireantApi.getBankingIndustries(1000).catch(() => []),
+          fireantApi.getSecuritiesIndustries(1000).catch(() => []),
         ]);
         const statsByCode = new Map<string, any>();
 

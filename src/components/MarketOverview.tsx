@@ -20,7 +20,7 @@ interface TopInterestBond {
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard } from './ui/Card';
-import { CHART_PALETTE, applyChartTheme, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { CHART_PALETTE, applyChartTheme, downloadChartImage, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 import {
@@ -64,6 +64,7 @@ export default function MarketOverview() {
   const [topIssuerMetric, setTopIssuerMetric] = useState<'remainingDebt' | 'issuedValue'>('remainingDebt');
   const [loadingTopIssuerChart, setLoadingTopIssuerChart] = useState(false);
   const [showTopIssuerDataView, setShowTopIssuerDataView] = useState(false);
+  const [showTopIssuerDataViewBackButton, setShowTopIssuerDataViewBackButton] = useState(false);
   const [showTopIssuerZoom, setShowTopIssuerZoom] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(cachedProjectedCashFlows);
@@ -498,6 +499,13 @@ export default function MarketOverview() {
       formatNumber(issuer.totalIssuedValue / 1000000000, 0),
     ]));
   }, [topIssuerDisplayData]);
+  const debtLotsDataViewRows = useMemo(() => {
+    return topDebtData.map((issuer) => ([
+      issuer.issuerSymbol || '',
+      issuer.totalRemainingDebt / 1000000000,
+      issuer.bondCount,
+    ]));
+  }, [topDebtData]);
 
   const topIssuerDataViewColumns: ChartDataTableColumn[] = useMemo(() => ([
     { label: t('ticker'), align: 'center', kind: 'text' },
@@ -641,8 +649,12 @@ export default function MarketOverview() {
   const debtLotsOptions = {
     color: chartPalette,
     __dataView: {
-      categoryLabel: t('ticker'),
-      categoryAlign: 'center',
+      columns: [
+        { label: t('ticker'), align: 'center', kind: 'text' },
+        { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+        { label: t('bondLotsTitle'), unit: t('unitLot'), align: 'right', kind: 'number' },
+      ],
+      rows: debtLotsDataViewRows,
     },
     tooltip: { 
       ...chartTooltip,
@@ -909,18 +921,16 @@ export default function MarketOverview() {
     ]
   };
 
-  const handleTopIssuerDownload = () => {
+  const handleTopIssuerDownload = async () => {
     const instance = topIssuerChartRef.current?.getEchartsInstance?.();
     if (!instance) return;
-    const url = instance.getDataURL({
-      type: 'png',
-      pixelRatio: 2,
+    await downloadChartImage(instance, {
+      fileName: 'top-10-issuer-chart.png',
+      title: topIssuerMetricTitle,
       backgroundColor: chartTheme.bg,
+      textColor: chartTheme.text,
+      titleAlign: 'center',
     });
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'top-10-issuer-chart.png';
-    link.click();
   };
 
   const handleTopIssuerReset = () => {
@@ -928,7 +938,29 @@ export default function MarketOverview() {
     instance?.restore?.();
     setTopIssuerMetric('remainingDebt');
     setShowTopIssuerDataView(false);
+    setShowTopIssuerDataViewBackButton(false);
     setShowTopIssuerZoom(false);
+  };
+
+  const openTopIssuerDataView = (fromZoom = false) => {
+    setShowTopIssuerDataViewBackButton(fromZoom);
+    setShowTopIssuerDataView(true);
+    if (fromZoom) {
+      setShowTopIssuerZoom(false);
+    }
+  };
+
+  const closeTopIssuerDataView = () => {
+    setShowTopIssuerDataView(false);
+    setShowTopIssuerDataViewBackButton(false);
+  };
+
+  const handleTopIssuerDataViewBack = () => {
+    const shouldRestoreZoom = showTopIssuerDataViewBackButton;
+    closeTopIssuerDataView();
+    if (shouldRestoreZoom) {
+      setShowTopIssuerZoom(true);
+    }
   };
 
   const topIssuerToolbarButtonClass = (disabled = false) => (
@@ -990,7 +1022,7 @@ export default function MarketOverview() {
             <div className="flex items-center justify-end gap-1 text-text-muted">
                 <button
                   type="button"
-                  onClick={() => setShowTopIssuerDataView(true)}
+                  onClick={() => openTopIssuerDataView(false)}
                   className={topIssuerToolbarButtonClass()}
                   title={t('dataView')}
                   aria-label={t('dataView')}
@@ -1194,6 +1226,32 @@ export default function MarketOverview() {
                 style={{ height: '100%', width: '100%' }}
                 allowMagicType
                 title={projectedCashFlowTitle}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    grid: { bottom: '22%' },
+                    legend: {
+                      bottom: 8,
+                    },
+                    dataZoom: [
+                      {
+                        type: 'inside',
+                        xAxisIndex: 0,
+                        filterMode: 'none',
+                      },
+                      {
+                        type: 'slider',
+                        xAxisIndex: 0,
+                        height: 18,
+                        bottom: 44,
+                        filterMode: 'none',
+                        brushSelect: false,
+                        textStyle: valueLabelStyle,
+                      },
+                    ],
+                  },
+                }}
                 actions={(
                   <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                     {(['month', 'year'] as const).map((period) => (
@@ -1223,7 +1281,9 @@ export default function MarketOverview() {
         title={topIssuerMetricTitle}
         columns={topIssuerDataViewColumns}
         rows={topIssuerDataViewRows}
-        onClose={() => setShowTopIssuerDataView(false)}
+        onClose={closeTopIssuerDataView}
+        onBack={handleTopIssuerDataViewBack}
+        showBackButton={showTopIssuerDataViewBackButton}
         fileNameBase={`top-issuer-${topIssuerMetric}`}
         sheetName={topIssuerMetricTitle}
       />
@@ -1242,7 +1302,7 @@ export default function MarketOverview() {
                 <div className="flex items-center justify-end gap-1 text-text-muted">
                   <button
                     type="button"
-                    onClick={() => setShowTopIssuerDataView(true)}
+                    onClick={() => openTopIssuerDataView(true)}
                     className={topIssuerToolbarButtonClass()}
                     title={t('dataView')}
                     aria-label={t('dataView')}

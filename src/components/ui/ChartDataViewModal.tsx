@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Search, X } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import { exportRowsToExcel } from '../../utils/excel';
 import { ExportExcelButton } from './ExportExcelButton';
@@ -20,6 +20,8 @@ interface ChartDataViewModalProps {
   columns: ChartDataTableColumn[];
   rows: Array<Array<string | number | null | undefined>>;
   onClose: () => void;
+  onBack?: () => void;
+  showBackButton?: boolean;
   fileNameBase: string;
   sheetName: string;
 }
@@ -72,6 +74,8 @@ export function ChartDataViewModal({
   columns,
   rows,
   onClose,
+  onBack,
+  showBackButton = false,
   fileNameBase,
   sheetName,
 }: ChartDataViewModalProps) {
@@ -182,6 +186,17 @@ export function ChartDataViewModal({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="relative border-b border-border-base px-4 py-4">
+          {showBackButton ? (
+            <button
+              type="button"
+              onClick={onBack || onClose}
+              className="absolute left-4 top-4 rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
+              title={t('back')}
+              aria-label={t('back')}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
@@ -192,11 +207,11 @@ export function ChartDataViewModal({
             <X className="h-4 w-4" />
           </button>
 
-            <div className="flex flex-col gap-3 pr-10">
-              <div className="text-center">
-                <h3 className="text-base font-bold leading-snug break-words text-text-base md:text-lg">
-                  {resolvedTitle}
-                </h3>
+          <div className={`flex flex-col gap-3 ${showBackButton ? 'px-10' : 'pr-10'}`}>
+            <div className="text-center">
+              <h3 className="text-base font-bold leading-snug break-words text-text-base md:text-lg">
+                {resolvedTitle}
+              </h3>
               {subtitle ? (
                 <p className="mt-1 text-xs font-medium text-text-muted">
                   {subtitle}

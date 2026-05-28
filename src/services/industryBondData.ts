@@ -6,6 +6,7 @@ import {
   INDUSTRY_NAV_ITEM_BY_ID,
   INDUSTRY_NAV_ITEMS,
   IndustryNavItem,
+  resolveIndustryKeyFromCandidates,
 } from '../constants/industries';
 import { loadBondDetailsMapByCodes, loadBondsByIndustryFilter } from './bondData';
 
@@ -79,13 +80,15 @@ type ProcedureResult<T> =
     };
 
 const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
-const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v3_';
-const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v5_';
-const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v6_';
-const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v3_';
+const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v6_';
+const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v9_';
+const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v10_';
+const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v5_';
+const INDUSTRY_STATS_ROWS_CACHE_PREFIX = 'industry_stats_rows_v2_';
 const ISSUER_STATS_CACHE_PREFIX = 'issuer_stats_api_v1_';
 let symbolGroupsPromise: Promise<Record<string, string[]>> | null = null;
 const industryStatsPromises = new Map<string, Promise<IndustryStats>>();
+const industryStatsRowsPromises = new Map<string, Promise<IndustryStats[]>>();
 const industryBondRowsPromises = new Map<string, Promise<any[]>>();
 const industryBondBasePromises = new Map<string, Promise<IndustryBondGroupData>>();
 const industryBondGroupPromises = new Map<string, Promise<IndustryBondGroupData>>();
@@ -103,6 +106,101 @@ const toBillionVnd = (value: unknown) => {
 };
 
 const normalizeCode = (value: unknown) => String(value ?? '').trim();
+
+const firstDefined = (...values: unknown[]) => {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return undefined;
+};
+
+const normalizeIndustryStat = (stat: any): IndustryStats => ({
+  icbCode: normalizeCode(firstDefined(stat?.icbCode, stat?.ICBCode, stat?.icbCodeLv1, stat?.ICBCodeLv1, stat?.icbCodeLv2, stat?.ICBCodeLv2, stat?.icbCodeLv3, stat?.ICBCodeLv3, stat?.icbCodeLv4, stat?.ICBCodeLv4)),
+  icbName: normalizeCode(firstDefined(stat?.icbName, stat?.ICBName, stat?.icbNameLv1, stat?.ICBNameLv1, stat?.icbNameLv2, stat?.ICBNameLv2, stat?.icbNameLv3, stat?.ICBNameLv3, stat?.icbNameLv4, stat?.ICBNameLv4)),
+  bondCount: toNumber(firstDefined(stat?.bondCount, stat?.BondCount)),
+  totalIssuedVolume: toNumber(firstDefined(stat?.totalIssuedVolume, stat?.TotalIssuedVolume)),
+  totalIssuedValue: toNumber(firstDefined(stat?.totalIssuedValue, stat?.TotalIssuedValue)),
+  totalCurrentListedVolume: toNumber(firstDefined(stat?.totalCurrentListedVolume, stat?.TotalCurrentListedVolume)),
+  totalCurrentListedValue: toNumber(firstDefined(stat?.totalCurrentListedValue, stat?.TotalCurrentListedValue)),
+  totalDebtFull: toNumber(firstDefined(stat?.totalDebtFull, stat?.TotalDebtFull)),
+  totalRemainingDebt: toNumber(firstDefined(stat?.totalRemainingDebt, stat?.TotalRemainingDebt)),
+  avgRate: toNumber(firstDefined(stat?.avgRate, stat?.AvgRate)),
+  avgCouponRate: toNumber(firstDefined(stat?.avgCouponRate, stat?.AvgCouponRate)),
+  floatingRate: toNumber(firstDefined(stat?.floatingRate, stat?.avgFloatingRate, stat?.FloatingRate, stat?.AvgFloatingRate)),
+});
+
+const getIndustryStatsRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => extractRows(payload);
+
+const getIndustryStatsRowsByLevel = async (level: number, forceRefresh = false): Promise<IndustryStats[]> => {
+  const cacheKey = `${INDUSTRY_STATS_ROWS_CACHE_PREFIX}${level}`;
+  const cached = forceRefresh ? null : getCache(cacheKey);
+  if (cached) return cached as IndustryStats[];
+
+  const inflightKey = String(level);
+  const inflight = industryStatsRowsPromises.get(inflightKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const fetchRows = level === 2
+      ? fireantApi.getBankingIndustries(1000)
+      : level === 4
+        ? fireantApi.getSecuritiesIndustries(1000)
+        : fireantApi.getIndustries(1000, level);
+    const rows = getIndustryStatsRows<any>(await fetchRows);
+    const normalized = rows.map(normalizeIndustryStat).filter((stat) => Boolean(stat.icbCode));
+    setCache(cacheKey, normalized);
+    return normalized;
+  })().finally(() => {
+    industryStatsRowsPromises.delete(inflightKey);
+  });
+
+  industryStatsRowsPromises.set(inflightKey, promise);
+  return promise;
+};
+
+const findIndustryStatsRow = (rows: IndustryStats[], industry: IndustryNavItem) => {
+  const candidates = new Set([
+    industry.code,
+    industry.icbCode || '',
+    industry.id,
+  ].map(normalizeCode).filter(Boolean));
+
+  return rows.find((row) => candidates.has(normalizeCode(row.icbCode)))
+    || rows.find((row) => normalizeCode(row.icbName).toLowerCase() === normalizeCode(industry.id).toLowerCase())
+    || rows[0]
+    || normalizeIndustryStat({});
+};
+
+const buildResidualIndustryStats = (
+  financials: IndustryStats,
+  banking: IndustryStats,
+  securities: IndustryStats,
+): IndustryStats => {
+  const totalIssuedValue = Math.max(0, financials.totalIssuedValue - banking.totalIssuedValue - securities.totalIssuedValue);
+  const weightedRate = (field: 'avgRate' | 'avgCouponRate' | 'floatingRate') => {
+    if (!totalIssuedValue) return 0;
+
+    return (
+      financials[field] * financials.totalIssuedValue -
+      banking[field] * banking.totalIssuedValue -
+      securities[field] * securities.totalIssuedValue
+    ) / totalIssuedValue;
+  };
+
+  return {
+    ...financials,
+    bondCount: Math.max(0, financials.bondCount - banking.bondCount - securities.bondCount),
+    totalIssuedVolume: Math.max(0, financials.totalIssuedVolume - banking.totalIssuedVolume - securities.totalIssuedVolume),
+    totalIssuedValue,
+    totalCurrentListedVolume: Math.max(0, financials.totalCurrentListedVolume - banking.totalCurrentListedVolume - securities.totalCurrentListedVolume),
+    totalCurrentListedValue: Math.max(0, financials.totalCurrentListedValue - banking.totalCurrentListedValue - securities.totalCurrentListedValue),
+    totalDebtFull: Math.max(0, financials.totalDebtFull - banking.totalDebtFull - securities.totalDebtFull),
+    totalRemainingDebt: Math.max(0, financials.totalRemainingDebt - banking.totalRemainingDebt - securities.totalRemainingDebt),
+    avgRate: weightedRate('avgRate'),
+    avgCouponRate: weightedRate('avgCouponRate'),
+    floatingRate: weightedRate('floatingRate'),
+  };
+};
 
 const getBondIndustryCodes = (bond: any) => {
   const candidates = [
@@ -189,7 +287,34 @@ const getBondCode = (bond: any) => normalizeCode(bond?.bondCode || bond?.code ||
 
 const isExcludedBond = (bond: any, excludedCodes: Set<string>) => {
   const bondIndustryCodes = getBondIndustryCodes(bond);
-  return bondIndustryCodes.some((code) => excludedCodes.has(code));
+  if (bondIndustryCodes.some((code) => excludedCodes.has(code))) return true;
+
+  const resolvedIndustry = resolveIndustryKeyFromCandidates(
+    bond?.industry,
+    bond?.industryName,
+    bond?.IndustryName,
+    bond?.icbNameLv2,
+    bond?.ICBNameLv2,
+    bond?.icbNameLv1,
+    bond?.ICBNameLv1,
+    bond?.bondInfos?.ICBNameLv2,
+    bond?.bondInfos?.ICBNameLv1,
+    bond?.raw?.industry,
+    bond?.raw?.industryName,
+    bond?.raw?.IndustryName,
+    bond?.raw?.icbNameLv2,
+    bond?.raw?.ICBNameLv2,
+    bond?.raw?.icbNameLv1,
+    bond?.raw?.ICBNameLv1,
+    bond?.infoObj?.industry,
+    bond?.infoObj?.industryName,
+    bond?.infoObj?.icbNameLv2,
+    bond?.infoObj?.ICBNameLv2,
+    bond?.infoObj?.icbNameLv1,
+    bond?.infoObj?.ICBNameLv1,
+  );
+
+  return resolvedIndustry === 'Banking' || resolvedIndustry === 'Securities';
 };
 
 const extractRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => {
@@ -329,6 +454,15 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
   const promise = (async () => {
     const { include, exclude } = getIndustryFilterCodes(industry.id);
     const excludedCodes = new Set(exclude);
+    const symbolGroups = industry.id === 'Financials'
+      ? await loadDedupedIndustrySymbols(forceRefresh).catch(() => null)
+      : null;
+    const childIndustrySymbols = industry.id === 'Financials' && symbolGroups
+      ? new Set([
+          ...(symbolGroups.Banking || []),
+          ...(symbolGroups.Securities || []),
+        ].map((symbol) => String(symbol || '').trim().toUpperCase()).filter(Boolean))
+      : null;
     const batches = await fetchWithLimit(include, 4, async (icbCode) => {
       const rows = await loadBondsByIndustryFilter(icbCode, 1);
       return Array.isArray(rows) ? rows : [];
@@ -337,6 +471,10 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
     const deduped = new Map<string, any>();
     batches.flat().forEach((bond) => {
       if (!bond || isExcludedBond(bond, excludedCodes)) return;
+      if (childIndustrySymbols) {
+        const issuerSymbol = getBondIssuerSymbol(bond).toUpperCase();
+        if (issuerSymbol && childIndustrySymbols.has(issuerSymbol)) return;
+      }
       const code = getBondCode(bond);
       if (!code || deduped.has(code)) return;
       deduped.set(code, {
@@ -406,11 +544,7 @@ export const loadDedupedIndustrySymbols = async (forceRefresh = false) => {
 
 export const loadIndustryStats = async (industryId: string, forceRefresh = false): Promise<IndustryStats> => {
   const industry = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
-  const detailedCacheKey = `${INDUSTRY_BOND_GROUP_CACHE_PREFIX}${industry.id}`;
   const cacheKey = `${INDUSTRY_STATS_CACHE_PREFIX}${industry.id}`;
-
-  const detailedCached = forceRefresh ? null : getCache(detailedCacheKey);
-  if (detailedCached?.industryStats) return detailedCached.industryStats as IndustryStats;
 
   const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as IndustryStats;
@@ -418,8 +552,24 @@ export const loadIndustryStats = async (industryId: string, forceRefresh = false
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const baseData = await loadIndustryBaseBondGroupData(industry.id, forceRefresh);
-    const stats = baseData.industryStats;
+    if (industry.id === 'Financials') {
+      const [financialsRows, bankingRows, securitiesRows] = await Promise.all([
+        getIndustryStatsRowsByLevel(1, forceRefresh),
+        getIndustryStatsRowsByLevel(2, forceRefresh),
+        getIndustryStatsRowsByLevel(4, forceRefresh),
+      ]);
+
+      const stats = buildResidualIndustryStats(
+        findIndustryStatsRow(financialsRows, industry),
+        findIndustryStatsRow(bankingRows, INDUSTRY_NAV_ITEM_BY_ID.Banking),
+        findIndustryStatsRow(securitiesRows, INDUSTRY_NAV_ITEM_BY_ID.Securities),
+      );
+      setCache(cacheKey, stats);
+      return stats;
+    }
+
+    const rows = await getIndustryStatsRowsByLevel(industry.statsLevel || 1, forceRefresh);
+    const stats = findIndustryStatsRow(rows, industry);
     setCache(cacheKey, stats);
     return stats;
   })().finally(() => {
@@ -427,6 +577,38 @@ export const loadIndustryStats = async (industryId: string, forceRefresh = false
   });
 
   industryStatsPromises.set(industry.id, promise);
+  return promise;
+};
+
+export const loadResidualFinancialIndustryStats = async (forceRefresh = false): Promise<IndustryStats> => {
+  const cacheKey = `${INDUSTRY_STATS_CACHE_PREFIX}Financials`;
+  const cached = forceRefresh ? null : getCache(cacheKey);
+  if (cached) return cached as IndustryStats;
+
+  const inflightKey = 'Financials';
+  const inflight = industryStatsPromises.get(inflightKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const [financialsRows, bankingRows, securitiesRows] = await Promise.all([
+      getIndustryStatsRowsByLevel(1, forceRefresh),
+      getIndustryStatsRowsByLevel(2, forceRefresh),
+      getIndustryStatsRowsByLevel(4, forceRefresh),
+    ]);
+
+    const stats = buildResidualIndustryStats(
+      findIndustryStatsRow(financialsRows, INDUSTRY_NAV_ITEM_BY_ID.Financials),
+      findIndustryStatsRow(bankingRows, INDUSTRY_NAV_ITEM_BY_ID.Banking),
+      findIndustryStatsRow(securitiesRows, INDUSTRY_NAV_ITEM_BY_ID.Securities),
+    );
+
+    setCache(cacheKey, stats);
+    return stats;
+  })().finally(() => {
+    industryStatsPromises.delete(inflightKey);
+  });
+
+  industryStatsPromises.set(inflightKey, promise);
   return promise;
 };
 
@@ -439,18 +621,20 @@ export const loadIndustryBaseBondGroupData = async (industryId: string, forceRef
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const bonds = await loadIndustryBondRows(industry.id, forceRefresh);
+    const [bonds, issuerStats, industryStats] = await Promise.all([
+      loadIndustryBondRows(industry.id, forceRefresh),
+      loadIssuerStatsSummary(1000, forceRefresh).catch(() => []),
+      loadIndustryStats(industry.id, forceRefresh).catch(() => null),
+    ]);
     const symbols = Array.from(new Set(bonds.map((bond) => getBondIssuerSymbol(bond)).filter(Boolean)));
-    const issuerStats = await loadIssuerStatsSummary(1000, forceRefresh);
     const remainingDebtByIssuer = buildRemainingDebtMap(issuerStats);
     const issuerSummaries = buildIssuerSummaries(bonds, remainingDebtByIssuer);
-    const industryStats = buildIndustryStats(issuerSummaries, bonds);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
       symbols,
       bonds,
       issuerSummaries,
-      industryStats,
+      industryStats: industryStats || buildIndustryStats(issuerSummaries, bonds),
       projectedCashFlowBuckets: {},
     };
 
@@ -595,26 +779,25 @@ export const loadIndustryBondGroupData = async (industryId: string, forceRefresh
 
   const promise = (async () => {
     const baseData = await loadIndustryBaseBondGroupData(industry.id, forceRefresh);
-    const detailMap = await loadBondDetailsMapByCodes(
+    const issuerStatsPromise = loadIssuerStatsSummary(1000, forceRefresh).catch(() => []);
+    const detailMapPromise = loadBondDetailsMapByCodes(
       baseData.bonds.map((bond) => getBondCode(bond)),
       { concurrency: 8, forceRefresh },
     );
+    const [issuerStats, detailMap] = await Promise.all([issuerStatsPromise, detailMapPromise]);
     const detailedBonds = baseData.bonds.map((bond) => {
       const code = getBondCode(bond);
       const detailData = code ? detailMap[code.toUpperCase()] : null;
       return detailData ? mergeBondDetail(bond, detailData) : bond;
     });
-
-    const issuerStats = await loadIssuerStatsSummary(1000, forceRefresh);
     const remainingDebtByIssuer = buildRemainingDebtMap(issuerStats);
     const issuerSummaries = buildIssuerSummaries(detailedBonds, remainingDebtByIssuer);
-    const industryStats = buildIndustryStats(issuerSummaries, detailedBonds);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
       symbols: baseData.symbols,
       bonds: detailedBonds,
       issuerSummaries,
-      industryStats,
+      industryStats: baseData.industryStats || buildIndustryStats(issuerSummaries, detailedBonds),
       projectedCashFlowBuckets: buildProjectedCashFlowBuckets(detailedBonds),
     };
 

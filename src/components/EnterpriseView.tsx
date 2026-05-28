@@ -1333,6 +1333,32 @@ export default function EnterpriseView({
               style={{ height: '360px' }}
               allowMagicType
               title={projectedCashFlowTitle}
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  grid: { bottom: '22%' },
+                  legend: {
+                    bottom: 8,
+                  },
+                  dataZoom: [
+                    {
+                      type: 'inside',
+                      xAxisIndex: 0,
+                      filterMode: 'none',
+                    },
+                    {
+                      type: 'slider',
+                      xAxisIndex: 0,
+                      height: 18,
+                      bottom: 44,
+                      filterMode: 'none',
+                      brushSelect: false,
+                      textStyle: axisLabelStyle,
+                    },
+                  ],
+                },
+              }}
               actions={(
                 <div className="flex items-center justify-center gap-1 rounded-lg border border-border-base bg-bg-base p-1 sm:justify-self-end">
                   <button
