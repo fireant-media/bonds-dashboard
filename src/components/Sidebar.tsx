@@ -3,10 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
-import { getCache, setCache } from '../utils/cache';
+import { getCache } from '../utils/cache';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
-import { fireantApi } from '../api/fireant';
+import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -36,6 +36,7 @@ export default function Sidebar({
     () => getCache('sidebar_industry_issued_values_v2')
   );
   const { t } = useLanguage();
+  const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
 
   const menuItems = [
     { id: 'overview', label: t('overview'), icon: LayoutDashboard },
@@ -45,78 +46,25 @@ export default function Sidebar({
   ];
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadIndustryIssuedValues = async () => {
-      const cached = getCache('sidebar_industry_issued_values_v2');
-      if (cached && Object.keys(cached).length > 0) {
-        setIndustryIssuedValues(cached);
-        return;
-      }
-
-      try {
-        const [level1Rows, level2Rows, level4Rows] = await Promise.all([
-          fireantApi.getIndustries(1000, 1).catch(() => []),
-          fireantApi.getBankingIndustries(1000).catch(() => []),
-          fireantApi.getSecuritiesIndustries(1000).catch(() => []),
-        ]);
-        const statsByCode = new Map<string, any>();
-
-        [...level1Rows, ...level2Rows, ...level4Rows].forEach((row: any) => {
-          const code = String(row?.icbCode || '').trim();
-          if (code && !statsByCode.has(code)) statsByCode.set(code, row);
-        });
-
-        const nextIssuedValues = INDUSTRY_NAV_ITEMS.reduce<Record<string, number>>((acc, item) => {
-          const stats = statsByCode.get(item.code);
-          let issuedValue = Number(stats?.totalIssuedValue || 0);
-
-          if (item.id === 'Financials') {
-            issuedValue = Math.max(
-              0,
-              issuedValue
-                - Number(statsByCode.get('3010')?.totalIssuedValue || 0)
-                - Number(statsByCode.get('30202005')?.totalIssuedValue || 0)
-            );
-          }
-
-          const bondCount = Number(stats?.bondCount || 0);
-
-          if (bondCount > 0 && issuedValue > 0) {
-            acc[item.id] = issuedValue;
-          }
-          return acc;
-        }, {});
-
-        if (Object.keys(nextIssuedValues).length > 0) {
-          setCache('sidebar_industry_issued_values_v2', nextIssuedValues);
-        }
-        if (isMounted) setIndustryIssuedValues(nextIssuedValues);
-      } catch (error) {
-        console.error('Failed to load sidebar industry order', error);
-      }
-    };
-
-    loadIndustryIssuedValues();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    if (industryIssuedValuesQuery.data && Object.keys(industryIssuedValuesQuery.data).length > 0) {
+      setIndustryIssuedValues(industryIssuedValuesQuery.data);
+    }
+  }, [industryIssuedValuesQuery.data]);
 
   const subIndustries = useMemo(() => {
     const items = INDUSTRY_NAV_ITEMS.map((item) => ({
       id: item.id,
       label: t(item.labelKey as any),
       issuedValue: industryIssuedValues?.[item.id],
+      order: item.priority,
     }));
 
-    if (!industryIssuedValues || Object.keys(industryIssuedValues).length === 0) return items;
+    return items.sort((a, b) => {
+      const leftValue = typeof a.issuedValue === 'number' ? a.issuedValue : -1;
+      const rightValue = typeof b.issuedValue === 'number' ? b.issuedValue : -1;
 
-    const visibleItems = items.filter((item) => typeof item.issuedValue === 'number');
-    return visibleItems.length > 0
-      ? visibleItems.sort((a, b) => (b.issuedValue || 0) - (a.issuedValue || 0))
-      : items;
+      return rightValue - leftValue || a.order - b.order;
+    });
   }, [industryIssuedValues, t]);
 
   return (

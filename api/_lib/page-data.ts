@@ -402,6 +402,18 @@ const buildInterestTypeDistribution = (bonds: any[]) => {
   return Array.from(counts.entries()).map(([name, value]) => ({ name, value }));
 };
 
+const buildChartPayload = (
+  title: string,
+  rows: any[],
+  columns: Array<{ key: string; label: string; unit?: string }> = [],
+  series: Array<{ key: string; label: string; unit?: string; type?: string }> = [],
+) => ({
+  title,
+  columns,
+  rows,
+  series,
+});
+
 async function attachCashFlows(bonds: any[], detailLimit: number) {
   const limited = bonds.slice(0, detailLimit);
   const details = await mapWithConcurrency(limited, 8, async (bond) => {
@@ -572,39 +584,60 @@ async function buildMarketOverview(request: PageDataRequest) {
     source: { industryStats: '/bonds/stats/industries?top=1000&level=1' },
     cards: buildKpiCards(totals),
     charts: {
-      topIssuers: {
-        title: 'Top doanh nghiep theo du no / gia tri phat hanh',
-        rows: topIssuers,
-      },
-      topInterestBonds: {
-        title: 'Top trai phieu lai suat cao',
-        rows: getRows(highYield),
-      },
-      valueByIndustry: {
-        title: 'Gia tri phat hanh va gia tri niem yet theo nganh',
-        unit: 'VND',
-        rows: industryStats.map((item) => ({
+      topIssuers: buildChartPayload('Top doanh nghiep theo du no / gia tri phat hanh', topIssuers, [
+        { key: 'issuerSymbol', label: 'Ma doanh nghiep' },
+        { key: 'issuerName', label: 'Ten doanh nghiep' },
+        { key: 'totalRemainingDebt', label: 'Du no con lai', unit: 'VND' },
+        { key: 'totalIssuedValue', label: 'Gia tri phat hanh', unit: 'VND' },
+      ], [
+        { key: 'totalRemainingDebt', label: 'Du no con lai', unit: 'VND', type: 'bar' },
+        { key: 'totalIssuedValue', label: 'Gia tri phat hanh', unit: 'VND', type: 'bar' },
+      ]),
+      topInterestBonds: buildChartPayload('Top trai phieu lai suat cao', getRows(highYield), [
+        { key: 'bondCode', label: 'Ma trai phieu' },
+        { key: 'issuerSymbol', label: 'Ma doanh nghiep' },
+        { key: 'bondRate', label: 'Lai suat', unit: '%' },
+      ], [{ key: 'bondRate', label: 'Lai suat', unit: '%', type: 'bar' }]),
+      valueByIndustry: buildChartPayload('Gia tri phat hanh va gia tri niem yet theo nganh', industryStats.map((item) => ({
           icbCode: item.icbCode,
           icbName: item.icbName,
           totalIssuedValue: item.totalIssuedValue,
           totalCurrentListedValue: item.totalCurrentListedValue,
           totalIssuedValueBillion: toBillion(item.totalIssuedValue),
           totalCurrentListedValueBillion: toBillion(item.totalCurrentListedValue),
-        })),
-      },
-      volumeByIndustry: {
-        title: 'Khoi luong trai phieu theo nganh',
-        unit: 'trai phieu',
-        rows: industryStats.map((item) => ({
+        })), [
+        { key: 'icbCode', label: 'Ma nganh' },
+        { key: 'icbName', label: 'Ten nganh' },
+        { key: 'totalIssuedValue', label: 'Gia tri phat hanh', unit: 'VND' },
+        { key: 'totalCurrentListedValue', label: 'Gia tri niem yet', unit: 'VND' },
+      ], [
+        { key: 'totalIssuedValue', label: 'Gia tri phat hanh', unit: 'VND', type: 'bar' },
+        { key: 'totalCurrentListedValue', label: 'Gia tri niem yet', unit: 'VND', type: 'bar' },
+      ]),
+      volumeByIndustry: buildChartPayload('Khoi luong trai phieu theo nganh', industryStats.map((item) => ({
           icbCode: item.icbCode,
           icbName: item.icbName,
           totalIssuedVolume: item.totalIssuedVolume,
           totalCurrentListedVolume: item.totalCurrentListedVolume,
-        })),
-      },
+        })), [
+        { key: 'icbCode', label: 'Ma nganh' },
+        { key: 'icbName', label: 'Ten nganh' },
+        { key: 'totalIssuedVolume', label: 'Khoi luong phat hanh', unit: 'trai phieu' },
+        { key: 'totalCurrentListedVolume', label: 'Khoi luong niem yet', unit: 'trai phieu' },
+      ], [
+        { key: 'totalIssuedVolume', label: 'Khoi luong phat hanh', unit: 'trai phieu', type: 'bar' },
+        { key: 'totalCurrentListedVolume', label: 'Khoi luong niem yet', unit: 'trai phieu', type: 'bar' },
+      ]),
       projectedCashFlow: {
-        title: 'Dong tien du kien',
-        rows: buildProjectedCashFlowBuckets(projectedBonds),
+        ...buildChartPayload('Dong tien du kien', buildProjectedCashFlowBuckets(projectedBonds), [
+          { key: 'label', label: 'Thang' },
+          { key: 'interest', label: 'Lai', unit: 'ty VND' },
+          { key: 'principal', label: 'Goc', unit: 'ty VND' },
+          { key: 'total', label: 'Tong', unit: 'ty VND' },
+        ], [
+          { key: 'interest', label: 'Lai', unit: 'ty VND', type: 'line' },
+          { key: 'principal', label: 'Goc', unit: 'ty VND', type: 'line' },
+        ]),
         note: includeCashFlows ? undefined : 'Set includeCashFlows=1 de hydrate chi tiet cash flow.',
       },
     },
@@ -640,16 +673,43 @@ async function buildIndustry(request: PageDataRequest) {
       { key: 'totalRemainingDebt', label: 'Du no con lai', value: industryStats.totalRemainingDebt, valueBillionVnd: toBillion(industryStats.totalRemainingDebt), unit: 'VND' },
     ],
     charts: {
-      debtRanking: issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, totalRemainingDebt: issuer.totalRemainingDebt, totalRemainingDebtBillion: toBillion(issuer.totalRemainingDebt) })),
-      marketShare: issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, value: issuer.totalRemainingDebt })),
-      interestRates: [
+      debtRanking: buildChartPayload('Xep hang du no theo doanh nghiep trong nganh', issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, totalRemainingDebt: issuer.totalRemainingDebt, totalRemainingDebtBillion: toBillion(issuer.totalRemainingDebt) })), [
+        { key: 'issuerSymbol', label: 'Ma doanh nghiep' },
+        { key: 'issuerName', label: 'Ten doanh nghiep' },
+        { key: 'totalRemainingDebt', label: 'Du no con lai', unit: 'VND' },
+      ], [{ key: 'totalRemainingDebt', label: 'Du no con lai', unit: 'VND', type: 'bar' }]),
+      marketShare: buildChartPayload('Thi phan du no trong nganh', issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, value: issuer.totalRemainingDebt })), [
+        { key: 'issuerSymbol', label: 'Ma doanh nghiep' },
+        { key: 'issuerName', label: 'Ten doanh nghiep' },
+        { key: 'value', label: 'Du no con lai', unit: 'VND' },
+      ], [{ key: 'value', label: 'Du no con lai', unit: 'VND', type: 'pie' }]),
+      interestRates: buildChartPayload('Lai suat trong nganh', [
         { name: 'avgRate', value: industryStats.avgRate },
         { name: 'avgCouponRate', value: industryStats.avgCouponRate },
         { name: 'floatingRate', value: industryStats.floatingRate },
-      ],
-      issuedValueTreemap: issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, value: issuer.totalIssuedValue, valueBillionVnd: toBillion(issuer.totalIssuedValue) })),
-      debtAndLots: issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, totalRemainingDebt: issuer.totalRemainingDebt, bondCount: issuer.bondCount })),
-      projectedCashFlow: buildProjectedCashFlowBuckets(bonds),
+      ], [{ key: 'name', label: 'Loai lai suat' }, { key: 'value', label: 'Lai suat', unit: '%' }], [{ key: 'value', label: 'Lai suat', unit: '%', type: 'bar' }]),
+      issuedValueTreemap: buildChartPayload('Gia tri phat hanh cua cac doanh nghiep trong nganh', issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, value: issuer.totalIssuedValue, valueBillionVnd: toBillion(issuer.totalIssuedValue) })), [
+        { key: 'issuerSymbol', label: 'Ma doanh nghiep' },
+        { key: 'issuerName', label: 'Ten doanh nghiep' },
+        { key: 'value', label: 'Gia tri phat hanh', unit: 'VND' },
+      ], [{ key: 'value', label: 'Gia tri phat hanh', unit: 'VND', type: 'treemap' }]),
+      debtAndLots: buildChartPayload('Tuong quan du no va so lo trai phieu', issuerSummaries.map((issuer) => ({ issuerSymbol: issuer.issuerSymbol, issuerName: issuer.issuerName, totalRemainingDebt: issuer.totalRemainingDebt, bondCount: issuer.bondCount })), [
+        { key: 'issuerSymbol', label: 'Ma doanh nghiep' },
+        { key: 'totalRemainingDebt', label: 'Du no con lai', unit: 'VND' },
+        { key: 'bondCount', label: 'So lo trai phieu', unit: 'lo' },
+      ], [
+        { key: 'totalRemainingDebt', label: 'Du no con lai', unit: 'VND', type: 'bar' },
+        { key: 'bondCount', label: 'So lo trai phieu', unit: 'lo', type: 'line' },
+      ]),
+      projectedCashFlow: buildChartPayload('Dong tien du kien', buildProjectedCashFlowBuckets(bonds), [
+        { key: 'label', label: 'Thang' },
+        { key: 'interest', label: 'Lai', unit: 'ty VND' },
+        { key: 'principal', label: 'Goc', unit: 'ty VND' },
+        { key: 'total', label: 'Tong', unit: 'ty VND' },
+      ], [
+        { key: 'interest', label: 'Lai', unit: 'ty VND', type: 'line' },
+        { key: 'principal', label: 'Goc', unit: 'ty VND', type: 'line' },
+      ]),
     },
     raw: { industryStats, issuerSummaries, bonds },
   };
@@ -683,9 +743,23 @@ async function buildIssuer(request: PageDataRequest) {
       { key: 'totalRemainingDebt', label: 'Du no con lai', value: totals.totalRemainingDebt || 0, valueBillionVnd: toBillion(totals.totalRemainingDebt), unit: 'VND' },
     ],
     charts: {
-      termDistribution: buildTermDistribution(detailedBonds),
-      interestTypeDistribution: buildInterestTypeDistribution(detailedBonds),
-      projectedCashFlow: buildProjectedCashFlowBuckets(detailedBonds),
+      termDistribution: buildChartPayload('Phan bo ky han', buildTermDistribution(detailedBonds), [
+        { key: 'name', label: 'Ky han' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'pie' }]),
+      interestTypeDistribution: buildChartPayload('Phan bo loai lai suat', buildInterestTypeDistribution(detailedBonds), [
+        { key: 'name', label: 'Loai lai suat' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'pie' }]),
+      projectedCashFlow: buildChartPayload('Dong tien du kien', buildProjectedCashFlowBuckets(detailedBonds), [
+        { key: 'label', label: 'Thang' },
+        { key: 'interest', label: 'Lai', unit: 'ty VND' },
+        { key: 'principal', label: 'Goc', unit: 'ty VND' },
+        { key: 'total', label: 'Tong', unit: 'ty VND' },
+      ], [
+        { key: 'interest', label: 'Lai', unit: 'ty VND', type: 'line' },
+        { key: 'principal', label: 'Goc', unit: 'ty VND', type: 'line' },
+      ]),
     },
     bonds: detailedBonds,
   };
@@ -718,9 +792,23 @@ async function buildWatchlist(request: PageDataRequest) {
       { key: 'totalCurrentListedValue', label: 'Tong gia tri niem yet', value: totals.totalCurrentListedValue, valueBillionVnd: toBillion(totals.totalCurrentListedValue), unit: 'VND' },
     ],
     charts: {
-      projectedCashFlow: buildProjectedCashFlowBuckets(bonds),
-      termDistribution: buildTermDistribution(bonds),
-      interestTypeDistribution: buildInterestTypeDistribution(bonds),
+      projectedCashFlow: buildChartPayload('Dong tien du kien', buildProjectedCashFlowBuckets(bonds), [
+        { key: 'label', label: 'Thang' },
+        { key: 'interest', label: 'Lai', unit: 'ty VND' },
+        { key: 'principal', label: 'Goc', unit: 'ty VND' },
+        { key: 'total', label: 'Tong', unit: 'ty VND' },
+      ], [
+        { key: 'interest', label: 'Lai', unit: 'ty VND', type: 'line' },
+        { key: 'principal', label: 'Goc', unit: 'ty VND', type: 'line' },
+      ]),
+      termDistribution: buildChartPayload('Phan bo ky han', buildTermDistribution(bonds), [
+        { key: 'name', label: 'Ky han' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'pie' }]),
+      interestTypeDistribution: buildChartPayload('Phan bo loai lai suat', buildInterestTypeDistribution(bonds), [
+        { key: 'name', label: 'Loai lai suat' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'pie' }]),
     },
     items: bonds,
   };
@@ -764,7 +852,20 @@ async function buildMaturity(request: PageDataRequest) {
       { key: 'bondCount', label: 'So ma sap dao han', value: bonds.length, unit: 'ma' },
       { key: 'veryNearCount', label: 'Dao han duoi 30 ngay', value: byWarningStatus.find((item) => item.name === 'very-near')?.value || 0, unit: 'ma' },
     ],
-    charts: { byWarningStatus, byIssuer, byMaturityMonth },
+    charts: {
+      byWarningStatus: buildChartPayload('Phan bo theo trang thai canh bao', byWarningStatus, [
+        { key: 'name', label: 'Trang thai' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'pie' }]),
+      byIssuer: buildChartPayload('Phan bo theo to chuc phat hanh', byIssuer, [
+        { key: 'name', label: 'To chuc phat hanh' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'bar' }]),
+      byMaturityMonth: buildChartPayload('Phan bo theo thang dao han', byMaturityMonth, [
+        { key: 'name', label: 'Thang dao han' },
+        { key: 'value', label: 'So ma', unit: 'ma' },
+      ], [{ key: 'value', label: 'So ma', unit: 'ma', type: 'bar' }]),
+    },
     bonds,
   };
 }

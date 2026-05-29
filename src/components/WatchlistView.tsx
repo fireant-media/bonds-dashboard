@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpDown, Building2, ChevronDown, Filter, Trash2 } from 'lucide-react';
 import { Bond } from '../types';
-import { formatDate, formatInterestRate } from '../utils/format';
+import { formatDate, formatInterestRate, parseDateToTimestamp } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -14,6 +14,8 @@ import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 import { buildIndustrySymbolLookup, resolveIndustryKeyFromCandidates, resolveIndustryKeyFromSymbolGroups } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { exportRowsToExcel } from '../utils/excel';
+import { dashboardQueryClient } from '../query/client';
+import { prefetchWatchlistDetails } from '../query/dashboardQueries';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -119,11 +121,14 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   const { t, language } = useLanguage();
   const [bonds, setBonds] = useState<WatchlistBond[]>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [interestSort, setInterestSort] = useState<InterestSort>('high-to-low');
-  const [maturitySort, setMaturitySort] = useState<MaturitySort>('near');
+  const [interestSort, setInterestSort] = useState<InterestSort | null>(null);
+  const [maturitySort, setMaturitySort] = useState<MaturitySort | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const statusControlWidthClass = 'w-full sm:w-56';
+  const interestControlWidthClass = 'w-full sm:w-44';
+  const maturityControlWidthClass = 'w-full sm:w-44';
 
   useEffect(() => {
     const refresh = () => {
@@ -152,6 +157,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     let cancelled = false;
     const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string; name?: string }>;
     const symbolGroupsPromise = loadDedupedIndustrySymbols();
+    void prefetchWatchlistDetails(dashboardQueryClient, bonds);
 
     const bondsWithCachedIndustry = bonds.map((bond) => {
       if (bond.industry) return bond;
@@ -328,22 +334,26 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
   const sortedBonds = useMemo(() => {
     return [...filteredBonds].sort((a, b) => {
-      const interestDiff = interestSort === 'high-to-low'
-        ? b.interestRate - a.interestRate
-        : a.interestRate - b.interestRate;
+      if (interestSort) {
+        const interestDiff = interestSort === 'high-to-low'
+          ? b.interestRate - a.interestRate
+          : a.interestRate - b.interestRate;
 
-      if (Math.abs(interestDiff) > 0.0001) {
-        return interestDiff;
+        if (Math.abs(interestDiff) > 0.0001) {
+          return interestDiff;
+        }
       }
 
-      const maturityA = new Date(a.maturityDate).getTime();
-      const maturityB = new Date(b.maturityDate).getTime();
-      const maturityDiff = maturitySort === 'near'
-        ? maturityA - maturityB
-        : maturityB - maturityA;
+      if (maturitySort) {
+        const maturityA = parseDateToTimestamp(a.maturityDate);
+        const maturityB = parseDateToTimestamp(b.maturityDate);
+        const maturityDiff = maturitySort === 'near'
+          ? (maturityA ?? Number.POSITIVE_INFINITY) - (maturityB ?? Number.POSITIVE_INFINITY)
+          : (maturityB ?? Number.NEGATIVE_INFINITY) - (maturityA ?? Number.NEGATIVE_INFINITY);
 
-      if (maturityDiff !== 0) {
-        return maturityDiff;
+        if (maturityDiff !== 0) {
+          return maturityDiff;
+        }
       }
 
       return b.addedAt - a.addedAt;
@@ -388,6 +398,25 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     },
   ]), [summary.next90, summary.total, summary.urgent, t]);
 
+  const interestSortLabel = interestSort === 'high-to-low'
+    ? t('highest')
+    : interestSort === 'low-to-high'
+      ? t('lowest')
+      : t('interestRate');
+  const maturitySortLabel = maturitySort === 'near'
+    ? t('nearest')
+    : maturitySort === 'far'
+      ? t('farthest')
+      : t('maturityDateSort');
+
+  const handleInterestButtonClick = () => {
+    setOpenMenu((current) => (current === 'interest' ? null : 'interest'));
+  };
+
+  const handleMaturityButtonClick = () => {
+    setOpenMenu((current) => (current === 'maturity' ? null : 'maturity'));
+  };
+
   return (
     <div className="min-w-0 transition-colors duration-300">
       <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
@@ -416,11 +445,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
         <div className="flex justify-end">
           <div ref={menuRef} className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
-            <div className="relative">
+            <div className={`relative ${statusControlWidthClass}`}>
               <button
                 type="button"
                 onClick={() => setOpenMenu((current) => (current === 'status' ? null : 'status'))}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low md:w-auto"
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
                 aria-haspopup="menu"
                 aria-expanded={openMenu === 'status'}
               >
@@ -432,7 +461,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
               </button>
 
               {openMenu === 'status' && (
-                <div className="absolute left-0 top-full z-20 mt-2 min-w-56 rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
                   {statusOptions.map((level) => (
                     <button
                       key={level.value}
@@ -455,31 +484,32 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
               )}
             </div>
 
-            <div className="relative">
+            <div className={`relative ${interestControlWidthClass}`}>
               <button
                 type="button"
-                onClick={() => setOpenMenu((current) => (current === 'interest' ? null : 'interest'))}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low sm:w-auto"
+                onClick={handleInterestButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
                 aria-haspopup="menu"
                 aria-expanded={openMenu === 'interest'}
               >
                 <span className="inline-flex items-center gap-2">
                   <ArrowUpDown className="h-4 w-4 text-blue-600" />
-                  <span>{t('interestRate')}</span>
+                  <span>{interestSortLabel}</span>
                 </span>
                 <ChevronDown className="h-4 w-4 text-text-muted" />
               </button>
               {openMenu === 'interest' && (
-                <div className="absolute right-0 top-full z-20 mt-2 min-w-56 rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
                   {[
-                    { value: 'high-to-low', label: t('highToLow') },
-                    { value: 'low-to-high', label: t('lowToHigh') },
+                    { value: 'high-to-low', label: t('highest') },
+                    { value: 'low-to-high', label: t('lowest') },
                   ].map((option) => (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => {
                         setInterestSort(option.value as InterestSort);
+                        setMaturitySort(null);
                         setOpenMenu(null);
                       }}
                       className={cn(
@@ -496,22 +526,22 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
               )}
             </div>
 
-            <div className="relative">
+            <div className={`relative ${maturityControlWidthClass}`}>
               <button
                 type="button"
-                onClick={() => setOpenMenu((current) => (current === 'maturity' ? null : 'maturity'))}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low sm:w-auto"
+                onClick={handleMaturityButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
                 aria-haspopup="menu"
                 aria-expanded={openMenu === 'maturity'}
               >
                 <span className="inline-flex items-center gap-2">
                   <ArrowUpDown className="h-4 w-4 text-blue-600" />
-                  <span>{t('maturityDateSort')}</span>
+                  <span>{maturitySortLabel}</span>
                 </span>
                 <ChevronDown className="h-4 w-4 text-text-muted" />
               </button>
               {openMenu === 'maturity' && (
-                <div className="absolute right-0 top-full z-20 mt-2 min-w-56 rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
                   {[
                     { value: 'near', label: t('nearest') },
                     { value: 'far', label: t('farthest') },
@@ -521,6 +551,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
                       type="button"
                       onClick={() => {
                         setMaturitySort(option.value as MaturitySort);
+                        setInterestSort(null);
                         setOpenMenu(null);
                       }}
                       className={cn(

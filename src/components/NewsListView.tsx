@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NewsItem } from '../types';
 import { Newspaper, ChevronRight, ChevronLeft, RefreshCw, AlertCircle } from 'lucide-react';
-import { fetchNewsData, getCachedNews, getNewsLastUpdate } from '../services/newsService';
 import { formatDate } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
+import { useNewsQuery } from '../query/dashboardQueries';
 
 interface NewsListViewProps {
   onSelectNews: (news: NewsItem) => void;
@@ -16,65 +16,33 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
   const { t } = useLanguage();
   const [currentPage, setCurrentPage] = useState(1);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
-  const loadingRef = useRef(false);
-  const newsListRef = useRef<NewsItem[]>([]);
+  const intervalRef = useRef<number | null>(null);
+  const newsQuery = useNewsQuery();
 
   useEffect(() => {
-    const cached = getCachedNews();
-    if (cached) {
-      setNewsList(cached);
+    if (Array.isArray(newsQuery.data)) {
+      setNewsList(newsQuery.data);
     }
-  }, []);
+  }, [newsQuery.data]);
 
   useEffect(() => {
-    newsListRef.current = newsList;
-  }, [newsList]);
+    if (!intervalRef.current) {
+      intervalRef.current = window.setInterval(() => {
+        void newsQuery.refetch();
+      }, REFRESH_INTERVAL);
+    }
 
-  const loadData = useCallback(async (isAutoRefresh = false, force = false) => {
-    if (loadingRef.current) return;
-
-    if (!isAutoRefresh && !force) {
-      const lastUpdate = getNewsLastUpdate();
-      const now = Date.now();
-      if (lastUpdate && now - lastUpdate < 120000) {
-        return;
+    return () => {
+      if (intervalRef.current) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
-    }
+    };
+  }, [newsQuery.refetch]);
 
-    const hasExistingNews = newsListRef.current.length > 0;
-    if (!hasExistingNews) {
-      setLoading(true);
-    }
-
-    loadingRef.current = true;
-    setError(null);
-
-    try {
-      const data = await fetchNewsData();
-      setNewsList(data);
-    } catch (err) {
-      if (!hasExistingNews) {
-        setError(t('newsFetchError'));
-      }
-      console.error('Fetch error:', err);
-    } finally {
-      setLoading(false);
-      loadingRef.current = false;
-    }
-  }, [t]);
-
-  useEffect(() => {
-    loadData();
-
-    const interval = setInterval(() => {
-      loadData(true);
-    }, REFRESH_INTERVAL);
-
-    return () => clearInterval(interval);
-  }, [loadData]);
+  const loading = newsQuery.isLoading && newsList.length === 0;
+  const error = newsQuery.error instanceof Error ? newsQuery.error.message : null;
 
   const totalPages = Math.ceil(newsList.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -121,12 +89,12 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
         </div>
         {!loading && (
           <button
-            onClick={() => loadData(false, true)}
+            onClick={() => void newsQuery.refetch()}
             disabled={loading}
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border-base text-text-muted transition-all hover:text-blue-600 active:scale-95"
             title={t('refresh')}
           >
-            <RefreshCw className={`h-5 w-5 ${loadingRef.current ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-5 w-5 ${newsQuery.isFetching ? 'animate-spin' : ''}`} />
           </button>
         )}
       </div>
@@ -142,7 +110,7 @@ export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListVi
           </div>
           <p className="text-text-base font-bold mb-4">{error}</p>
           <button
-            onClick={() => loadData(false, true)}
+            onClick={() => void newsQuery.refetch()}
             className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-blue-600/20"
           >
             <RefreshCw className="h-4 w-4" /> {t('retry')}

@@ -24,7 +24,6 @@ import { CHART_PALETTE, applyChartTheme, downloadChartImage, getComparisonAreaSe
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 import {
-  loadMarketOverviewData,
   MARKET_OVERVIEW_CACHE_KEY,
   MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY,
   MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY,
@@ -33,6 +32,7 @@ import {
   type TopDebtIssuer,
 } from '../services/marketOverviewData';
 import { loadIssuerStatsSummary } from '../services/industryBondData';
+import { useMarketOverviewQuery } from '../query/dashboardQueries';
 
 export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
@@ -44,6 +44,7 @@ export default function MarketOverview() {
   const cachedIndustryData = getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
   const cachedTopInterestData = getCache('market_top_interest_bonds') || getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY);
   const cachedProjectedCashFlows = getCache('market_projected_cash_flows') || {};
+  const marketOverviewQuery = useMarketOverviewQuery();
   const hasSeedData = Boolean(
     (Array.isArray(cachedIssuerStats) && cachedIssuerStats.length > 0)
     || (Array.isArray(cachedIndustryData) && cachedIndustryData.length > 0)
@@ -76,6 +77,8 @@ export default function MarketOverview() {
   const [loading, setLoading] = useState(!hasSeedData);
   const [error, setError] = useState<string | null>(null);
   const topIssuerChartRef = useRef<any>(null);
+  const lastAppliedOverviewPayloadRef = useRef('');
+  const currentOverviewStateSignatureRef = useRef('');
 
   // Common styles for consistency
   const chartColors = {
@@ -112,6 +115,7 @@ export default function MarketOverview() {
   const tooltipTextStyle = getChartTooltip(isDark).textStyle;
   const chartTooltip = getChartTooltip(isDark);
   const chartPalette = CHART_PALETTE;
+  const bondVolumeUnitLabel = t('unitMillionShares');
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);
@@ -122,6 +126,54 @@ export default function MarketOverview() {
     const numberValue = toNumber(value);
     if (!numberValue) return 0;
     return Math.abs(numberValue) > 1000000 ? numberValue / 1000000000 : numberValue;
+  };
+
+  const serializeIssuerSummary = (issuer: TopDebtIssuer) => ([
+    issuer.issuerSymbol || '',
+    issuer.issuerName || '',
+    toNumber(issuer.totalIssuedVolume),
+    toNumber(issuer.totalIssuedValue),
+    toNumber(issuer.totalRemainingDebt),
+    toNumber(issuer.bondCount),
+  ].join(':'));
+
+  const serializeTopInterestBond = (bond: any) => ([
+    String(bond?.bondCode || bond?.code || ''),
+    toNumber(bond?.bondRate),
+  ].join(':'));
+
+  const serializeIndustrySummary = (industry: IndustryData) => ([
+    industry.icbCode || '',
+    industry.icbName || '',
+    toNumber(industry.totalIssuedValue),
+    toNumber(industry.totalCurrentListedValue),
+    toNumber(industry.totalRemainingDebt),
+    toNumber(industry.bondCount),
+    toNumber(industry.totalIssuedVolume),
+    toNumber(industry.totalCurrentListedVolume),
+  ].join(':'));
+
+  const getOverviewStateSignature = (
+    issuers: TopDebtIssuer[],
+    topInterest: any[],
+    industries: IndustryData[],
+  ) => ([
+    issuers.map(serializeIssuerSummary).join('|'),
+    topInterest.map(serializeTopInterestBond).join('|'),
+    industries.map(serializeIndustrySummary).join('|'),
+  ].join('||'));
+
+  const getOverviewPayloadSections = (payload: any) => {
+    const issuers = Array.isArray(payload?.issuerStatsData) ? payload.issuerStatsData : [];
+    const refreshedTopInterest = getCache('market_top_interest_bonds');
+    const topInterest = Array.isArray(refreshedTopInterest)
+      ? refreshedTopInterest
+      : Array.isArray(payload?.topInterestData)
+        ? payload.topInterestData
+        : [];
+    const industries = Array.isArray(payload?.industryData) ? payload.industryData : [];
+
+    return { issuers, topInterest, industries };
   };
 
   const getTopIssuerDisplayName = (issuer: TopDebtIssuer) => {
@@ -216,68 +268,57 @@ export default function MarketOverview() {
     }
   ];
 
+  const applyOverviewPayload = (payload: any) => {
+    const { issuers, topInterest, industries } = getOverviewPayloadSections(payload);
+
+    setIssuerStatsData(issuers);
+    setTopInterestData(topInterest);
+    setIndustryData(industries);
+    setCache('top_debt_200', issuers);
+    if (issuers.length > 0 && Object.keys(getCache('market_projected_cash_flows') || {}).length === 0) {
+      setLoadingCashFlows(true);
+    }
+  };
+
   useEffect(() => {
-    let isMounted = true;
-    setError(null);
-    if (!hasSeedData) setLoading(true);
+    currentOverviewStateSignatureRef.current = getOverviewStateSignature(
+      issuerStatsData,
+      topInterestData,
+      industryData,
+    );
+  }, [industryData, issuerStatsData, topInterestData]);
 
-    const fail = (error: unknown) => {
-      if (!isMounted) return;
-      console.error('Error fetching market data:', error);
-      if (!hasSeedData) {
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
-        }
+  useEffect(() => {
+    const payload = marketOverviewQuery.data;
+    if (payload) {
+      const { issuers, topInterest, industries } = getOverviewPayloadSections(payload);
+      const payloadSignature = getOverviewStateSignature(issuers, topInterest, industries);
+      const shouldApplyPayload = (
+        currentOverviewStateSignatureRef.current !== payloadSignature
+        && lastAppliedOverviewPayloadRef.current !== payloadSignature
+      );
+
+      if (shouldApplyPayload) {
+        applyOverviewPayload(payload);
       }
-    };
 
-    const applyOverviewPayload = (payload: any) => {
-      const issuers = Array.isArray(payload?.issuerStatsData) ? payload.issuerStatsData : [];
-      const refreshedTopInterest = getCache('market_top_interest_bonds');
-      const topInterest = Array.isArray(refreshedTopInterest)
-        ? refreshedTopInterest
-        : Array.isArray(payload?.topInterestData)
-          ? payload.topInterestData
-          : [];
-      const industries = Array.isArray(payload?.industryData) ? payload.industryData : [];
-
-      setIssuerStatsData(issuers);
-      setTopInterestData(topInterest);
-      setIndustryData(industries);
-      setCache('top_debt_200', issuers);
-      if (issuers.length > 0 && Object.keys(getCache('market_projected_cash_flows') || {}).length === 0) {
-        setLoadingCashFlows(true);
-      }
-    };
-
-    if (!hasSeedData) {
-      void loadMarketOverviewData()
-        .then((payload) => {
-          if (!isMounted) return;
-          applyOverviewPayload(payload);
-        })
-        .catch(fail)
-        .finally(() => {
-          if (isMounted) setLoading(false);
-        });
-
-      return () => { isMounted = false; };
+      lastAppliedOverviewPayloadRef.current = payloadSignature;
+      setLoading(false);
+      setError(null);
+      return;
     }
 
-    void loadMarketOverviewData()
-      .then((payload) => {
-        if (!isMounted) return;
-        applyOverviewPayload(payload);
-      })
-      .catch(fail)
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-
-    return () => { isMounted = false; };
-  }, []);
+    if (marketOverviewQuery.isError) {
+      const queryError = marketOverviewQuery.error;
+      console.error('Error fetching market data:', queryError);
+      if (queryError instanceof Error && queryError.message.includes('401')) {
+        setError(t('tokenError401'));
+      } else if (!hasSeedData) {
+        setError(queryError instanceof Error ? queryError.message : t('error'));
+      }
+      setLoading(false);
+    }
+  }, [marketOverviewQuery.data, marketOverviewQuery.error, marketOverviewQuery.isError, hasSeedData, t]);
 
   const refreshTopIssuerChart = async (metric: 'remainingDebt' | 'issuedValue') => {
     setLoadingTopIssuerChart(true);
@@ -799,7 +840,7 @@ export default function MarketOverview() {
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), ` ${t('bondunits')}`)}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 2), ` ${bondVolumeUnitLabel}`)}`;
         });
         return res;
       }
@@ -814,29 +855,29 @@ export default function MarketOverview() {
     yAxis: { 
       type: 'value', 
       splitLine: { show: false },
-      name: t('bondunits'),
+      name: bondVolumeUnitLabel,
       nameGap: 28,
       nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
-        formatter: (value: number) => formatNumber(value, 0)
+        formatter: (value: number) => formatNumber(value, 2)
       } 
     },
     series: [
-      {
-        name: t('issuedVolumeTitle'),
-        type: 'bar',
-        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalIssuedVolume)) : [],
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
-        barWidth: '30%'
-      },
-      {
-        name: t('listedVolume'),
-        type: 'bar',
-        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalCurrentListedVolume)) : [],
-        itemStyle: { borderRadius: [4, 4, 0, 0] },
-        barWidth: '30%'
-      }
+        {
+          name: t('issuedVolumeTitle'),
+          type: 'bar',
+          data: industryData.length > 0 ? industryData.map((d) => d.totalIssuedVolume / 1_000_000) : [],
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '30%'
+        },
+        {
+          name: t('listedVolume'),
+          type: 'bar',
+          data: industryData.length > 0 ? industryData.map((d) => d.totalCurrentListedVolume / 1_000_000) : [],
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '30%'
+        }
     ]
   };
 
@@ -972,7 +1013,7 @@ export default function MarketOverview() {
   );
 
   const hoverToolbarClass =
-    'flex h-7 items-center justify-end gap-1 text-text-muted opacity-0 pointer-events-none transition-opacity duration-200 ease-out group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
+    'flex flex-wrap items-center justify-end gap-1 text-text-muted opacity-100 pointer-events-auto lg:flex-nowrap lg:opacity-0 lg:pointer-events-none lg:transition-opacity lg:duration-200 lg:ease-out lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto';
 
   if (loading) {
     return (

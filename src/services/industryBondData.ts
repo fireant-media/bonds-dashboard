@@ -8,7 +8,7 @@ import {
   IndustryNavItem,
   resolveIndustryKeyFromCandidates,
 } from '../constants/industries';
-import { loadBondDetailsMapByCodes, loadBondsByIndustryFilter } from './bondData';
+import { loadBondDetailsMapByCodes, loadBondsByIndustryFilter, loadIssuerBondsByFilter } from './bondData';
 
 export interface ProjectedCashFlowBucket {
   label: string;
@@ -56,6 +56,18 @@ export interface IssuerStatsSummary {
   issuerName: string;
   issuerSymbol: string;
   issuerInstitutionID?: number;
+  industryId?: string;
+  industryName?: string;
+  icbCode?: string;
+  icbName?: string;
+  icbCodeLv1?: string;
+  icbNameLv1?: string;
+  icbCodeLv2?: string;
+  icbNameLv2?: string;
+  icbCodeLv3?: string;
+  icbNameLv3?: string;
+  icbCodeLv4?: string;
+  icbNameLv4?: string;
   bondCount: number;
   totalIssuedVolume: number;
   totalIssuedValue: number;
@@ -114,6 +126,18 @@ const firstDefined = (...values: unknown[]) => {
     if (value !== undefined && value !== null && String(value).trim() !== '') return value;
   }
   return undefined;
+};
+
+const hasMeaningfulIndustryBondGroupData = (value: unknown) => {
+  const data = value as Partial<IndustryBondGroupData> | null | undefined;
+  if (!data || typeof data !== 'object') return false;
+
+  return Boolean(
+    (Array.isArray(data.bonds) && data.bonds.length > 0)
+    || (Array.isArray(data.issuerSummaries) && data.issuerSummaries.length > 0)
+    || (Array.isArray(data.symbols) && data.symbols.length > 0)
+    || data.industryStats?.bondCount
+  );
 };
 
 const normalizeIndustryStat = (stat: any): IndustryStats => ({
@@ -330,6 +354,18 @@ const normalizeIssuerStats = (issuer: any): IssuerStatsSummary => ({
   issuerName: String(issuer?.issuerName || issuer?.name || issuer?.issuerSymbol || ''),
   issuerSymbol: String(issuer?.issuerSymbol || issuer?.symbol || ''),
   issuerInstitutionID: issuer?.issuerInstitutionID !== undefined ? Number(issuer.issuerInstitutionID) : undefined,
+  industryId: normalizeCode(firstDefined(issuer?.industryId, issuer?.industryID, issuer?.industry, issuer?.Industry, issuer?.industryCode)),
+  industryName: normalizeCode(firstDefined(issuer?.industryName, issuer?.IndustryName, issuer?.icbNameLv1, issuer?.ICBNameLv1, issuer?.icbNameLv2, issuer?.ICBNameLv2, issuer?.icbNameLv3, issuer?.ICBNameLv3, issuer?.icbNameLv4, issuer?.ICBNameLv4)),
+  icbCode: normalizeCode(firstDefined(issuer?.icbCode, issuer?.ICBCode)),
+  icbName: normalizeCode(firstDefined(issuer?.icbName, issuer?.ICBName)),
+  icbCodeLv1: normalizeCode(firstDefined(issuer?.icbCodeLv1, issuer?.ICBCodeLv1)),
+  icbNameLv1: normalizeCode(firstDefined(issuer?.icbNameLv1, issuer?.ICBNameLv1)),
+  icbCodeLv2: normalizeCode(firstDefined(issuer?.icbCodeLv2, issuer?.ICBCodeLv2)),
+  icbNameLv2: normalizeCode(firstDefined(issuer?.icbNameLv2, issuer?.ICBNameLv2)),
+  icbCodeLv3: normalizeCode(firstDefined(issuer?.icbCodeLv3, issuer?.ICBCodeLv3)),
+  icbNameLv3: normalizeCode(firstDefined(issuer?.icbNameLv3, issuer?.ICBNameLv3)),
+  icbCodeLv4: normalizeCode(firstDefined(issuer?.icbCodeLv4, issuer?.ICBCodeLv4)),
+  icbNameLv4: normalizeCode(firstDefined(issuer?.icbNameLv4, issuer?.ICBNameLv4)),
   bondCount: toNumber(issuer?.bondCount),
   totalIssuedVolume: toNumber(issuer?.totalIssuedVolume),
   totalIssuedValue: toNumber(issuer?.totalIssuedValue),
@@ -349,6 +385,26 @@ const buildRemainingDebtMap = (issuerStats: IssuerStatsSummary[]) => {
       toNumber(issuer.totalRemainingDebt),
     ] as const)
   );
+};
+
+const issuerMatchesIndustry = (issuer: IssuerStatsSummary, industry: IndustryNavItem) => {
+  return resolveIndustryKeyFromCandidates(
+    issuer.industryId,
+    issuer.industryName,
+    issuer.icbCode,
+    issuer.icbName,
+    issuer.icbCodeLv1,
+    issuer.icbNameLv1,
+    issuer.icbCodeLv2,
+    issuer.icbNameLv2,
+    issuer.icbCodeLv3,
+    issuer.icbNameLv3,
+    issuer.icbCodeLv4,
+    issuer.icbNameLv4,
+    industry.id,
+    industry.code,
+    industry.icbCode,
+  ) === industry.id;
 };
 
 export const loadIssuerStatsSummary = async (top = 200, forceRefresh = false): Promise<IssuerStatsSummary[]> => {
@@ -448,7 +504,7 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
   const industry = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
   const cacheKey = `${INDUSTRY_BOND_ROWS_CACHE_PREFIX}${industry.id}`;
   const cached = forceRefresh ? null : getCache(cacheKey);
-  if (cached) return cached as any[];
+  if (Array.isArray(cached) && cached.length > 0) return cached as any[];
 
   const inflight = industryBondRowsPromises.get(industry.id);
   if (inflight) return inflight;
@@ -456,9 +512,7 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
   const promise = (async () => {
     const { include, exclude } = getIndustryFilterCodes(industry.id);
     const excludedCodes = new Set(exclude);
-    const symbolGroups = industry.id === 'Financials'
-      ? await loadDedupedIndustrySymbols(forceRefresh).catch(() => null)
-      : null;
+    const symbolGroups = await loadDedupedIndustrySymbols(forceRefresh).catch(() => null);
     const childIndustrySymbols = industry.id === 'Financials' && symbolGroups
       ? new Set([
           ...(symbolGroups.Banking || []),
@@ -486,8 +540,64 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
       });
     });
 
-    const bonds = Array.from(deduped.values());
-    setCache(cacheKey, bonds);
+    let bonds = Array.from(deduped.values());
+
+    if (bonds.length === 0) {
+      const fallbackSymbols: string[] = Array.isArray(symbolGroups?.[industry.id])
+        ? (symbolGroups[industry.id] as string[])
+        : [];
+
+      if (fallbackSymbols.length > 0) {
+        const issuerBatches = await fetchWithLimit(fallbackSymbols.slice(0, 24), 6, async (symbol: string) => {
+          const rows = await loadIssuerBondsByFilter(symbol).catch(() => []);
+          return Array.isArray(rows) ? rows : [];
+        });
+
+        issuerBatches.flat().forEach((bond) => {
+          if (!bond || isExcludedBond(bond, excludedCodes)) return;
+          const code = getBondCode(bond);
+          if (!code || deduped.has(code)) return;
+          deduped.set(code, {
+            ...bond,
+            issuerSymbol: getBondIssuerSymbol(bond, industry.id),
+            issuerName: getBondIssuerName(bond, industry.id),
+          });
+        });
+
+        bonds = Array.from(deduped.values());
+      }
+    }
+
+    if (bonds.length === 0) {
+      const issuerStats = await loadIssuerStatsSummary(1000, forceRefresh).catch(() => []);
+      const industryIssuerSymbols = Array.isArray(issuerStats)
+        ? issuerStats.filter((issuer) => issuerMatchesIndustry(issuer, industry)).map((issuer) => issuer.issuerSymbol).filter(Boolean)
+        : [];
+
+      if (industryIssuerSymbols.length > 0) {
+        const issuerBatches = await fetchWithLimit(Array.from(new Set(industryIssuerSymbols)).slice(0, 24), 6, async (symbol: string) => {
+          const rows = await loadIssuerBondsByFilter(symbol).catch(() => []);
+          return Array.isArray(rows) ? rows : [];
+        });
+
+        issuerBatches.flat().forEach((bond) => {
+          if (!bond || isExcludedBond(bond, excludedCodes)) return;
+          const code = getBondCode(bond);
+          if (!code || deduped.has(code)) return;
+          deduped.set(code, {
+            ...bond,
+            issuerSymbol: getBondIssuerSymbol(bond, industry.id),
+            issuerName: getBondIssuerName(bond, industry.id),
+          });
+        });
+
+        bonds = Array.from(deduped.values());
+      }
+    }
+
+    if (bonds.length > 0) {
+      setCache(cacheKey, bonds);
+    }
     return bonds;
   })().finally(() => {
     industryBondRowsPromises.delete(industry.id);
@@ -618,7 +728,7 @@ export const loadIndustryBaseBondGroupData = async (industryId: string, forceRef
   const industry: IndustryNavItem = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
   const cacheKey = `${INDUSTRY_BOND_BASE_CACHE_PREFIX}${industry.id}`;
   const cached = forceRefresh ? null : getCache(cacheKey);
-  if (cached) return cached as IndustryBondGroupData;
+  if (hasMeaningfulIndustryBondGroupData(cached)) return cached as IndustryBondGroupData;
   const inflight = industryBondBasePromises.get(industry.id);
   if (inflight) return inflight;
 
@@ -640,7 +750,9 @@ export const loadIndustryBaseBondGroupData = async (industryId: string, forceRef
       projectedCashFlowBuckets: {},
     };
 
-    setCache(cacheKey, groupedData);
+    if (hasMeaningfulIndustryBondGroupData(groupedData)) {
+      setCache(cacheKey, groupedData);
+    }
     return groupedData;
   })().finally(() => {
     industryBondBasePromises.delete(industry.id);
@@ -775,7 +887,7 @@ export const loadIndustryBondGroupData = async (industryId: string, forceRefresh
   const industry: IndustryNavItem = INDUSTRY_NAV_ITEM_BY_ID[industryId] || INDUSTRY_NAV_ITEMS[0];
   const cacheKey = `${INDUSTRY_BOND_GROUP_CACHE_PREFIX}${industry.id}`;
   const cached = forceRefresh ? null : getCache(cacheKey);
-  if (cached) return cached as IndustryBondGroupData;
+  if (hasMeaningfulIndustryBondGroupData(cached)) return cached as IndustryBondGroupData;
   const inflight = industryBondGroupPromises.get(industry.id);
   if (inflight) return inflight;
 
@@ -803,7 +915,9 @@ export const loadIndustryBondGroupData = async (industryId: string, forceRefresh
       projectedCashFlowBuckets: buildProjectedCashFlowBuckets(detailedBonds),
     };
 
-    setCache(cacheKey, groupedData);
+    if (hasMeaningfulIndustryBondGroupData(groupedData)) {
+      setCache(cacheKey, groupedData);
+    }
     return groupedData;
   })().finally(() => {
     industryBondGroupPromises.delete(industry.id);

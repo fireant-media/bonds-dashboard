@@ -395,6 +395,10 @@ export default function ChartWithToolbar({
   const [showDataView, setShowDataView] = useState(false);
   const [showDataViewBackButton, setShowDataViewBackButton] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
+  const [supportsHover, setSupportsHover] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+    return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  });
   const [showSlider, setShowSlider] = useState(!showDataZoomSliderOnHover);
   const seriesArray = useMemo(() => getSeriesArray(option), [option]);
   const firstSeriesType = getSeriesType(seriesArray[0]);
@@ -515,6 +519,23 @@ export default function ChartWithToolbar({
     [showDataZoomSliderOnHover, showSlider, zoomOption]
   );
 
+  useEffect(() => {
+    if (!showDataZoomSliderOnHover) return;
+
+    const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const updateSupportsHover = (event: MediaQueryList | MediaQueryListEvent) => {
+      setSupportsHover(event.matches);
+    };
+
+    setSupportsHover(mediaQuery.matches);
+    setShowSlider(!mediaQuery.matches);
+    mediaQuery.addEventListener('change', updateSupportsHover);
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateSupportsHover);
+    };
+  }, [showDataZoomSliderOnHover]);
+
   const toolbarButtonClass = (disabled = false, active = false) => (
     `rounded-md p-1.5 transition-colors ${
       disabled
@@ -526,7 +547,7 @@ export default function ChartWithToolbar({
   );
 
   const hoverToolbarClass =
-    'flex h-7 items-center justify-end gap-1 text-text-muted opacity-0 pointer-events-none transition-opacity duration-200 ease-out group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto';
+    'flex flex-wrap items-center justify-end gap-1 text-text-muted opacity-100 pointer-events-auto lg:flex-nowrap lg:opacity-0 lg:pointer-events-none lg:transition-opacity lg:duration-200 lg:ease-out lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto';
 
   const handleDownload = async () => {
     const instance = chartRef.current?.getEchartsInstance?.();
@@ -594,8 +615,8 @@ export default function ChartWithToolbar({
     <div
       className={`group flex min-h-0 flex-col ${className || ''}`}
       style={style}
-      onMouseEnter={showDataZoomSliderOnHover ? () => setShowSlider(true) : undefined}
-      onMouseLeave={showDataZoomSliderOnHover ? () => setShowSlider(false) : undefined}
+      onMouseEnter={showDataZoomSliderOnHover && supportsHover ? () => setShowSlider(true) : undefined}
+      onMouseLeave={showDataZoomSliderOnHover && supportsHover ? () => setShowSlider(false) : undefined}
     >
       <div className="flex flex-col gap-1">
         {showToolbar ? (
@@ -735,8 +756,8 @@ export default function ChartWithToolbar({
           <div
             className={`group ${zoomShellClass}`}
             onClick={(event) => event.stopPropagation()}
-            onMouseEnter={showDataZoomSliderOnHover ? () => setShowSlider(true) : undefined}
-            onMouseLeave={showDataZoomSliderOnHover ? () => setShowSlider(false) : undefined}
+            onMouseEnter={showDataZoomSliderOnHover && supportsHover ? () => setShowSlider(true) : undefined}
+            onMouseLeave={showDataZoomSliderOnHover && supportsHover ? () => setShowSlider(false) : undefined}
           >
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">

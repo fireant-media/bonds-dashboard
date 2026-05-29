@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import ChartWithToolbar from './ChartWithToolbar';
 import { IndustryType } from '../types';
 import { TrendingUp, Activity, PieChart, BarChart3, Info } from 'lucide-react';
-import { formatInterestRate, formatNumber } from '../utils/format';
+import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 
 interface IndustryViewProps {
@@ -14,14 +14,27 @@ import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
-import { loadDedupedIndustrySymbols, loadIndustryBaseBondGroupData, loadIndustryBondGroupData, loadIndustryStats, loadResidualFinancialIndustryStats } from '../services/industryBondData';
+import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { MetricCard } from './ui/Card';
+import { useIndustryDashboardQuery } from '../query/dashboardQueries';
 
 interface ProjectedCashFlowBucket {
   label: string;
   interest: number;
   principal: number;
 }
+
+const hasMeaningfulIndustryData = (value: unknown) => {
+  const data = value as { bonds?: unknown[]; issuerSummaries?: unknown[]; symbols?: unknown[]; industryStats?: { bondCount?: number } } | null | undefined;
+  if (!data || typeof data !== 'object') return false;
+
+  return Boolean(
+    (Array.isArray(data.bonds) && data.bonds.length > 0)
+    || (Array.isArray(data.issuerSummaries) && data.issuerSummaries.length > 0)
+    || (Array.isArray(data.symbols) && data.symbols.length > 0)
+    || data.industryStats?.bondCount
+  );
+};
 
 export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
@@ -32,29 +45,158 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const statsCacheKey = `industry_stats_api_v5_${industry}`;
   const cachedData = getCache(cacheKey);
   const cachedStats = getCache(statsCacheKey);
-  const [industryStats, setIndustryStats] = useState<any>(cachedStats || cachedData?.industryStats || null);
-  const [rankingData, setRankingData] = useState<any[]>(cachedData?.issuerSummaries || cachedData?.rankingData || []);
-  const [industryBonds, setIndustryBonds] = useState<any[]>(cachedData?.bonds || []);
+  const industryDashboardQuery = useIndustryDashboardQuery(industry);
+  const meaningfulCachedData = hasMeaningfulIndustryData(cachedData) ? cachedData : null;
+  const meaningfulQueryData = hasMeaningfulIndustryData(industryDashboardQuery.data) ? industryDashboardQuery.data : null;
+  const [industryStats, setIndustryStats] = useState<any>(cachedStats || meaningfulCachedData?.industryStats || null);
+  const [rankingData, setRankingData] = useState<any[]>(meaningfulCachedData?.issuerSummaries || meaningfulCachedData?.rankingData || []);
+  const [industryBonds, setIndustryBonds] = useState<any[]>(meaningfulCachedData?.bonds || []);
   const [financialChildSymbols, setFinancialChildSymbols] = useState<Set<string> | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(
-    cachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {}
+    meaningfulCachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {}
   );
-  const [loadingCashFlows, setLoadingCashFlows] = useState(!cachedData);
-  const [loading, setLoading] = useState(!cachedData && !cachedStats);
+  const [loadingCashFlows, setLoadingCashFlows] = useState(!meaningfulCachedData);
+  const [loading, setLoading] = useState(!meaningfulCachedData && !cachedStats);
   const [error, setError] = useState<string | null>(null);
+  const forcedRefetchRef = useRef<string | null>(null);
+  const currentIndustryStateSignatureRef = useRef('');
+  const lastAppliedIndustryPayloadRef = useRef('');
+
+  const serializeIndustryStats = (stats: any) => ([
+    Number(stats?.bondCount || 0),
+    Number(stats?.totalIssuedVolume || 0),
+    Number(stats?.totalIssuedValue || 0),
+    Number(stats?.totalCurrentListedVolume || 0),
+    Number(stats?.totalCurrentListedValue || 0),
+    Number(stats?.totalDebtFull || 0),
+    Number(stats?.totalRemainingDebt || 0),
+    Number(stats?.avgRate || 0),
+    Number(stats?.avgCouponRate || 0),
+    Number(stats?.floatingRate || 0),
+  ].join(':'));
+
+  const serializeRankingItem = (item: any) => ([
+    String(item?.issuerSymbol || ''),
+    String(item?.issuerName || ''),
+    Number(item?.totalIssuedValue || 0),
+    Number(item?.totalRemainingDebt || 0),
+    Number(item?.totalDebtFull || 0),
+    Number(item?.totalIssuedVolume || 0),
+    Number(item?.totalCurrentListedValue || 0),
+    Number(item?.totalCurrentListedVolume || 0),
+    Number(item?.bondCount || 0),
+  ].join(':'));
+
+  const serializeIndustryBond = (bond: any) => {
+    const cashFlowSignature = Array.isArray(bond?.cashFlows)
+      ? bond.cashFlows.map((cashFlow: any) => ([
+          String(cashFlow?.paymentDate || ''),
+          Number(cashFlow?.interestAmount || 0),
+          Number(cashFlow?.principalAmount || 0),
+        ].join(':'))).join(',')
+      : '';
+
+    return [
+      String(bond?.bondCode || bond?.code || ''),
+      String(bond?.issuerSymbol || bond?.infoObj?.issuerSymbol || ''),
+      String(bond?.maturityDate || ''),
+      String(bond?.paymentDate || ''),
+      Number(bond?.totalIssuedValue || 0),
+      Number(bond?.currentListedValue || 0),
+      Number(bond?.totalRemainingDebt || 0),
+      cashFlowSignature,
+    ].join(':');
+  };
+
+  const serializeProjectedCashFlowBuckets = (buckets: Record<string, ProjectedCashFlowBucket>) => (
+    Object.entries(buckets)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => ([
+        key,
+        String(value?.label || ''),
+        Number(value?.interest || 0),
+        Number(value?.principal || 0),
+      ].join(':')))
+      .join('|')
+  );
+
+  const getIndustryStateSignature = (
+    stats: any,
+    ranking: any[],
+    bonds: any[],
+    buckets: Record<string, ProjectedCashFlowBucket>,
+  ) => ([
+    industry,
+    serializeIndustryStats(stats),
+    ranking.map(serializeRankingItem).join('|'),
+    bonds.map(serializeIndustryBond).join('|'),
+    serializeProjectedCashFlowBuckets(buckets),
+  ].join('||'));
+
+  const getIndustryPayloadSections = (payload: any, statsOverride?: any) => {
+    const nextStats = statsOverride || payload?.industryStats || null;
+    const nextRanking = payload?.issuerSummaries || payload?.rankingData || [];
+    const nextBonds = payload?.bonds || [];
+    const nextProjectedBuckets = payload?.projectedCashFlowBuckets || {};
+
+    return {
+      stats: nextStats,
+      ranking: Array.isArray(nextRanking) ? nextRanking : [],
+      bonds: Array.isArray(nextBonds) ? nextBonds : [],
+      projectedBuckets: nextProjectedBuckets && typeof nextProjectedBuckets === 'object' ? nextProjectedBuckets : {},
+    };
+  };
+
+  const applyIndustryPayload = (payload: any, statsOverride?: any) => {
+    const {
+      stats,
+      ranking,
+      bonds,
+      projectedBuckets,
+    } = getIndustryPayloadSections(payload, statsOverride);
+
+    setIndustryStats(stats);
+    setRankingData(ranking);
+    setIndustryBonds(bonds);
+    setProjectedCashFlowBuckets(projectedBuckets);
+  };
 
   useEffect(() => {
-    const nextCachedData = getCache(cacheKey);
+    currentIndustryStateSignatureRef.current = getIndustryStateSignature(
+      industryStats,
+      rankingData,
+      industryBonds,
+      projectedCashFlowBuckets,
+    );
+  }, [industry, industryBonds, industryStats, projectedCashFlowBuckets, rankingData]);
+
+  useEffect(() => {
+    const nextCachedData = meaningfulQueryData || meaningfulCachedData;
     const nextCachedStats = getCache(statsCacheKey);
+    const {
+      stats,
+      ranking,
+      bonds,
+      projectedBuckets,
+    } = getIndustryPayloadSections(nextCachedData, nextCachedStats);
+    const nextSignature = getIndustryStateSignature(stats, ranking, bonds, projectedBuckets);
+
     setCashFlowPeriod('year');
-    setIndustryStats(nextCachedStats || nextCachedData?.industryStats || null);
-    setRankingData(nextCachedData?.issuerSummaries || nextCachedData?.rankingData || []);
-    setIndustryBonds(nextCachedData?.bonds || []);
-    setProjectedCashFlowBuckets(nextCachedData?.projectedCashFlowBuckets || {});
-    setLoading(!nextCachedData && !nextCachedStats);
+
+    if (currentIndustryStateSignatureRef.current !== nextSignature) {
+      applyIndustryPayload(nextCachedData, nextCachedStats);
+      lastAppliedIndustryPayloadRef.current = nextSignature;
+    }
+
+    setLoading(!nextCachedData && !nextCachedStats && industryDashboardQuery.isLoading);
     setLoadingCashFlows(!nextCachedData);
-  }, [industry, cacheKey, statsCacheKey]);
+
+    if (!nextCachedData && !industryDashboardQuery.isFetching && forcedRefetchRef.current !== industry) {
+      forcedRefetchRef.current = industry;
+      void industryDashboardQuery.refetch();
+    }
+  }, [industry, statsCacheKey, meaningfulCachedData, meaningfulQueryData, industryDashboardQuery.isFetching, industryDashboardQuery.isLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,120 +292,45 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   }, [cashFlowPeriod, visibleIndustryBonds]);
 
   useEffect(() => {
-    let isMounted = true;
-    let hasAnyData = Boolean(cachedData || cachedStats);
-    let hasProjectedData = Boolean(cachedData?.projectedCashFlowBuckets && Object.keys(cachedData.projectedCashFlowBuckets).length > 0);
-    let firstError: string | null = null;
+    const payload = meaningfulQueryData || meaningfulCachedData;
+    const cachedIndustryStats = getCache(statsCacheKey);
 
-    const fetchIndustryData = async () => {
-      const cachedGroupData = getCache(cacheKey);
-      const cachedIndustryStats = getCache(statsCacheKey);
-      if (cachedGroupData) {
-        if (!isMounted) return;
-        if (!cachedIndustryStats) {
-          setIndustryStats(cachedGroupData.industryStats);
-        }
-        setRankingData(cachedGroupData.issuerSummaries || cachedGroupData.rankingData || []);
-        setIndustryBonds(cachedGroupData.bonds || []);
-        setProjectedCashFlowBuckets(cachedGroupData.projectedCashFlowBuckets || {});
-        setLoading(false);
-        setLoadingCashFlows(false);
-        hasAnyData = true;
-        hasProjectedData = Object.keys(cachedGroupData.projectedCashFlowBuckets || {}).length > 0;
-      }
-      if (cachedIndustryStats && !cachedGroupData) {
-        if (!isMounted) return;
-        setIndustryStats(cachedIndustryStats);
-        setLoading(false);
-        hasAnyData = true;
+    if (payload) {
+      const {
+        stats,
+        ranking,
+        bonds,
+        projectedBuckets,
+      } = getIndustryPayloadSections(payload, cachedIndustryStats);
+      const payloadSignature = getIndustryStateSignature(stats, ranking, bonds, projectedBuckets);
+      const shouldApplyPayload = (
+        currentIndustryStateSignatureRef.current !== payloadSignature
+        && lastAppliedIndustryPayloadRef.current !== payloadSignature
+      );
+
+      if (shouldApplyPayload) {
+        applyIndustryPayload(payload, cachedIndustryStats);
       }
 
+      lastAppliedIndustryPayloadRef.current = payloadSignature;
+      setLoading(false);
+      setLoadingCashFlows(false);
       setError(null);
-      if (!cachedGroupData && !cachedIndustryStats) {
-        setLoading(true);
-        setLoadingCashFlows(true);
+      return;
+    }
+
+    if (industryDashboardQuery.isError) {
+      const queryError = industryDashboardQuery.error;
+      console.error('Error fetching industry data:', queryError);
+      if (queryError instanceof Error && queryError.message.includes('401')) {
+        setError(t('tokenError401'));
+      } else if (!cachedData && !cachedStats) {
+      setError(queryError instanceof Error ? queryError.message : t('error'));
       }
-
-      const registerError = (error: unknown) => {
-        if (firstError) return;
-        if (error instanceof Error && error.message.includes('401')) {
-          firstError = t('tokenError401');
-          return;
-        }
-        firstError = error instanceof Error ? error.message : t('error');
-      };
-
-      const applyIndustryStats = (stats: any) => {
-        if (!isMounted || !stats) return;
-        setIndustryStats(stats);
-        setLoading(false);
-        hasAnyData = true;
-      };
-
-      const applyBaseData = (baseData: any) => {
-        if (!isMounted || !baseData) return;
-        if (!getCache(statsCacheKey)) {
-          setIndustryStats(baseData.industryStats);
-        }
-        setRankingData(baseData.issuerSummaries || []);
-        setIndustryBonds(baseData.bonds || []);
-        setLoading(false);
-        hasAnyData = true;
-      };
-
-      const applyGroupData = (groupData: any) => {
-        if (!isMounted || !groupData) return;
-        if (!getCache(statsCacheKey)) {
-          setIndustryStats(groupData.industryStats);
-        }
-        setRankingData(groupData.issuerSummaries || []);
-        setIndustryBonds(groupData.bonds || []);
-        setProjectedCashFlowBuckets(groupData.projectedCashFlowBuckets || {});
-        setLoading(false);
-        setLoadingCashFlows(false);
-        hasAnyData = true;
-        hasProjectedData = Object.keys(groupData.projectedCashFlowBuckets || {}).length > 0;
-      };
-
-      const statsPromise = (industry === 'Financials'
-        ? loadResidualFinancialIndustryStats()
-        : loadIndustryStats(String(industry)))
-        .then(applyIndustryStats)
-        .catch((error) => {
-          console.error('Error fetching industry stats:', error);
-          registerError(error);
-        });
-
-      const basePromise = loadIndustryBaseBondGroupData(String(industry))
-        .then(applyBaseData)
-        .catch((error) => {
-          console.error('Error fetching industry base data:', error);
-          registerError(error);
-        });
-
-      const groupPromise = loadIndustryBondGroupData(String(industry))
-        .then(applyGroupData)
-        .catch((error) => {
-          console.error('Error fetching industry group data:', error);
-          registerError(error);
-        });
-
-      await Promise.allSettled([statsPromise, basePromise, groupPromise]);
-
-      if (!isMounted) return;
-      if (!hasAnyData && firstError) {
-        setError(firstError);
-      }
-      if (!hasProjectedData) {
-        setLoadingCashFlows(false);
-      }
-    };
-
-    void fetchIndustryData();
-    return () => {
-      isMounted = false;
-    };
-  }, [industry, cacheKey, statsCacheKey, cachedData, cachedStats, t]);
+      setLoading(false);
+      setLoadingCashFlows(false);
+    }
+  }, [industryDashboardQuery.data, industryDashboardQuery.error, industryDashboardQuery.isError, statsCacheKey, meaningfulCachedData, meaningfulQueryData, cachedStats, t]);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
@@ -313,6 +380,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const industryIssuedValueTreemapLabel = language === 'vi'
     ? 'Giá trị phát hành của các doanh nghiệp trong ngành'
     : 'Issued Value of companies in the industry';
+  const getBondVolumeUnitLabel = (scale: 'thousand' | 'million') => (
+    scale === 'million'
+      ? t('unitMillionShares')
+      : language === 'vi'
+        ? 'Nghìn trái phiếu'
+        : 'Thousand Bonds'
+  );
   const getDateKey = (dateString: string, period: 'month' | 'year') => {
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) return null;
@@ -330,11 +404,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const getKpis = () => {
     if (industryStats) {
+      const issuedVolume = formatBondVolumeByThreshold(industryStats.totalIssuedVolume);
+      const listedVolume = formatBondVolumeByThreshold(industryStats.totalCurrentListedVolume);
+
       return [
         { 
           label: t('issuedVolumeTitle'), 
-          value: formatNumber(industryStats.totalIssuedVolume, 0),
-          unit: t('unitBond')
+          value: issuedVolume.value,
+          unit: getBondVolumeUnitLabel(issuedVolume.unitScale)
         },
         { 
           label: industryIssuedValueLabel, 
@@ -348,8 +425,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         },
         { 
           label: t('listedVolume'), 
-          value: formatNumber(industryStats.totalCurrentListedVolume, 0),
-          unit: t('unitBond')
+          value: listedVolume.value,
+          unit: getBondVolumeUnitLabel(listedVolume.unitScale)
         },
         { 
           label: t('listedValueTitle'), 
@@ -654,10 +731,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     const valueText = `${formatNumber(value, 3)} ${t('unitBillionVND')}`;
 
     if (!showValueLine) {
-      return `{name|${name}}`;
+      return name;
     }
 
-    return `{name|${name}}\n{value|${valueText}}`;
+    return `${name}\n${valueText}`;
   };
 
   const getIssuedValueTreemapOptions = () => ({
@@ -692,6 +769,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         label: {
           show: true,
           formatter: (params: any) => params.name,
+          position: 'inside',
+          align: 'center',
+          verticalAlign: 'middle',
           color: isDark ? '#ffffff' : '#111827',
           fontSize: 11,
           fontFamily: 'Manrope',
@@ -1044,43 +1124,33 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                   option: {
                     series: [
                       {
-                        labelLayout: (params: any) => {
-                          const rect = params?.rect || {};
-                          const width = Number(rect.width || 0);
-                          const height = Number(rect.height || 0);
-
-                          return {
-                            width,
-                            height,
-                            align: 'center',
-                            verticalAlign: 'middle',
-                            hideOverlap: true,
-                          };
-                        },
                         label: {
                           show: true,
                           formatter: buildTreemapZoomLabel,
                           position: 'inside',
+                          distance: 0,
                           align: 'center',
                           verticalAlign: 'middle',
                           padding: 0,
                           color: isDark ? '#ffffff' : '#111827',
                           fontSize: 14,
                           fontFamily: 'Manrope',
-                          fontWeight: 'normal',
-                          overflow: 'none',
+                          fontWeight: 'bold',
+                          overflow: 'break',
                           lineHeight: 18,
-                          rich: {
-                            name: {
-                              color: isDark ? '#ffffff' : '#111827',
-                              fontWeight: 'bold',
-                              lineHeight: 18,
-                            },
-                            value: {
-                              color: isDark ? '#ffffff' : '#111827',
-                              fontWeight: 'normal',
-                              lineHeight: 18,
-                            },
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            formatter: buildTreemapZoomLabel,
+                            position: 'inside',
+                            distance: 0,
+                            align: 'center',
+                            verticalAlign: 'middle',
+                            padding: 0,
+                            fontWeight: 'bold',
+                            overflow: 'break',
+                            lineHeight: 18,
                           },
                         },
                         upperLabel: { show: false },

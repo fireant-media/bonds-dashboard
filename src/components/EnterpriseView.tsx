@@ -1,11 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info, ChevronDown } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
 import ChartWithToolbar from './ChartWithToolbar';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 interface EnterpriseViewProps {
   selectedEnterprise: Enterprise | null;
@@ -34,6 +36,10 @@ import {
 } from '../constants/industries';
 import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile } from '../services/bondData';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -74,6 +80,8 @@ export default function EnterpriseView({
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'industry' | 'issueValue' | 'remainingDebt' | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const bondsPerPage = 10;
   const enterprisesPerPage = 10;
 
@@ -109,6 +117,50 @@ export default function EnterpriseView({
       label: t(item.label as any),
     }));
   }, [enterprises, t]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const selectedIndustryLabel = useMemo(() => {
+    if (industryFilter === 'All') return t('allIndustries');
+    return enterpriseIndustryOptions.find((industry) => industry.value === industryFilter)?.label || t('allIndustries');
+  }, [enterpriseIndustryOptions, industryFilter, t]);
+
+  const issueValueSortLabel = issueValueSort === 'HighToLow'
+    ? t('highest')
+    : issueValueSort === 'LowToHigh'
+      ? t('lowest')
+      : t('issuedValue');
+
+  const remainingDebtSortLabel = remainingDebtSort === 'HighToLow'
+    ? t('highest')
+    : remainingDebtSort === 'LowToHigh'
+      ? t('lowest')
+      : t('remainingDebtTitle');
+
+  const statusWidthClass = 'w-full sm:w-80';
+  const issueWidthClass = 'w-full sm:w-50';
+  const remainingWidthClass = 'w-full sm:w-46';
+
+  const handleIndustryButtonClick = () => {
+    setOpenMenu((current) => (current === 'industry' ? null : 'industry'));
+  };
+
+  const handleIssueValueButtonClick = () => {
+    setOpenMenu((current) => (current === 'issueValue' ? null : 'issueValue'));
+  };
+
+  const handleRemainingDebtButtonClick = () => {
+    setOpenMenu((current) => (current === 'remainingDebt' ? null : 'remainingDebt'));
+  };
 
   useEffect(() => {
     /**
@@ -451,56 +503,72 @@ export default function EnterpriseView({
     setEnterprisePage(1);
   }, [remainingDebtSort]);
 
-  const filteredEnterprises = enterprises.filter(e => 
-    (e.name.toLowerCase().includes(searchTerm.toLowerCase()) || e.ticker.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (industryFilter === 'All' || e.industry === industryFilter)
+  const filteredEnterprises = useMemo(() => {
+    const search = searchTerm.toLowerCase();
+    return enterprises.filter((e) => (
+      (e.name.toLowerCase().includes(search) || e.ticker.toLowerCase().includes(search)) &&
+      (industryFilter === 'All' || e.industry === industryFilter)
+    ));
+  }, [enterprises, industryFilter, searchTerm]);
+
+  const sortedEnterprises = useMemo(() => {
+    return [...filteredEnterprises].sort((a, b) => {
+      if (remainingDebtSort === 'HighToLow') return b.remainingDebt - a.remainingDebt;
+      if (remainingDebtSort === 'LowToHigh') return a.remainingDebt - b.remainingDebt;
+      if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
+      if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
+      return 0;
+    });
+  }, [filteredEnterprises, issueValueSort, remainingDebtSort]);
+
+  const totalEnterprisePages = useMemo(() => Math.ceil(sortedEnterprises.length / enterprisesPerPage), [sortedEnterprises.length]);
+  const paginatedEnterprises = useMemo(
+    () => sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage),
+    [enterprisePage, sortedEnterprises]
   );
-
-  const sortedEnterprises = [...filteredEnterprises].sort((a, b) => {
-    if (remainingDebtSort === 'HighToLow') return b.remainingDebt - a.remainingDebt;
-    if (remainingDebtSort === 'LowToHigh') return a.remainingDebt - b.remainingDebt;
-    if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
-    if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
-    return 0;
-  });
-
-  const totalEnterprisePages = Math.ceil(sortedEnterprises.length / enterprisesPerPage);
-  const paginatedEnterprises = sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage);
 
   const enterpriseBonds = selectedEnterprise 
     ? (issuerBonds.length > 0 ? issuerBonds : [])
     : [];
 
-  const filteredSortedBonds = [...enterpriseBonds]
-    .filter(bond => bondTermFilter === 'All' || bond.term === bondTermFilter)
-    .sort((a, b) => {
-      if (bondInterestSort === 'HighToLow') return b.interestRate - a.interestRate;
-      if (bondInterestSort === 'LowToHigh') return a.interestRate - b.interestRate;
-      return 0;
-    });
+  const filteredSortedBonds = useMemo(() => {
+    return [...enterpriseBonds]
+      .filter((bond) => bondTermFilter === 'All' || bond.term === bondTermFilter)
+      .sort((a, b) => {
+        if (bondInterestSort === 'HighToLow') return b.interestRate - a.interestRate;
+        if (bondInterestSort === 'LowToHigh') return a.interestRate - b.interestRate;
+        return 0;
+      });
+  }, [enterpriseBonds, bondInterestSort, bondTermFilter]);
 
-  const totalBondPages = Math.ceil(filteredSortedBonds.length / bondsPerPage);
-  const paginatedBonds = filteredSortedBonds.slice((bondPage - 1) * bondsPerPage, bondPage * bondsPerPage);
+  const totalBondPages = useMemo(() => Math.ceil(filteredSortedBonds.length / bondsPerPage), [filteredSortedBonds.length]);
+  const paginatedBonds = useMemo(
+    () => filteredSortedBonds.slice((bondPage - 1) * bondsPerPage, bondPage * bondsPerPage),
+    [bondPage, filteredSortedBonds]
+  );
 
-  // Get unique terms for the filter
-  const uniqueTerms = Array.from(new Set(enterpriseBonds.map(b => b.term))).sort((a, b) => {
+  const uniqueTerms = useMemo(() => {
+    return Array.from(new Set(enterpriseBonds.map((b) => b.term))).sort((a, b) => {
       const valA = parseInt(a as string) || 0;
       const valB = parseInt(b as string) || 0;
       return valA - valB;
     });
+  }, [enterpriseBonds]);
 
-  // Data for charts
-  const termData = enterpriseBonds.reduce((acc: any, bond) => {
-    acc[bond.term] = (acc[bond.term] || 0) + 1;
-    return acc;
-  }, {});
-  const pieData = Object.entries(termData)
-    .map(([name, value]) => ({ name: `${name} ${t('monthUnit')}`, value, term: name }))
-    .sort((a, b) => {
-      const valA = parseInt(a.term || a.name) || 0;
-      const valB = parseInt(b.term || b.name) || 0;
-      return valA - valB;
-    });
+  const pieData = useMemo(() => {
+    const termData = enterpriseBonds.reduce((acc: any, bond) => {
+      acc[bond.term] = (acc[bond.term] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(termData)
+      .map(([name, value]) => ({ name: `${name} ${t('monthUnit')}`, value, term: name }))
+      .sort((a, b) => {
+        const valA = parseInt(a.term || a.name) || 0;
+        const valB = parseInt(b.term || b.name) || 0;
+        return valA - valB;
+      });
+  }, [enterpriseBonds, t]);
   const pieLegendRows = splitLegendItems(pieData.map((item) => item.name), 5, 2);
   const pieLegendBase = {
     orient: 'horizontal' as const,
@@ -1280,14 +1348,14 @@ export default function EnterpriseView({
                       radius: ['44%', '74%'],
                       label: {
                         show: true,
-                        position: 'outside',
+                        position: 'inside',
                         formatter: (params: any) => `${formatNumber(params.value, 0)}`,
                         color: isDark ? '#e5e7eb' : '#1e293b',
                         fontSize: 11,
                         fontWeight: 'bold',
                       },
                       labelLine: {
-                        show: true,
+                        show: false,
                         length: 12,
                         length2: 10,
                         smooth: true,
@@ -1295,6 +1363,7 @@ export default function EnterpriseView({
                       emphasis: {
                         label: {
                           show: true,
+                          position: 'inside',
                           fontSize: '12',
                           fontWeight: 'bold',
                           formatter: (params: any) => `${formatNumber(params.value, 0)}`,
@@ -1628,60 +1697,152 @@ export default function EnterpriseView({
       {/* Filters */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 items-stretch sm:items-center rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
         <div className="relative flex-1 min-w-0 sm:min-w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 pointer-events-none" />
           <input 
             type="text" 
             placeholder={t('searchPlaceholderEnterprises')}
-            className="w-full rounded-lg border border-border-base bg-bg-base py-2 pl-10 pr-4 text-sm text-text-base outline-none transition-all focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20"
+            className="w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <div className="relative flex-1 sm:flex-none">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select 
-              className="w-full appearance-none rounded-lg border border-border-base bg-bg-base py-2 pl-9 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20 cursor-pointer"
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
+        <div ref={menuRef} className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className={`relative ${statusWidthClass}`}>
+            <button
+              type="button"
+              onClick={handleIndustryButtonClick}
+              className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'industry'}
             >
-              <option value="All" className="bg-bg-surface">{t('allIndustries')}</option>
-              {enterpriseIndustryOptions.map((industry) => (
-                <option key={industry.value} value={industry.value} className="bg-bg-surface">
-                  {industry.label}
-                </option>
-              ))}
-            </select>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                <span className="truncate">{selectedIndustryLabel}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+            </button>
+
+            {openMenu === 'industry' && (
+              <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIndustryFilter('All');
+                    setOpenMenu(null);
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                    industryFilter === 'All'
+                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                      : 'text-text-base hover:bg-surface-container-low'
+                  )}
+                >
+                  <span>{t('allIndustries')}</span>
+                </button>
+                {enterpriseIndustryOptions.map((industry) => (
+                  <button
+                    key={industry.value}
+                    type="button"
+                    onClick={() => {
+                      setIndustryFilter(industry.value);
+                      setOpenMenu(null);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                      industryFilter === industry.value
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                        : 'text-text-base hover:bg-surface-container-low'
+                    )}
+                  >
+                    <span className="truncate">{industry.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="relative flex-1 sm:flex-none">
-            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              className="w-full appearance-none rounded-lg border border-border-base bg-bg-base py-2 pl-9 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20 cursor-pointer"
-              value={issueValueSort}
-              onChange={(e) => {
-                setIssueValueSort(e.target.value);
-                if (e.target.value !== 'None') setRemainingDebtSort('None');
-              }}
+
+          <div className={`relative ${issueWidthClass}`}>
+            <button
+              type="button"
+              onClick={handleIssueValueButtonClick}
+              className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'issueValue'}
             >
-              <option value="None" className="bg-bg-surface">{t('issuedValue')}</option>
-              <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-              <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-            </select>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
+                <span className="truncate">{issueValueSortLabel}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+            </button>
+            {openMenu === 'issueValue' && (
+              <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                {[
+                  { value: 'HighToLow', label: t('highest') },
+                  { value: 'LowToHigh', label: t('lowest') },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setIssueValueSort(option.value);
+                      setRemainingDebtSort('None');
+                      setOpenMenu(null);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                      issueValueSort === option.value
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                        : 'text-text-base hover:bg-surface-container-low'
+                    )}
+                  >
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="relative flex-1 sm:flex-none">
-            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              className="w-full appearance-none rounded-lg border border-border-base bg-bg-base py-2 pl-9 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-text-highlight focus:ring-2 focus:ring-cyan-400/20 cursor-pointer"
-              value={remainingDebtSort}
-              onChange={(e) => {
-                setRemainingDebtSort(e.target.value);
-                if (e.target.value !== 'None') setIssueValueSort('None');
-              }}
+
+          <div className={`relative ${remainingWidthClass}`}>
+            <button
+              type="button"
+              onClick={handleRemainingDebtButtonClick}
+              className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+              aria-haspopup="menu"
+              aria-expanded={openMenu === 'remainingDebt'}
             >
-              <option value="None" className="bg-bg-surface">{t('remainingDebtTitle')}</option>
-              <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-              <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-            </select>
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
+                <span className="truncate">{remainingDebtSortLabel}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+            </button>
+            {openMenu === 'remainingDebt' && (
+              <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                {[
+                  { value: 'HighToLow', label: t('highest') },
+                  { value: 'LowToHigh', label: t('lowest') },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setRemainingDebtSort(option.value);
+                      setIssueValueSort('None');
+                      setOpenMenu(null);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                      remainingDebtSort === option.value
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                        : 'text-text-base hover:bg-surface-container-low'
+                    )}
+                  >
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

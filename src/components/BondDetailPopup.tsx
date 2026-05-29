@@ -22,7 +22,7 @@ import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 import { loadBondIndustryByFilter, loadIndustryBaseBondGroupData, type IndustryBondGroupData } from '../services/industryBondData';
 import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
-import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItem } from '../utils/watchlist';
+import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 
 interface BondDetailPopupProps {
   bond: Bond;
@@ -53,6 +53,10 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   const [error, setError] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
   const [isTracked, setIsTracked] = useState(false);
+  const [watchlistNotice, setWatchlistNotice] = useState<{
+    tone: 'success' | 'warning' | 'error';
+    text: string;
+  } | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('month');
   const [issuerProfile, setIssuerProfile] = useState<any>(null);
   const [bondIndustryId, setBondIndustryId] = useState<string | null>(null);
@@ -481,8 +485,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     ];
   }, [currentBond, industryInterestRateAssessment, maturityInfo?.days, t]);
 
-  const getCashFlowOptions = () => {
-    if (!bondDetails?.cashFlows) return {};
+  const cashFlowOptions = useMemo(() => {
+    if (!bondDetails?.cashFlows) return null;
+
     const sortedCashFlows = [...bondDetails.cashFlows].sort(
       (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime(),
     );
@@ -522,6 +527,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
     const cashFlowData = Array.from(groupedCashFlows.values()).sort((a, b) => a.sortValue - b.sortValue);
     const dates = cashFlowData.map((cf) => cf.label);
+    const chartTooltip = getChartTooltip(isDark);
     const baseLineSeries = {
       type: 'line',
       stack: 'total',
@@ -562,15 +568,43 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         { ...baseLineSeries, name: t('interest'), data: cashFlowData.map((cf) => cf.interestAmount) },
       ],
     };
-  };
+  }, [bondDetails?.cashFlows, cashFlowPeriod, isDark, t]);
+
+  useEffect(() => {
+    if (!watchlistNotice) return;
+
+    const timeout = window.setTimeout(() => setWatchlistNotice(null), 2500);
+    return () => window.clearTimeout(timeout);
+  }, [watchlistNotice]);
 
   const handleTrackBond = () => {
-    const updated = upsertWatchlistItem({
+    const result = upsertWatchlistItemWithStatus({
       ...currentBond,
       issuerName: enterpriseName || currentBond.enterpriseId || currentBond.code,
       ticker: currentBond.enterpriseId || '',
     });
-    setIsTracked(updated.some((item) => item.code === currentBond.code));
+
+    if (!result.persistedToLocalStorage && !result.usedFallback) {
+      setWatchlistNotice({
+        tone: 'error',
+        text: t('watchlistSaveFailed'),
+      });
+      return;
+    }
+
+    if (!result.persistedToLocalStorage && result.usedFallback) {
+      setWatchlistNotice({
+        tone: 'warning',
+        text: t('watchlistSavedTemporary'),
+      });
+    } else {
+      setWatchlistNotice({
+        tone: 'success',
+        text: t('addToWatchlistSuccess'),
+      });
+    }
+
+    setIsTracked(result.items.some((item) => item.code === currentBond.code));
   };
 
   const handleUntrackBond = () => {
@@ -584,9 +618,22 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
       onClick={onClose}
     >
       <div
-        className="flex max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-bg-surface shadow-2xl transition-colors animate-in zoom-in-95 duration-300"
+        className="relative flex max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-bg-surface shadow-2xl transition-colors animate-in zoom-in-95 duration-300"
         onClick={(e) => e.stopPropagation()}
       >
+        {watchlistNotice && (
+          <div
+            className={
+              watchlistNotice.tone === 'success'
+                ? 'absolute right-6 top-6 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg'
+                : watchlistNotice.tone === 'warning'
+                  ? 'absolute right-6 top-6 z-40 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg'
+                  : 'absolute right-6 top-6 z-40 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-lg'
+            }
+          >
+            {watchlistNotice.text}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-3 border-b border-border-base bg-bg-base/50 p-4 transition-colors md:p-6">
           <div className="flex min-w-0 items-center gap-3 md:gap-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 md:h-12 md:w-12">
@@ -614,7 +661,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         {showComparison && (
           <BondComparisonPopup
             primaryBond={currentBond}
-            onClose={onClose}
+            onClose={() => setShowComparison(false)}
             onBack={() => setShowComparison(false)}
           />
         )}
@@ -665,9 +712,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                     <p className="text-[10px] font-medium italic text-text-muted">{t('tokenUpdateMessage')}</p>
                   )}
                 </div>
-              ) : (
+              ) : cashFlowOptions ? (
                 <ChartWithToolbar
-                  option={getCashFlowOptions()}
+                  option={cashFlowOptions}
                   style={{ height: '100%', width: '100%' }}
                   allowMagicType
                   title={cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
@@ -692,6 +739,10 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
                     </div>
                   )}
                 />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm font-medium text-text-muted transition-colors">
+                  {t('noData')}
+                </div>
               )}
             </div>
 

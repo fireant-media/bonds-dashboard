@@ -11,6 +11,8 @@ import { normalizeInterestType } from './utils/format';
 import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
 import { fireantApi } from './api/fireant';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
+import { dashboardQueryClient } from './query/client';
+import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/dashboardQueries';
 import { Calendar, Menu, Newspaper } from 'lucide-react';
 
 const MarketOverview = lazy(() => import('./components/MarketOverview'));
@@ -272,11 +274,36 @@ export default function App() {
       }),
     }).catch(console.error);
 
-    warmDashboardCoreDataInBackground();
-    void import('./components/MarketOverview');
-    void import('./components/IndustryView');
-    void import('./components/EnterpriseView');
-  }, [user, authLoading]);
+    const currentViewPrefetch = prefetchDashboardRouteData(dashboardQueryClient, {
+      activeTab,
+      activeIndustry,
+      ticker,
+      bondCode,
+    });
+
+    void currentViewPrefetch.finally(() => {
+      warmDashboardCoreDataInBackground();
+      void prefetchDashboardCoreData(dashboardQueryClient);
+      void import('./components/MarketOverview');
+      void import('./components/IndustryView');
+      void import('./components/EnterpriseView');
+    });
+
+    if (activeTab === 'industry') {
+      void import('./components/IndustryView');
+    } else if (activeTab === 'enterprise') {
+      void import('./components/EnterpriseView');
+    } else if (activeTab === 'maturity-list') {
+      void import('./components/MaturityListView');
+    } else if (activeTab === 'news-list') {
+      void import('./components/NewsListView');
+    } else if (activeTab === 'watchlist') {
+      void import('./components/WatchlistView');
+    } else {
+      void import('./components/MarketOverview');
+    }
+
+  }, [user, authLoading, activeTab, activeIndustry, ticker, bondCode]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;

@@ -4,7 +4,7 @@ const MEMORY_CACHE: Record<string, { data: any, timestamp: number }> = {};
 const DEFAULT_TTL = 30 * 60 * 1000; // Increase to 30 minutes for better persistence
 const CACHE_PREFIX = 'sentinel_cache_';
 
-export const setCache = (key: string, data: any) => {
+export const setCache = (key: string, data: any): boolean => {
   const item = { data, timestamp: Date.now() };
   
   // Save to memory
@@ -13,8 +13,10 @@ export const setCache = (key: string, data: any) => {
   // Save to localStorage for persistence
   try {
     localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(item));
+    return true;
   } catch (e) {
     console.warn('Failed to save cache to localStorage', e);
+    return false;
   }
 };
 

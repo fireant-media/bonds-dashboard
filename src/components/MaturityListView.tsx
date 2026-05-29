@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, ChevronDown } from 'lucide-react';
 import { Bond } from '../types';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
@@ -33,8 +33,9 @@ interface MaturityListViewProps {
 
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
-import { loadBondDetail, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
+import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+import { useMaturingBondsQuery } from '../query/dashboardQueries';
 
 const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
   resolveIndustryKeyFromCandidates(
@@ -80,7 +81,10 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     'default' | 'maturity-near' | 'maturity-far' | 'value-high' | 'value-low' | 'interest-high' | 'interest-low'
   >('default');
   const [currentPage, setCurrentPage] = useState(1);
+  const [openMenu, setOpenMenu] = useState<'range' | 'industry' | 'warning' | 'maturity' | 'value' | 'interest' | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const itemsPerPage = 10;
+  const maturityBondsQuery = useMaturingBondsQuery(selectedTimeRange);
 
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(() => {
     return getCache('enterprise_names_en') || {};
@@ -89,183 +93,174 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   useEffect(() => {
     let isMounted = true;
-    const fetchBonds = async () => {
-      if (!cachedData) {
-        setLoading(true);
-      }
-      setError(null);
-      try {
-        const [data, symbolGroups] = await Promise.all([
-          loadMaturingBonds(selectedTimeRange),
-          loadDedupedIndustrySymbols(),
-        ]);
 
+    const hydrateBonds = async () => {
+      const data = Array.isArray(maturityBondsQuery.data) ? maturityBondsQuery.data : [];
+      if (!data.length) {
+        if (maturityBondsQuery.isError) {
+          const queryError = maturityBondsQuery.error;
+          setError(queryError instanceof Error ? queryError.message : t('dataError'));
+          setLoading(false);
+        }
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const symbolGroups = await loadDedupedIndustrySymbols();
         if (!isMounted) return;
 
-        if (Array.isArray(data)) {
-          const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
+        const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
 
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-          const mapped: MaturityBond[] = data.map((b: any) => {
-            const enterpriseIndustry = enterpriseList.find((item) => item.ticker === b.issuerSymbol)?.industry;
-            const maturity = new Date(b.maturityDate);
-            maturity.setHours(0, 0, 0, 0);
-            const diffTime = maturity.getTime() - today.getTime();
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        const mapped: MaturityBond[] = data.map((b: any) => {
+          const enterpriseIndustry = enterpriseList.find((item) => item.ticker === b.issuerSymbol)?.industry;
+          const maturity = new Date(b.maturityDate);
+          maturity.setHours(0, 0, 0, 0);
+          const diffTime = maturity.getTime() - today.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          const industry = resolveIndustryKeyFromSymbolGroups(
+            b.issuerSymbol,
+            symbolToIndustryKey,
+            getMaturityIndustryKey(b, enterpriseIndustry)
+          );
+
+          return {
+            id: b.bondCode,
+            code: b.bondCode,
+            enterpriseId: b.issuerSymbol || '',
+            ticker: b.issuerSymbol,
+            issuerName: b.issuerName,
+            maturityDate: b.maturityDate?.split('T')[0] || '',
+            daysLeft: diffDays > 0 ? diffDays : 0,
+            listedVolume: b.currentListedVolume || 0,
+            listedValue: (b.currentListedVolume * 100000) / 1000000000,
+            interestRate: b.bondRate || 0,
+            interestType: normalizeInterestType(
+              b.bondRateType || b.interestRateType || b.interestType || '',
+              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+              []
+            ) || 'N/A',
+            term: `${b.tenorPeriod} ${t('monthUnit')}`,
+            issueDate: b.issueDate?.split('T')[0] || '',
+            issuedValue: 0,
+            status: b.status || t('active'),
+            industry,
+          };
+        }).map((bond) => normalizeMaturityBond(bond, enterpriseList.find((item) => item.ticker === bond.ticker)?.industry));
+
+        setBonds(mapped);
+        setCache(cacheKey, mapped);
+
+        const refreshIndustries = async () => {
+          const bondsToRefresh = mapped.filter((bond) => !bond.industry);
+          if (bondsToRefresh.length === 0) return;
+
+          const updates = new Map<string, string>();
+          const results = await mapWithConcurrency(bondsToRefresh, 6, async (bond) => {
+            let ticker = bond.ticker;
+
+            if (!ticker) {
+              const bondDetail = await loadBondDetail(bond.code);
+              ticker = bondDetail?.detail?.issuerSymbol;
+            }
+
+            if (!ticker) return null;
+
+            const profile = await loadIssuerProfile(ticker);
+            const enterpriseIndustry = (getCache('enterprise_list') || [])
+              .find((item: any) => item.ticker === ticker)?.industry;
 
             const industry = resolveIndustryKeyFromSymbolGroups(
-              b.issuerSymbol,
+              ticker,
               symbolToIndustryKey,
-              getMaturityIndustryKey(b, enterpriseIndustry)
+              getMaturityIndustryKey(profile || bond, enterpriseIndustry)
             );
 
             return {
-              id: b.bondCode,
-              code: b.bondCode,
-              enterpriseId: b.issuerSymbol || '',
-              ticker: b.issuerSymbol,
-              issuerName: b.issuerName,
-              maturityDate: b.maturityDate?.split('T')[0] || '',
-              daysLeft: diffDays > 0 ? diffDays : 0,
-              listedVolume: b.currentListedVolume || 0,
-              listedValue: (b.currentListedVolume * 100000) / 1000000000,
-              interestRate: b.bondRate || 0,
-              interestType: normalizeInterestType(
-                b.bondRateType || b.interestRateType || b.interestType || '',
-                b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                []
-              ) || 'N/A',
-              term: `${b.tenorPeriod} ${t('monthUnit')}`,
-              issueDate: b.issueDate?.split('T')[0] || '',
-              issuedValue: 0,
-              status: b.status || t('active'),
+              code: bond.code,
               industry,
             };
-          }).map((bond) => normalizeMaturityBond(bond, enterpriseList.find((item) => item.ticker === bond.ticker)?.industry));
-          setBonds(mapped);
-          setCache(cacheKey, mapped);
-
-          const refreshIndustries = async () => {
-            const bondsToRefresh = mapped.filter((bond) => !bond.industry);
-            if (bondsToRefresh.length === 0) return;
-
-            const chunkSize = 5;
-            const updates = new Map<string, string>();
-
-            for (let i = 0; i < bondsToRefresh.length; i += chunkSize) {
-              if (!isMounted) break;
-
-              const chunk = bondsToRefresh.slice(i, i + chunkSize);
-              const results = await Promise.allSettled(
-                chunk.map(async (bond) => {
-                  let ticker = bond.ticker;
-
-                  if (!ticker) {
-                    const bondDetail = await loadBondDetail(bond.code);
-                    ticker = bondDetail?.detail?.issuerSymbol;
-                  }
-
-                  if (!ticker) return null;
-
-                  const profile = await loadIssuerProfile(ticker);
-                  const enterpriseIndustry = (getCache('enterprise_list') || [])
-                    .find((item: any) => item.ticker === ticker)?.industry;
-
-                  const industry = resolveIndustryKeyFromSymbolGroups(
-                    ticker,
-                    symbolToIndustryKey,
-                    getMaturityIndustryKey(profile || bond, enterpriseIndustry)
-                  );
-
-                  return {
-                    code: bond.code,
-                    industry,
-                  };
-                })
-              );
-
-              results.forEach((result) => {
-                if (result.status === 'fulfilled' && result.value?.code && result.value.industry) {
-                  updates.set(result.value.code, result.value.industry);
-                }
-              });
-            }
-
-            if (!isMounted || updates.size === 0) return;
-
-            setBonds((prev) => {
-              const next = prev.map((bond) => {
-                const industry = updates.get(bond.code);
-                return industry && industry !== bond.industry ? { ...bond, industry } : bond;
-              });
-              setCache(cacheKey, next);
-              return next;
-            });
-          };
-
-          refreshIndustries().catch((resolveError) => {
-            console.error('Failed to resolve maturity industries', resolveError);
           });
 
-            // Trigger background fetch for international names if in English mode
-            if (language === 'en') {
-              const bondsToFetch = mapped.filter(b => !enterpriseNamesEN[b.ticker || ''] || !b.ticker);
-              
-              if (bondsToFetch.length > 0) {
-                const fetchNames = async () => {
-                  const currentENNames = { ...enterpriseNamesEN };
-                  const results = await mapWithConcurrency(bondsToFetch, 5, async (bond) => {
-                    let ticker = bond.ticker;
-                    
-                    // Step 1: If ticker is missing, fetch bond details to get issuerSymbol
-                    if (!ticker) {
-                      const bondDetail = await loadBondDetail(bond.code);
-                      ticker = bondDetail?.detail?.issuerSymbol;
-                    }
-
-                    // Step 2 & 3: Fetch profile and get internationalName
-                    if (ticker) {
-                      const profile = await loadIssuerProfile(ticker);
-                      return { code: bond.code, ticker, name: profile?.internationalName || '' };
-                    }
-                    return null;
-                  });
-
-                  if (!isMounted) return;
-
-                  const validResults = getFulfilledValues(results).filter(Boolean);
-                  let hasUpdates = false;
-                  validResults.forEach(res => {
-                    if (res && res.name && res.ticker) {
-                      currentENNames[res.ticker] = res.name;
-                      hasUpdates = true;
-                    }
-                  });
-
-                  if (hasUpdates && isMounted) {
-                    setEnterpriseNamesEN({ ...currentENNames });
-                    setCache('enterprise_names_en', { ...currentENNames });
-                    
-                    // Also update the currently displayed bonds list if they match the ticker
-                    setBonds(prev => prev.map(b => {
-                      const res = validResults.find(r => r?.code === b.code);
-                      if (res && res.name) {
-                        return { ...b, ticker: res.ticker, issuerName: res.name };
-                      }
-                      // Even if it didn't just update, if we now have it in currentENNames, apply it
-                      if (b.ticker && currentENNames[b.ticker]) {
-                        return { ...b, issuerName: currentENNames[b.ticker] };
-                      }
-                      return b;
-                    }));
-                  }
-                };
-                fetchNames();
-              }
+          getFulfilledValues(results).forEach((result) => {
+            if (result?.code && result.industry) {
+              updates.set(result.code, result.industry);
             }
+          });
+
+          if (!isMounted || updates.size === 0) return;
+
+          setBonds((prev) => {
+            const next = prev.map((bond) => {
+              const industry = updates.get(bond.code);
+              return industry && industry !== bond.industry ? { ...bond, industry } : bond;
+            });
+            setCache(cacheKey, next);
+            return next;
+          });
+        };
+
+        refreshIndustries().catch((resolveError) => {
+          console.error('Failed to resolve maturity industries', resolveError);
+        });
+
+        if (language === 'en') {
+          const bondsToFetch = mapped.filter((b) => !enterpriseNamesEN[b.ticker || ''] || !b.ticker);
+
+          if (bondsToFetch.length > 0) {
+            const fetchNames = async () => {
+              const currentENNames = { ...enterpriseNamesEN };
+              const results = await mapWithConcurrency(bondsToFetch, 5, async (bond) => {
+                let ticker = bond.ticker;
+
+                if (!ticker) {
+                  const bondDetail = await loadBondDetail(bond.code);
+                  ticker = bondDetail?.detail?.issuerSymbol;
+                }
+
+                if (ticker) {
+                  const profile = await loadIssuerProfile(ticker);
+                  return { code: bond.code, ticker, name: profile?.internationalName || '' };
+                }
+                return null;
+              });
+
+              if (!isMounted) return;
+
+              const validResults = getFulfilledValues(results).filter(Boolean);
+              let hasUpdates = false;
+              validResults.forEach((res) => {
+                if (res && res.name && res.ticker) {
+                  currentENNames[res.ticker] = res.name;
+                  hasUpdates = true;
+                }
+              });
+
+              if (hasUpdates && isMounted) {
+                setEnterpriseNamesEN({ ...currentENNames });
+                setCache('enterprise_names_en', { ...currentENNames });
+
+                setBonds((prev) => prev.map((b) => {
+                  const res = validResults.find((r) => r?.code === b.code);
+                  if (res && res.name) {
+                    return { ...b, ticker: res.ticker, issuerName: res.name };
+                  }
+                  if (b.ticker && currentENNames[b.ticker]) {
+                    return { ...b, issuerName: currentENNames[b.ticker] };
+                  }
+                  return b;
+                }));
+              }
+            };
+            void fetchNames();
           }
+        }
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching maturity bonds:', error);
@@ -279,9 +274,9 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       }
     };
 
-    fetchBonds();
+    void hydrateBonds();
     return () => { isMounted = false; };
-  }, [selectedTimeRange]);
+  }, [selectedTimeRange, maturityBondsQuery.data, maturityBondsQuery.error, maturityBondsQuery.isError, language]);
 
   const getWarningStatus = (days: number) => {
     if (days < 30) return { value: 'very-near', label: t('statusVeryNear'), color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30', icon: AlertCircle, iconColor: 'text-red-600' };
@@ -346,6 +341,72 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     { value: 'medium-term', label: t('statusMediumTerm') },
     { value: 'long-term', label: t('statusLongTerm') },
   ];
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const selectedIndustryLabel = useMemo(() => {
+    if (industryFilter === 'All') return t('allIndustries');
+    return t(industryFilter as any);
+  }, [industryFilter, t]);
+
+  const selectedRangeLabel = useMemo(() => {
+    switch (selectedTimeRange) {
+      case 30: return t('range1MonthShort');
+      case 90: return t('range3MonthsShort');
+      case 180: return t('range6MonthsShort');
+      case 270: return t('range9MonthsShort');
+      case 365: return t('range12MonthsShort');
+      default: return t('range1MonthShort');
+    }
+  }, [selectedTimeRange, t]);
+
+  const selectedWarningLabel = useMemo(() => {
+    return warningLevels.find((level) => level.value === warningFilter)?.label || t('allStatuses');
+  }, [t, warningFilter]);
+
+  const maturitySortLabel = sortType === 'maturity-near'
+    ? t('nearest')
+    : sortType === 'maturity-far'
+      ? t('farthest')
+      : t('maturityDateSort');
+  const valueSortLabel = sortType === 'value-high'
+    ? t('highest')
+    : sortType === 'value-low'
+      ? t('lowest')
+      : t('issuedValue');
+  const interestSortLabel = sortType === 'interest-high'
+    ? t('highest')
+    : sortType === 'interest-low'
+      ? t('lowest')
+      : t('interestRate');
+
+  const handleIndustryButtonClick = () => {
+    setOpenMenu((current) => (current === 'industry' ? null : 'industry'));
+  };
+
+  const handleWarningButtonClick = () => {
+    setOpenMenu((current) => (current === 'warning' ? null : 'warning'));
+  };
+
+  const handleMaturityButtonClick = () => {
+    setOpenMenu((current) => (current === 'maturity' ? null : 'maturity'));
+  };
+
+  const handleValueButtonClick = () => {
+    setOpenMenu((current) => (current === 'value' ? null : 'value'));
+  };
+
+  const handleInterestButtonClick = () => {
+    setOpenMenu((current) => (current === 'interest' ? null : 'interest'));
+  };
 
   const handleExportExcel = async () => {
     setExportLoading(true);
@@ -391,168 +452,319 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold text-blue-600 dark:text-white tracking-tight transition-colors">{t('maturityTitle')}</h1>
-        <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
-      </div>
-
-      {/* Time Range Selector */}
-      <div className="flex justify-center mb-8 overflow-x-auto pb-1">
-        <div className="bg-bg-base p-1 rounded-lg flex gap-1 transition-colors min-w-max">
-          {[
-            { label: t('range1Month'), days: 30 },
-            { label: t('range3Months'), days: 90 },
-            { label: t('range6Months'), days: 180 },
-            { label: t('range9Months'), days: 270 },
-            { label: t('range12Months'), days: 365 },
-          ].map((range) => (
-            <button
-              key={range.days}
-              onClick={() => {
-                setSelectedTimeRange(range.days);
-                setCurrentPage(1);
-              }}
-              className={cn(
-                "px-4 md:px-6 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap",
-                selectedTimeRange === range.days 
-                  ? "bg-bg-surface text-blue-600 shadow-sm" 
-                  : "text-text-muted hover:text-text-base"
-              )}
-            >
-              {range.label}
-            </button>
-          ))}
-          <button className="px-4 py-2.5 text-text-muted hover:text-text-base transition-colors">
-            <Calendar className="h-5 w-5" />
-          </button>
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight break-words transition-colors dark:text-text-base">
+            {t('maturityTitle')}
+          </h1>
         </div>
       </div>
 
       {/* Filters */}
       <div className="bg-bg-surface p-4 rounded-lg shadow-sm border border-border-base mb-4 transition-colors">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {/* Row 1 */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-text-muted" />
-            <input
-              type="text"
-              placeholder={t('searchPlaceholderMaturity')}
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-lg text-sm text-text-base focus:ring-2 focus:ring-blue-600/20 transition-all placeholder:text-text-muted outline-none"
-            />
+        <div ref={menuRef} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={t('searchPlaceholderMaturity')}
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full rounded-lg border border-border-base bg-bg-surface py-2.5 pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+
+            <div className="flex w-full items-center lg:justify-end">
+              <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
+            </div>
           </div>
 
-          {/* Industry Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={industryFilter}
-              onChange={(e) => {
-                setIndustryFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              <option value="All">{t('allIndustries')}</option>
-              {enterpriseIndustryOptions.map((industry) => (
-                <option key={industry.value} value={industry.value}>
-                  {t(industry.label as any)}
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="relative w-full">
+              <button
+                type="button"
+                onClick={() => setOpenMenu((current) => (current === 'range' ? null : 'range'))}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'range'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Calendar className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span className="truncate">{`${t('maturityWithin')} ${selectedRangeLabel}`}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+              </button>
+              {openMenu === 'range' && (
+                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {[
+                    { value: 30, label: t('range1MonthShort') },
+                    { value: 90, label: t('range3MonthsShort') },
+                    { value: 180, label: t('range6MonthsShort') },
+                    { value: 270, label: t('range9MonthsShort') },
+                    { value: 365, label: t('range12MonthsShort') },
+                  ].map((range) => (
+                    <button
+                      key={range.value}
+                      type="button"
+                      onClick={() => {
+                        setSelectedTimeRange(range.value);
+                        setCurrentPage(1);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        selectedTimeRange === range.value
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{range.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="relative w-full">
+              <button
+                type="button"
+                onClick={handleIndustryButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'industry'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span className="truncate">{selectedIndustryLabel}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+              </button>
+              {openMenu === 'industry' && (
+                <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIndustryFilter('All');
+                      setCurrentPage(1);
+                      setOpenMenu(null);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                      industryFilter === 'All'
+                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                        : 'text-text-base hover:bg-surface-container-low'
+                    )}
+                  >
+                    <span>{t('allIndustries')}</span>
+                  </button>
+                  {enterpriseIndustryOptions.map((industry) => (
+                    <button
+                      key={industry.value}
+                      type="button"
+                      onClick={() => {
+                        setIndustryFilter(industry.value);
+                        setCurrentPage(1);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        industryFilter === industry.value
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span className="truncate">{t(industry.value as any)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="relative w-full">
+              <button
+                type="button"
+                onClick={handleWarningButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'warning'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span className="truncate">{selectedWarningLabel}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+              </button>
+              {openMenu === 'warning' && (
+                <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {warningLevels.map((level) => (
+                    <button
+                      key={level.value}
+                      type="button"
+                      onClick={() => {
+                        setWarningFilter(level.value);
+                        setCurrentPage(1);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        warningFilter === level.value
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{level.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Status Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={warningFilter}
-              onChange={(e) => {
-                setWarningFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              {warningLevels.map((level) => (
-                <option key={level.value} value={level.value}>
-                  {level.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="relative w-full">
+              <button
+                type="button"
+                onClick={handleMaturityButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'maturity'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span className="truncate">{maturitySortLabel}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+              </button>
+              {openMenu === 'maturity' && (
+                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {[
+                    { value: 'near', label: t('nearest') },
+                    { value: 'far', label: t('farthest') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        if (option.value === 'near') {
+                          setSortType('maturity-near');
+                        } else {
+                          setSortType('maturity-far');
+                        }
+                        setCurrentPage(1);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        (option.value === 'near' && sortType === 'maturity-near') ||
+                        (option.value === 'far' && sortType === 'maturity-far')
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          {/* Row 2 */}
-          {/* Maturity Date Sort */}
-          <div className="relative">
-            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={sortType === 'maturity-near' ? 'near' : (sortType === 'maturity-far' ? 'far' : 'default')}
-              onChange={(e) => {
-                if (e.target.value === 'default') {
-                  setSortType('default');
-                } else if (e.target.value === 'near') {
-                  setSortType('maturity-near');
-                } else if (e.target.value === 'far') {
-                  setSortType('maturity-far');
-                }
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              <option value="default">{t('maturityDateSort')}</option>
-              <option value="near">{t('nearest')}</option>
-              <option value="far">{t('farthest')}</option>
-            </select>
-          </div>
+            <div className="relative w-full">
+              <button
+                type="button"
+                onClick={handleValueButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'value'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span className="truncate">{valueSortLabel}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+              </button>
+              {openMenu === 'value' && (
+                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {[
+                    { value: 'high', label: t('highest') },
+                    { value: 'low', label: t('lowest') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        if (option.value === 'high') {
+                          setSortType('value-high');
+                        } else {
+                          setSortType('value-low');
+                        }
+                        setCurrentPage(1);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        (option.value === 'high' && sortType === 'value-high') ||
+                        (option.value === 'low' && sortType === 'value-low')
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          {/* Issue Value Sort */}
-          <div className="relative">
-            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={sortType === 'value-high' ? 'high' : (sortType === 'value-low' ? 'low' : 'default')}
-              onChange={(e) => {
-                if (e.target.value === 'default') {
-                  setSortType('default');
-                } else if (e.target.value === 'high') {
-                  setSortType('value-high');
-                } else if (e.target.value === 'low') {
-                  setSortType('value-low');
-                }
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              <option value="default">{t('issuedValue')}</option>
-              <option value="high">{t('highToLow')}</option>
-              <option value="low">{t('lowToHigh')}</option>
-            </select>
-          </div>
-
-          {/* Interest Rate Sort */}
-          <div className="relative">
-            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={sortType === 'interest-high' ? 'high' : (sortType === 'interest-low' ? 'low' : 'default')}
-              onChange={(e) => {
-                if (e.target.value === 'default') {
-                  setSortType('default');
-                } else if (e.target.value === 'high') {
-                  setSortType('interest-high');
-                } else if (e.target.value === 'low') {
-                  setSortType('interest-low');
-                }
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-lg text-sm font-semibold text-text-base focus:ring-2 focus:ring-blue-600/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              <option value="default">{t('interestRate')}</option>
-              <option value="high">{t('highToLow')}</option>
-              <option value="low">{t('lowToHigh')}</option>
-            </select>
+            <div className="relative w-full">
+              <button
+                type="button"
+                onClick={handleInterestButtonClick}
+                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                aria-haspopup="menu"
+                aria-expanded={openMenu === 'interest'}
+              >
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
+                  <span className="truncate">{interestSortLabel}</span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+              </button>
+              {openMenu === 'interest' && (
+                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                  {[
+                    { value: 'high', label: t('highest') },
+                    { value: 'low', label: t('lowest') },
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        if (option.value === 'high') {
+                          setSortType('interest-high');
+                        } else {
+                          setSortType('interest-low');
+                        }
+                        setCurrentPage(1);
+                        setOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        (option.value === 'high' && sortType === 'interest-high') ||
+                        (option.value === 'low' && sortType === 'interest-low')
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

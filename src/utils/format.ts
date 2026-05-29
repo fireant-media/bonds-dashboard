@@ -17,17 +17,66 @@ export const formatNumber = (num: number | string | undefined | null, decimals: 
   });
 };
 
+export const formatBondVolumeByThreshold = (num: number | string | undefined | null) => {
+  if (num === undefined || num === null) {
+    return { value: '0', unitScale: 'thousand' as const };
+  }
+
+  const numberValue = Number(num);
+  if (!Number.isFinite(numberValue)) {
+    return { value: '0', unitScale: 'thousand' as const };
+  }
+
+  if (Math.abs(numberValue) >= 1_000_000) {
+    return {
+      value: formatNumber(numberValue / 1_000_000, 2),
+      unitScale: 'million' as const,
+    };
+  }
+
+  return {
+    value: formatNumber(numberValue / 1_000, 2),
+    unitScale: 'thousand' as const,
+  };
+};
+
+export const parseDateToTimestamp = (dateValue: string | undefined | null): number | null => {
+  if (!dateValue) return null;
+
+  const raw = String(dateValue).trim();
+  if (!raw) return null;
+
+  const ddMmYyyy = raw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (ddMmYyyy) {
+    const [, day, month, year] = ddMmYyyy;
+    const timestamp = Date.UTC(Number(year), Number(month) - 1, Number(day));
+    return Number.isNaN(timestamp) ? null : timestamp;
+  }
+
+  const yyyyMmDd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (yyyyMmDd) {
+    const [, year, month, day] = yyyyMmDd;
+    const timestamp = Date.UTC(Number(year), Number(month) - 1, Number(day));
+    return Number.isNaN(timestamp) ? null : timestamp;
+  }
+
+  const parsed = new Date(raw);
+  const timestamp = parsed.getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+};
+
 /**
  * Định dạng ngày tháng theo chuẩn Việt Nam: dd-mm-yyyy
  */
 export const formatDate = (dateString: string | undefined | null): string => {
   if (!dateString) return 'N/A';
   try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
+    const timestamp = parseDateToTimestamp(dateString);
+    if (timestamp === null) return dateString;
+    const date = new Date(timestamp);
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const year = date.getUTCFullYear();
     return `${day}-${month}-${year}`;
   } catch (e) {
     return dateString;

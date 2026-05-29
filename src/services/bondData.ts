@@ -2,6 +2,8 @@ import { fireantApi, fireantRequest } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
+import { dashboardQueryClient } from '../query/client';
+import { bondQueryKeys } from '../query/keys';
 
 type ProcedureResult<T> =
   | T[]
@@ -335,14 +337,42 @@ export const loadBondsByIndustryFilter = async (
   const cached = getCache(cacheKey);
   if (cached) return cached as BondDataRow[];
 
-  const payload = await fireantApi.getBondsByIndustryFilter({
-    icbCode: normalizedIcbCode,
-    statusID: normalizedStatus,
-  });
+  const loadLegacyIndustryFilterRows = async () => {
+    const payload = await fireantRequest<ProcedureResult<BondDataRow>>('bond_Filter', {
+      query: {
+        ICBCode: normalizedIcbCode,
+        StatusID: normalizedStatus,
+        IsListing: 1,
+      },
+    });
 
-  const rows = extractRows(payload as ProcedureResult<BondDataRow>)
-    .map(normalizeBondRow)
-    .filter((item) => Boolean(item.bondCode));
+    return extractRows(payload)
+      .map(normalizeBondRow)
+      .filter((item) => Boolean(item.bondCode));
+  };
+
+  let rows: BondDataRow[] = [];
+
+  try {
+    const payload = await fireantApi.getBondsByIndustryFilter({
+      icbCode: normalizedIcbCode,
+      statusID: normalizedStatus,
+    });
+
+    rows = extractRows(payload as ProcedureResult<BondDataRow>)
+      .map(normalizeBondRow)
+      .filter((item) => Boolean(item.bondCode));
+  } catch (error) {
+    console.warn(`[bond-data] Modern industry filter failed for ICB ${normalizedIcbCode}`, error);
+  }
+
+  if (rows.length === 0) {
+    try {
+      rows = await loadLegacyIndustryFilterRows();
+    } catch (error) {
+      console.warn(`[bond-data] Legacy industry filter fallback failed for ICB ${normalizedIcbCode}`, error);
+    }
+  }
 
   setCache(cacheKey, rows);
   return rows;
@@ -354,6 +384,12 @@ export const loadBondDetail = async (code: string, forceRefresh = false) => {
   const normalizedCode = normalizeBondCode(code);
   if (!normalizedCode) return null;
 
+  const queryKey = bondQueryKeys.detail(normalizedCode);
+  if (!forceRefresh) {
+    const queryCached = dashboardQueryClient.getQueryData<any>(queryKey);
+    if (queryCached) return queryCached;
+  }
+
   const cacheKey = `${BOND_DETAIL_CACHE_PREFIX}${normalizedCode}`;
   const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached;
@@ -364,6 +400,7 @@ export const loadBondDetail = async (code: string, forceRefresh = false) => {
   const promise = fireantApi.getBond(normalizedCode)
     .then((detail) => {
       setCache(cacheKey, detail);
+      dashboardQueryClient.setQueryData(queryKey, detail);
       return detail;
     })
     .finally(() => {
@@ -451,6 +488,12 @@ export const loadIssuerProfile = async (symbol: string, forceRefresh = false) =>
   const normalizedSymbol = asString(symbol);
   if (!normalizedSymbol) return null;
 
+  const queryKey = bondQueryKeys.issuerProfile(normalizedSymbol);
+  if (!forceRefresh) {
+    const queryCached = dashboardQueryClient.getQueryData<any>(queryKey);
+    if (queryCached) return queryCached;
+  }
+
   const cacheKey = `${ISSUER_PROFILE_CACHE_PREFIX}${normalizedSymbol}`;
   const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached;
@@ -461,6 +504,7 @@ export const loadIssuerProfile = async (symbol: string, forceRefresh = false) =>
   const promise = fireantApi.getIssuerProfile(normalizedSymbol)
     .then((profile) => {
       setCache(cacheKey, profile);
+      dashboardQueryClient.setQueryData(queryKey, profile);
       return profile;
     })
     .finally(() => {

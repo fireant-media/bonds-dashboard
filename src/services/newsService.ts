@@ -1,5 +1,7 @@
 import { NewsItem } from '../types';
 import { cleanTokenString, getFireantToken } from '../utils/token';
+import { dashboardQueryClient } from '../query/client';
+import { newsQueryKeys } from '../query/keys';
 
 const NEWS_API_URL = '/api/news';
 const CACHE_KEY = 'fireant_news_cache_v8';
@@ -157,6 +159,12 @@ const mapNewsItem = (item: any, index: number): NewsItem => {
 
 export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]> => {
   const normalizedSymbol = normalizeSymbol(symbol);
+  const queryKey = newsQueryKeys.list(normalizedSymbol);
+
+  const queryCached = dashboardQueryClient.getQueryData<NewsItem[]>(queryKey);
+  if (queryCached && queryCached.length > 0) {
+    return queryCached;
+  }
 
   try {
     const params = new URLSearchParams();
@@ -203,6 +211,7 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
 
     localStorage.setItem(getCacheKey(normalizedSymbol), JSON.stringify(mappedNews));
     localStorage.setItem(getCacheTimeKey(normalizedSymbol), Date.now().toString());
+    dashboardQueryClient.setQueryData(queryKey, mappedNews);
 
     return mappedNews;
   } catch (error) {
@@ -211,7 +220,10 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
     }
 
     const cached = getCachedNews(normalizedSymbol);
-    if (cached) return cached;
+    if (cached) {
+      dashboardQueryClient.setQueryData(queryKey, cached);
+      return cached;
+    }
     return SEED_NEWS;
   }
 };

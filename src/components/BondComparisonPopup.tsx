@@ -3,7 +3,7 @@ import ChartWithToolbar from './ChartWithToolbar';
 import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2, Bookmark } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
-import { formatNumber, formatInterestRate, formatDate, normalizeInterestType } from '../utils/format';
+import { formatNumber, formatInterestRate, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
@@ -13,7 +13,7 @@ import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl, fireantApi } from '../api/fireant';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
-import { upsertWatchlistItem } from '../utils/watchlist';
+import { upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
 
 const MAX_SELECTED_BONDS = 4;
@@ -76,14 +76,16 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const [exportLoading, setExportLoading] = useState(false);
   const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
   const [watchlistSelections, setWatchlistSelections] = useState<Record<string, boolean>>({});
-  const [watchlistMessage, setWatchlistMessage] = useState('');
+  const [watchlistNotice, setWatchlistNotice] = useState<{
+    tone: 'success' | 'warning' | 'error';
+    text: string;
+  } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Validate selectedBonds to prevent render errors
   const validateBond = (bond: Bond): boolean => {
     if (!bond || !bond.code) return false;
-    const maturityDate = new Date(bond.maturityDate);
-    return !isNaN(maturityDate.getTime());
+    return parseDateToTimestamp(bond.maturityDate) !== null;
   };
 
   const isMissingInterestType = (value: any) => {
@@ -96,6 +98,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const canAddMoreBonds = selectedBonds.length < MAX_SELECTED_BONDS;
   const selectedWatchlistCount = selectedBonds.filter((bond) => watchlistSelections[bond.code]).length;
   const allWatchlistSelected = selectedBonds.length > 0 && selectedWatchlistCount === selectedBonds.length;
+  const selectedBondsSignature = selectedBonds.map((bond) => bond.code).join('|');
   
   useEffect(() => {
     // Log any invalid bonds that were filtered out
@@ -130,14 +133,14 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       });
       return next;
     });
-  }, [showWatchlistPicker, selectedBonds.length]);
+  }, [showWatchlistPicker, selectedBondsSignature]);
 
   useEffect(() => {
-    if (!watchlistMessage) return;
+    if (!watchlistNotice) return;
 
-    const timeout = window.setTimeout(() => setWatchlistMessage(''), 2500);
+    const timeout = window.setTimeout(() => setWatchlistNotice(null), 2500);
     return () => window.clearTimeout(timeout);
-  }, [watchlistMessage]);
+  }, [watchlistNotice]);
 
   // Load initial pool of bonds from cache or fetch if empty
   useEffect(() => {
@@ -349,8 +352,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       if (bond.term !== 'N/A' && bond.term !== undefined && bond.term !== '' && !isMissingInterestType(bond.interestType)) {
         console.log('[BondComparisonPopup] Bond from pool, adding directly:', bond.code);
         // Validate maturityDate before adding
-        const date = new Date(bond.maturityDate);
-        if (!isNaN(date.getTime())) {
+        if (parseDateToTimestamp(bond.maturityDate) !== null) {
           addComparisonBond(bond);
         } else {
           // Fallback to today if date is invalid
@@ -416,8 +418,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         const interestType = deriveInterestType(b, data.cashFlows);
 
         let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
-        const dateCheck = new Date(maturityDate);
-        if (isNaN(dateCheck.getTime())) {
+        if (parseDateToTimestamp(maturityDate) === null) {
           maturityDate = new Date().toISOString().split('T')[0];
         }
 
@@ -475,15 +476,43 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   };
 
   const saveSelectedBondsToWatchlist = (bondsToSave: Bond[]) => {
-    bondsToSave.forEach((bond) => {
-      upsertWatchlistItem({
-        ...bond,
-        issuerName: bond.enterpriseId || bond.code,
-        ticker: bond.enterpriseId || '',
+    if (bondsToSave.length === 0) {
+      setWatchlistNotice({
+        tone: 'error',
+        text: t('watchlistSaveFailed'),
       });
-    });
+      return;
+    }
 
-    setWatchlistMessage(t('addToWatchlistSuccess'));
+    const results = bondsToSave.map((bond) => upsertWatchlistItemWithStatus({
+      ...bond,
+      issuerName: bond.enterpriseId || bond.code,
+      ticker: bond.enterpriseId || '',
+    }));
+
+    const hasHardFailure = results.some((result) => !result.persistedToLocalStorage && !result.usedFallback);
+    const hasFallbackOnly = results.some((result) => !result.persistedToLocalStorage && result.usedFallback);
+
+    if (hasHardFailure) {
+      setWatchlistNotice({
+        tone: 'error',
+        text: t('watchlistSaveFailed'),
+      });
+      return;
+    }
+
+    if (hasFallbackOnly) {
+      setWatchlistNotice({
+        tone: 'warning',
+        text: t('watchlistSavedTemporary'),
+      });
+      return;
+    }
+
+    setWatchlistNotice({
+      tone: 'success',
+      text: t('addToWatchlistSuccess'),
+    });
   };
 
   const handleOpenWatchlistPicker = () => {
@@ -910,9 +939,17 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         className="relative flex max-h-dvh w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-bg-surface shadow-2xl transition-colors animate-in zoom-in-95 duration-300"
         onClick={(e) => e.stopPropagation()}
       >
-        {watchlistMessage && (
-          <div className="absolute right-6 top-6 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg">
-            {watchlistMessage}
+        {watchlistNotice && (
+          <div
+            className={
+              watchlistNotice.tone === 'success'
+                ? 'absolute right-6 top-6 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg'
+                : watchlistNotice.tone === 'warning'
+                  ? 'absolute right-6 top-6 z-40 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg'
+                  : 'absolute right-6 top-6 z-40 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-lg'
+            }
+          >
+            {watchlistNotice.text}
           </div>
         )}
 

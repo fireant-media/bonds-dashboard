@@ -134,10 +134,10 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
         <div className="mb-6">
           <div className="flex flex-col gap-8 lg:flex-row lg:gap-12">
             <div className="flex flex-col items-center gap-4">
-              <div className="relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border-base bg-bg-base/50 transition-colors sm:h-44 sm:w-44 lg:h-48 lg:w-48">
+              <div className="group relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border-base bg-bg-base/50 transition-colors sm:h-44 sm:w-44 lg:h-48 lg:w-48">
                 <User className="h-16 w-16 text-text-muted/40 sm:h-20 sm:w-20" />
                 {!isGoogleUser && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                     <Camera className="h-8 w-8 text-white" />
                   </div>
                 )}

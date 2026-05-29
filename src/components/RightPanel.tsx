@@ -7,7 +7,8 @@ import { formatInterestRate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
-import { loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
+import { loadIssuerProfile } from '../services/bondData';
+import { useMaturingBondsQuery, useNewsQuery } from '../query/dashboardQueries';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -27,8 +28,6 @@ interface RightPanelProps {
 }
 
 import { NewsItem } from '../types';
-
-import { fetchNewsData, getCachedNews, getNewsLastUpdate } from '../services/newsService';
 import { formatDate } from '../utils/format';
 
 function NewsThumbnail({ news }: { news: NewsItem }) {
@@ -110,10 +109,12 @@ export default function RightPanel({
   const isDark = effectiveTheme === 'dark';
   const [expiringBonds, setExpiringBonds] = useState<ExpiringBond[]>([]);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadingNews, setLoadingNews] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const expiringBondsQuery = useMaturingBondsQuery(3650);
+  const newsQuery = useNewsQuery(newsSymbol, isOpen);
   const formatDaysLeft = (daysLeft: number) => `${daysLeft} ${t('daysUnit')}`;
   const handlePanelTabClick = (tab: 'maturity' | 'news') => {
     if (isOpen && activePanelTab === tab) {
@@ -127,16 +128,6 @@ export default function RightPanel({
     }
   };
 
-  // Initialize from cache immediately
-  useEffect(() => {
-    const cached = getCachedNews(newsSymbol);
-    if (cached) {
-      setNewsList(cached);
-    } else {
-      setNewsList([]);
-    }
-  }, [newsSymbol]);
-
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(() => {
     try {
       const cached = localStorage.getItem('sentinel_cache_enterprise_names_en');
@@ -149,133 +140,111 @@ export default function RightPanel({
   });
 
   useEffect(() => {
-    const fetchNews = async (force = false) => {
-      // Cooldown check: Only fetch if forced or > 2 minutes since last update
-      const lastUpdate = getNewsLastUpdate(newsSymbol);
-      const now = Date.now();
-      if (!force && lastUpdate && now - lastUpdate < 120000) {
-        return;
-      }
-
-      // If we already have news, do a silent update (no loading spinner)
-      const hasExistingNews = newsList.length > 0;
-      if (!hasExistingNews) {
-        setLoadingNews(true);
-      }
-      
+    if (Array.isArray(newsQuery.data)) {
+      setNewsList(newsQuery.data);
       setNewsError(null);
-      try {
-        const data = await fetchNewsData(newsSymbol);
-        setNewsList(data);
-      } catch (err) {
-        console.error('Error fetching news:', err);
-        if (!hasExistingNews) {
-          setNewsError(t('newsError'));
-        }
-      } finally {
-        setLoadingNews(false);
+    }
+  }, [newsQuery.data]);
+
+  useEffect(() => {
+    if (newsQuery.error instanceof Error) {
+      setNewsError(newsQuery.error.message);
+    }
+  }, [newsQuery.error]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const interval = window.setInterval(() => {
+      void newsQuery.refetch();
+    }, 300000);
+
+    return () => window.clearInterval(interval);
+  }, [isOpen, newsQuery.refetch]);
+
+  useEffect(() => {
+    const data = Array.isArray(expiringBondsQuery.data) ? expiringBondsQuery.data : [];
+    const allBonds: any[] = [];
+    const seenCodes = new Set<string>();
+
+    for (const b of data) {
+      const bondCode = String(b.bondCode || '');
+      if (!bondCode || seenCodes.has(bondCode)) continue;
+      seenCodes.add(bondCode);
+      allBonds.push(b);
+    }
+
+    const mappedData = allBonds
+      .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
+      .slice(0, 10)
+      .map((b: any) => {
+        const bondCode = String(b.bondCode || '');
+        return {
+          id: bondCode,
+          code: bondCode,
+          ticker: b.issuerSymbol || bondCode.substring(0, 3),
+          maturityDate: b.maturityDate?.split('T')[0] || '',
+          interestRate: b.bondRate || b.interestRate || 0,
+          listedVolume: b.currentListedVolume || b.listedVolume || 0,
+          issuerName: b.issuerName,
+          term: (b.tenorPeriod || b.term) ? `${b.tenorPeriod || b.term} ${t('monthUnit')}` : 'N/A',
+          issueDate: (b.issueDate || b.releaseDate) ? (b.issueDate || b.releaseDate).split('T')[0] : 'N/A',
+          interestType: normalizeInterestType(
+            b.bondRateType || b.interestRateType || b.interestType || '',
+            b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+            []
+          ) || 'N/A'
+        } as ExpiringBond;
+      });
+
+    setExpiringBonds(mappedData);
+    setLoading(false);
+    setError(null);
+  }, [expiringBondsQuery.data, t]);
+
+  useEffect(() => {
+    if (expiringBonds.length === 0) return;
+
+    let cancelled = false;
+    const fetchNames = async () => {
+      const currentENNames = { ...enterpriseNamesEN };
+      const tickersToFetch = Array.from(
+        new Set(expiringBonds.map((bond) => bond.ticker).filter((ticker): ticker is string => Boolean(ticker && !currentENNames[ticker]))),
+      );
+
+      if (tickersToFetch.length === 0) return;
+
+      const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
+        const profile = await loadIssuerProfile(ticker);
+        return { ticker, name: profile?.internationalName || '' };
+      });
+
+      if (cancelled) return;
+
+      getFulfilledValues(results).forEach(({ ticker, name }) => {
+        if (name) currentENNames[ticker] = name;
+      });
+
+      if (results.some((result) => result.status === 'fulfilled' && result.value.name)) {
+        setEnterpriseNamesEN(currentENNames);
+        setExpiringBonds((prev) => prev.map((b) => {
+          if (b.ticker && currentENNames[b.ticker]) {
+            return { ...b, issuerName: currentENNames[b.ticker] };
+          }
+          return b;
+        }));
       }
     };
 
-    const fetchExpiringBonds = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await loadMaturingBonds(3650);
-        const allBonds: any[] = [];
-        const seenCodes = new Set<string>();
+    void fetchNames();
+    return () => {
+      cancelled = true;
+    };
+  }, [expiringBonds, enterpriseNamesEN]);
 
-        if (Array.isArray(data)) {
-          for (const b of data) {
-            const bondCode = String(b.bondCode || '');
-            if (!bondCode || seenCodes.has(bondCode)) {
-              continue;
-            }
-            seenCodes.add(bondCode);
-            allBonds.push(b);
-          }
-        }
-
-        // Sort all found bonds by maturity date and take top 10
-        const sortedBonds = allBonds
-          .sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime())
-          .slice(0, 10);
-
-        const mappedData: ExpiringBond[] = sortedBonds.map((b: any) => {
-          const bondCode = String(b.bondCode || '');
-          return {
-            id: bondCode,
-            code: bondCode,
-            ticker: b.issuerSymbol || bondCode.substring(0, 3),
-            maturityDate: b.maturityDate?.split('T')[0] || '',
-            interestRate: b.bondRate || b.interestRate || 0,
-            listedVolume: b.currentListedVolume || b.listedVolume || 0,
-            issuerName: b.issuerName,
-            term: (b.tenorPeriod || b.term) ? `${b.tenorPeriod || b.term} ${t('monthUnit')}` : 'N/A',
-            issueDate: (b.issueDate || b.releaseDate) ? (b.issueDate || b.releaseDate).split('T')[0] : 'N/A',
-            interestType: normalizeInterestType(
-              b.bondRateType || b.interestRateType || b.interestType || '',
-              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-              []
-            ) || 'N/A'
-          };
-        });
-
-      setExpiringBonds(mappedData);
-
-      // Background fetch for EN names
-      if (mappedData.length > 0) {
-        const fetchNames = async () => {
-          const currentENNames = { ...enterpriseNamesEN };
-          const tickersToFetch = Array.from(
-            new Set(mappedData.map((bond) => bond.ticker).filter((ticker): ticker is string => Boolean(ticker && !currentENNames[ticker])))
-          );
-
-          const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
-            const profile = await loadIssuerProfile(ticker);
-            return { ticker, name: profile?.internationalName || '' };
-          });
-
-          getFulfilledValues(results).forEach(({ ticker, name }) => {
-            if (name) currentENNames[ticker] = name;
-          });
-
-          if (results.some((result) => result.status === 'fulfilled' && result.value.name)) {
-            setEnterpriseNamesEN(currentENNames);
-            const cacheObj = { data: currentENNames, timestamp: Date.now() };
-            localStorage.setItem('sentinel_cache_enterprise_names_en', JSON.stringify(cacheObj));
-            
-            // Force update display names in RightPanel
-            setExpiringBonds(prev => prev.map(b => {
-              if (b.ticker && currentENNames[b.ticker]) {
-                return { ...b, issuerName: currentENNames[b.ticker] };
-              }
-              return b;
-            }));
-          }
-        };
-        fetchNames();
-      }
-    } catch (error) {
-      console.error('Error fetching expiring bonds:', error);
-      if (error instanceof Error && error.message.includes('401')) {
-        setError(t('tokenError401'));
-      } else {
-        setError(t('dataError'));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-    if (isOpen) {
-      fetchExpiringBonds();
-      fetchNews();
-
-      const newsInterval = setInterval(fetchNews, 300000); // 5 minutes
-      return () => clearInterval(newsInterval);
-    }
-  }, [isOpen, t, newsSymbol]);
+  useEffect(() => {
+    setLoadingNews(newsQuery.isFetching && newsList.length === 0);
+  }, [newsQuery.isFetching, newsList.length]);
 
   const calculateDaysLeft = (maturityDate: string) => {
     if (!maturityDate) return 0;
@@ -352,8 +321,8 @@ export default function RightPanel({
 
             {/* Expiring Bonds */}
             {activePanelTab === 'maturity' && <section>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-text-base uppercase tracking-wider flex items-center gap-2 transition-colors">
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border-base bg-surface-bright/95 py-3 backdrop-blur">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-text-base transition-colors">
                   {t('upcomingBonds')}
                 </h3>
               </div>
@@ -443,8 +412,8 @@ export default function RightPanel({
             </section>}
 
             {activePanelTab === 'news' && <section>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-text-base uppercase tracking-wider flex items-center gap-2 transition-colors">
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border-base bg-surface-bright/95 py-3 backdrop-blur">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-text-base transition-colors">
                   {t('relatedNews')}
                 </h3>
               </div>
