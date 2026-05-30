@@ -22,6 +22,109 @@ function normalizeText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeSymbolTag(value: unknown) {
+  const text = normalizeText(value).toUpperCase();
+  return /^[A-Z0-9._-]{2,16}$/.test(text) ? text : '';
+}
+
+function collectSymbolTags(value: unknown, tags: string[] = []) {
+  if (value === null || value === undefined) return tags;
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return tags;
+
+    if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+      try {
+        const parsed = JSON.parse(text);
+        return collectSymbolTags(parsed, tags);
+      } catch {
+        // Fall through to delimiter parsing.
+      }
+    }
+
+    const parts = text.includes(',') || text.includes('|') || text.includes(';') || text.includes('/')
+      ? text.split(/[\s,|;/]+/)
+      : [text];
+
+    for (const part of parts) {
+      const normalized = normalizeSymbolTag(part);
+      if (normalized && !tags.includes(normalized)) tags.push(normalized);
+    }
+
+    return tags;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectSymbolTags(item, tags);
+    }
+    return tags;
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keyCandidates = [
+      'symbol',
+      'code',
+      'ticker',
+      'tag',
+      'tagName',
+      'tagCode',
+      'value',
+      'text',
+      'name',
+      'displayName',
+      'label',
+      'stockCode',
+      'stockSymbol',
+      'symbolCode',
+      'symbolName',
+      'symbolValue',
+    ];
+    for (const key of keyCandidates) {
+      if (key in record) {
+        collectSymbolTags(record[key], tags);
+      }
+    }
+  }
+
+  return tags;
+}
+
+function extractTags(post: FireantPost) {
+  const candidates = [
+    post.tags,
+    post.postTags,
+    post.tag,
+    post.symbols,
+    post.stockSymbols,
+    post.stocks,
+    post.hashtags,
+    post.relatedSymbols,
+    post.metadata?.tags,
+    post.metadata?.symbols,
+    post.metadata?.stockSymbols,
+    post.info?.tags,
+    post.info?.symbols,
+    post.info?.stockSymbols,
+    post.symbolInfo,
+    post.symbolTags,
+    post.relatedTags,
+    post.postSource?.tags,
+    post.postSource?.symbols,
+    post.postSource?.stockSymbols,
+  ];
+
+  const tags: string[] = [];
+
+  for (const candidate of candidates) {
+    collectSymbolTags(candidate, tags);
+  }
+
+  return tags;
+}
+
 function slugify(value: string) {
   return value
     .normalize('NFD')
@@ -101,6 +204,7 @@ function mapPost(post: FireantPost, index: number) {
     url: buildPostUrl(post) || '',
     originalUrl: buildPostUrl(post),
     category: normalizeText(post.category?.name) || normalizeText(post.typeName) || 'Tin tuc',
+    tags: extractTags(post),
   };
 }
 
@@ -139,6 +243,17 @@ function extractPosts(data: unknown): FireantPost[] {
   const obj = data as Record<string, unknown>;
   for (const key of ['data', 'posts', 'items', 'records', 'list']) {
     if (Array.isArray(obj[key])) return obj[key] as FireantPost[];
+    if (obj[key] && typeof obj[key] === 'object') {
+      const nested = extractPosts(obj[key]);
+      if (nested.length > 0) return nested;
+    }
+  }
+
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object') {
+      const nested = extractPosts(value);
+      if (nested.length > 0) return nested;
+    }
   }
 
   return [];
@@ -200,6 +315,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let lastBodyType = 'empty';
     let lastError = '';
 
+    const mergedPosts: FireantPost[] = [];
+    const seenIds = new Set<string>();
+
     for (const url of urls) {
       try {
         const result = await fetchPosts(url, token);
@@ -208,19 +326,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const posts = extractPosts(result.data);
         if (result.ok && posts.length > 0) {
-          const mappedPosts = posts.map(mapPost);
-          if (postId) {
-            const matchedPost = mappedPosts.find((post) => post.id === postId);
-            if (matchedPost) return res.status(200).json(matchedPost);
-            continue;
+          for (const post of posts) {
+            const mapped = mapPost(post, mergedPosts.length);
+            const mappedId = String(mapped.id);
+            if (!seenIds.has(mappedId)) {
+              seenIds.add(mappedId);
+              mergedPosts.push(post);
+            }
           }
-
-          return res.status(200).json(mappedPosts);
         }
       } catch (error: any) {
         lastError = error?.message || 'Unknown fetch error';
         console.warn(`[News API] Failed to fetch ${new URL(url).hostname}: ${lastError}`);
       }
+    }
+
+    if (mergedPosts.length > 0) {
+      const mappedPosts = mergedPosts.map(mapPost);
+      if (postId) {
+        const matchedPost = mappedPosts.find((post) => post.id === postId);
+        if (matchedPost) return res.status(200).json(matchedPost);
+      }
+
+      return res.status(200).json(mappedPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }
 
     return res.status(postId ? 404 : 502).json({

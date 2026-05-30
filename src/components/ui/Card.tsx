@@ -39,3 +39,31 @@ export function MetricCard({ label, value, unit }: MetricCardProps) {
     </Card>
   );
 }
+
+export function MetricCardSkeleton() {
+  return (
+    <Card className="relative p-3">
+      <div className="absolute inset-x-0 top-0 h-1 bg-blue-500/20" />
+      <div className="flex min-h-28 animate-pulse flex-col items-center justify-between gap-3 text-center">
+        <div className="h-3 w-24 rounded-full bg-surface-container-low" />
+        <div className="h-8 w-32 rounded-full bg-surface-container-low" />
+        <div className="h-3 w-20 rounded-full bg-surface-container-low" />
+      </div>
+    </Card>
+  );
+}
+
+interface SectionCardSkeletonProps {
+  className?: string;
+}
+
+export function SectionCardSkeleton({ className }: SectionCardSkeletonProps) {
+  return (
+    <Card className={cn('p-3 md:p-4', className)}>
+      <div className="flex min-h-80 animate-pulse flex-col gap-4 md:min-h-96">
+        <div className="h-4 w-40 rounded-full bg-surface-container-low" />
+        <div className="flex-1 rounded-lg bg-surface-container-low" />
+      </div>
+    </Card>
+  );
+}

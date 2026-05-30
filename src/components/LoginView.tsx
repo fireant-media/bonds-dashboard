@@ -3,18 +3,16 @@ import { motion } from 'framer-motion';
 import ChartWithToolbar from './ChartWithToolbar';
 import {
   ArrowRight,
-  BarChart3,
   Building2,
   Clock3,
   Database,
+  FileSearch,
   Globe2,
   Landmark,
   LineChart,
   Languages,
   Moon,
-  ShieldCheck,
   Sun,
-  TrendingUp,
   Users,
   AlertCircle,
 } from 'lucide-react';
@@ -246,6 +244,25 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
   const billionVndUnit = t('unitBillionVND');
   const formatBillionVnd = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} ${billionVndUnit}`;
   const currentLanguageLabel = getCurrentLanguageLabel(language);
+  const whyTitle = t('loginWhyTitle');
+  const whyDescription = t('loginWhyDescription');
+  const featureCards = [
+    {
+      icon: LineChart,
+      title: t('loginWhyCard1Title'),
+      description: t('loginWhyCard1Desc'),
+    },
+    {
+      icon: Building2,
+      title: t('loginWhyCard2Title'),
+      description: t('loginWhyCard2Desc'),
+    },
+    {
+      icon: FileSearch,
+      title: t('loginWhyCard3Title'),
+      description: t('loginWhyCard3Desc'),
+    },
+  ];
   const loginCopy = language === 'vi'
     ? {
         errorTitle: 'Lỗi đăng nhập',
@@ -268,32 +285,12 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         totalIssuedLabel: 'Tổng giá trị phát hành',
         totalRemainingLabel: 'Tổng dư nợ còn lại',
         topIssuerTitle: 'Top doanh nghiệp dư nợ lớn nhất',
-        whyTitle: 'Tại Sao Chọn Fireant?',
-        whyDescription:
-          'Công cụ phân tích chuyên sâu và dữ liệu thị trường được thiết kế để bạn nhìn nhanh, hiểu nhanh và hành động nhanh.',
         loadingSnapshot: 'Đang chờ cache dữ liệu',
         unknownIndustry: 'Chưa xác định',
         debtSuffix: 'dư nợ',
         debtUnitSuffix: 'tỷ VND',
         maturityLabel: 'Đáo hạn 90 ngày',
         maturityDetail: 'Giám sát thanh khoản',
-        featureCards: [
-          {
-            icon: TrendingUp,
-            title: 'Phân tích chuyên sâu',
-            description: 'Phân tích dư nợ, lợi suất và quy mô phát hành theo thời gian thực trong một giao diện tập trung.',
-          },
-          {
-            icon: ShieldCheck,
-            title: 'Quản trị rủi ro',
-            description: 'Theo dõi áp lực đáo hạn và tín hiệu biến động để hỗ trợ quyết định nhanh hơn.',
-          },
-          {
-            icon: BarChart3,
-            title: 'Tích hợp API',
-            description: 'Kết nối dữ liệu thị trường, tổ chức phát hành và ngành trong một luồng hiển thị nhất quán.',
-          },
-        ],
       }
     : {
         errorTitle: 'Login error',
@@ -316,32 +313,12 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         totalIssuedLabel: 'Total issued value',
         totalRemainingLabel: 'Total remaining debt',
         topIssuerTitle: 'Top issuers by outstanding debt',
-        whyTitle: 'Why Choose Fireant?',
-        whyDescription:
-          'Deep analysis tools and market data designed so you can scan faster, understand faster, and act faster.',
         loadingSnapshot: 'Waiting for cached data',
         unknownIndustry: 'Unspecified',
         debtSuffix: 'outstanding debt',
         debtUnitSuffix: 'Billion VND',
         maturityLabel: '90-day maturity',
         maturityDetail: 'Liquidity monitoring',
-        featureCards: [
-          {
-            icon: TrendingUp,
-            title: 'Deep Analysis',
-            description: 'Analyze debt, yield, and issuance scale in real time within one focused interface.',
-          },
-          {
-            icon: ShieldCheck,
-            title: 'Risk Management',
-            description: 'Track maturity pressure and volatility signals to support faster decisions.',
-          },
-          {
-            icon: BarChart3,
-            title: 'API Integration',
-            description: 'Connect market data, issuers, and industry information in one consistent view.',
-          },
-        ],
       };
 
   useEffect(() => {
@@ -740,14 +717,14 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         <section id="solutions" className="-mt-8 border-t border-border-base bg-bg-surface py-16 lg:-mt-10">
           <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 xl:px-8">
             <div className="text-center">
-              <h2 className="text-3xl font-semibold text-text-base">{loginCopy.whyTitle}</h2>
+              <h2 className="text-3xl font-semibold text-text-base">{whyTitle}</h2>
               <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-text-muted">
-                {loginCopy.whyDescription}
+                {whyDescription}
               </p>
             </div>
 
             <div className="mt-2 grid gap-6 md:grid-cols-3">
-              {loginCopy.featureCards.map((card) => (
+              {featureCards.map((card) => (
                 <motion.div
                   key={card.title}
                   whileHover={{ y: -3 }}

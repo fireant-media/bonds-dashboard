@@ -4,7 +4,7 @@ const readViteEnv = (key: keyof ImportMetaEnv, fallback = "") => {
 };
 
 const getBrowserOrigin = () => {
-  if (typeof window !== "undefined" && window.location.origin) {
+  if (typeof window !== "undefined" && window.location.origin && window.location.origin !== "null") {
     return window.location.origin;
   }
 
@@ -40,3 +40,14 @@ export const TRADESTATION_BASE_URL = readViteEnv("VITE_TRADESTATION_BASE_URL", "
 export const FIREANT_AI_BASE_URL = readViteEnv("VITE_FIREANT_AI_BASE_URL", "https://openai.fireant.vn/v1");
 export const STATIC_FIREANT_URL = readViteEnv("VITE_STATIC_FIREANT_URL", "https://static.fireant.vn");
 export const APP_URL = getAppUrl();
+
+export const buildAppApiUrl = (path: string) => {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const browserOrigin = getBrowserOrigin().replace(/\/+$/, "");
+
+  if (!APP_URL || (browserOrigin && APP_URL === browserOrigin)) {
+    return normalizedPath;
+  }
+
+  return `${APP_URL}${normalizedPath}`;
+};

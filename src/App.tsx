@@ -10,6 +10,7 @@ import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
 import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
 import { fireantApi } from './api/fireant';
+import { buildAppApiUrl } from './api/config';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
 import { dashboardQueryClient } from './query/client';
 import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/dashboardQueries';
@@ -90,7 +91,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<'maturity' | 'news'>('maturity');
+  const [rightPanelTab, setRightPanelTab] = useState<'maturity' | 'news'>('news');
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
@@ -150,7 +151,7 @@ export default function App() {
       setIsMobileLayout(event.matches);
       if (event.matches) {
         setIsSidebarOpen(false);
-        setIsRightPanelOpen(false);
+        setIsRightPanelOpen(true);
       } else {
         setIsSidebarOpen(true);
         setIsRightPanelOpen(true);
@@ -257,13 +258,17 @@ export default function App() {
     if (authLoading) return;
 
     if (!user) {
-      fetch('/api/auth/logout', { method: 'POST' }).catch(console.error);
+      fetch(buildAppApiUrl('/api/auth/logout'), {
+        method: 'POST',
+        credentials: 'include',
+      }).catch(console.error);
       return;
     }
 
     const profile = (user.profile || {}) as Record<string, unknown>;
-    fetch('/api/auth/login', {
+    fetch(buildAppApiUrl('/api/auth/login'), {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userData: {

@@ -1,11 +1,12 @@
 import { NewsItem } from '../types';
+import { buildAppApiUrl } from '../api/config';
 import { cleanTokenString, getFireantToken } from '../utils/token';
 import { dashboardQueryClient } from '../query/client';
 import { newsQueryKeys } from '../query/keys';
 
-const NEWS_API_URL = '/api/news';
-const CACHE_KEY = 'fireant_news_cache_v8';
-const CACHE_TIME_KEY = 'fireant_news_last_update_v8';
+const NEWS_API_URL = buildAppApiUrl('/api/news');
+const CACHE_KEY = 'fireant_news_cache_v14';
+const CACHE_TIME_KEY = 'fireant_news_last_update_v14';
 const FIREANT_WEB_URL = 'https://fireant.vn';
 const STATIC_FIREANT_URL = 'https://static.fireant.vn';
 
@@ -115,6 +116,17 @@ const getNewsArray = (data: any): any[] => {
 
   for (const key of ['data', 'news', 'items', 'records', 'News', 'List', 'articles', 'posts', 'list']) {
     if (Array.isArray(data[key])) return data[key];
+    if (data[key] && typeof data[key] === 'object') {
+      const nested = getNewsArray(data[key]);
+      if (nested.length > 0) return nested;
+    }
+  }
+
+  for (const value of Object.values(data)) {
+    if (value && typeof value === 'object') {
+      const nested = getNewsArray(value);
+      if (nested.length > 0) return nested;
+    }
   }
 
   const firstArrayKey = Object.keys(data).find((key) => Array.isArray(data[key]));
@@ -178,8 +190,7 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
 
     if (!response.ok) {
       const cached = getCachedNews(normalizedSymbol);
-      if (cached) return cached;
-      return SEED_NEWS;
+      return cached || SEED_NEWS;
     }
 
     const text = await response.text();
@@ -187,8 +198,7 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
 
     if (trimmedText.toLowerCase().startsWith('<!doctype') || trimmedText.toLowerCase().startsWith('<html')) {
       const cached = getCachedNews(normalizedSymbol);
-      if (cached) return cached;
-      return SEED_NEWS;
+      return cached || SEED_NEWS;
     }
 
     let data: any;
@@ -196,19 +206,18 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
       data = JSON.parse(text);
     } catch {
       const cached = getCachedNews(normalizedSymbol);
-      if (cached) return cached;
-      return SEED_NEWS;
+      return cached || SEED_NEWS;
     }
 
     const newsArray = getNewsArray(data);
     if (newsArray.length === 0) {
-      return getCachedNews(normalizedSymbol) || [];
+      const cached = getCachedNews(normalizedSymbol);
+      return cached || [];
     }
 
     const mappedNews = newsArray
       .map(mapNewsItem)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
     localStorage.setItem(getCacheKey(normalizedSymbol), JSON.stringify(mappedNews));
     localStorage.setItem(getCacheTimeKey(normalizedSymbol), Date.now().toString());
     dashboardQueryClient.setQueryData(queryKey, mappedNews);
@@ -224,6 +233,7 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
       dashboardQueryClient.setQueryData(queryKey, cached);
       return cached;
     }
+
     return SEED_NEWS;
   }
 };
@@ -233,13 +243,15 @@ export const getCachedNews = (symbol?: string | null): NewsItem[] | null => {
   if (!cached) return null;
 
   try {
-    return JSON.parse(cached);
+    const parsed = JSON.parse(cached);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
   } catch {
     return null;
   }
 };
 
 export const getNewsLastUpdate = (symbol?: string | null): number | null => {
+  if (!getCachedNews(symbol)) return null;
   const time = localStorage.getItem(getCacheTimeKey(symbol));
   return time ? parseInt(time) : null;
 };

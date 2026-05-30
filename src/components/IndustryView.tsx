@@ -1,7 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import ChartWithToolbar from './ChartWithToolbar';
 import { IndustryType } from '../types';
-import { TrendingUp, Activity, PieChart, BarChart3, Info } from 'lucide-react';
 import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 
@@ -9,14 +8,14 @@ interface IndustryViewProps {
   industry: IndustryType;
 }
 
-import { Settings } from 'lucide-react';
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
-import { MetricCard } from './ui/Card';
-import { useIndustryDashboardQuery } from '../query/dashboardQueries';
+import { MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
+import { useIndustryBaseDashboardQuery, useIndustryFullDashboardQuery } from '../query/dashboardQueries';
+import { useVisibleOnce } from '../hooks/useVisibleOnce';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -42,161 +41,28 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const isDark = effectiveTheme === 'dark';
   const chartTheme = getChartTheme(isDark);
   const cacheKey = `industry_bond_group_v10_${industry}`;
+  const baseCacheKey = `industry_bond_base_v9_${industry}`;
   const statsCacheKey = `industry_stats_api_v5_${industry}`;
   const cachedData = getCache(cacheKey);
+  const cachedBaseData = getCache(baseCacheKey);
   const cachedStats = getCache(statsCacheKey);
-  const industryDashboardQuery = useIndustryDashboardQuery(industry);
   const meaningfulCachedData = hasMeaningfulIndustryData(cachedData) ? cachedData : null;
-  const meaningfulQueryData = hasMeaningfulIndustryData(industryDashboardQuery.data) ? industryDashboardQuery.data : null;
-  const [industryStats, setIndustryStats] = useState<any>(cachedStats || meaningfulCachedData?.industryStats || null);
-  const [rankingData, setRankingData] = useState<any[]>(meaningfulCachedData?.issuerSummaries || meaningfulCachedData?.rankingData || []);
-  const [industryBonds, setIndustryBonds] = useState<any[]>(meaningfulCachedData?.bonds || []);
+  const meaningfulCachedBaseData = hasMeaningfulIndustryData(cachedBaseData) ? cachedBaseData : meaningfulCachedData;
+  const cachedProjectedCashFlows = meaningfulCachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {};
+  const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
+  const shouldLoadFullIndustryData = projectedCashFlowSectionVisible || Object.keys(cachedProjectedCashFlows).length > 0;
+  const industryBaseQuery = useIndustryBaseDashboardQuery(industry);
+  const industryFullQuery = useIndustryFullDashboardQuery(industry, shouldLoadFullIndustryData);
+  const meaningfulBaseQueryData = hasMeaningfulIndustryData(industryBaseQuery.data) ? industryBaseQuery.data : null;
+  const meaningfulFullQueryData = hasMeaningfulIndustryData(industryFullQuery.data) ? industryFullQuery.data : null;
+  const basePayload = meaningfulBaseQueryData || meaningfulCachedBaseData;
+  const fullPayload = meaningfulFullQueryData || meaningfulCachedData;
+  const industryStats = cachedStats || fullPayload?.industryStats || basePayload?.industryStats || null;
+  const rankingData = fullPayload?.issuerSummaries || fullPayload?.rankingData || basePayload?.issuerSummaries || basePayload?.rankingData || [];
+  const industryBonds = fullPayload?.bonds || basePayload?.bonds || [];
   const [financialChildSymbols, setFinancialChildSymbols] = useState<Set<string> | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
-  const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(
-    meaningfulCachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {}
-  );
-  const [loadingCashFlows, setLoadingCashFlows] = useState(!meaningfulCachedData);
-  const [loading, setLoading] = useState(!meaningfulCachedData && !cachedStats);
-  const [error, setError] = useState<string | null>(null);
-  const forcedRefetchRef = useRef<string | null>(null);
-  const currentIndustryStateSignatureRef = useRef('');
-  const lastAppliedIndustryPayloadRef = useRef('');
-
-  const serializeIndustryStats = (stats: any) => ([
-    Number(stats?.bondCount || 0),
-    Number(stats?.totalIssuedVolume || 0),
-    Number(stats?.totalIssuedValue || 0),
-    Number(stats?.totalCurrentListedVolume || 0),
-    Number(stats?.totalCurrentListedValue || 0),
-    Number(stats?.totalDebtFull || 0),
-    Number(stats?.totalRemainingDebt || 0),
-    Number(stats?.avgRate || 0),
-    Number(stats?.avgCouponRate || 0),
-    Number(stats?.floatingRate || 0),
-  ].join(':'));
-
-  const serializeRankingItem = (item: any) => ([
-    String(item?.issuerSymbol || ''),
-    String(item?.issuerName || ''),
-    Number(item?.totalIssuedValue || 0),
-    Number(item?.totalRemainingDebt || 0),
-    Number(item?.totalDebtFull || 0),
-    Number(item?.totalIssuedVolume || 0),
-    Number(item?.totalCurrentListedValue || 0),
-    Number(item?.totalCurrentListedVolume || 0),
-    Number(item?.bondCount || 0),
-  ].join(':'));
-
-  const serializeIndustryBond = (bond: any) => {
-    const cashFlowSignature = Array.isArray(bond?.cashFlows)
-      ? bond.cashFlows.map((cashFlow: any) => ([
-          String(cashFlow?.paymentDate || ''),
-          Number(cashFlow?.interestAmount || 0),
-          Number(cashFlow?.principalAmount || 0),
-        ].join(':'))).join(',')
-      : '';
-
-    return [
-      String(bond?.bondCode || bond?.code || ''),
-      String(bond?.issuerSymbol || bond?.infoObj?.issuerSymbol || ''),
-      String(bond?.maturityDate || ''),
-      String(bond?.paymentDate || ''),
-      Number(bond?.totalIssuedValue || 0),
-      Number(bond?.currentListedValue || 0),
-      Number(bond?.totalRemainingDebt || 0),
-      cashFlowSignature,
-    ].join(':');
-  };
-
-  const serializeProjectedCashFlowBuckets = (buckets: Record<string, ProjectedCashFlowBucket>) => (
-    Object.entries(buckets)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => ([
-        key,
-        String(value?.label || ''),
-        Number(value?.interest || 0),
-        Number(value?.principal || 0),
-      ].join(':')))
-      .join('|')
-  );
-
-  const getIndustryStateSignature = (
-    stats: any,
-    ranking: any[],
-    bonds: any[],
-    buckets: Record<string, ProjectedCashFlowBucket>,
-  ) => ([
-    industry,
-    serializeIndustryStats(stats),
-    ranking.map(serializeRankingItem).join('|'),
-    bonds.map(serializeIndustryBond).join('|'),
-    serializeProjectedCashFlowBuckets(buckets),
-  ].join('||'));
-
-  const getIndustryPayloadSections = (payload: any, statsOverride?: any) => {
-    const nextStats = statsOverride || payload?.industryStats || null;
-    const nextRanking = payload?.issuerSummaries || payload?.rankingData || [];
-    const nextBonds = payload?.bonds || [];
-    const nextProjectedBuckets = payload?.projectedCashFlowBuckets || {};
-
-    return {
-      stats: nextStats,
-      ranking: Array.isArray(nextRanking) ? nextRanking : [],
-      bonds: Array.isArray(nextBonds) ? nextBonds : [],
-      projectedBuckets: nextProjectedBuckets && typeof nextProjectedBuckets === 'object' ? nextProjectedBuckets : {},
-    };
-  };
-
-  const applyIndustryPayload = (payload: any, statsOverride?: any) => {
-    const {
-      stats,
-      ranking,
-      bonds,
-      projectedBuckets,
-    } = getIndustryPayloadSections(payload, statsOverride);
-
-    setIndustryStats(stats);
-    setRankingData(ranking);
-    setIndustryBonds(bonds);
-    setProjectedCashFlowBuckets(projectedBuckets);
-  };
-
-  useEffect(() => {
-    currentIndustryStateSignatureRef.current = getIndustryStateSignature(
-      industryStats,
-      rankingData,
-      industryBonds,
-      projectedCashFlowBuckets,
-    );
-  }, [industry, industryBonds, industryStats, projectedCashFlowBuckets, rankingData]);
-
-  useEffect(() => {
-    const nextCachedData = meaningfulQueryData || meaningfulCachedData;
-    const nextCachedStats = getCache(statsCacheKey);
-    const {
-      stats,
-      ranking,
-      bonds,
-      projectedBuckets,
-    } = getIndustryPayloadSections(nextCachedData, nextCachedStats);
-    const nextSignature = getIndustryStateSignature(stats, ranking, bonds, projectedBuckets);
-
-    setCashFlowPeriod('year');
-
-    if (currentIndustryStateSignatureRef.current !== nextSignature) {
-      applyIndustryPayload(nextCachedData, nextCachedStats);
-      lastAppliedIndustryPayloadRef.current = nextSignature;
-    }
-
-    setLoading(!nextCachedData && !nextCachedStats && industryDashboardQuery.isLoading);
-    setLoadingCashFlows(!nextCachedData);
-
-    if (!nextCachedData && !industryDashboardQuery.isFetching && forcedRefetchRef.current !== industry) {
-      forcedRefetchRef.current = industry;
-      void industryDashboardQuery.refetch();
-    }
-  }, [industry, statsCacheKey, meaningfulCachedData, meaningfulQueryData, industryDashboardQuery.isFetching, industryDashboardQuery.isLoading]);
+  const projectedCashFlowBuckets = fullPayload?.projectedCashFlowBuckets || cachedProjectedCashFlows;
 
   useEffect(() => {
     let cancelled = false;
@@ -247,6 +113,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     });
   }, [industry, financialChildSymbols, industryBonds]);
 
+  const deferredRankingData = useDeferredValue(visibleRankingData);
+  const deferredIndustryBonds = useDeferredValue(visibleIndustryBonds);
+
   const visibleProjectedCashFlowBuckets = useMemo(() => {
     const buckets = new Map<string, ProjectedCashFlowBucket>();
 
@@ -266,7 +135,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       return buckets.get(bucketKey)!;
     };
 
-    visibleIndustryBonds.forEach((bond) => {
+    deferredIndustryBonds.forEach((bond) => {
       if (Array.isArray(bond.cashFlows) && bond.cashFlows.length > 0) {
         bond.cashFlows.forEach((cashFlow: any) => {
           if (!cashFlow?.paymentDate) return;
@@ -289,50 +158,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     });
 
     return Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
-  }, [cashFlowPeriod, visibleIndustryBonds]);
-
-  useEffect(() => {
-    const payload = meaningfulQueryData || meaningfulCachedData;
-    const cachedIndustryStats = getCache(statsCacheKey);
-
-    if (payload) {
-      const {
-        stats,
-        ranking,
-        bonds,
-        projectedBuckets,
-      } = getIndustryPayloadSections(payload, cachedIndustryStats);
-      const payloadSignature = getIndustryStateSignature(stats, ranking, bonds, projectedBuckets);
-      const shouldApplyPayload = (
-        currentIndustryStateSignatureRef.current !== payloadSignature
-        && lastAppliedIndustryPayloadRef.current !== payloadSignature
-      );
-
-      if (shouldApplyPayload) {
-        applyIndustryPayload(payload, cachedIndustryStats);
-      }
-
-      lastAppliedIndustryPayloadRef.current = payloadSignature;
-      setLoading(false);
-      setLoadingCashFlows(false);
-      setError(null);
-      return;
-    }
-
-    if (industryDashboardQuery.isError) {
-      const queryError = industryDashboardQuery.error;
-      console.error('Error fetching industry data:', queryError);
-      if (queryError instanceof Error && queryError.message.includes('401')) {
-        setError(t('tokenError401'));
-      } else if (!cachedData && !cachedStats) {
-      setError(queryError instanceof Error ? queryError.message : t('error'));
-      }
-      setLoading(false);
-      setLoadingCashFlows(false);
-    }
-  }, [industryDashboardQuery.data, industryDashboardQuery.error, industryDashboardQuery.isError, statsCacheKey, meaningfulCachedData, meaningfulQueryData, cachedStats, t]);
-
-  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  }, [cashFlowPeriod, deferredIndustryBonds]);
 
   const getIndustryLabel = (ind: string) => {
     const labelKey = INDUSTRY_LABEL_KEYS[ind];
@@ -447,8 +273,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const kpis = getKpis();
   const rankingDataViewRows = useMemo(() => (
     (() => {
-      const totalRemainingDebt = visibleRankingData.reduce((sum, current) => sum + (current.totalRemainingDebt || 0), 0);
-      return [...visibleRankingData]
+      const totalRemainingDebt = deferredRankingData.reduce((sum, current) => sum + (current.totalRemainingDebt || 0), 0);
+      return [...deferredRankingData]
         .filter((item) => item.totalRemainingDebt > 0)
         .sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt)
         .map((item) => [
@@ -457,10 +283,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           totalRemainingDebt > 0 ? (item.totalRemainingDebt / totalRemainingDebt) * 100 : 0,
         ]);
     })()
-  ), [visibleRankingData]);
+  ), [deferredRankingData]);
   const issuedValueDataViewRows = useMemo(() => {
-    const totalIssuedValue = visibleRankingData.reduce((sum, item) => sum + (item.totalIssuedValue || 0), 0);
-    return [...visibleRankingData]
+    const totalIssuedValue = deferredRankingData.reduce((sum, item) => sum + (item.totalIssuedValue || 0), 0);
+    return [...deferredRankingData]
       .filter((item) => item.totalIssuedValue > 0)
       .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
       .map((item) => [
@@ -468,21 +294,21 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         item.totalIssuedValue / 1000000000,
         totalIssuedValue > 0 ? (item.totalIssuedValue / totalIssuedValue) * 100 : 0,
       ]);
-  }, [visibleRankingData]);
+  }, [deferredRankingData]);
   const combinedDataViewRows = useMemo(() => {
-    return [...visibleRankingData]
+    return [...deferredRankingData]
       .sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt)
       .map((item) => [
         item.issuerSymbol,
         item.totalRemainingDebt / 1000000000,
         item.bondCount,
       ]);
-  }, [visibleRankingData]);
+  }, [deferredRankingData]);
 
   const getRankingOptions = () => {
-    const displayData = [...visibleRankingData].reverse();
+    const displayData = [...deferredRankingData].reverse();
     const categoryCount = displayData.length;
-    const maxDebt = visibleRankingData.length > 0 ? Math.max(...visibleRankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
+    const maxDebt = deferredRankingData.length > 0 ? Math.max(...deferredRankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
     const interval = (industry === 'Banking' || industry === 'RealEstate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
 
     return {
@@ -498,7 +324,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           const symbol = params[0].name;
-          const issuer = visibleRankingData.find(d => d.issuerSymbol === symbol);
+          const issuer = deferredRankingData.find(d => d.issuerSymbol === symbol);
           const displayName = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
           return `${displayName}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 0), ` ${t('unitBillionVND')}`)}`;
         }
@@ -533,13 +359,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const rankingOptions = getRankingOptions();
 
   const getMarketShareOptions = () => {
-    const hasData = visibleRankingData.length > 0;
+    const hasData = deferredRankingData.length > 0;
     let chartData: { value: number; name: string; itemStyle: { color: string } }[] = [];
-    const totalRemainingDebt = visibleRankingData.reduce((sum, item) => sum + (item.totalRemainingDebt || 0), 0);
+    const totalRemainingDebt = deferredRankingData.reduce((sum, item) => sum + (item.totalRemainingDebt || 0), 0);
 
     if (hasData) {
       const totalDebt = totalRemainingDebt;
-      const top9 = visibleRankingData.slice(0, 9);
+      const top9 = deferredRankingData.slice(0, 9);
       const top9Debt = top9.reduce((sum, item) => sum + item.totalRemainingDebt, 0);
       const othersDebt = totalDebt - top9Debt;
 
@@ -616,7 +442,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           const symbol = params.name;
-          const issuer = visibleRankingData.find(d => d.issuerSymbol === symbol);
+          const issuer = deferredRankingData.find(d => d.issuerSymbol === symbol);
           const displayName = (symbol === t('others')) ? t('others') : (issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol);
           return `${displayName}<br/>${t('marketShare')}: ${highlightChartTooltipValue(params.percent, '%')}<br/>${t('remainingDebtTitle')}: ${highlightChartTooltipValue(formatNumber(Math.round(params.value / 1000000000), 0), ` ${t('unitBillionVND')}`)}`;
         }
@@ -702,9 +528,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const interestOptions = getInterestOptions();
 
   const issuedValueTreemapData = useMemo(() => {
-    const totalIssuedValue = visibleRankingData.reduce((sum, item) => sum + (item.totalIssuedValue || 0), 0);
+    const totalIssuedValue = deferredRankingData.reduce((sum, item) => sum + (item.totalIssuedValue || 0), 0);
 
-    return [...visibleRankingData]
+    return [...deferredRankingData]
       .filter((item) => item.totalIssuedValue > 0)
       .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
       .map((item, index) => ({
@@ -719,7 +545,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           color: chartPalette[index % chartPalette.length],
         },
       }));
-  }, [visibleRankingData, chartPalette, t]);
+  }, [deferredRankingData, chartPalette, t]);
 
   const buildTreemapZoomLabel = (params: any) => {
     const data = params?.data || {};
@@ -803,7 +629,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const issuedValueTreemapOptions = getIssuedValueTreemapOptions();
 
   const getCombinedOptions = () => {
-    const displayData = visibleRankingData;
+    const displayData = deferredRankingData;
     const categoryCount = displayData.length;
 
     return {
@@ -824,7 +650,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           const symbol = params[0].name;
-          const issuer = visibleRankingData.find(d => d.issuerSymbol === symbol);
+          const issuer = deferredRankingData.find(d => d.issuerSymbol === symbol);
           let res = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
           params.forEach((p: any) => {
             res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), p.seriesName === t('remainingDebtTitle') ? ` ${t('unitBillionVND')}` : '')}`;
@@ -997,16 +823,21 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     ]
   };
 
-  if (loading && !industryStats) {
-    return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <p className="text-text-muted font-medium">{t('loadingIndustryData')} {getIndustryLabel(industry)}...</p>
-      </div>
-    );
-  }
+  const hasAnyIndustryData = Boolean(industryStats) || rankingData.length > 0 || industryBonds.length > 0;
+  const industryError = !hasAnyIndustryData
+    ? [industryBaseQuery.error, industryFullQuery.error].find(Boolean)
+    : null;
+  const errorMessage = industryError instanceof Error
+    ? (industryError.message.includes('401') ? t('tokenError401') : industryError.message)
+    : industryError
+      ? t('error')
+      : null;
+  const isIndustrySummaryLoading = !industryStats && industryBaseQuery.isLoading;
+  const isIndustryChartsLoading = rankingData.length === 0 && industryBaseQuery.isLoading;
+  const isIndustryCashFlowPending = !projectedCashFlowSectionVisible && Object.keys(projectedCashFlowBuckets).length === 0;
+  const isIndustryCashFlowLoading = projectedCashFlowSectionVisible && industryFullQuery.isFetching && !hasProjectedCashFlowData;
 
-  if (error) {
+  if (errorMessage && !hasAnyIndustryData) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
@@ -1015,7 +846,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </svg>
         </div>
         <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
-        <p className="text-text-muted max-w-md">{error}</p>
+        <p className="text-text-muted max-w-md">{errorMessage}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
@@ -1036,78 +867,92 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {kpis.map((kpi, idx) => (
-          <MetricCard key={idx} label={kpi.label} value={kpi.value} unit={kpi.unit} />
-        ))}
+        {isIndustrySummaryLoading
+          ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
+          : kpis.map((kpi, idx) => (
+            <MetricCard key={idx} label={kpi.label} value={kpi.value} unit={kpi.unit} />
+          ))}
       </div>
 
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {/* Ranking - Double Height */}
-        <div 
-          className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
-        >
-          <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-            <ChartWithToolbar option={rankingOptions} style={{ height: '100%', width: '100%' }} title={t('debtRanking')} />
+        {isIndustryChartsLoading ? (
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        ) : (
+          <div 
+            className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
+          >
+            <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
+              <ChartWithToolbar option={rankingOptions} style={{ height: '100%', width: '100%' }} title={t('debtRanking')} />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="col-span-12 flex flex-col gap-3 lg:col-span-6">
           {/* Market Share */}
-          <div 
-            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
-          >
-            <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-              <ChartWithToolbar
-                option={marketShareOptions}
-                style={{ height: '100%', width: '100%' }}
-                title={t('marketShare')}
-                zoomConfig={{
-                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                  chartStyle: { height: '100%', width: '100%' },
-                  option: {
-                    series: [
-                      {
-                        center: ['33%', '50%'],
-                        radius: ['42%', '72%'],
-                        label: {
-                          show: true,
-                          position: 'outside',
-                          formatter: '{d}%',
-                          color: isDark ? '#e5e7eb' : '#1e293b',
-                          fontSize: 11,
-                          fontWeight: 'bold',
-                        },
-                        labelLine: {
-                          show: true,
-                          length: 12,
-                          length2: 10,
-                          smooth: true,
-                        },
-                        emphasis: {
+          {isIndustryChartsLoading ? (
+            <SectionCardSkeleton className="flex-1" />
+          ) : (
+            <div 
+              className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
+            >
+              <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
+                <ChartWithToolbar
+                  option={marketShareOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  title={t('marketShare')}
+                  zoomConfig={{
+                    shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                    chartStyle: { height: '100%', width: '100%' },
+                    option: {
+                      series: [
+                        {
+                          center: ['33%', '50%'],
+                          radius: ['42%', '72%'],
                           label: {
                             show: true,
-                            fontSize: 12,
-                            fontWeight: 'bold',
+                            position: 'outside',
                             formatter: '{d}%',
                             color: isDark ? '#e5e7eb' : '#1e293b',
-                          }
+                            fontSize: 11,
+                            fontWeight: 'bold',
+                          },
+                          labelLine: {
+                            show: true,
+                            length: 12,
+                            length2: 10,
+                            smooth: true,
+                          },
+                          emphasis: {
+                            label: {
+                              show: true,
+                              fontSize: 12,
+                              fontWeight: 'bold',
+                              formatter: '{d}%',
+                              color: isDark ? '#e5e7eb' : '#1e293b',
+                            }
+                          },
                         },
-                      },
-                    ],
-                  },
-                }}
-              />
+                      ],
+                    },
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Interest Rates */}
-          <div 
-            className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
-          >
-            <div className="min-h-72 flex-1 overflow-hidden md:min-h-80">
-              <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
+          {isIndustryChartsLoading ? (
+            <SectionCardSkeleton className="flex-1" />
+          ) : (
+            <div 
+              className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
+            >
+              <div className="min-h-72 flex-1 overflow-hidden md:min-h-80">
+                <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
@@ -1182,8 +1027,12 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </div>
         </div>
 
-        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-          {loadingCashFlows && !hasProjectedCashFlowData ? (
+        <div ref={projectedCashFlowSectionRef} className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+          {isIndustryCashFlowPending ? (
+            <div className="min-h-80">
+              <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
+            </div>
+          ) : isIndustryCashFlowLoading ? (
             <div className="flex min-h-80 flex-col items-center justify-center gap-3">
               <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
               <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>

@@ -1,6 +1,6 @@
 import ChartWithToolbar from './ChartWithToolbar';
 import ReactECharts from 'echarts-for-react';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
@@ -19,7 +19,7 @@ interface TopInterestBond {
 
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { Card, MetricCard } from './ui/Card';
+import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
 import { CHART_PALETTE, applyChartTheme, downloadChartImage, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
@@ -32,7 +32,12 @@ import {
   type TopDebtIssuer,
 } from '../services/marketOverviewData';
 import { loadIssuerStatsSummary } from '../services/industryBondData';
-import { useMarketOverviewQuery } from '../query/dashboardQueries';
+import {
+  useMarketOverviewIndustryDataQuery,
+  useMarketOverviewIssuerStatsQuery,
+  useMarketOverviewTopInterestQuery,
+} from '../query/dashboardQueries';
+import { useVisibleOnce } from '../hooks/useVisibleOnce';
 
 export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
@@ -44,7 +49,9 @@ export default function MarketOverview() {
   const cachedIndustryData = getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
   const cachedTopInterestData = getCache('market_top_interest_bonds') || getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY);
   const cachedProjectedCashFlows = getCache('market_projected_cash_flows') || {};
-  const marketOverviewQuery = useMarketOverviewQuery();
+  const issuerStatsQuery = useMarketOverviewIssuerStatsQuery();
+  const topInterestQuery = useMarketOverviewTopInterestQuery();
+  const industryDataQuery = useMarketOverviewIndustryDataQuery();
   const hasSeedData = Boolean(
     (Array.isArray(cachedIssuerStats) && cachedIssuerStats.length > 0)
     || (Array.isArray(cachedIndustryData) && cachedIndustryData.length > 0)
@@ -69,16 +76,9 @@ export default function MarketOverview() {
   const [showTopIssuerZoom, setShowTopIssuerZoom] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(cachedProjectedCashFlows);
-  const [loadingCashFlows, setLoadingCashFlows] = useState(
-    Object.keys(cachedProjectedCashFlows).length === 0
-    && Array.isArray(cachedIssuerStats)
-    && cachedIssuerStats.length > 0
-  );
-  const [loading, setLoading] = useState(!hasSeedData);
-  const [error, setError] = useState<string | null>(null);
+  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const topIssuerChartRef = useRef<any>(null);
-  const lastAppliedOverviewPayloadRef = useRef('');
-  const currentOverviewStateSignatureRef = useRef('');
+  const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
 
   // Common styles for consistency
   const chartColors = {
@@ -228,8 +228,12 @@ export default function MarketOverview() {
     };
   };
 
+  const deferredIssuerStatsData = useDeferredValue(issuerStatsData);
+  const deferredTopInterestData = useDeferredValue(topInterestData);
+  const deferredIndustryData = useDeferredValue(industryData);
+
   const marketKpis = useMemo(() => {
-    return industryData.reduce(
+    return deferredIndustryData.reduce(
       (totals, industry) => ({
         bondCount: totals.bondCount + toNumber(industry.bondCount),
         issuedVolume: totals.issuedVolume + toNumber(industry.totalIssuedVolume),
@@ -243,7 +247,7 @@ export default function MarketOverview() {
         remainingDebt: 0,
       }
     );
-  }, [industryData]);
+  }, [deferredIndustryData]);
 
   const kpiCards = [
     {
@@ -268,57 +272,42 @@ export default function MarketOverview() {
     }
   ];
 
-  const applyOverviewPayload = (payload: any) => {
-    const { issuers, topInterest, industries } = getOverviewPayloadSections(payload);
+  useEffect(() => {
+    const nextIssuers = Array.isArray(issuerStatsQuery.data) ? issuerStatsQuery.data : [];
+    if (nextIssuers.length === 0) return;
 
-    setIssuerStatsData(issuers);
-    setTopInterestData(topInterest);
-    setIndustryData(industries);
-    setCache('top_debt_200', issuers);
-    if (issuers.length > 0 && Object.keys(getCache('market_projected_cash_flows') || {}).length === 0) {
-      setLoadingCashFlows(true);
-    }
-  };
+    setIssuerStatsData((previous) => {
+      const previousSignature = previous.map(serializeIssuerSummary).join('|');
+      const nextSignature = nextIssuers.map(serializeIssuerSummary).join('|');
+      return previousSignature === nextSignature ? previous : nextIssuers;
+    });
+    setCache('top_debt_200', nextIssuers);
+    setCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY, nextIssuers);
+  }, [issuerStatsQuery.data]);
 
   useEffect(() => {
-    currentOverviewStateSignatureRef.current = getOverviewStateSignature(
-      issuerStatsData,
-      topInterestData,
-      industryData,
-    );
-  }, [industryData, issuerStatsData, topInterestData]);
+    const nextTopInterest = Array.isArray(topInterestQuery.data) ? topInterestQuery.data : [];
+    if (nextTopInterest.length === 0) return;
+
+    setTopInterestData((previous) => {
+      const previousSignature = previous.map(serializeTopInterestBond).join('|');
+      const nextSignature = nextTopInterest.map(serializeTopInterestBond).join('|');
+      return previousSignature === nextSignature ? previous : nextTopInterest;
+    });
+    setCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY, nextTopInterest);
+  }, [topInterestQuery.data]);
 
   useEffect(() => {
-    const payload = marketOverviewQuery.data;
-    if (payload) {
-      const { issuers, topInterest, industries } = getOverviewPayloadSections(payload);
-      const payloadSignature = getOverviewStateSignature(issuers, topInterest, industries);
-      const shouldApplyPayload = (
-        currentOverviewStateSignatureRef.current !== payloadSignature
-        && lastAppliedOverviewPayloadRef.current !== payloadSignature
-      );
+    const nextIndustryData = Array.isArray(industryDataQuery.data) ? industryDataQuery.data : [];
+    if (nextIndustryData.length === 0) return;
 
-      if (shouldApplyPayload) {
-        applyOverviewPayload(payload);
-      }
-
-      lastAppliedOverviewPayloadRef.current = payloadSignature;
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    if (marketOverviewQuery.isError) {
-      const queryError = marketOverviewQuery.error;
-      console.error('Error fetching market data:', queryError);
-      if (queryError instanceof Error && queryError.message.includes('401')) {
-        setError(t('tokenError401'));
-      } else if (!hasSeedData) {
-        setError(queryError instanceof Error ? queryError.message : t('error'));
-      }
-      setLoading(false);
-    }
-  }, [marketOverviewQuery.data, marketOverviewQuery.error, marketOverviewQuery.isError, hasSeedData, t]);
+    setIndustryData((previous) => {
+      const previousSignature = previous.map(serializeIndustrySummary).join('|');
+      const nextSignature = nextIndustryData.map(serializeIndustrySummary).join('|');
+      return previousSignature === nextSignature ? previous : nextIndustryData;
+    });
+    setCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY, nextIndustryData);
+  }, [industryDataQuery.data]);
 
   const refreshTopIssuerChart = async (metric: 'remainingDebt' | 'issuedValue') => {
     setLoadingTopIssuerChart(true);
@@ -376,6 +365,7 @@ export default function MarketOverview() {
   };
 
   useEffect(() => {
+    if (!projectedCashFlowSectionVisible && Object.keys(projectedCashFlowBuckets).length === 0) return;
     if (!issuerStatsData.length) return;
 
     let isMounted = true;
@@ -483,10 +473,10 @@ export default function MarketOverview() {
       }
     };
 
-    fetchProjectedCashFlows();
+    void fetchProjectedCashFlows();
 
     return () => { isMounted = false; };
-  }, [issuerStatsData]);
+  }, [issuerStatsData, projectedCashFlowBuckets, projectedCashFlowSectionVisible]);
 
   const projectedCashFlowData = useMemo(() => {
     const buckets = new Map<string, ProjectedCashFlowBucket>();
@@ -519,18 +509,18 @@ export default function MarketOverview() {
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
 
   const topDebtData = useMemo(
-    () => getTopIssuerChartData(issuerStatsData, 'remainingDebt'),
-    [issuerStatsData]
+    () => getTopIssuerChartData(deferredIssuerStatsData, 'remainingDebt'),
+    [deferredIssuerStatsData]
   );
 
   const topIssuerDisplayData = useMemo(
-    () => getTopIssuerChartData(issuerStatsData, topIssuerMetric),
-    [issuerStatsData, topIssuerMetric]
+    () => getTopIssuerChartData(deferredIssuerStatsData, topIssuerMetric),
+    [deferredIssuerStatsData, topIssuerMetric]
   );
 
   const topInterestChartData = useMemo(
-    () => getTopInterestChartData(topInterestData as TopInterestBond[], topInterestMetric),
-    [topInterestData, topInterestMetric]
+    () => getTopInterestChartData(deferredTopInterestData as TopInterestBond[], topInterestMetric),
+    [deferredTopInterestData, topInterestMetric]
   );
 
   const topIssuerDataViewRows = useMemo(() => {
@@ -587,15 +577,16 @@ export default function MarketOverview() {
         }
       },
       legend: { bottom: 5, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-      grid: { left: '3%', right: '8%', top: '4%', bottom: '12%', containLabel: true },
+      grid: { left: '6%', right: '14%', top: '4%', bottom: '12%', containLabel: true },
       xAxis: {
         type: 'value',
         splitLine: { show: false },
         name: t('unitBillionVND'),
-        nameGap: 16,
+        nameGap: 12,
         nameTextStyle: chartTitleStyle,
         axisLabel: {
           ...valueLabelStyle,
+          margin: 12,
           formatter: (value: number) => formatNumber(value, 0)
         }
       },
@@ -894,11 +885,16 @@ export default function MarketOverview() {
       axisPointer: { type: 'line' },
       textStyle: tooltipTextStyle,
       formatter: (params: any) => {
-        const interest = params.find((param: any) => param.seriesName === t('totalInterestPayable'))?.value || 0;
-        const principal = params.find((param: any) => param.seriesName === t('totalPrincipalPayable'))?.value || 0;
+        const safeParams = Array.isArray(params) ? params : [];
+        const interest = safeParams.find((param: any) => param.seriesName === t('totalInterestPayable'))?.value || 0;
+        const principal = safeParams.find((param: any) => param.seriesName === t('totalPrincipalPayable'))?.value || 0;
         const total = interest + principal;
 
-        return `${params[0].name}<br/>${params[0].marker} ${t('totalInterestPayable')}: ${highlightChartTooltipValue(formatNumber(interest, 2), ` ${t('unitBillionVND')}`)}<br/>${params[1].marker} ${t('totalPrincipalPayable')}: ${highlightChartTooltipValue(formatNumber(principal, 2), ` ${t('unitBillionVND')}`)}<br/><strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
+        const firstMarker = safeParams[0]?.marker || '';
+        const secondMarker = safeParams[1]?.marker || '';
+        const label = safeParams[0]?.name || '';
+
+        return `${label}<br/>${firstMarker} ${t('totalInterestPayable')}: ${highlightChartTooltipValue(formatNumber(interest, 2), ` ${t('unitBillionVND')}`)}<br/>${secondMarker} ${t('totalPrincipalPayable')}: ${highlightChartTooltipValue(formatNumber(principal, 2), ` ${t('unitBillionVND')}`)}<br/><strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
       }
     },
     legend: {
@@ -908,13 +904,15 @@ export default function MarketOverview() {
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { left: '3%', right: '8%', top: '12%', bottom: '28%', containLabel: true },
+    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%' },
     xAxis: {
       type: 'category',
+      boundaryGap: false,
       data: projectedCashFlowData.labels,
       axisLabel: {
         ...categoryLabelStyle,
-        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
+        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0,
+        margin: 12
       }
     },
     dataZoom: [
@@ -937,10 +935,11 @@ export default function MarketOverview() {
       type: 'value',
       splitLine: { show: false },
       name: t('unitBillionVND'),
-      nameGap: 24,
+      nameGap: 12,
       nameTextStyle: chartTitleStyle,
       axisLabel: {
         ...valueLabelStyle,
+        margin: 12,
         formatter: (value: number) => formatNumber(value, 0)
       }
     },
@@ -1015,16 +1014,22 @@ export default function MarketOverview() {
   const hoverToolbarClass =
     'flex flex-wrap items-center justify-end gap-1 text-text-muted opacity-100 pointer-events-auto lg:flex-nowrap lg:opacity-0 lg:pointer-events-none lg:transition-opacity lg:duration-200 lg:ease-out lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto';
 
-  if (loading) {
-    return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <p className="text-text-muted font-medium">{t('loadingMarketData')}</p>
-      </div>
-    );
-  }
+  const hasAnyOverviewData = issuerStatsData.length > 0 || topInterestData.length > 0 || industryData.length > 0;
+  const marketOverviewError = !hasAnyOverviewData
+    ? [industryDataQuery.error, issuerStatsQuery.error, topInterestQuery.error].find(Boolean)
+    : null;
+  const errorMessage = marketOverviewError instanceof Error
+    ? (marketOverviewError.message.includes('401') ? t('tokenError401') : marketOverviewError.message)
+    : marketOverviewError
+      ? t('error')
+      : null;
+  const isKpiSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
+  const isTopIssuerSectionLoading = (issuerStatsQuery.isLoading || loadingTopIssuerChart) && topIssuerDisplayData.length === 0;
+  const isTopInterestSectionLoading = (topInterestQuery.isLoading || loadingTopInterestChart) && topInterestChartData.length === 0;
+  const isIndustryChartSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
+  const isProjectedCashFlowPending = !projectedCashFlowSectionVisible && !hasProjectedCashFlowData && Object.keys(projectedCashFlowBuckets).length === 0;
 
-  if (error) {
+  if (errorMessage && !hasAnyOverviewData) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
@@ -1033,7 +1038,7 @@ export default function MarketOverview() {
           </svg>
         </div>
         <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
-        <p className="text-text-muted max-w-md">{error}</p>
+        <p className="text-text-muted max-w-md">{errorMessage}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
@@ -1056,11 +1061,16 @@ export default function MarketOverview() {
 
       <div className="grid min-w-0 grid-cols-12 gap-3">
         <div className="col-span-12 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {kpiCards.map((card) => (
-            <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} />
-          ))}
+          {isKpiSectionLoading
+            ? Array.from({ length: 4 }, (_, index) => <MetricCardSkeleton key={index} />)
+            : kpiCards.map((card) => (
+              <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} />
+            ))}
         </div>
 
+        {isTopIssuerSectionLoading ? (
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        ) : (
         <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
           <div className="flex min-w-0 flex-col gap-1">
             <div className={hoverToolbarClass}>
@@ -1153,30 +1163,17 @@ export default function MarketOverview() {
             </div>
           </div>
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            {loadingTopIssuerChart && topIssuerDisplayData.length === 0 ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-text-muted">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
-                  {t('loading')}
-                </div>
-              </div>
-            ) : (
-              <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
-            )}
+            <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
           </div>
         </Card>
+        )}
 
         <div className="col-span-12 flex min-h-0 flex-col space-y-3 lg:col-span-6">
-          <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
-            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-              {loadingTopInterestChart && topInterestChartData.length === 0 ? (
-                <div className="flex h-full items-center justify-center">
-                  <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-text-muted">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
-                    {t('loading')}
-                  </div>
-                </div>
-              ) : (
+          {isTopInterestSectionLoading ? (
+            <SectionCardSkeleton className="flex-1" />
+          ) : (
+            <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
+              <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
                 <ChartWithToolbar
                   option={topInterestOptions}
                   style={{ height: '100%', width: '100%' }}
@@ -1217,9 +1214,9 @@ export default function MarketOverview() {
                     </div>
                   )}
                 />
-              )}
-            </div>
-          </Card>
+              </div>
+            </Card>
+          )}
 
           <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
@@ -1233,66 +1230,71 @@ export default function MarketOverview() {
           </Card>
         </div>
 
-        <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4">
-          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ChartWithToolbar
-              option={industryValueOptions}
-              style={{ height: '100%', width: '100%' }}
-              allowMagicType
-              title={t('valueByIndustry')}
-            />
-          </div>
-        </Card>
+        {isIndustryChartSectionLoading ? (
+          <SectionCardSkeleton className="col-span-12" />
+        ) : (
+          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+              <ChartWithToolbar
+                option={industryValueOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={t('valueByIndustry')}
+              />
+            </div>
+          </Card>
+        )}
 
-        <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
-          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ChartWithToolbar
-              option={industryVolumeOptions}
-              style={{ height: '100%', width: '100%' }}
-              allowMagicType
-              title={t('volumeByIndustry')}
-            />
-          </div>
-        </Card>
+        {isIndustryChartSectionLoading ? (
+          <SectionCardSkeleton className="col-span-12" />
+        ) : (
+          <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+              <ChartWithToolbar
+                option={industryVolumeOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={t('volumeByIndustry')}
+              />
+            </div>
+          </Card>
+        )}
 
-        <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4">
-          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            {loadingCashFlows && !hasProjectedCashFlowData ? (
-              <div className="flex h-full items-center justify-center">
-                <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-text-muted">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
-                  {t('loading')}
-                </div>
-              </div>
-            ) : (
-                <ChartWithToolbar
-                  option={projectedCashFlowOptions}
-                  style={{ height: '100%', width: '100%' }}
-                  allowMagicType
-                  title={projectedCashFlowTitle}
-                  showDataZoomSliderOnHover
-                  zoomConfig={{
-                    shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+        <div ref={projectedCashFlowSectionRef} className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+          {isProjectedCashFlowPending ? (
+            <div className="min-h-80">
+              <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
+            </div>
+          ) : (
+            <div className="h-80 overflow-hidden md:h-96">
+              <ChartWithToolbar
+                option={projectedCashFlowOptions}
+                style={{ height: '360px', width: '100%' }}
+                allowMagicType
+                title={projectedCashFlowTitle}
+                showDataZoomSliderOnHover
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                     chartStyle: { height: '100%', width: '100%' },
                     option: {
                       grid: { bottom: '22%' },
-                    legend: {
-                      bottom: 8,
-                    },
-                    dataZoom: [
+                      legend: {
+                        bottom: 8,
+                      },
+                      dataZoom: [
                       {
                         type: 'inside',
                         xAxisIndex: 0,
                         filterMode: 'none',
                       },
-                      {
-                        type: 'slider',
-                        xAxisIndex: 0,
-                        height: 18,
-                        bottom: 44,
-                        filterMode: 'none',
-                        brushSelect: false,
-                        textStyle: valueLabelStyle,
+                        {
+                          type: 'slider',
+                          xAxisIndex: 0,
+                          height: 18,
+                          bottom: 44,
+                          filterMode: 'none',
+                          brushSelect: false,
+                          textStyle: valueLabelStyle,
                       },
                     ],
                   },
@@ -1316,9 +1318,9 @@ export default function MarketOverview() {
                   </div>
                 )}
               />
-            )}
-          </div>
-        </Card>
+            </div>
+          )}
+        </div>
       </div>
 
       <ChartDataViewModal

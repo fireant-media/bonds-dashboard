@@ -5,9 +5,23 @@ import {
   loadSidebarIndustryIssuedValues,
   SIDEBAR_INDUSTRY_ISSUED_VALUES_CACHE_KEY,
 } from '../services/dashboardData';
-import { loadMarketOverviewData, MARKET_OVERVIEW_CACHE_KEY } from '../services/marketOverviewData';
+import {
+  loadMarketOverviewData,
+  loadMarketOverviewIndustryData,
+  loadMarketOverviewIssuerStats,
+  loadMarketOverviewTopInterestData,
+  MARKET_OVERVIEW_CACHE_KEY,
+  MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY,
+  MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY,
+  MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY,
+} from '../services/marketOverviewData';
 import { loadMaturingBonds } from '../services/bondData';
-import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
+import {
+  loadDedupedIndustrySymbols,
+  loadIndustryBaseBondGroupData,
+  loadIndustryBondGroupData,
+  loadIssuerStatsSummary,
+} from '../services/industryBondData';
 import { dashboardQueryStaleTime } from './client';
 import { bondQueryKeys, dashboardQueryKeys, newsQueryKeys } from './keys';
 import { fetchNewsData, getCachedNews } from '../services/newsService';
@@ -33,6 +47,30 @@ export const useMarketOverviewQuery = () =>
     initialData: getCache(MARKET_OVERVIEW_CACHE_KEY) || undefined,
   });
 
+export const useMarketOverviewIssuerStatsQuery = () =>
+  useQuery({
+    queryKey: dashboardQueryKeys.marketOverviewIssuerStats(),
+    queryFn: () => loadMarketOverviewIssuerStats(),
+    initialData: getCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY) || getCache('top_debt_200') || undefined,
+    placeholderData: (previous) => previous,
+  });
+
+export const useMarketOverviewTopInterestQuery = () =>
+  useQuery({
+    queryKey: dashboardQueryKeys.marketOverviewTopInterest(),
+    queryFn: () => loadMarketOverviewTopInterestData(),
+    initialData: getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY) || getCache('market_top_interest_bonds') || undefined,
+    placeholderData: (previous) => previous,
+  });
+
+export const useMarketOverviewIndustryDataQuery = () =>
+  useQuery({
+    queryKey: dashboardQueryKeys.marketOverviewIndustryData(),
+    queryFn: () => loadMarketOverviewIndustryData(),
+    initialData: getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY) || undefined,
+    placeholderData: (previous) => previous,
+  });
+
 export const useMaturingBondsQuery = (days: number) =>
   useQuery({
     queryKey: dashboardQueryKeys.maturingBonds(days),
@@ -44,6 +82,7 @@ export const useIndustryDashboardQuery = (industryId: string) =>
   useQuery({
     queryKey: dashboardQueryKeys.industryDashboard(industryId),
     queryFn: () => loadIndustryDashboardData(industryId),
+    placeholderData: (previous) => previous,
     initialData: (() => {
       const groupData = getCache(`industry_bond_group_v10_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(groupData)) return groupData;
@@ -51,6 +90,35 @@ export const useIndustryDashboardQuery = (industryId: string) =>
       const baseData = getCache(`industry_bond_base_v9_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(baseData)) return baseData;
 
+      return undefined;
+    })(),
+  });
+
+export const useIndustryBaseDashboardQuery = (industryId: string) =>
+  useQuery({
+    queryKey: dashboardQueryKeys.industryDashboardBase(industryId),
+    queryFn: () => loadIndustryBaseBondGroupData(industryId),
+    placeholderData: (previous) => previous,
+    initialData: (() => {
+      const baseData = getCache(`industry_bond_base_v9_${industryId}`);
+      if (hasMeaningfulIndustryDashboardData(baseData)) return baseData;
+
+      const groupData = getCache(`industry_bond_group_v10_${industryId}`);
+      if (hasMeaningfulIndustryDashboardData(groupData)) return groupData;
+
+      return undefined;
+    })(),
+  });
+
+export const useIndustryFullDashboardQuery = (industryId: string, enabled = true) =>
+  useQuery({
+    queryKey: dashboardQueryKeys.industryDashboardFull(industryId),
+    queryFn: () => loadIndustryBondGroupData(industryId),
+    enabled,
+    placeholderData: (previous) => previous,
+    initialData: (() => {
+      const groupData = getCache(`industry_bond_group_v10_${industryId}`);
+      if (hasMeaningfulIndustryDashboardData(groupData)) return groupData;
       return undefined;
     })(),
   });
@@ -119,8 +187,8 @@ export const prefetchDashboardRouteData = async (
     case 'industry': {
       const industryId = target.activeIndustry || 'Banking';
       tasks.push(queryClient.prefetchQuery({
-        queryKey: dashboardQueryKeys.industryDashboard(industryId),
-        queryFn: () => loadIndustryDashboardData(industryId),
+        queryKey: dashboardQueryKeys.industryDashboardBase(industryId),
+        queryFn: () => loadIndustryBaseBondGroupData(industryId),
       }));
       break;
     }
@@ -163,8 +231,16 @@ export const prefetchDashboardRouteData = async (
     case 'overview':
     default:
       tasks.push(queryClient.prefetchQuery({
-        queryKey: dashboardQueryKeys.marketOverview(),
-        queryFn: () => loadMarketOverviewData(),
+        queryKey: dashboardQueryKeys.marketOverviewIssuerStats(),
+        queryFn: () => loadMarketOverviewIssuerStats(),
+      }));
+      tasks.push(queryClient.prefetchQuery({
+        queryKey: dashboardQueryKeys.marketOverviewTopInterest(),
+        queryFn: () => loadMarketOverviewTopInterestData(),
+      }));
+      tasks.push(queryClient.prefetchQuery({
+        queryKey: dashboardQueryKeys.marketOverviewIndustryData(),
+        queryFn: () => loadMarketOverviewIndustryData(),
       }));
       break;
   }
@@ -177,8 +253,16 @@ export const prefetchDashboardRouteData = async (
 export const prefetchDashboardCoreData = async (queryClient: QueryClient) => {
   const tasks = [
     queryClient.prefetchQuery({
-      queryKey: dashboardQueryKeys.marketOverview(),
-      queryFn: () => loadMarketOverviewData(),
+      queryKey: dashboardQueryKeys.marketOverviewIssuerStats(),
+      queryFn: () => loadMarketOverviewIssuerStats(),
+    }),
+    queryClient.prefetchQuery({
+      queryKey: dashboardQueryKeys.marketOverviewTopInterest(),
+      queryFn: () => loadMarketOverviewTopInterestData(),
+    }),
+    queryClient.prefetchQuery({
+      queryKey: dashboardQueryKeys.marketOverviewIndustryData(),
+      queryFn: () => loadMarketOverviewIndustryData(),
     }),
     queryClient.prefetchQuery({
       queryKey: dashboardQueryKeys.maturingBonds(30),
@@ -205,8 +289,8 @@ export const prefetchDashboardCoreData = async (queryClient: QueryClient) => {
       queryFn: () => loadDedupedIndustrySymbols(),
     }),
     queryClient.prefetchQuery({
-      queryKey: dashboardQueryKeys.industryDashboard('Banking'),
-      queryFn: () => loadIndustryDashboardData('Banking'),
+      queryKey: dashboardQueryKeys.industryDashboardBase('Banking'),
+      queryFn: () => loadIndustryBaseBondGroupData('Banking'),
     }),
     queryClient.prefetchQuery({
       queryKey: newsQueryKeys.list(),

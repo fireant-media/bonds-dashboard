@@ -1,4 +1,4 @@
-
+﻿
 export type Language = 'vi' | 'en';
 
 export const translations = {
@@ -110,6 +110,15 @@ export const translations = {
     featureDashboard: 'Dashboard tổng quan',
     featureReports: 'Báo cáo phân tích',
     featureAlerts: 'Cảnh báo realtime',
+    loginWhyTitle: 'Tại Sao Chọn Fireant?',
+    loginWhyDescription:
+      'Công cụ phân tích chuyên sâu và dữ liệu thị trường được thiết kế để bạn nhìn nhanh, hiểu nhanh và hành động nhanh.',
+    loginWhyCard1Title: 'Tổng quan thị trường trái phiếu',
+    loginWhyCard1Desc: 'Theo dõi dữ liệu và biểu đồ về phát hành, lợi suất và biến động của thị trường trái phiếu doanh nghiệp.',
+    loginWhyCard2Title: 'Dữ liệu ngành & doanh nghiệp',
+    loginWhyCard2Desc: 'Khám phá thông tin theo từng nhóm ngành và tổ chức phát hành với hệ thống dữ liệu và thống kê trực quan.',
+    loginWhyCard3Title: 'Chi tiết trái phiếu',
+    loginWhyCard3Desc: 'Tra cứu thông tin từng mã trái phiếu với dữ liệu về lãi suất, kỳ hạn, lịch sử phát hành, coupon và ngày đáo hạn.',
     agreeTerms: 'Tôi đồng ý với',
     termsOfService: 'Điều khoản dịch vụ',
     confirmPasswordMismatch: 'Mật khẩu xác nhận không khớp.',
@@ -959,6 +968,15 @@ export const translations = {
     featureDashboard: 'Overview Dashboard',
     featureReports: 'Analysis Reports',
     featureAlerts: 'Real-time Alerts',
+    loginWhyTitle: 'Why Choose Fireant?',
+    loginWhyDescription:
+      'Deep analysis tools and market data designed so you can scan faster, understand faster, and act faster.',
+    loginWhyCard1Title: 'Corporate Bond Market Overview',
+    loginWhyCard1Desc: 'Track issuance data and market charts for corporate bond issuance, yields, and movements.',
+    loginWhyCard2Title: 'Industry & Issuer Data',
+    loginWhyCard2Desc: 'Explore information by industry group and issuing organization with structured data and clear statistics.',
+    loginWhyCard3Title: 'Bond Detail Lookup',
+    loginWhyCard3Desc: 'Inspect each bond code with data for interest rate, tenor, issuance history, coupon, and maturity date.',
     agreeTerms: 'I agree to the',
     termsOfService: 'Terms of Service',
     confirmPasswordMismatch: 'Password confirmation does not match.',

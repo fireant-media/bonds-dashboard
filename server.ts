@@ -144,6 +144,36 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  const isAllowedLocalOrigin = (origin?: string) => {
+    if (!origin) return false;
+    if (origin === "null") return true;
+
+    try {
+      const url = new URL(origin);
+      return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    } catch {
+      return false;
+    }
+  };
+
+  app.use((req, res, next) => {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+
+    if (isAllowedLocalOrigin(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Fireant-Access-Token");
+      res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.header("Vary", "Origin");
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+
+    next();
+  });
+
   app.use(express.json());
 
   app.use(cookieSession({
@@ -380,6 +410,135 @@ async function startServer() {
     return FINANCE_FALLBACKS[idx];
   };
 
+  const normalizeNewsText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+  const normalizeNewsSymbol = (value: unknown) => {
+    const text = normalizeNewsText(value).toUpperCase();
+    return /^[A-Z0-9._-]{2,16}$/.test(text) ? text : "";
+  };
+
+  const collectNewsSymbolTags = (value: unknown, tags: string[] = []) => {
+    if (value === null || value === undefined) return tags;
+
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (!text) return tags;
+
+      if ((text.startsWith("[") && text.endsWith("]")) || (text.startsWith("{") && text.endsWith("}"))) {
+        try {
+          return collectNewsSymbolTags(JSON.parse(text), tags);
+        } catch {
+          // Fall back to delimiter parsing.
+        }
+      }
+
+      const parts = text.includes(",") || text.includes("|") || text.includes(";") || text.includes("/")
+        ? text.split(/[\s,|;/]+/)
+        : [text];
+
+      for (const part of parts) {
+        const normalized = normalizeNewsSymbol(part);
+        if (normalized && !tags.includes(normalized)) tags.push(normalized);
+      }
+
+      return tags;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        collectNewsSymbolTags(item, tags);
+      }
+      return tags;
+    }
+
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const keyCandidates = [
+        "symbol",
+        "code",
+        "ticker",
+        "tag",
+        "tagName",
+        "tagCode",
+        "value",
+        "text",
+        "name",
+        "displayName",
+        "label",
+        "stockCode",
+        "stockSymbol",
+        "symbolCode",
+        "symbolName",
+        "symbolValue",
+      ];
+
+      for (const key of keyCandidates) {
+        if (key in record) {
+          collectNewsSymbolTags(record[key], tags);
+        }
+      }
+    }
+
+    return tags;
+  };
+
+  const extractNewsTags = (post: Record<string, any>) => {
+    const candidates = [
+      post.tags,
+      post.postTags,
+      post.tag,
+      post.symbols,
+      post.stockSymbols,
+      post.stocks,
+      post.hashtags,
+      post.relatedSymbols,
+      post.metadata?.tags,
+      post.metadata?.symbols,
+      post.metadata?.stockSymbols,
+      post.info?.tags,
+      post.info?.symbols,
+      post.info?.stockSymbols,
+      post.symbolInfo,
+      post.symbolTags,
+      post.relatedTags,
+      post.postSource?.tags,
+      post.postSource?.symbols,
+      post.postSource?.stockSymbols,
+    ];
+
+    const tags: string[] = [];
+    for (const candidate of candidates) {
+      collectNewsSymbolTags(candidate, tags);
+    }
+    return tags;
+  };
+
+  const isNewsRelatedToSymbol = (news: Record<string, any>, symbol?: string | null) => {
+    const normalizedSymbol = normalizeNewsSymbol(symbol);
+    if (!normalizedSymbol) return false;
+
+    const tags = Array.isArray(news.tags)
+      ? news.tags.map((tag: unknown) => normalizeNewsSymbol(tag)).filter(Boolean)
+      : [];
+    if (tags.includes(normalizedSymbol)) return true;
+
+    const pattern = new RegExp(`(^|[^A-Z0-9])${normalizedSymbol}([^A-Z0-9]|$)`, "i");
+    return pattern.test(String(news.title || ""))
+      || pattern.test(String(news.summary || ""))
+      || pattern.test(String(news.content || ""))
+      || pattern.test(String(news.originalUrl || ""));
+  };
+
+  const selectNewsBySymbol = (items: any[] | null | undefined, symbol?: string | null) => {
+    if (!Array.isArray(items) || items.length === 0) return [];
+
+    const normalizedSymbol = normalizeNewsSymbol(symbol);
+    if (!normalizedSymbol) return items;
+
+    const related = items.filter((item) => isNewsRelatedToSymbol(item, normalizedSymbol));
+    return related.length > 0 ? related : items;
+  };
+
   const buildNewsPostUrl = (post: Record<string, any>) => {
     const postId = post.postID || post.id;
     const title = typeof post.title === "string" ? post.title.trim() : "";
@@ -551,7 +710,8 @@ async function startServer() {
           date: post.date,
           url: buildNewsPostUrl(post),
           originalUrl: post.postSourceUrl || post.link || buildNewsPostUrl(post),
-          category: post.postGroup?.name || 'Market'
+          category: post.postGroup?.name || 'Market',
+          tags: extractNewsTags(post),
         };
       });
       
@@ -856,19 +1016,24 @@ async function startServer() {
   // API Proxy for News List
   app.get("/api/news", async (req, res) => {
     const now = Date.now();
+    const symbol = typeof req.query.symbol === "string"
+      ? req.query.symbol
+      : Array.isArray(req.query.symbol) && typeof req.query.symbol[0] === "string"
+        ? req.query.symbol[0]
+        : null;
     
     // If cache is fresh, return it
     if (newsCache && (now - lastCacheUpdate < CACHE_TTL)) {
-      return res.json(newsCache);
+      return res.json(selectNewsBySymbol(newsCache, symbol));
     }
     
     // If cache is stale or missing, try to refresh
     console.log(`[News List] ${newsCache ? 'Cache stale' : 'Cache missing'}, fetching fresh news...`);
     try {
       const news = await refreshNews();
-      return res.json(news || []);
+      return res.json(selectNewsBySymbol(news || [], symbol));
     } catch (err) {
-      return res.json(newsCache || []);
+      return res.json(selectNewsBySymbol(newsCache || [], symbol));
     }
   });
 

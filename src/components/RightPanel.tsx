@@ -3,12 +3,14 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState, useEffect } from 'react';
 import { ExpiringBond, Bond } from '../types';
+import { buildAppApiUrl } from '../api/config';
 import { formatInterestRate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadIssuerProfile } from '../services/bondData';
-import { useMaturingBondsQuery, useNewsQuery } from '../query/dashboardQueries';
+import { useMaturingBondsQuery } from '../query/dashboardQueries';
+import { fetchNewsData, getCachedNews, getNewsLastUpdate } from '../services/newsService';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -47,7 +49,7 @@ function NewsThumbnail({ news }: { news: NewsItem }) {
     const resolveFromDetail = async () => {
       setLoadingDetail(true);
       try {
-        const response = await fetch(`/api/news/${encodeURIComponent(news.id)}`, {
+        const response = await fetch(buildAppApiUrl(`/api/news/${encodeURIComponent(news.id)}`), {
           cache: 'no-store',
         });
         if (!response.ok) return;
@@ -114,7 +116,6 @@ export default function RightPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const expiringBondsQuery = useMaturingBondsQuery(3650);
-  const newsQuery = useNewsQuery(newsSymbol, isOpen);
   const formatDaysLeft = (daysLeft: number) => `${daysLeft} ${t('daysUnit')}`;
   const handlePanelTabClick = (tab: 'maturity' | 'news') => {
     if (isOpen && activePanelTab === tab) {
@@ -140,27 +141,51 @@ export default function RightPanel({
   });
 
   useEffect(() => {
-    if (Array.isArray(newsQuery.data)) {
-      setNewsList(newsQuery.data);
+    const cached = getCachedNews(newsSymbol);
+    if (cached) {
+      setNewsList(cached);
       setNewsError(null);
+    } else {
+      setNewsList([]);
     }
-  }, [newsQuery.data]);
-
-  useEffect(() => {
-    if (newsQuery.error instanceof Error) {
-      setNewsError(newsQuery.error.message);
-    }
-  }, [newsQuery.error]);
+  }, [newsSymbol]);
 
   useEffect(() => {
     if (!isOpen) return;
 
+    const fetchNews = async (force = false) => {
+      const lastUpdate = getNewsLastUpdate(newsSymbol);
+      const now = Date.now();
+      if (!force && lastUpdate && now - lastUpdate < 120000) {
+        return;
+      }
+
+      const hasExistingNews = newsList.length > 0;
+      if (!hasExistingNews) {
+        setLoadingNews(true);
+      }
+
+      setNewsError(null);
+      try {
+        const data = await fetchNewsData(newsSymbol);
+        setNewsList(data);
+      } catch (err) {
+        console.error('Error fetching news:', err);
+        if (!hasExistingNews) {
+          setNewsError(t('newsError'));
+        }
+      } finally {
+        setLoadingNews(false);
+      }
+    };
+
+    void fetchNews();
     const interval = window.setInterval(() => {
-      void newsQuery.refetch();
+      void fetchNews(true);
     }, 300000);
 
     return () => window.clearInterval(interval);
-  }, [isOpen, newsQuery.refetch]);
+  }, [isOpen, newsList.length, newsSymbol, t]);
 
   useEffect(() => {
     const data = Array.isArray(expiringBondsQuery.data) ? expiringBondsQuery.data : [];
@@ -241,10 +266,6 @@ export default function RightPanel({
       cancelled = true;
     };
   }, [expiringBonds, enterpriseNamesEN]);
-
-  useEffect(() => {
-    setLoadingNews(newsQuery.isFetching && newsList.length === 0);
-  }, [newsQuery.isFetching, newsList.length]);
 
   const calculateDaysLeft = (maturityDate: string) => {
     if (!maturityDate) return 0;

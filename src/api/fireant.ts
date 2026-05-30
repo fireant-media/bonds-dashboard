@@ -1,7 +1,9 @@
+import { buildAppApiUrl } from "./config";
 import { getFireantToken, cleanTokenString } from "../utils/token";
 import { readJsonResponse } from "../utils/http";
 
-export const FIREANT_PROXY_BASE = "/api/fireant";
+const FIREANT_PROXY_PATH = "/api/fireant";
+export const FIREANT_PROXY_BASE = buildAppApiUrl(FIREANT_PROXY_PATH);
 
 type QueryValue = string | number | boolean | null | undefined;
 

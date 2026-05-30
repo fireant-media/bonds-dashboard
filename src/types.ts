@@ -26,6 +26,7 @@ export interface NewsItem {
   url: string;
   category?: string;
   originalUrl?: string;
+  tags?: string[];
 }
 
 export interface ExpiringBond {
