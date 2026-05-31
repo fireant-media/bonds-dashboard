@@ -91,7 +91,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<'maturity' | 'news'>('news');
+  const [rightPanelTab, setRightPanelTab] = useState<'maturity' | 'news'>('maturity');
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
@@ -563,7 +563,7 @@ export default function App() {
               <div
                 ref={scrollContainerRef}
                 className={cn(
-                  "h-full min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar overscroll-contain",
+                  "h-full min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar overscroll-contain",
                   isProfileMode
                     ? "w-full"
                     : activeTab === 'overview'
@@ -643,7 +643,7 @@ export default function App() {
                   onSeeMoreMaturity={() => setActiveTab('maturity-list')}
                   onSelectNews={handleSelectNews}
                   onSeeMoreNews={handleSeeMoreNews}
-                  newsSymbol={activeTab === 'enterprise' ? ticker : null}
+                  newsSymbol={activeTab === 'enterprise' ? (ticker || selectedEnterprise?.ticker || null) : null}
                 />
               </div>
               </>

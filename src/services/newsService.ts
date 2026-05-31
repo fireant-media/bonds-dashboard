@@ -212,12 +212,16 @@ export const fetchNewsData = async (symbol?: string | null): Promise<NewsItem[]>
     const newsArray = getNewsArray(data);
     if (newsArray.length === 0) {
       const cached = getCachedNews(normalizedSymbol);
-      return cached || [];
+      return cached || SEED_NEWS;
     }
 
     const mappedNews = newsArray
       .map(mapNewsItem)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (mappedNews.length === 0) {
+      const cached = getCachedNews(normalizedSymbol);
+      return cached || SEED_NEWS;
+    }
     localStorage.setItem(getCacheKey(normalizedSymbol), JSON.stringify(mappedNews));
     localStorage.setItem(getCacheTimeKey(normalizedSymbol), Date.now().toString());
     dashboardQueryClient.setQueryData(queryKey, mappedNews);

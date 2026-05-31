@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ChevronDown, Search, X } from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { ArrowLeft, ChevronDown, Search, X } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import { exportRowsToExcel } from '../../utils/excel';
 import { ExportExcelButton } from './ExportExcelButton';
+import { SortControl } from './SortControl';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 export type ChartDataTableAlign = 'left' | 'center' | 'right';
 
@@ -158,12 +165,23 @@ export function ChartDataViewModal({
   const sortOptions = columns
     .map((column, index) => ({
       index,
-      label: column.unit ? `${column.label} (${column.unit})` : column.label,
+      label: column.label,
       kind: column.kind || (column.align === 'right' ? 'number' : 'text'),
     }))
     .filter((option) => option.index > 0 && option.kind === 'number');
 
-  const selectedSortOption = sortOptions.find((option) => option.index === sortState?.columnIndex) || null;
+  const sortControlValue = sortState ? String(sortState.columnIndex) : null;
+  const sortControlOptions = [
+    {
+      value: '__default__',
+      label: t('sortBy'),
+      isDefault: true,
+    },
+    ...sortOptions.map((option) => ({
+      value: String(option.index),
+      label: option.label,
+    })),
+  ];
 
   const updateSortColumn = (columnIndex: number) => {
     const column = columns[columnIndex];
@@ -219,8 +237,8 @@ export function ChartDataViewModal({
             <X className="h-4 w-4" />
           </button>
 
-          <div className={`flex flex-col gap-3 ${showBackButton ? 'px-10' : 'pr-10'}`}>
-            <div className="text-center">
+          <div className="flex w-full flex-col gap-3">
+            <div className={cn('text-center', showBackButton ? 'px-10' : 'px-4')}>
               <h3 className="text-base font-bold leading-snug break-words text-text-base md:text-lg">
                 {resolvedTitle}
               </h3>
@@ -231,10 +249,10 @@ export function ChartDataViewModal({
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <div ref={searchRootRef} className="relative">
-                <div className="flex min-w-72 items-stretch overflow-hidden rounded-lg border border-border-base bg-bg-surface">
-                  <div className="flex items-center pl-3 text-text-muted">
+            <div className="flex w-full flex-wrap items-center gap-2 px-4">
+              <div ref={searchRootRef} className="relative min-w-0 flex-1">
+                <div className="flex h-11 w-full min-w-0 items-stretch overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low">
+                  <div className="flex h-full items-center pl-3 text-blue-600">
                     <Search className="h-4 w-4" />
                   </div>
                   <input
@@ -247,12 +265,12 @@ export function ChartDataViewModal({
                     }}
                     onFocus={() => setSearchListOpen(true)}
                     placeholder={t('searchPlaceholder')}
-                    className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-medium text-text-base outline-none placeholder:text-text-muted/70"
+                    className="min-w-0 h-full flex-1 bg-transparent px-2 text-sm font-semibold text-text-base outline-none placeholder:text-text-muted/70"
                   />
                   <button
                     type="button"
                     onClick={() => setSearchListOpen((current) => !current)}
-                    className="flex items-center justify-center border-l border-border-base px-3 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-base"
+                    className="flex h-full items-center justify-center border-l border-border-base px-3 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-base"
                     aria-label={t('searchLabel')}
                     title={t('searchLabel')}
                   >
@@ -271,7 +289,7 @@ export function ChartDataViewModal({
                             setSearchText(item);
                             setSearchListOpen(false);
                           }}
-                          className="flex w-full items-center px-3 py-2 text-left text-sm font-medium text-text-base transition-colors hover:bg-surface-container-low"
+                          className="flex w-full items-center px-3 py-2 text-left text-sm font-semibold text-text-base transition-colors hover:bg-surface-container-low"
                         >
                           {item}
                         </button>
@@ -285,82 +303,50 @@ export function ChartDataViewModal({
                 ) : null}
               </div>
 
-              <div className="min-w-52">
-                <select
-                  value={sortState?.columnIndex ?? ''}
-                  onChange={(event) => {
-                    const rawValue = event.target.value;
-                    if (rawValue === '') {
-                      setSortState(null);
-                      return;
-                    }
+              <SortControl
+                className="w-fit max-w-full shrink-0"
+                label={t('sortBy')}
+                options={sortControlOptions}
+                value={sortControlValue}
+                appliedValue={sortControlValue}
+                appliedDirection={sortState?.direction ?? null}
+                onChange={(value) => {
+                  if (value == null) {
+                    setSortState(null);
+                    return;
+                  }
 
-                    updateSortColumn(Number(rawValue));
-                  }}
-                  className="w-full appearance-none rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-500/50"
-                >
-                  <option value="">{t('sortBy')}</option>
-                  {sortOptions.map((option) => (
-                    <option key={option.index} value={option.index}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  updateSortColumn(Number(value));
+                }}
+                onDirectionChange={updateSortDirection}
+                ascendingLabel={t('ascending')}
+                descendingLabel={t('descending')}
+                stretch={false}
+              />
+
+              <div className="ml-auto">
+                <ExportExcelButton loading={false} onClick={handleExport} />
               </div>
-
-              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!selectedSortOption) return;
-                    updateSortDirection('asc');
-                  }}
-                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
-                    sortState?.direction === 'asc'
-                      ? 'bg-action-accent text-slate-950'
-                      : 'text-text-muted hover:text-text-base'
-                  }`}
-                  title={t('ascending')}
-                  aria-label={t('ascending')}
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!selectedSortOption) return;
-                    updateSortDirection('desc');
-                  }}
-                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${
-                    sortState?.direction === 'desc'
-                      ? 'bg-action-accent text-slate-950'
-                      : 'text-text-muted hover:text-text-base'
-                  }`}
-                  title={t('descending')}
-                  aria-label={t('descending')}
-                >
-                  <ArrowDown className="h-4 w-4" />
-                </button>
-              </div>
-
-              <ExportExcelButton loading={false} onClick={handleExport} />
             </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-auto p-4">
-          <div className="overflow-x-auto rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20">
+            <div className="w-full overflow-x-auto rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20">
             <table className="w-full min-w-max border-collapse text-left">
-              <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
-                <tr className="border-b border-border-base">
+              <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
+                <tr>
                   {columns.map((column, index) => (
                     <th
                       key={`${column.label}-${column.unit || ''}-${index}`}
-                      className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center"
+                      className={cn(
+                        'px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap',
+                        column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'
+                      )}
                     >
-                      <span className="block">{column.label}</span>
+                      <span className="block leading-none">{column.label}</span>
                       {column.unit ? (
-                        <span className="block text-center text-xs font-semibold uppercase tracking-wider text-text-muted/80">
+                        <span className={cn('mt-1 block text-xs font-semibold uppercase tracking-wider leading-none', column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left')}>
                           ({column.unit})
                         </span>
                       ) : null}
@@ -377,7 +363,7 @@ export function ChartDataViewModal({
                     {columns.map((column, columnIndex) => (
                       <td
                         key={`${rowIndex}-${columnIndex}`}
-                        className={`px-6 py-5 text-sm font-medium text-text-base whitespace-nowrap ${
+                        className={`px-6 py-5 text-sm font-semibold text-text-base whitespace-nowrap ${
                           column.align === 'right'
                             ? 'text-right tabular-nums'
                             : column.align === 'center'
@@ -392,7 +378,7 @@ export function ChartDataViewModal({
                 )) : (
                   <tr>
                     <td
-                      className="px-6 py-10 text-center text-sm font-medium text-text-muted"
+                      className="px-6 py-10 text-center text-sm font-semibold text-text-muted"
                       colSpan={columns.length}
                     >
                       {t('noData')}

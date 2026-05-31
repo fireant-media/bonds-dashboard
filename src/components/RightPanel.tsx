@@ -32,6 +32,28 @@ interface RightPanelProps {
 import { NewsItem } from '../types';
 import { formatDate } from '../utils/format';
 
+const hasRenderableNews = (items?: NewsItem[] | null): items is NewsItem[] =>
+  Array.isArray(items) && items.some((item) => typeof item?.title === 'string' && item.title.trim().length > 0);
+
+const isSeedNewsList = (items?: NewsItem[] | null) =>
+  hasRenderableNews(items) && items.every((item) => item.id.startsWith('seed-'));
+
+const selectPreferredNews = (primary?: NewsItem[] | null, fallback?: NewsItem[] | null) => {
+  if (hasRenderableNews(primary) && !isSeedNewsList(primary)) {
+    return primary;
+  }
+
+  if (hasRenderableNews(fallback)) {
+    return fallback;
+  }
+
+  if (hasRenderableNews(primary)) {
+    return primary;
+  }
+
+  return [];
+};
+
 function NewsThumbnail({ news }: { news: NewsItem }) {
   const [hasError, setHasError] = useState(false);
   const [resolvedImage, setResolvedImage] = useState<string>(news.image || news.images?.[0] || '');
@@ -116,6 +138,7 @@ export default function RightPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const expiringBondsQuery = useMaturingBondsQuery(3650);
+  const visibleNews = newsList.filter((item) => typeof item?.title === 'string' && item.title.trim().length > 0);
   const formatDaysLeft = (daysLeft: number) => `${daysLeft} ${t('daysUnit')}`;
   const handlePanelTabClick = (tab: 'maturity' | 'news') => {
     if (isOpen && activePanelTab === tab) {
@@ -141,9 +164,13 @@ export default function RightPanel({
   });
 
   useEffect(() => {
-    const cached = getCachedNews(newsSymbol);
-    if (cached) {
-      setNewsList(cached);
+    const preferredNews = selectPreferredNews(
+      getCachedNews(newsSymbol),
+      newsSymbol ? getCachedNews(null) : null
+    );
+
+    if (preferredNews.length > 0) {
+      setNewsList(preferredNews);
       setNewsError(null);
     } else {
       setNewsList([]);
@@ -151,7 +178,7 @@ export default function RightPanel({
   }, [newsSymbol]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || activePanelTab !== 'news') return;
 
     const fetchNews = async (force = false) => {
       const lastUpdate = getNewsLastUpdate(newsSymbol);
@@ -167,7 +194,14 @@ export default function RightPanel({
 
       setNewsError(null);
       try {
-        const data = await fetchNewsData(newsSymbol);
+        const primaryNews = await fetchNewsData(newsSymbol);
+        let data = primaryNews;
+
+        if (newsSymbol) {
+          const fallbackNews = await fetchNewsData(null);
+          data = selectPreferredNews(primaryNews, fallbackNews);
+        }
+
         setNewsList(data);
       } catch (err) {
         console.error('Error fetching news:', err);
@@ -185,7 +219,7 @@ export default function RightPanel({
     }, 300000);
 
     return () => window.clearInterval(interval);
-  }, [isOpen, newsList.length, newsSymbol, t]);
+  }, [isOpen, newsList.length, newsSymbol, activePanelTab, t]);
 
   useEffect(() => {
     const data = Array.isArray(expiringBondsQuery.data) ? expiringBondsQuery.data : [];
@@ -449,8 +483,8 @@ export default function RightPanel({
                       {newsError === '401' ? t('authError401') : newsError}
                     </p>
                   </div>
-                ) : newsList.length > 0 ? (
-                  newsList.slice(0, 50).map((news) => (
+                ) : visibleNews.length > 0 ? (
+                  visibleNews.slice(0, 50).map((news) => (
                     <a
                       key={news.id}
                       href={news.originalUrl || news.url || '#'}

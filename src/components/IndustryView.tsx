@@ -23,6 +23,31 @@ interface ProjectedCashFlowBucket {
   principal: number;
 }
 
+interface IndustryRankingItem {
+  issuerSymbol?: string;
+  issuerName?: string;
+  totalRemainingDebt: number;
+  totalIssuedValue: number;
+  bondCount: number;
+  [key: string]: unknown;
+}
+
+interface IndustryBondItem {
+  issuerSymbol?: string;
+  infoObj?: { issuerSymbol?: string };
+  cashFlows?: Array<{
+    paymentDate?: string;
+    interestAmount?: number | string;
+    principalAmount?: number | string;
+  }>;
+  maturityDate?: string;
+  paymentDate?: string;
+  currentListedValue?: number;
+  totalRemainingDebt?: number;
+  totalIssuedValue?: number;
+  [key: string]: unknown;
+}
+
 const hasMeaningfulIndustryData = (value: unknown) => {
   const data = value as { bonds?: unknown[]; issuerSummaries?: unknown[]; symbols?: unknown[]; industryStats?: { bondCount?: number } } | null | undefined;
   if (!data || typeof data !== 'object') return false;
@@ -58,8 +83,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const basePayload = meaningfulBaseQueryData || meaningfulCachedBaseData;
   const fullPayload = meaningfulFullQueryData || meaningfulCachedData;
   const industryStats = cachedStats || fullPayload?.industryStats || basePayload?.industryStats || null;
-  const rankingData = fullPayload?.issuerSummaries || fullPayload?.rankingData || basePayload?.issuerSummaries || basePayload?.rankingData || [];
-  const industryBonds = fullPayload?.bonds || basePayload?.bonds || [];
+  const rankingData = (fullPayload?.issuerSummaries || fullPayload?.rankingData || basePayload?.issuerSummaries || basePayload?.rankingData || []) as IndustryRankingItem[];
+  const industryBonds = (fullPayload?.bonds || basePayload?.bonds || []) as IndustryBondItem[];
   const [financialChildSymbols, setFinancialChildSymbols] = useState<Set<string> | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const projectedCashFlowBuckets = fullPayload?.projectedCashFlowBuckets || cachedProjectedCashFlows;
@@ -98,7 +123,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const visibleRankingData = useMemo(() => {
     if (industry !== 'Financials' || !financialChildSymbols) return rankingData;
 
-    return rankingData.filter((item) => {
+    return rankingData.filter((item: IndustryRankingItem) => {
       const symbol = String(item?.issuerSymbol || '').trim().toUpperCase();
       return !symbol || !financialChildSymbols.has(symbol);
     });
@@ -107,14 +132,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const visibleIndustryBonds = useMemo(() => {
     if (industry !== 'Financials' || !financialChildSymbols) return industryBonds;
 
-    return industryBonds.filter((bond) => {
+    return industryBonds.filter((bond: IndustryBondItem) => {
       const symbol = String(bond?.issuerSymbol || bond?.infoObj?.issuerSymbol || '').trim().toUpperCase();
       return !symbol || !financialChildSymbols.has(symbol);
     });
   }, [industry, financialChildSymbols, industryBonds]);
 
-  const deferredRankingData = useDeferredValue(visibleRankingData);
-  const deferredIndustryBonds = useDeferredValue(visibleIndustryBonds);
+  const deferredRankingData = useDeferredValue<IndustryRankingItem[]>(visibleRankingData);
+  const deferredIndustryBonds = useDeferredValue<IndustryBondItem[]>(visibleIndustryBonds);
 
   const visibleProjectedCashFlowBuckets = useMemo(() => {
     const buckets = new Map<string, ProjectedCashFlowBucket>();
@@ -135,9 +160,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       return buckets.get(bucketKey)!;
     };
 
-    deferredIndustryBonds.forEach((bond) => {
+    deferredIndustryBonds.forEach((bond: IndustryBondItem) => {
       if (Array.isArray(bond.cashFlows) && bond.cashFlows.length > 0) {
-        bond.cashFlows.forEach((cashFlow: any) => {
+        bond.cashFlows.forEach((cashFlow) => {
           if (!cashFlow?.paymentDate) return;
 
           const bucket = ensureBucket(cashFlow.paymentDate);
@@ -308,7 +333,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const getRankingOptions = () => {
     const displayData = [...deferredRankingData].reverse();
     const categoryCount = displayData.length;
-    const maxDebt = deferredRankingData.length > 0 ? Math.max(...deferredRankingData.map(d => d.totalRemainingDebt / 1000000000)) : 0;
+    const maxDebt = deferredRankingData.length > 0 ? Math.max(...deferredRankingData.map((d) => d.totalRemainingDebt / 1000000000)) : 0;
     const interval = (industry === 'Banking' || industry === 'RealEstate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
 
     return {
@@ -382,7 +407,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       chartData = top9.map((item, idx) => {
         return {
           value: item.totalRemainingDebt,
-          name: item.issuerSymbol,
+          name: item.issuerSymbol || '',
           itemStyle: { color: chartPalette[idx % chartPalette.length] }
         };
       });
@@ -534,7 +559,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       .filter((item) => item.totalIssuedValue > 0)
       .sort((a, b) => b.totalIssuedValue - a.totalIssuedValue)
       .map((item, index) => ({
-        name: item.issuerSymbol,
+        name: item.issuerSymbol || '',
         value: item.totalIssuedValue / 1000000000,
         fullName: t(item.issuerName as any, item.issuerSymbol),
         issuerSymbol: item.issuerSymbol,

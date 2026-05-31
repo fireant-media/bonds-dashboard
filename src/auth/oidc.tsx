@@ -225,15 +225,13 @@ export const useOidcAuth = () => {
   }, []);
 
   const signOut = useCallback(async () => {
-    try {
-      await authManager.signoutPopup();
-    } catch (error) {
-      console.warn('Sign-out popup failed', error);
-    }
+    // Perform a local sign-out without redirecting or opening the
+    // identity provider (FireAnt) logout page. This ensures the app
+    // returns to the internal login UI immediately.
     try {
       await authManager.removeUser();
     } catch (err) {
-      console.error('Failed to remove user after sign-out', err);
+      console.error('Failed to remove user during sign-out', err);
     }
     removeFireantToken();
     useAuthStore.getState().reset();

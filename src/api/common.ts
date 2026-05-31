@@ -2,6 +2,7 @@ import axios, { AxiosProgressEvent, AxiosRequestConfig } from "axios";
 import type { User } from "oidc-client";
 import { authManager } from "../auth/oidc";
 import { useAuthStore } from "../auth/authStore";
+import { removeFireantToken } from "../utils/token";
 import { APP_URL, FIREANT_BASE_URL, STATIC_FIREANT_URL } from "./config";
 
 const DEFAULT_ACCESS_TOKEN = import.meta.env.VITE_FIREANT_ACCESS_TOKEN || "";
@@ -32,9 +33,18 @@ export const getAccessToken = (): string => {
 
     if (!signedOut) {
       signedOut = true;
-      authManager.signoutRedirect().catch((err) => {
-        console.error("Auto sign-out after token expiry failed:", err);
-      });
+        // Perform a local sign-out when the access token is expired.
+        // Avoid redirecting to the identity provider (FireAnt) so the
+        // app stays on its own login UI.
+        authManager
+          .removeUser()
+          .catch((err) => {
+            console.error("Auto remove user after token expiry failed:", err);
+          })
+          .finally(() => {
+            useAuthStore.getState().reset();
+            removeFireantToken();
+          });
     }
   }
 

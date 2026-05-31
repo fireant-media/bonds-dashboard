@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, ChevronDown } from 'lucide-react';
+import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { Bond } from '../types';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
@@ -36,6 +36,7 @@ import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { useMaturingBondsQuery } from '../query/dashboardQueries';
+import { SortControl } from './ui/SortControl';
 
 const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
   resolveIndustryKeyFromCandidates(
@@ -77,11 +78,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const [industryFilter, setIndustryFilter] = useState('All');
   const [warningFilter, setWarningFilter] = useState('All');
   const [exportLoading, setExportLoading] = useState(false);
-  const [sortType, setSortType] = useState<
-    'default' | 'maturity-near' | 'maturity-far' | 'value-high' | 'value-low' | 'interest-high' | 'interest-low'
-  >('default');
+  const [sortField, setSortField] = useState<'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | null>(null);
+  const [appliedSortField, setAppliedSortField] = useState<'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | null>(null);
+  const [appliedSortDirection, setAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [openMenu, setOpenMenu] = useState<'range' | 'industry' | 'warning' | 'maturity' | 'value' | 'interest' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'range' | 'industry' | 'warning' | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const itemsPerPage = 10;
   const maturityBondsQuery = useMaturingBondsQuery(selectedTimeRange);
@@ -297,24 +298,28 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   });
 
   const sortedBonds = [...filteredBonds].sort((a, b) => {
-    if (sortType === 'maturity-far') {
-      const dateA = new Date(a.maturityDate).getTime();
-      const dateB = new Date(b.maturityDate).getTime();
-      return dateB - dateA;
-    } else if (sortType === 'value-high') {
-      return b.listedValue - a.listedValue;
-    } else if (sortType === 'value-low') {
-      return a.listedValue - b.listedValue;
-    } else if (sortType === 'interest-high') {
-      return (b.interestRate || 0) - (a.interestRate || 0);
-    } else if (sortType === 'interest-low') {
-      return (a.interestRate || 0) - (b.interestRate || 0);
-    } else {
-      // Default and maturity-near both sort by maturity asc
-      const dateA = new Date(a.maturityDate).getTime();
-      const dateB = new Date(b.maturityDate).getTime();
-      return dateA - dateB;
+    const defaultSort = new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime();
+    if (!appliedSortField || !appliedSortDirection) return defaultSort;
+
+    const direction = appliedSortDirection === 'asc' ? 1 : -1;
+
+    if (appliedSortField === 'maturityDate') {
+      return (new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime()) * direction;
     }
+
+    if (appliedSortField === 'daysLeft') {
+      return ((a.daysLeft || 0) - (b.daysLeft || 0)) * direction;
+    }
+
+    if (appliedSortField === 'listedValue') {
+      return ((a.listedValue || 0) - (b.listedValue || 0)) * direction;
+    }
+
+    if (appliedSortField === 'interestRate') {
+      return ((a.interestRate || 0) - (b.interestRate || 0)) * direction;
+    }
+
+    return defaultSort;
   });
 
   const totalPages = Math.ceil(sortedBonds.length / itemsPerPage);
@@ -372,21 +377,19 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     return warningLevels.find((level) => level.value === warningFilter)?.label || t('allStatuses');
   }, [t, warningFilter]);
 
-  const maturitySortLabel = sortType === 'maturity-near'
-    ? t('nearest')
-    : sortType === 'maturity-far'
-      ? t('farthest')
-      : t('maturityDateSort');
-  const valueSortLabel = sortType === 'value-high'
-    ? t('highest')
-    : sortType === 'value-low'
-      ? t('lowest')
-      : t('issuedValue');
-  const interestSortLabel = sortType === 'interest-high'
-    ? t('highest')
-    : sortType === 'interest-low'
-      ? t('lowest')
-      : t('interestRate');
+  const remainingTermLabel = t('remainingTermLabel');
+
+  const sortOptions = useMemo(() => ([
+    { value: '__default__', label: t('sortBy'), isDefault: true },
+    { value: 'maturityDate', label: t('maturityDateSort') },
+    { value: 'daysLeft', label: remainingTermLabel },
+    { value: 'listedValue', label: t('issuedValueShort') },
+    { value: 'interestRate', label: t('interestRate') },
+  ]), [remainingTermLabel, t]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [appliedSortDirection, appliedSortField]);
 
   const handleIndustryButtonClick = () => {
     setOpenMenu((current) => (current === 'industry' ? null : 'industry'));
@@ -394,18 +397,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   const handleWarningButtonClick = () => {
     setOpenMenu((current) => (current === 'warning' ? null : 'warning'));
-  };
-
-  const handleMaturityButtonClick = () => {
-    setOpenMenu((current) => (current === 'maturity' ? null : 'maturity'));
-  };
-
-  const handleValueButtonClick = () => {
-    setOpenMenu((current) => (current === 'value' ? null : 'value'));
-  };
-
-  const handleInterestButtonClick = () => {
-    setOpenMenu((current) => (current === 'interest' ? null : 'interest'));
   };
 
   const handleExportExcel = async () => {
@@ -419,7 +410,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
           { header: t('bondCode'), value: (bond) => bond.code },
           { header: t('enterprise'), value: (bond) => language === 'en' && bond.ticker && enterpriseNamesEN[bond.ticker] ? enterpriseNamesEN[bond.ticker] : t(bond.issuerName as any, bond.ticker) },
           { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
-          { header: `${t('daysLeftLabel')} (${t('daysUnit')})`, value: (bond) => bond.daysLeft },
+          { header: `${remainingTermLabel} (${t('daysUnit')})`, value: (bond) => bond.daysLeft },
           { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue, 2) },
           { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => `${formatInterestRate(bond.interestRate)}%` },
           { header: t('situation'), value: (bond) => getWarningStatus(bond.daysLeft).label },
@@ -463,8 +454,8 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       {/* Filters */}
       <div className="bg-bg-surface p-4 rounded-lg shadow-sm border border-border-base mb-4 transition-colors">
         <div ref={menuRef} className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <div className="relative">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+            <div className="relative lg:col-span-2">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 pointer-events-none" />
               <input
                 type="text"
@@ -478,17 +469,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               />
             </div>
 
-            <div className="flex w-full items-center lg:justify-end">
-              <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-            <div className="relative w-full">
+            <div className="relative w-full lg:w-64">
               <button
                 type="button"
                 onClick={() => setOpenMenu((current) => (current === 'range' ? null : 'range'))}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                className="inline-flex w-full h-11 items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
                 aria-haspopup="menu"
                 aria-expanded={openMenu === 'range'}
               >
@@ -529,7 +514,13 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               )}
             </div>
 
-            <div className="relative w-full">
+            <div className="flex w-full items-center lg:justify-end">
+              <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-center">
+            <div className="relative w-full lg:w-82 lg:shrink-0">
               <button
                 type="button"
                 onClick={handleIndustryButtonClick}
@@ -584,7 +575,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               )}
             </div>
 
-            <div className="relative w-full">
+            <div className="relative w-full lg:w-68 lg:shrink-0">
               <button
                 type="button"
                 onClick={handleWarningButtonClick}
@@ -622,149 +613,27 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 </div>
               )}
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-            <div className="relative w-full">
-              <button
-                type="button"
-                onClick={handleMaturityButtonClick}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-                aria-haspopup="menu"
-                aria-expanded={openMenu === 'maturity'}
-              >
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
-                  <span className="truncate">{maturitySortLabel}</span>
-                </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-              </button>
-              {openMenu === 'maturity' && (
-                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                  {[
-                    { value: 'near', label: t('nearest') },
-                    { value: 'far', label: t('farthest') },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => {
-                        if (option.value === 'near') {
-                          setSortType('maturity-near');
-                        } else {
-                          setSortType('maturity-far');
-                        }
-                        setCurrentPage(1);
-                        setOpenMenu(null);
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                        (option.value === 'near' && sortType === 'maturity-near') ||
-                        (option.value === 'far' && sortType === 'maturity-far')
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                          : 'text-text-base hover:bg-surface-container-low'
-                      )}
-                    >
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="relative w-full">
-              <button
-                type="button"
-                onClick={handleValueButtonClick}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-                aria-haspopup="menu"
-                aria-expanded={openMenu === 'value'}
-              >
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
-                  <span className="truncate">{valueSortLabel}</span>
-                </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-              </button>
-              {openMenu === 'value' && (
-                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                  {[
-                    { value: 'high', label: t('highest') },
-                    { value: 'low', label: t('lowest') },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => {
-                        if (option.value === 'high') {
-                          setSortType('value-high');
-                        } else {
-                          setSortType('value-low');
-                        }
-                        setCurrentPage(1);
-                        setOpenMenu(null);
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                        (option.value === 'high' && sortType === 'value-high') ||
-                        (option.value === 'low' && sortType === 'value-low')
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                          : 'text-text-base hover:bg-surface-container-low'
-                      )}
-                    >
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="relative w-full">
-              <button
-                type="button"
-                onClick={handleInterestButtonClick}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-                aria-haspopup="menu"
-                aria-expanded={openMenu === 'interest'}
-              >
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
-                  <span className="truncate">{interestSortLabel}</span>
-                </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-              </button>
-              {openMenu === 'interest' && (
-                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                  {[
-                    { value: 'high', label: t('highest') },
-                    { value: 'low', label: t('lowest') },
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => {
-                        if (option.value === 'high') {
-                          setSortType('interest-high');
-                        } else {
-                          setSortType('interest-low');
-                        }
-                        setCurrentPage(1);
-                        setOpenMenu(null);
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                        (option.value === 'high' && sortType === 'interest-high') ||
-                        (option.value === 'low' && sortType === 'interest-low')
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                          : 'text-text-base hover:bg-surface-container-low'
-                      )}
-                    >
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SortControl
+              className="w-full lg:w-84 lg:shrink-0"
+              label={t('sortBy')}
+              options={sortOptions}
+              value={sortField}
+              appliedValue={appliedSortField}
+              appliedDirection={appliedSortDirection}
+              onChange={(value) => {
+                setSortField(value as typeof sortField);
+                setAppliedSortField(null);
+                setAppliedSortDirection(null);
+              }}
+              onDirectionChange={(direction) => {
+                if (!direction || !sortField) return;
+                setAppliedSortField(sortField);
+                setAppliedSortDirection(direction);
+              }}
+              ascendingLabel={t('ascending')}
+              descendingLabel={t('descending')}
+            />
           </div>
         </div>
       </div>
@@ -804,7 +673,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                     <p className="mt-1 text-sm font-bold text-text-base">{formatDate(bond.maturityDate)}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{t('daysLeftLabel')}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted/80">{remainingTermLabel}</p>
                     <p className="mt-1 text-sm font-bold text-text-base">{bond.daysLeft} {t('daysUnit').toLowerCase()}</p>
                   </div>
                   <div>
@@ -859,7 +728,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate')}</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap leading-none">{t('daysLeftLabel')}</span>
+                    <span className="whitespace-nowrap leading-none">{remainingTermLabel}</span>
                     <span className="whitespace-nowrap mt-1 leading-none">({t('daysUnit')})</span>
                   </div>
                 </th>

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info, ChevronDown } from 'lucide-react';
+import { Search, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
 import ChartWithToolbar from './ChartWithToolbar';
-import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
+import { formatInterestRate, formatNumber, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -26,6 +26,7 @@ import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { MetricCard } from './ui/Card';
+import { SortControl } from './ui/SortControl';
 import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
 import {
@@ -54,8 +55,9 @@ export default function EnterpriseView({
   const cachedData = getCache('enterprise_list');
   const [searchTerm, setSearchTerm] = useState('');
   const [industryFilter, setIndustryFilter] = useState('All');
-  const [issueValueSort, setIssueValueSort] = useState('None');
-  const [remainingDebtSort, setRemainingDebtSort] = useState('None');
+  const [enterpriseSortField, setEnterpriseSortField] = useState<'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
+  const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
+  const [enterpriseAppliedSortDirection, setEnterpriseAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [enterprises, setEnterprises] = useState<Enterprise[]>(
     Array.isArray(cachedData)
       ? cachedData.map((enterprise: Enterprise) => ({
@@ -73,15 +75,19 @@ export default function EnterpriseView({
   const [bondPage, setBondPage] = useState(1);
   const [enterprisePage, setEnterprisePage] = useState(1);
   const [bondTermFilter, setBondTermFilter] = useState('All');
-  const [bondInterestSort, setBondInterestSort] = useState('None');
+  const [bondSortField, setBondSortField] = useState<'issueDate' | 'maturityDate' | 'interestRate' | 'listedVolume' | 'issuedValue' | 'listedValue' | null>(null);
+  const [bondAppliedSortField, setBondAppliedSortField] = useState<'issueDate' | 'maturityDate' | 'interestRate' | 'listedVolume' | 'issuedValue' | 'listedValue' | null>(null);
+  const [bondAppliedSortDirection, setBondAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [financialData, setFinancialData] = useState<any>(null);
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
-  const [openMenu, setOpenMenu] = useState<'industry' | 'issueValue' | 'remainingDebt' | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [issuerOpenMenu, setIssuerOpenMenu] = useState<'industry' | null>(null);
+  const [bondOpenMenu, setBondOpenMenu] = useState<'bondTerm' | null>(null);
+  const issuerMenuRef = useRef<HTMLDivElement | null>(null);
+  const bondMenuRef = useRef<HTMLDivElement | null>(null);
   const bondsPerPage = 10;
   const enterprisesPerPage = 10;
 
@@ -120,8 +126,11 @@ export default function EnterpriseView({
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setOpenMenu(null);
+      if (issuerMenuRef.current && !issuerMenuRef.current.contains(event.target as Node)) {
+        setIssuerOpenMenu(null);
+      }
+      if (bondMenuRef.current && !bondMenuRef.current.contains(event.target as Node)) {
+        setBondOpenMenu(null);
       }
     };
 
@@ -134,32 +143,38 @@ export default function EnterpriseView({
     return enterpriseIndustryOptions.find((industry) => industry.value === industryFilter)?.label || t('allIndustries');
   }, [enterpriseIndustryOptions, industryFilter, t]);
 
-  const issueValueSortLabel = issueValueSort === 'HighToLow'
-    ? t('highest')
-    : issueValueSort === 'LowToHigh'
-      ? t('lowest')
-      : t('issuedValue');
+  const selectedBondTermLabel = useMemo(() => {
+    return bondTermFilter === 'All' ? t('term') : bondTermFilter;
+  }, [bondTermFilter, t]);
 
-  const remainingDebtSortLabel = remainingDebtSort === 'HighToLow'
-    ? t('highest')
-    : remainingDebtSort === 'LowToHigh'
-      ? t('lowest')
-      : t('remainingDebtTitle');
+  const enterpriseSortOptions = useMemo(() => ([
+    { value: '__default__', label: t('sortBy'), isDefault: true },
+    { value: 'bondCount', label: language === 'en' ? 'Bond Count' : 'Số lượng mã trái phiếu' },
+    { value: 'issuedValue', label: 'Giá trị phát hành' },
+    { value: 'remainingDebt', label: t('remainingDebtTitle') },
+  ]), [language, t]);
 
-  const statusWidthClass = 'w-full sm:w-80';
-  const issueWidthClass = 'w-full sm:w-50';
-  const remainingWidthClass = 'w-full sm:w-46';
+  const bondSortOptions = useMemo(() => ([
+    { value: '__default__', label: t('sortBy'), isDefault: true },
+    { value: 'issueDate', label: t('issueDate') },
+    { value: 'maturityDate', label: t('maturityDate') },
+    { value: 'interestRate', label: t('interestRate') },
+    { value: 'listedVolume', label: t('listedVolume') },
+    { value: 'issuedValue', label: t('issuedValue') },
+    { value: 'listedValue', label: t('listedValueTitle') },
+  ]), [t]);
+
+  const issuerFilterWidthClass = 'w-76';
+  const bondTermWidthClass = 'w-32';
+  const issuerSortWidthClass = 'w-84';
+  const bondSortWidthClass = 'w-84';
 
   const handleIndustryButtonClick = () => {
-    setOpenMenu((current) => (current === 'industry' ? null : 'industry'));
+    setIssuerOpenMenu((current) => (current === 'industry' ? null : 'industry'));
   };
 
-  const handleIssueValueButtonClick = () => {
-    setOpenMenu((current) => (current === 'issueValue' ? null : 'issueValue'));
-  };
-
-  const handleRemainingDebtButtonClick = () => {
-    setOpenMenu((current) => (current === 'remainingDebt' ? null : 'remainingDebt'));
+  const handleBondTermButtonClick = () => {
+    setBondOpenMenu((current) => (current === 'bondTerm' ? null : 'bondTerm'));
   };
 
   useEffect(() => {
@@ -179,7 +194,9 @@ export default function EnterpriseView({
       setBondError(null);
       setBondPage(1);
       setBondTermFilter('All');
-      setBondInterestSort('None');
+      setBondSortField(null);
+      setBondAppliedSortField(null);
+      setBondAppliedSortDirection(null);
       setCashFlowPeriod('year');
       try {
         const token = getFireantToken();
@@ -493,15 +510,15 @@ export default function EnterpriseView({
 
   useEffect(() => {
     setEnterprisePage(1);
-  }, [searchTerm, industryFilter, issueValueSort]);
+  }, [searchTerm, industryFilter, enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
 
   useEffect(() => {
     setBondPage(1);
-  }, [bondTermFilter, bondInterestSort]);
+  }, [bondTermFilter, bondAppliedSortField, bondAppliedSortDirection]);
 
   useEffect(() => {
     setEnterprisePage(1);
-  }, [remainingDebtSort]);
+  }, [enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
 
   const filteredEnterprises = useMemo(() => {
     const search = searchTerm.toLowerCase();
@@ -513,13 +530,20 @@ export default function EnterpriseView({
 
   const sortedEnterprises = useMemo(() => {
     return [...filteredEnterprises].sort((a, b) => {
-      if (remainingDebtSort === 'HighToLow') return b.remainingDebt - a.remainingDebt;
-      if (remainingDebtSort === 'LowToHigh') return a.remainingDebt - b.remainingDebt;
-      if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
-      if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
+      if (!enterpriseAppliedSortField || !enterpriseAppliedSortDirection) return 0;
+      const direction = enterpriseAppliedSortDirection === 'asc' ? 1 : -1;
+      if (enterpriseAppliedSortField === 'bondCount') {
+        return (Number(a.bondCount || 0) - Number(b.bondCount || 0)) * direction;
+      }
+      if (enterpriseAppliedSortField === 'issuedValue') {
+        return (Number(a.issuedValue || 0) - Number(b.issuedValue || 0)) * direction;
+      }
+      if (enterpriseAppliedSortField === 'remainingDebt') {
+        return (Number(a.remainingDebt || 0) - Number(b.remainingDebt || 0)) * direction;
+      }
       return 0;
     });
-  }, [filteredEnterprises, issueValueSort, remainingDebtSort]);
+  }, [enterpriseAppliedSortDirection, enterpriseAppliedSortField, filteredEnterprises]);
 
   const totalEnterprisePages = useMemo(() => Math.ceil(sortedEnterprises.length / enterprisesPerPage), [sortedEnterprises.length]);
   const paginatedEnterprises = useMemo(
@@ -535,11 +559,29 @@ export default function EnterpriseView({
     return [...enterpriseBonds]
       .filter((bond) => bondTermFilter === 'All' || bond.term === bondTermFilter)
       .sort((a, b) => {
-        if (bondInterestSort === 'HighToLow') return b.interestRate - a.interestRate;
-        if (bondInterestSort === 'LowToHigh') return a.interestRate - b.interestRate;
+        if (!bondAppliedSortField || !bondAppliedSortDirection) return 0;
+        const direction = bondAppliedSortDirection === 'asc' ? 1 : -1;
+        if (bondAppliedSortField === 'issueDate') {
+          return ((parseDateToTimestamp(a.issueDate) || 0) - (parseDateToTimestamp(b.issueDate) || 0)) * direction;
+        }
+        if (bondAppliedSortField === 'maturityDate') {
+          return ((parseDateToTimestamp(a.maturityDate) || 0) - (parseDateToTimestamp(b.maturityDate) || 0)) * direction;
+        }
+        if (bondAppliedSortField === 'interestRate') {
+          return ((Number(a.interestRate || 0)) - (Number(b.interestRate || 0))) * direction;
+        }
+        if (bondAppliedSortField === 'listedVolume') {
+          return ((Number(a.listedVolume || 0)) - (Number(b.listedVolume || 0))) * direction;
+        }
+        if (bondAppliedSortField === 'issuedValue') {
+          return ((Number(a.issuedValue || 0)) - (Number(b.issuedValue || 0))) * direction;
+        }
+        if (bondAppliedSortField === 'listedValue') {
+          return ((Number(a.listedValue || 0)) - (Number(b.listedValue || 0))) * direction;
+        }
         return 0;
       });
-  }, [enterpriseBonds, bondInterestSort, bondTermFilter]);
+  }, [bondAppliedSortDirection, bondAppliedSortField, bondTermFilter, enterpriseBonds]);
 
   const totalBondPages = useMemo(() => Math.ceil(filteredSortedBonds.length / bondsPerPage), [filteredSortedBonds.length]);
   const paginatedBonds = useMemo(
@@ -787,7 +829,7 @@ export default function EnterpriseView({
                 : bond.interestType,
           },
           { header: t('listedVolume'), value: (bond) => formatNumber(bond.listedVolume || 0, 0) },
-          { header: `${t('totalIssuedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
+          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
           { header: `${t('listedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue || 0, 2) },
           {
             header: t('status'),
@@ -1467,38 +1509,87 @@ export default function EnterpriseView({
         <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
           <div className="p-4 border-b border-border-base flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h3 className="text-sm font-bold text-text-base uppercase tracking-wider transition-colors">{t('bondList')}</h3>
-            <div className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
+            <div ref={bondMenuRef} className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
+              <div className={`relative ${bondTermWidthClass}`}>
+                <button
+                  type="button"
+                  onClick={handleBondTermButtonClick}
+                  className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                  aria-haspopup="menu"
+                  aria-expanded={bondOpenMenu === 'bondTerm'}
+                >
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                    <span className="truncate">{selectedBondTermLabel}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+                </button>
+                {bondOpenMenu === 'bondTerm' && (
+                  <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBondTermFilter('All');
+                        setBondPage(1);
+                        setBondOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        bondTermFilter === 'All'
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{t('term')}</span>
+                    </button>
+                    {uniqueTerms.map((term) => (
+                      <button
+                        key={term}
+                        type="button"
+                        onClick={() => {
+                          setBondTermFilter(term);
+                          setBondPage(1);
+                          setBondOpenMenu(null);
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                          bondTermFilter === term
+                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                            : 'text-text-base hover:bg-surface-container-low'
+                        )}
+                      >
+                        <span className="truncate">{term}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <SortControl
+                className={bondSortWidthClass}
+                label={t('sortBy')}
+                options={bondSortOptions}
+                value={bondSortField}
+                appliedValue={bondAppliedSortField}
+                appliedDirection={bondAppliedSortDirection}
+                onChange={(value) => {
+                  setBondSortField(value as typeof bondSortField);
+                  setBondAppliedSortField(null);
+                  setBondAppliedSortDirection(null);
+                }}
+                onDirectionChange={(direction) => {
+                  if (!direction || !bondSortField) return;
+                  setBondAppliedSortField(bondSortField);
+                  setBondAppliedSortDirection(direction);
+                }}
+                ascendingLabel={t('ascending')}
+                descendingLabel={t('descending')}
+              />
               <ExportExcelButton loading={exportLoading} onClick={handleExportBonds} />
-              <div className="relative">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-                <select 
-                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-                  value={bondTermFilter}
-                  onChange={(e) => setBondTermFilter(e.target.value)}
-                >
-                  <option value="All">{t('term')}</option>
-                  {uniqueTerms.map(term => (
-                    <option key={term} value={term} className="bg-bg-surface">{term}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="relative">
-                <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-                <select 
-                  className="w-full lg:w-auto pl-9 pr-4 py-2 text-sm font-semibold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-                  value={bondInterestSort}
-                  onChange={(e) => setBondInterestSort(e.target.value)}
-                >
-                  <option value="None">{t('interestRate')}</option>
-                  <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-                  <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-                </select>
-              </div>
             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-full text-left border-collapse">
-              <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
+              <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
                 <tr>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
@@ -1519,7 +1610,7 @@ export default function EnterpriseView({
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume')}</th>
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap leading-none">{t('totalIssuedValueTitle')}</span>
+                      <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
                       <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
@@ -1691,158 +1782,102 @@ export default function EnterpriseView({
         <div>
           <h2 className="text-2xl font-bold text-text-base text-center transition-colors">{t('enterprise')}</h2>
         </div>
-        <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 items-stretch sm:items-center rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
-        <div className="relative flex-1 min-w-0 sm:min-w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 pointer-events-none" />
-          <input 
-            type="text" 
-            placeholder={t('searchPlaceholderEnterprises')}
-            className="w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
+        <div className="flex justify-end">
+          <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
         </div>
-        <div ref={menuRef} className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <div className={`relative ${statusWidthClass}`}>
-            <button
-              type="button"
-              onClick={handleIndustryButtonClick}
-              className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-              aria-haspopup="menu"
-              aria-expanded={openMenu === 'industry'}
-            >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <Filter className="h-4 w-4 shrink-0 text-blue-600" />
-                <span className="truncate">{selectedIndustryLabel}</span>
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-            </button>
+        <div ref={issuerMenuRef} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={t('searchPlaceholderEnterprises')}
+                className="w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
 
-            {openMenu === 'industry' && (
-              <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className={`relative ${issuerFilterWidthClass}`}>
                 <button
                   type="button"
-                  onClick={() => {
-                    setIndustryFilter('All');
-                    setOpenMenu(null);
-                  }}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                    industryFilter === 'All'
-                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                      : 'text-text-base hover:bg-surface-container-low'
-                  )}
+                  onClick={handleIndustryButtonClick}
+                  className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                  aria-haspopup="menu"
+                  aria-expanded={issuerOpenMenu === 'industry'}
                 >
-                  <span>{t('allIndustries')}</span>
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                    <span className="truncate">{selectedIndustryLabel}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
                 </button>
-                {enterpriseIndustryOptions.map((industry) => (
-                  <button
-                    key={industry.value}
-                    type="button"
-                    onClick={() => {
-                      setIndustryFilter(industry.value);
-                      setOpenMenu(null);
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                      industryFilter === industry.value
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                        : 'text-text-base hover:bg-surface-container-low'
-                    )}
-                  >
-                    <span className="truncate">{industry.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
 
-          <div className={`relative ${issueWidthClass}`}>
-            <button
-              type="button"
-              onClick={handleIssueValueButtonClick}
-              className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-              aria-haspopup="menu"
-              aria-expanded={openMenu === 'issueValue'}
-            >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
-                <span className="truncate">{issueValueSortLabel}</span>
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-            </button>
-            {openMenu === 'issueValue' && (
-              <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                {[
-                  { value: 'HighToLow', label: t('highest') },
-                  { value: 'LowToHigh', label: t('lowest') },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setIssueValueSort(option.value);
-                      setRemainingDebtSort('None');
-                      setOpenMenu(null);
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                      issueValueSort === option.value
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                        : 'text-text-base hover:bg-surface-container-low'
-                    )}
-                  >
-                    <span>{option.label}</span>
-                  </button>
-                ))}
+                {issuerOpenMenu === 'industry' && (
+                  <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIndustryFilter('All');
+                        setIssuerOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        industryFilter === 'All'
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{t('allIndustries')}</span>
+                    </button>
+                    {enterpriseIndustryOptions.map((industry) => (
+                      <button
+                        key={industry.value}
+                        type="button"
+                        onClick={() => {
+                          setIndustryFilter(industry.value);
+                          setIssuerOpenMenu(null);
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                          industryFilter === industry.value
+                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                            : 'text-text-base hover:bg-surface-container-low'
+                        )}
+                      >
+                        <span className="truncate">{industry.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className={`relative ${remainingWidthClass}`}>
-            <button
-              type="button"
-              onClick={handleRemainingDebtButtonClick}
-              className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-              aria-haspopup="menu"
-              aria-expanded={openMenu === 'remainingDebt'}
-            >
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <ArrowUpDown className="h-4 w-4 shrink-0 text-blue-600" />
-                <span className="truncate">{remainingDebtSortLabel}</span>
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-            </button>
-            {openMenu === 'remainingDebt' && (
-              <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                {[
-                  { value: 'HighToLow', label: t('highest') },
-                  { value: 'LowToHigh', label: t('lowest') },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setRemainingDebtSort(option.value);
-                      setIssueValueSort('None');
-                      setOpenMenu(null);
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                      remainingDebtSort === option.value
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                        : 'text-text-base hover:bg-surface-container-low'
-                    )}
-                  >
-                    <span>{option.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+              <SortControl
+                className={issuerSortWidthClass}
+                label={t('sortBy')}
+                options={enterpriseSortOptions}
+                value={enterpriseSortField}
+                appliedValue={enterpriseAppliedSortField}
+                appliedDirection={enterpriseAppliedSortDirection}
+                onChange={(value) => {
+                  setEnterpriseSortField(value as typeof enterpriseSortField);
+                  setEnterpriseAppliedSortField(null);
+                  setEnterpriseAppliedSortDirection(null);
+                }}
+                onDirectionChange={(direction) => {
+                  if (!direction || !enterpriseSortField) return;
+                  setEnterpriseAppliedSortField(enterpriseSortField);
+                  setEnterpriseAppliedSortDirection(direction);
+                }}
+                ascendingLabel={t('ascending')}
+                descendingLabel={t('descending')}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1896,7 +1931,7 @@ export default function EnterpriseView({
         <div className="hidden overflow-x-auto lg:block">
           <table className="w-full min-w-max text-left">
             <thead>
-              <tr className="border-b border-border-base bg-surface-container-low text-text-muted transition-colors">
+              <tr className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
                 <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount')}</th>
