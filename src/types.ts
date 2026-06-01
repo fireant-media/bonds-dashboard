@@ -1,4 +1,4 @@
-export type IndustryType = 'Ngân hàng' | 'Chứng khoán' | 'Bất động sản' | 'Khác' | string;
+export type IndustryType = string;
 
 export interface Enterprise {
   id: string;
@@ -26,6 +26,7 @@ export interface NewsItem {
   url: string;
   category?: string;
   originalUrl?: string;
+  tags?: string[];
 }
 
 export interface ExpiringBond {

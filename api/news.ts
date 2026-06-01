@@ -1,182 +1,365 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import axios from 'axios';
+import {
+  FIREANT_ACCESS_TOKEN,
+  FIREANT_BASE_URL,
+  FIREANT_WEB_URL,
+  STATIC_FIREANT_URL,
+} from './_lib/config.js';
 
-const FINANCE_FALLBACKS = [
-  "https://images.unsplash.com/photo-1611974717482-58a2523e16c2?q=80&w=800&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=800&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1460925895917-afdab827c52f?q=80&w=800&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1526303328184-bf7159787ca7?q=80&w=800&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=800&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1633156191771-7a55444e998b?q=80&w=800&auto=format&fit=crop"
-];
+type FireantPost = Record<string, any>;
 
-const getFallbackImage = (id: string | number) => {
-  const idx = typeof id === 'number' ? id % FINANCE_FALLBACKS.length : (id.toString().length % FINANCE_FALLBACKS.length);
-  return FINANCE_FALLBACKS[idx];
-};
+const isValidSymbol = (value: string) => /^[a-zA-Z0-9._-]{2,16}$/.test(value);
 
-let cachedToken: string | null = null;
-let lastTokenFetch = 0;
-
-const findTokenRecursively = (obj: any, depth = 0): string | null => {
-  if (!obj || typeof obj !== 'object' || depth > 10) return null;
-  if (obj.accessToken && typeof obj.accessToken === 'string' && obj.accessToken.length > 20) return obj.accessToken;
-  if (obj.token && typeof obj.token === 'string' && obj.token.length > 20) return obj.token;
-  for (const key in obj) {
-    if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {
-      const res = findTokenRecursively(obj[key], depth + 1);
-      if (res) return res;
-    }
-  }
-  return null;
-};
-
-async function getFireantToken(force = false) {
-  const now = Date.now();
-  if (process.env.FIREANT_ACCESS_TOKEN && !force) return process.env.FIREANT_ACCESS_TOKEN;
-  if (!force && cachedToken && (now - lastTokenFetch < 15 * 60 * 1000)) return cachedToken;
-
-  try {
-    const response = await axios.get('https://fireant.vn/bai-viet', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      },
-      timeout: 8000
-    });
-    const html = response.data;
-    const startIdx = html.indexOf('<script id="__NEXT_DATA__" type="application/json">');
-    if (startIdx !== -1) {
-      const jsonStart = html.indexOf('{', startIdx);
-      const jsonEnd = html.indexOf('</script>', jsonStart);
-      const data = JSON.parse(html.substring(jsonStart, jsonEnd));
-      const token = data?.props?.pageProps?.initialState?.auth?.accessToken || 
-                    data?.props?.pageProps?.initialState?.auth?.token ||
-                    findTokenRecursively(data);
-      if (token) {
-        cachedToken = token;
-        lastTokenFetch = now;
-        return token;
-      }
-    }
-  } catch (e) {
-    console.error("Token fetch failed in news API", (e as any).message);
-  }
-  return cachedToken || process.env.FIREANT_ACCESS_TOKEN || null;
+function getRequestToken(req: VercelRequest): string | null {
+  const headerToken = req.headers.authorization;
+  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  if (!rawToken) return null;
+  const token = rawToken.replace(/^bearer\s+/i, '').trim();
+  return token || null;
 }
 
-function fixContentImages(content: string) {
-  if (!content) return content;
-  // Fix relative image URLs in src, data-src, and srcset
-  let fixed = content.replace(/(src|data-src|srcset)="\/\//g, '$1="https://');
-  fixed = fixed.replace(/(src|data-src|srcset)="\/News\/Image\//g, '$1="https://static.fireant.vn/News/Image/');
-  
-  fixed = fixed.replace(/(src|data-src|srcset)="\/([^"]+)"/g, (match, attr, path) => {
-    if (path.startsWith('http') || path.startsWith('data:')) return match;
-    return `${attr}="https://static.fireant.vn/${path}"`;
+function normalizeText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeSymbolTag(value: unknown) {
+  const text = normalizeText(value).toUpperCase();
+  return /^[A-Z0-9._-]{2,16}$/.test(text) ? text : '';
+}
+
+function collectSymbolTags(value: unknown, tags: string[] = []) {
+  if (value === null || value === undefined) return tags;
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return tags;
+
+    if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+      try {
+        const parsed = JSON.parse(text);
+        return collectSymbolTags(parsed, tags);
+      } catch {
+        // Fall through to delimiter parsing.
+      }
+    }
+
+    const parts = text.includes(',') || text.includes('|') || text.includes(';') || text.includes('/')
+      ? text.split(/[\s,|;/]+/)
+      : [text];
+
+    for (const part of parts) {
+      const normalized = normalizeSymbolTag(part);
+      if (normalized && !tags.includes(normalized)) tags.push(normalized);
+    }
+
+    return tags;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectSymbolTags(item, tags);
+    }
+    return tags;
+  }
+
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keyCandidates = [
+      'symbol',
+      'code',
+      'ticker',
+      'tag',
+      'tagName',
+      'tagCode',
+      'value',
+      'text',
+      'name',
+      'displayName',
+      'label',
+      'stockCode',
+      'stockSymbol',
+      'symbolCode',
+      'symbolName',
+      'symbolValue',
+    ];
+    for (const key of keyCandidates) {
+      if (key in record) {
+        collectSymbolTags(record[key], tags);
+      }
+    }
+  }
+
+  return tags;
+}
+
+function extractTags(post: FireantPost) {
+  const candidates = [
+    post.tags,
+    post.postTags,
+    post.tag,
+    post.symbols,
+    post.stockSymbols,
+    post.stocks,
+    post.hashtags,
+    post.relatedSymbols,
+    post.metadata?.tags,
+    post.metadata?.symbols,
+    post.metadata?.stockSymbols,
+    post.info?.tags,
+    post.info?.symbols,
+    post.info?.stockSymbols,
+    post.symbolInfo,
+    post.symbolTags,
+    post.relatedTags,
+    post.postSource?.tags,
+    post.postSource?.symbols,
+    post.postSource?.stockSymbols,
+  ];
+
+  const tags: string[] = [];
+
+  for (const candidate of candidates) {
+    collectSymbolTags(candidate, tags);
+  }
+
+  return tags;
+}
+
+function slugify(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u0111/g, 'd')
+    .replace(/\u0110/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildPostUrl(post: FireantPost) {
+  const postID = post.postID || post.id;
+  const title = normalizeText(post.title);
+  if (!postID || !title) return null;
+  return `${FIREANT_WEB_URL}/bai-viet/${slugify(title)}/${postID}`;
+}
+
+function appendImageSize(value: string, width = 210, height = 180) {
+  try {
+    const url = new URL(value);
+    url.searchParams.set('width', String(width));
+    url.searchParams.set('height', String(height));
+    return url.toString();
+  } catch {
+    const separator = value.includes('?') ? '&' : '?';
+    return `${value}${separator}width=${width}&height=${height}`;
+  }
+}
+
+function normalizeFireantImageUrl(value: unknown, width = 210, height = 180) {
+  if (typeof value !== 'string') return null;
+  const url = value.trim();
+  if (!url) return null;
+
+  return appendImageSize(url, width, height);
+}
+
+function buildImageUrl(image: any, width = 210, height = 180) {
+  if (!image) return null;
+  if (typeof image === 'string') return normalizeFireantImageUrl(image, width, height);
+  const imageUrl = normalizeFireantImageUrl(image.imageUrl, width, height);
+  if (imageUrl) return imageUrl;
+  const imageID = image.imageID || image.imageId || image.ImageID;
+  if (imageID) return `${STATIC_FIREANT_URL}/posts/image/${imageID}?width=${width}&height=${height}`;
+  return null;
+}
+
+function mapPost(post: FireantPost, index: number) {
+  const title = normalizeText(post.title);
+  const summary = normalizeText(post.description) || normalizeText(post.summary);
+  const image =
+    buildImageUrl(post.images?.[0]) ||
+    buildImageUrl(post.image) ||
+    normalizeFireantImageUrl(post.thumbnail) ||
+    normalizeFireantImageUrl(post.linkImage);
+  const images = Array.isArray(post.images)
+    ? post.images.map((item: any) => buildImageUrl(item)).filter(Boolean)
+    : [];
+
+  return {
+    id: String(post.postID || post.id || `news-${index}`),
+    source: normalizeText(post.postSource?.name) || normalizeText(post.user?.name) || 'Fireant',
+    sourceUrl: normalizeText(post.postSource?.url) || null,
+    title,
+    summary,
+    content: normalizeText(post.content) || normalizeText(post.originalContent) || summary,
+    author: normalizeText(post.user?.name) || normalizeText(post.userName) || 'Fireant',
+    image: image || '',
+    images,
+    date:
+      normalizeText(post.date) ||
+      normalizeText(post.createdDate) ||
+      normalizeText(post.publishedDate) ||
+      normalizeText(post.updatedDate) ||
+      new Date().toISOString(),
+    url: buildPostUrl(post) || '',
+    originalUrl: buildPostUrl(post),
+    category: normalizeText(post.category?.name) || normalizeText(post.typeName) || 'Tin tuc',
+    tags: extractTags(post),
+  };
+}
+
+async function fetchPosts(url: string, token: string | null) {
+  const headers: Record<string, string> = {
+    Accept: 'application/json, text/plain, */*',
+    'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    Referer: `${FIREANT_WEB_URL}/`,
+  };
+
+  if (token) {
+    headers.Authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(10000),
   });
 
-  return fixed;
+  const text = await response.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : [];
+  } catch {
+    data = text;
+  }
+
+  return { status: response.status, ok: response.ok, data };
+}
+
+function extractPosts(data: unknown): FireantPost[] {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+
+  const obj = data as Record<string, unknown>;
+  for (const key of ['data', 'posts', 'items', 'records', 'list']) {
+    if (Array.isArray(obj[key])) return obj[key] as FireantPost[];
+    if (obj[key] && typeof obj[key] === 'object') {
+      const nested = extractPosts(obj[key]);
+      if (nested.length > 0) return nested;
+    }
+  }
+
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === 'object') {
+      const nested = extractPosts(value);
+      if (nested.length > 0) return nested;
+    }
+  }
+
+  return [];
+}
+
+function pushUniqueUrl(urls: string[], url: string) {
+  if (!urls.includes(url)) urls.push(url);
+}
+
+async function fetchPostDetail(postId: string, token: string | null) {
+  const urls = [
+    `${FIREANT_BASE_URL}/posts/get-post?postID=${encodeURIComponent(postId)}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const result = await fetchPosts(url, token);
+      if (!result.ok) continue;
+
+      const payload = result.data && typeof result.data === 'object'
+        ? result.data as Record<string, unknown>
+        : null;
+      const post = payload?.data || payload?.post || payload?.item || payload || null;
+      if (post && typeof post === 'object') return post as FireantPost;
+    } catch (error: any) {
+      console.warn(`[News API] Failed to fetch detail ${postId} from ${new URL(url).hostname}: ${error?.message || error}`);
+    }
+  }
+
+  return null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+
   try {
-    let token = await getFireantToken();
-    let posts = null;
+    const token = getRequestToken(req) || FIREANT_ACCESS_TOKEN || null;
+    const rawSymbol = Array.isArray(req.query.symbol) ? req.query.symbol[0] : req.query.symbol;
+    const symbol = normalizeText(rawSymbol).toLowerCase();
+    const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+    const postId = normalizeText(rawId);
 
-    if (token) {
-      const fetchPostsRaw = async (authToken: string) => {
-        return axios.get("https://restv2.fireant.vn/posts/get-posts-by-group", {
-          params: { groupID: 'NEWS_STREAM', offset: 0, limit: 40 },
-          headers: {
-            'Authorization': authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://fireant.vn/'
-          },
-          timeout: 8000,
-          validateStatus: (status) => status < 500
-        });
-      };
+    if (postId) {
+      const detail = await fetchPostDetail(postId, token);
+      if (detail) return res.status(200).json(mapPost(detail, 0));
+    }
 
-      let apiRes = await fetchPostsRaw(token);
-      if (apiRes.status === 401) {
-        const freshToken = await getFireantToken(true);
-        if (freshToken) apiRes = await fetchPostsRaw(freshToken);
-      }
+    const urls: string[] = [];
+    if (symbol && isValidSymbol(symbol)) {
+      pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?symbol=${encodeURIComponent(symbol)}&type=1`);
+    }
+    pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?type=1`);
 
-      if (apiRes.status === 200 && Array.isArray(apiRes.data)) {
-        posts = apiRes.data;
+    let lastStatus = 502;
+    let lastBodyType = 'empty';
+    let lastError = '';
+
+    const mergedPosts: FireantPost[] = [];
+    const seenIds = new Set<string>();
+
+    for (const url of urls) {
+      try {
+        const result = await fetchPosts(url, token);
+        lastStatus = result.status;
+        lastBodyType = Array.isArray(result.data) ? 'array' : typeof result.data;
+
+        const posts = extractPosts(result.data);
+        if (result.ok && posts.length > 0) {
+          for (const post of posts) {
+            const mapped = mapPost(post, mergedPosts.length);
+            const mappedId = String(mapped.id);
+            if (!seenIds.has(mappedId)) {
+              seenIds.add(mappedId);
+              mergedPosts.push(post);
+            }
+          }
+        }
+      } catch (error: any) {
+        lastError = error?.message || 'Unknown fetch error';
+        console.warn(`[News API] Failed to fetch ${new URL(url).hostname}: ${lastError}`);
       }
     }
 
-    if (!posts) {
-      const response = await axios.get("https://fireant.vn/bai-viet", {
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-          'Accept': 'text/html'
-        }
-      });
-      const html = response.data;
-      const startIdx = html.indexOf('<script id="__NEXT_DATA__" type="application/json">');
-      if (startIdx !== -1) {
-        const jsonStart = html.indexOf('{', startIdx);
-        const jsonEnd = html.indexOf('</script>', jsonStart);
-        const data = JSON.parse(html.substring(jsonStart, jsonEnd));
-        posts = data?.props?.pageProps?.initialState?.posts?.posts?.NEWS_STREAM?.posts;
-      }
-    }
-
-    if (!posts || !Array.isArray(posts)) {
-      return res.status(200).json([]);
-    }
-
-    const mappedNews = posts.map((post: any) => {
-      const extractImage = (p: any) => {
-        let img = p.images?.[0]?.imageUrl || (p.images?.[0]?.imageID ? `https://static.fireant.vn/News/Image/${p.images[0].imageID}` : null) || p.thumbnail || p.linkImage;
-        if (img && typeof img === 'string') {
-          if (img.startsWith('//')) img = `https:${img}`;
-          else if (img.startsWith('/')) img = `https://static.fireant.vn${img}`;
-        }
-        return img;
-      };
-      const image = extractImage(post) || getFallbackImage(post.postID || 0);
-      const allImages = (post.images || []).map((img: any) => {
-        let url = img.imageUrl || (img.imageID ? `https://static.fireant.vn/News/Image/${img.imageID}` : null);
-        if (url && typeof url === 'string') {
-          if (url.startsWith('//')) url = `https:${url}`;
-          else if (url.startsWith('/')) url = `https://static.fireant.vn${url}`;
-        }
-        return url;
-      }).filter(Boolean);
-
-      if (image && !allImages.includes(image)) {
-        allImages.unshift(image);
+    if (mergedPosts.length > 0) {
+      const mappedPosts = mergedPosts.map(mapPost);
+      if (postId) {
+        const matchedPost = mappedPosts.find((post) => post.id === postId);
+        if (matchedPost) return res.status(200).json(matchedPost);
       }
 
-      const content = post.originalContent || post.content || post.description || post.summary || post.title;
-      const fixedContent = fixContentImages(content);
+      return res.status(200).json(mappedPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    }
 
-      return {
-        id: post.postID?.toString(),
-        source: post.postSource?.name || post.user?.name || 'Fireant',
-        sourceUrl: post.postSource?.url || null,
-        title: post.title || "",
-        summary: post.description || post.summary || "",
-        content: fixedContent,
-        author: post.user?.name || 'Fireant',
-        image: image,
-        images: allImages,
-        date: post.date,
-        url: `https://fireant.vn/bai-viet/${post.postID}`,
-        originalUrl: post.postSourceUrl || post.link || null,
-        category: post.postGroup?.name || 'Thị trường'
-      };
+    return res.status(postId ? 404 : 502).json({
+      error: 'Could not fetch news',
+      message: 'Upstream FireAnt news API returned no usable data',
+      status: lastStatus,
+      bodyType: lastBodyType,
+      lastError,
     });
-
-    return res.status(200).json(mappedNews);
   } catch (error: any) {
-    console.error("Vercel Function Error:", error.message);
-    return res.status(200).json([]);
+    console.error('[News API Error]', error?.stack || error?.message || error);
+    return res.status(500).json({ error: 'Internal server error', message: error?.message || 'Unknown error' });
   }
 }

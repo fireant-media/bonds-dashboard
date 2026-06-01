@@ -4,7 +4,11 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { useAuthUser, useIsGoogleUser } from '../auth/authStore';
+import type { UserAccount } from '../models/users';
 import SentinelFooter from './SentinelFooter';
+import { ExportExcelButton } from './ui/ExportExcelButton';
+import { exportRowsToExcel } from '../utils/excel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -14,11 +18,10 @@ type ProfileTab = 'info' | 'security' | 'history';
 
 interface ProfileViewProps {
   onLogout: () => void;
-  user: any;
-  onUpdateUser: (data: any) => void;
 }
 
-export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileViewProps) {
+export default function ProfileView({ onLogout }: ProfileViewProps) {
+  const user = useAuthUser();
   const { effectiveTheme } = useTheme();
   const { t } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -33,20 +36,20 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
 
   const menuItems = [
     { id: 'info', label: t('personalInfo'), icon: User },
-    { id: 'security', label: t('securitySettings'), icon: ShieldCheck },
+    // { id: 'security', label: t('securitySettings'), icon: ShieldCheck },
     { id: 'history', label: t('activityLog'), icon: History },
   ];
 
   return (
-    <div className="flex flex-col md:flex-row bg-bg-base h-full overflow-hidden transition-colors">
+    <div className="flex min-h-dvh flex-col bg-bg-base overflow-hidden transition-colors md:flex-row">
       {/* Sidebar */}
-      <div className="w-full md:w-80 bg-bg-surface border-b md:border-b-0 md:border-r border-border-base flex flex-col pt-4 md:pt-10 pb-4 md:pb-10 px-3 md:px-4 shrink-0 shadow-sm transition-colors">
-        <div className="mb-4 md:mb-12 px-3 md:px-6">
-          <h2 className="text-xl font-bold text-[#3634B3] tracking-tight transition-colors">{t('profileUser')}</h2>
+      <div className="w-full shrink-0 border-b border-border-base bg-bg-surface px-3 py-4 shadow-sm transition-colors md:w-80 md:border-b-0 md:border-r md:px-4 md:py-8">
+        <div className="mb-4 px-2 md:mb-12 md:px-4">
+          <h2 className="text-xl font-bold text-blue-600 tracking-tight transition-colors">{t('profileUser')}</h2>
           <p className="text-sm text-text-muted mt-1 font-medium transition-colors">{t('manageAccount')}</p>
         </div>
 
-        <nav className="flex-1 grid grid-cols-3 md:block md:space-y-4 gap-2 md:px-2">
+        <nav className="grid flex-1 grid-cols-2 gap-2 md:block md:space-y-4 md:px-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -55,19 +58,19 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                 key={item.id}
                 onClick={() => setActiveTab(item.id as ProfileTab)}
                 className={cn(
-                  "w-full flex items-center justify-center md:justify-between gap-2 md:gap-4 px-3 md:px-4 py-3 md:py-4 rounded-xl transition-all text-left group",
+                  "w-full flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-left transition-all group md:justify-between md:gap-4 md:px-4 md:py-4",
                   isActive 
-                    ? "bg-[#3634B3]/5 text-[#3634B3]" 
+                    ? "bg-blue-600/5 text-blue-600" 
                     : "text-text-muted hover:bg-bg-base"
                 )}
               >
                 <div className="flex items-center justify-center md:justify-start gap-2 md:gap-4 flex-1 min-w-0">
-                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-[#3634B3]" : "text-text-muted group-hover:text-text-base")} />
-                  <span className={cn("hidden sm:inline text-xs md:text-sm tracking-tight transition-colors truncate", isActive ? "text-[#3634B3] font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
+                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-blue-600" : "text-text-muted group-hover:text-text-base")} />
+                  <span className={cn("hidden sm:inline text-xs md:text-sm tracking-tight transition-colors truncate", isActive ? "text-blue-600 font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
                     {item.label}
                   </span>
                 </div>
-                {isActive && <ChevronRight className="hidden md:block h-4 w-4 text-[#3634B3] animate-in slide-in-from-left-2 duration-300" />}
+                {isActive && <ChevronRight className="hidden md:block h-4 w-4 text-blue-600 animate-in slide-in-from-left-2 duration-300" />}
               </button>
             );
           })}
@@ -75,34 +78,41 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
       </div>
 
       {/* Main Content */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-12 custom-scrollbar transition-colors">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 custom-scrollbar transition-colors">
         <div className="max-w-5xl min-w-0">
-          {activeTab === 'info' && <PersonalInfoView user={user} onUpdateUser={onUpdateUser} />}
-          {activeTab === 'security' && <SecuritySettingsView user={user} onUpdateUser={onUpdateUser} />}
+          {activeTab === 'info' && <PersonalInfoView user={user} />}
+          {activeTab === 'security' && <SecuritySettingsView />}
           {activeTab === 'history' && <ActivityLogView />}
         </div>
       </div>
     </div>
   );
-}function PersonalInfoView({ user, onUpdateUser }: { user: any; onUpdateUser: (data: any) => void }) {
+}
+
+function PersonalInfoView({ user }: { user: UserAccount | null }) {
   const { t } = useLanguage();
-  const isGoogleUser = user?.isGoogleUser === true;
+  const isGoogleUser = useIsGoogleUser();
+  const profileName = user?.profile?.name ?? '';
+  const profileEmail = user?.identityData?.email ?? '';
   const [formData, setFormData] = useState({
-    name: user?.name || 'Admin',
-    email: user?.email || "admin@test.com"
+    name: profileName,
+    email: profileEmail,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  useEffect(() => {
+    setFormData({
+      name: profileName,
+      email: profileEmail,
+    });
+  }, [profileName, profileEmail]);
+
   const handleSave = () => {
     if (isGoogleUser) return;
     setIsSaving(true);
-    // Simulate API delay
     setTimeout(() => {
-      onUpdateUser({
-        name: formData.name,
-        email: formData.email
-      });
+      console.warn('Profile update is read-only for OIDC accounts.');
       setIsSaving(false);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -114,24 +124,20 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
       <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('personalInfo')}</h1>
 
       {isGoogleUser && (
-        <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900 rounded-xl flex items-center gap-3 text-[#3634B3] text-xs font-bold transition-colors">
+      <div className="mb-6 flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs font-bold text-blue-600 transition-colors dark:border-blue-900 dark:bg-blue-900/20">
           <ShieldCheck className="h-5 w-5" />
-          <span>Tài khoản Google đang được sử dụng. Thông tin cá nhân được đồng bộ từ Google và không thể thay đổi tại đây.</span>
+          <span>{t('googleProfileReadOnly')}</span>
         </div>
       )}
 
       <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
         <div className="mb-6">
-          <div className="flex flex-col md:flex-row gap-12">
+          <div className="flex flex-col gap-8 lg:flex-row lg:gap-12">
             <div className="flex flex-col items-center gap-4">
-              <div className="h-48 w-48 rounded-xl bg-bg-base/50 flex items-center justify-center border-2 border-dashed border-border-base relative group overflow-hidden transition-colors">
-                {user?.picture ? (
-                  <img src={user.picture} alt={user.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  <User className="h-20 w-20 text-text-muted/40" />
-                )}
+              <div className="group relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border-base bg-bg-base/50 transition-colors sm:h-44 sm:w-44 lg:h-48 lg:w-48">
+                <User className="h-16 w-16 text-text-muted/40 sm:h-20 sm:w-20" />
                 {!isGoogleUser && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                     <Camera className="h-8 w-8 text-white" />
                   </div>
                 )}
@@ -141,32 +147,32 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                   {t('uploadNewPhoto')}
                 </button>
               )}
-              <p className="text-[10px] text-text-muted transition-colors">{t('uploadSizeLimit')}</p>
+              <p className="text-xs text-text-muted transition-colors">{t('uploadSizeLimit')}</p>
             </div>
 
             <div className="flex-1 space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('fullName')}</label>
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('fullName')}</label>
                   <input 
                     type="text" 
                     value={formData.name}
                     disabled={isGoogleUser}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className={cn(
-                      "w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 transition-all outline-none",
+                      "w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 transition-all outline-none",
                       isGoogleUser && "opacity-60 cursor-not-allowed bg-bg-base/50"
                     )}
                   />
                 </div>
                 {!isGoogleUser && (
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('email')}</label>
+                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('email')}</label>
                     <input 
                       type="email" 
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 transition-all outline-none"
+                      className="w-full px-4 py-3 bg-bg-base border border-border-base rounded-lg text-sm font-medium text-text-base focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 transition-all outline-none"
                     />
                   </div>
                 )}
@@ -174,7 +180,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('roleLabel')}</label>
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('roleLabel')}</label>
                   <input 
                     type="text" 
                     defaultValue={t('adminRole')} 
@@ -183,7 +189,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('organization')}</label>
+                  <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('organization')}</label>
                   <input 
                     type="text" 
                     defaultValue={t('sentinelOrg')} 
@@ -205,7 +211,7 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
                     onClick={handleSave}
                     disabled={isSaving}
                     className={cn(
-                      "w-full sm:w-auto justify-center px-8 md:px-10 py-4 bg-[#3634B3] hover:opacity-90 text-white text-sm font-bold rounded-lg shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-widest active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2",
+                      "w-full sm:w-auto justify-center px-8 md:px-10 py-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg shadow-lg shadow-blue-600/20 transition-all uppercase tracking-widest active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2",
                       isSaving && "cursor-wait"
                     )}
                   >
@@ -228,15 +234,41 @@ export default function ProfileView({ onLogout, user, onUpdateUser }: ProfileVie
   );
 }
 
-function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser: (data: any) => void }) {
+function SecuritySettingsView() {
   const { t } = useLanguage();
-  const isGoogleUser = user?.isGoogleUser === true;
+  const isGoogleUser = useIsGoogleUser();
+  const [sessionsExportLoading, setSessionsExportLoading] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<{current?: boolean, new?: boolean, confirm?: boolean}>({});
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const sessionRows = [
+    { browserDevice: t('browserChrome'), location: t('hanoiVN'), time: t('current'), status: t('activeStatus'), ip: 'IP: 14.232.xxx.xxx' },
+    { browserDevice: 'iPhone 15 Pro', location: t('hanoiVN'), time: t('twoHoursAgo'), status: t('validStatus'), ip: 'Sentinel App v2.4' },
+  ];
+
+  const handleExportSessions = async () => {
+    setSessionsExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: 'Current_Sessions',
+        sheetName: t('currentSessions'),
+        rows: sessionRows,
+        columns: [
+          { header: t('browserDevice'), value: (row) => row.browserDevice },
+          { header: t('location'), value: (row) => row.location },
+          { header: t('time'), value: (row) => row.time },
+          { header: t('status'), value: (row) => row.status },
+        ],
+      });
+    } finally {
+      setSessionsExportLoading(false);
+    }
+  };
 
   const validatePassword = (pass: string) => {
     if (pass.length < 6) return false;
@@ -248,37 +280,31 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
 
   const handleUpdatePassword = () => {
     if (isGoogleUser) return;
-    const newErrors: {current?: boolean, new?: boolean, confirm?: boolean} = {};
-    
-    // Check current password (default to 123456 if none set)
-    const activePass = user?.password || '123456';
-    if (currentPassword !== activePass) {
-        newErrors.current = true;
-    }
+    const newErrors: { current?: boolean; new?: boolean; confirm?: boolean } = {};
 
-    // Check new password format
+    if (!currentPassword) {
+      newErrors.current = true;
+    }
     if (!validatePassword(newPassword)) {
-        newErrors.new = true;
+      newErrors.new = true;
     }
-
-    // Check confirm password
     if (confirmPassword !== newPassword || !confirmPassword) {
-        newErrors.confirm = true;
+      newErrors.confirm = true;
     }
 
     setErrors(newErrors);
 
     if (Object.keys(newErrors).length === 0) {
-        setIsSaving(true);
-        setTimeout(() => {
-            onUpdateUser({ password: newPassword });
-            setIsSaving(false);
-            setSaveSuccess(true);
-            setCurrentPassword('');
-            setNewPassword('');
-            setConfirmPassword('');
-            setTimeout(() => setSaveSuccess(false), 3000);
-        }, 1000);
+      setIsSaving(true);
+      setTimeout(() => {
+        console.warn('Password change must be done at the identity provider.');
+        setIsSaving(false);
+        setSaveSuccess(true);
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }, 1000);
     }
   };
 
@@ -291,20 +317,20 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
           {/* Change Password */}
           <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 transition-colors">
             <div className="flex items-center gap-3 mb-8">
-                <Clock className="h-5 w-5 text-[#3634B3] transition-colors" />
-                <h3 className="text-xl font-bold text-[#3634B3] transition-colors">{t('changePassword')}</h3>
+                <Clock className="h-5 w-5 text-blue-600 transition-colors" />
+                <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('changePassword')}</h3>
             </div>
 
             {isGoogleUser && (
               <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900 rounded-xl flex items-center gap-3 text-amber-700 dark:text-amber-500 text-xs font-bold transition-colors">
                 <AlertCircle className="h-5 w-5" />
-                <span>Tính năng đổi mật khẩu bị vô hiệu hóa khi đăng nhập bằng Google. Vui lòng quản lý mật khẩu trong cài đặt tài khoản Google của bạn.</span>
+                <span>{t('googlePasswordDisabled')}</span>
               </div>
             )}
 
             <div className={cn("space-y-6", isGoogleUser && "opacity-50 pointer-events-none")}>
                 <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('currentPassword')}</label>
+                    <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('currentPassword')}</label>
                     <input 
                         type="password" 
                         disabled={isGoogleUser}
@@ -315,16 +341,16 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                             setErrors({...errors, current: false});
                         }}
                         className={cn(
-                            "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 outline-none text-text-base",
+                            "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 outline-none text-text-base",
                             errors.current ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-border-base"
                         )}
                     />
-                    {errors.current && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('currentPasswordIncorrect')}</p>}
+                    {errors.current && <p className="text-xs text-red-500 font-bold uppercase tracking-tight ml-1">{t('currentPasswordIncorrect')}</p>}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('newPassword')}</label>
+                        <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('newPassword')}</label>
                         <input 
                             type="password" 
                             disabled={isGoogleUser}
@@ -335,14 +361,14 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                                 setErrors({...errors, new: false});
                             }}
                             className={cn(
-                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 outline-none text-text-base",
+                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 outline-none text-text-base",
                                 errors.new ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-border-base"
                             )}
                         />
-                        {errors.new && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('invalidPasswordFormat')}</p>}
+                        {errors.new && <p className="text-xs text-red-500 font-bold uppercase tracking-tight ml-1">{t('invalidPasswordFormat')}</p>}
                     </div>
                     <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors">{t('confirmNewPassword')}</label>
+                        <label className="text-xs font-bold text-text-muted uppercase tracking-wider transition-colors">{t('confirmNewPassword')}</label>
                         <input 
                             type="password" 
                             disabled={isGoogleUser}
@@ -353,11 +379,11 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                                 setErrors({...errors, confirm: false});
                             }}
                             className={cn(
-                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-600/20 dark:focus:ring-indigo-400/20 focus:border-indigo-600 dark:focus:border-indigo-400 outline-none text-text-base",
+                                "w-full px-4 py-3 bg-bg-base border rounded-lg text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-600/20 dark:focus:ring-blue-400/20 focus:border-blue-600 dark:focus:border-blue-400 outline-none text-text-base",
                                 errors.confirm ? "border-red-500 bg-red-50 dark:bg-red-900/20" : "border-border-base"
                             )}
                         />
-                        {errors.confirm && <p className="text-[10px] text-red-500 font-bold uppercase tracking-tight ml-1">{t('passwordsDoNotMatch')}</p>}
+                        {errors.confirm && <p className="text-xs text-red-500 font-bold uppercase tracking-tight ml-1">{t('passwordsDoNotMatch')}</p>}
                     </div>
                 </div>
 
@@ -365,7 +391,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                     <button 
                         onClick={handleUpdatePassword}
                         disabled={isSaving || isGoogleUser}
-                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-8 py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                        className="flex w-full sm:w-auto items-center justify-center gap-2 px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg uppercase tracking-wider transition-all disabled:opacity-70 disabled:cursor-not-allowed"
                     >
                         {isSaving ? t('updatingLabel') : t('updatePasswordLabel')} <ChevronLeft className="h-4 w-4 rotate-180" />
                     </button>
@@ -395,16 +421,19 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
         </div>
 
         <div className="lg:col-span-3">
-             <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mt-6 transition-colors">
+            <div className="bg-bg-surface rounded-2xl shadow-sm border border-border-base p-4 md:p-8 mt-6 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
-                    <h3 className="text-xl font-bold text-[#3634B3] transition-colors">{t('currentSessions')}</h3>
-                    <button className="text-[10px] font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
+                    <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('currentSessions')}</h3>
+                    <div className="flex items-center gap-3">
+                      <ExportExcelButton loading={sessionsExportLoading} onClick={handleExportSessions} />
+                      <button className="text-xs font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
+                    </div>
                 </div>
 
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[560px]">
                          <thead>
-                             <tr className="text-[10px] font-bold text-text-muted uppercase tracking-widest border-b border-border-base pb-4 transition-colors">
+                             <tr className="text-xs font-bold text-text-muted uppercase tracking-widest border-b border-border-base pb-4 transition-colors">
                                  <th className="text-left py-4 px-2">{t('browserDevice')}</th>
                                  <th className="text-left py-4 px-2">{t('location')}</th>
                                  <th className="text-left py-4 px-2">{t('time')}</th>
@@ -412,42 +441,26 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-border-base">
-                             <tr className="transition-colors hover:bg-bg-base/50">
+                             {sessionRows.map((session) => (
+                             <tr key={session.browserDevice} className="transition-colors hover:bg-bg-base/50">
                                  <td className="py-6 px-2">
                                      <div className="flex items-center gap-4">
                                          <div className="h-10 w-10 bg-bg-base rounded-lg flex items-center justify-center transition-colors">
-                                             <Monitor className="h-5 w-5 text-text-muted" />
+                                             {session.browserDevice.includes('iPhone') ? <Smartphone className="h-5 w-5 text-text-muted" /> : <Monitor className="h-5 w-5 text-text-muted" />}
                                          </div>
                                          <div>
-                                             <p className="text-sm font-bold text-text-base transition-colors">{t('browserChrome')}</p>
-                                             <p className="text-xs text-text-muted transition-colors">IP: 14.232.xxx.xxx</p>
+                                             <p className="text-sm font-bold text-text-base transition-colors">{session.browserDevice}</p>
+                                             <p className="text-xs text-text-muted transition-colors">{session.ip}</p>
                                          </div>
                                      </div>
                                  </td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('hanoiVN')}</td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('current')}</td>
+                                 <td className="text-sm text-text-muted px-2 transition-colors">{session.location}</td>
+                                 <td className="text-sm text-text-muted px-2 transition-colors">{session.time}</td>
                                  <td className="text-right px-2">
-                                     <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-500 text-[10px] font-bold rounded uppercase transition-colors">{t('activeStatus')}</span>
+                                     <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-500 text-xs font-bold rounded uppercase transition-colors">{session.status}</span>
                                  </td>
                              </tr>
-                             <tr className="transition-colors hover:bg-bg-base/50">
-                                 <td className="py-6 px-2">
-                                     <div className="flex items-center gap-4">
-                                         <div className="h-10 w-10 bg-bg-base rounded-lg flex items-center justify-center transition-colors">
-                                             <Smartphone className="h-5 w-5 text-text-muted" />
-                                         </div>
-                                         <div>
-                                             <p className="text-sm font-bold text-text-base transition-colors">iPhone 15 Pro</p>
-                                             <p className="text-xs text-text-muted transition-colors">Sentinel App v2.4</p>
-                                         </div>
-                                     </div>
-                                 </td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('hanoiVN')}</td>
-                                 <td className="text-sm text-text-muted px-2 transition-colors">{t('twoHoursAgo')}</td>
-                                 <td className="text-right px-2">
-                                     <span className="px-2 py-1 bg-bg-base text-text-muted text-[10px] font-bold rounded uppercase transition-colors">{t('validStatus')}</span>
-                                 </td>
-                             </tr>
+                             ))}
                          </tbody>
                     </table>
                 </div>
@@ -462,6 +475,7 @@ function SecuritySettingsView({ user, onUpdateUser }: { user: any, onUpdateUser:
 
 function ActivityLogView() {
   const { t } = useLanguage();
+  const [activityExportLoading, setActivityExportLoading] = useState(false);
   const activities = [
     { time: '14:23:45 12/10/2023', action: t('loginSuccess'), ip: '113.190.23.45', device: 'Chrome / macOS', status: 'success' },
     { time: '09:12:02 12/10/2023', action: t('pinChange'), ip: '113.190.23.45', device: 'Chrome / macOS', status: 'warning' },
@@ -469,6 +483,27 @@ function ActivityLogView() {
     { time: '22:44:55 11/10/2023', action: t('withdrawRequest'), ip: '172.16.0.44', device: 'iPhone 15 Pro', status: 'success' },
     { time: '08:30:00 11/10/2023', action: t('loginFailed'), ip: '42.112.56.78', device: 'Firefox / Windows', status: 'error' },
   ];
+
+  const handleExportActivities = async () => {
+    setActivityExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: 'Activity_Log',
+        sheetName: t('activityLog'),
+        rows: activities,
+        columns: [
+          { header: t('time'), value: (row) => row.time },
+          { header: t('activities'), value: (row) => row.action },
+          { header: t('ipAddress'), value: (row) => row.ip },
+          { header: t('devices'), value: (row) => row.device },
+        ],
+      });
+    } finally {
+      setActivityExportLoading(false);
+    }
+  };
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
@@ -486,25 +521,29 @@ function ActivityLogView() {
             </div>
         </div>
         <div className="bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm flex items-center gap-4 transition-colors">
-            <div className="h-12 w-12 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl flex items-center justify-center transition-colors">
-                <Globe className="h-6 w-6 text-[#3634B3]" />
+            <div className="h-12 w-12 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center justify-center transition-colors">
+                <Globe className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-                <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('locations')}</p>
+                <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('locations')}</p>
                 <p className="text-base font-bold text-text-base transition-colors">{t('hanoiVN')}</p>
             </div>
         </div>
       </div>
 
       <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
+        <div className="flex flex-col gap-3 px-4 py-4 md:px-8 md:py-6 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('activityLog')}</h3>
+          <ExportExcelButton loading={activityExportLoading} onClick={handleExportActivities} />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="bg-bg-base/50 border-b border-border-base transition-colors">
-                <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('time')}</th>
-                <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('activities')}</th>
-                <th className="text-left py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('ipAddress')}</th>
-                <th className="text-right py-6 px-8 text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">{t('devices')}</th>
+                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('time')}</th>
+                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('activities')}</th>
+                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('ipAddress')}</th>
+                <th className="text-right py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('devices')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-base">
@@ -526,7 +565,7 @@ function ActivityLogView() {
                   <td className="py-6 px-8 text-right">
                     <div className="inline-flex items-center gap-3 bg-bg-base px-4 py-2 rounded-lg group transition-colors">
                         {item.device.includes('iPhone') ? <Smartphone className="h-4 w-4 text-text-muted" /> : <Monitor className="h-4 w-4 text-text-muted" />}
-                        <span className="text-[10px] font-bold text-text-muted uppercase transition-all">{item.device}</span>
+                        <span className="text-xs font-bold text-text-muted uppercase transition-all">{item.device}</span>
                     </div>
                   </td>
                 </tr>
@@ -535,15 +574,15 @@ function ActivityLogView() {
           </table>
         </div>
         <div className="py-4 px-4 md:py-6 md:px-8 bg-bg-base/50 border-t border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors">
-            <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest transition-colors">
+            <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">
               {t('showingLogs').replace('{count}', '5').replace('{total}', '128')}
             </p>
             <div className="flex items-center gap-1">
-                <button className="px-3 py-1 text-[10px] font-bold text-text-muted uppercase hover:text-[#3634B3] transition-colors">{t('prev')}</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded bg-[#3634B3] text-white text-[10px] font-bold transition-colors">1</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-[10px] font-bold text-text-muted transition-colors">2</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-[10px] font-bold text-text-muted transition-colors">3</button>
-                <button className="px-3 py-1 text-[10px] font-bold text-text-muted uppercase hover:text-[#3634B3] transition-colors">{t('next')}</button>
+                <button className="px-3 py-1 text-xs font-bold text-text-muted uppercase hover:text-blue-600 transition-colors">{t('prev')}</button>
+                <button className="w-8 h-8 flex items-center justify-center rounded bg-blue-600 text-white text-xs font-bold transition-colors">1</button>
+                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-xs font-bold text-text-muted transition-colors">2</button>
+                <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-bg-surface border border-transparent hover:border-border-base text-xs font-bold text-text-muted transition-colors">3</button>
+                <button className="px-3 py-1 text-xs font-bold text-text-muted uppercase hover:text-blue-600 transition-colors">{t('next')}</button>
             </div>
         </div>
       </div>

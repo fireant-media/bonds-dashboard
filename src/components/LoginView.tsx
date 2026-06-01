@@ -1,370 +1,747 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, ShieldCheck, Apple, AlertCircle, LayoutGrid, BarChart4, BellRing, ClipboardList } from 'lucide-react';
-import { useTheme } from '../ThemeContext';
+import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import ChartWithToolbar from './ChartWithToolbar';
+import {
+  ArrowRight,
+  Building2,
+  Clock3,
+  Database,
+  FileSearch,
+  Globe2,
+  Landmark,
+  LineChart,
+  Languages,
+  Moon,
+  Sun,
+  Users,
+  AlertCircle,
+} from 'lucide-react';
+import Logo from './Logo';
+import { getCache } from '../utils/cache';
+import { formatNumber } from '../utils/format';
+import { CHART_PALETTE, getChartTheme, getChartTooltip } from '../utils/chart';
 import { useLanguage } from '../LanguageContext';
+import { useTheme } from '../ThemeContext';
+import { Language } from '../translations';
+import { loadMarketOverviewData } from '../services/marketOverviewData';
 
 interface LoginViewProps {
-  onLoginSuccess: (userData: any) => void;
+  onSignIn: () => Promise<void> | void;
+  isSigningIn?: boolean;
 }
 
-type AuthMode = 'login' | 'register';
+type LoginSnapshot = {
+  totalBonds: number;
+  totalIssuers: number;
+  totalRemainingDebt: number;
+  totalIssuedValue: number;
+  topIssuerName: string;
+  topIssuerSymbol: string;
+  topIssuerRemainingDebt: number;
+  topIndustryName: string;
+  topIndustryRemainingDebt: number;
+  upcoming30: number;
+  upcoming90: number;
+  upcoming180: number;
+  issuerBars: Array<{
+    label: string;
+    value: number;
+    debt: number;
+  }>;
+  industryHeatmap: Array<{
+    label: string;
+    value: number;
+    debt: number;
+  }>;
+  industryData: Array<{
+    icbName: string;
+    totalIssuedVolume: number;
+    totalCurrentListedVolume: number;
+  }>;
+  maturityTimeline: Array<{
+    label: string;
+    value: number;
+  }>;
+};
 
-export default function LoginView({ onLoginSuccess }: LoginViewProps) {
-  const { effectiveTheme } = useTheme();
-  const { t } = useLanguage();
-  const isDark = effectiveTheme === 'dark';
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+type CacheIssuerRow = {
+  issuerName?: string;
+  issuerSymbol?: string;
+  totalRemainingDebt?: number;
+  totalIssuedValue?: number;
+  bondCount?: number;
+};
 
-  const DEMO_EMAIL = 'admin@test.com';
-  const DEMO_PASSWORD = '123456';
+type CacheIndustryRow = {
+  icbName?: string;
+  totalRemainingDebt?: number;
+  totalIssuedVolume?: number;
+  totalCurrentListedVolume?: number;
+};
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    
-    if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
-      onLoginSuccess({ 
-        email: DEMO_EMAIL, 
-        name: 'Admin',
-        isGoogleUser: false
-      });
-    } else {
-      setError(t('invalidCredentials'));
-    }
+const formatBillion = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} tỷ`;
+
+const normalizeIndustryLabel = (value: string | undefined) => (value && value.trim() ? value : 'Chưa xác định');
+
+const buildSnapshotFromOverview = (cachedOverview: {
+  issuerStatsData?: CacheIssuerRow[];
+  industryData?: CacheIndustryRow[];
+}): LoginSnapshot | null => {
+  const issuerRows = cachedOverview.issuerStatsData || [];
+  const industryRows = cachedOverview.industryData || [];
+
+  if (!issuerRows.length && !industryRows.length) {
+    return null;
+  }
+
+  const sortedIssuers = [...issuerRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const sortedIndustries = [...industryRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const topIssuer = sortedIssuers[0];
+  const topIndustry = sortedIndustries[0];
+  const maxIssuerDebt = Math.max(...sortedIssuers.slice(0, 5).map((issuer) => Number(issuer.totalRemainingDebt || 0)), 0);
+  const maxIndustryDebt = Math.max(
+    ...sortedIndustries.slice(0, 6).map((industry) => Number(industry.totalRemainingDebt || 0)),
+    0,
+  );
+
+  return {
+    totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
+    totalIssuers: issuerRows.length,
+    totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
+    totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
+    topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
+    topIssuerSymbol: topIssuer?.issuerSymbol || '',
+    topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
+    topIndustryName: normalizeIndustryLabel(topIndustry?.icbName),
+    topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
+    upcoming30: 0,
+    upcoming90: 0,
+    upcoming180: 0,
+    issuerBars: sortedIssuers.slice(0, 5).map((issuer) => ({
+      label: issuer.issuerSymbol || issuer.issuerName || '--',
+      value: maxIssuerDebt > 0 ? Math.round((Number(issuer.totalRemainingDebt || 0) / maxIssuerDebt) * 100) : 0,
+      debt: Number(issuer.totalRemainingDebt || 0),
+    })),
+    industryHeatmap: sortedIndustries.slice(0, 6).map((industry) => ({
+      label: normalizeIndustryLabel(industry.icbName),
+      value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
+      debt: Number(industry.totalRemainingDebt || 0),
+    })),
+    industryData: industryRows as Array<{
+      icbName: string;
+      totalIssuedVolume: number;
+      totalCurrentListedVolume: number;
+    }>,
+    maturityTimeline: [
+      { label: '30 ngày', value: 0 },
+      { label: '90 ngày', value: 0 },
+      { label: '180 ngày', value: 0 },
+    ],
   };
+};
 
-  const handleRegister = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    
-    if (password !== confirmPassword) {
-      setError(t('confirmPasswordMismatch'));
-      return;
-    }
+const resolveSnapshot = (): LoginSnapshot | null => {
+  const cachedOverview = getCache('market_overview') as {
+    issuerStatsData?: CacheIssuerRow[];
+    industryData?: CacheIndustryRow[];
+  } | null;
 
-    onLoginSuccess({ 
-      email, 
-      name: fullName || 'New User', 
-      isGoogleUser: false
-    });
+  const snapshotFromOverview = cachedOverview ? buildSnapshotFromOverview(cachedOverview) : null;
+  if (snapshotFromOverview) return snapshotFromOverview;
+
+  const cachedSnapshot = getCache('login_snapshot') as LoginSnapshot | null;
+  if (cachedSnapshot) return cachedSnapshot;
+
+  if (!cachedOverview?.issuerStatsData?.length && !cachedOverview?.industryData?.length) {
+    return null;
+  }
+
+  const issuerRows = cachedOverview.issuerStatsData || [];
+  const industryRows = cachedOverview.industryData || [];
+  const sortedIssuers = [...issuerRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const sortedIndustries = [...industryRows].sort(
+    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
+  );
+  const topIssuer = sortedIssuers[0];
+  const topIndustry = sortedIndustries[0];
+  const maxIssuerDebt = Math.max(...sortedIssuers.slice(0, 5).map((issuer) => Number(issuer.totalRemainingDebt || 0)), 0);
+  const maxIndustryDebt = Math.max(
+    ...sortedIndustries.slice(0, 6).map((industry) => Number(industry.totalRemainingDebt || 0)),
+    0,
+  );
+
+  return {
+    totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
+    totalIssuers: issuerRows.length,
+    totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
+    totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
+    topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
+    topIssuerSymbol: topIssuer?.issuerSymbol || '',
+    topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
+    topIndustryName: normalizeIndustryLabel(topIndustry?.icbName),
+    topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
+    upcoming30: 0,
+    upcoming90: 0,
+    upcoming180: 0,
+    issuerBars: sortedIssuers.slice(0, 5).map((issuer) => ({
+      label: issuer.issuerSymbol || issuer.issuerName || '--',
+      value: maxIssuerDebt > 0 ? Math.round((Number(issuer.totalRemainingDebt || 0) / maxIssuerDebt) * 100) : 0,
+      debt: Number(issuer.totalRemainingDebt || 0),
+    })),
+    industryHeatmap: sortedIndustries.slice(0, 6).map((industry) => ({
+      label: normalizeIndustryLabel(industry.icbName),
+      value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
+      debt: Number(industry.totalRemainingDebt || 0),
+    })),
+    industryData: industryRows as Array<{
+      icbName: string;
+      totalIssuedVolume: number;
+      totalCurrentListedVolume: number;
+    }>,
+    maturityTimeline: [
+      { label: '30 ngày', value: 0 },
+      { label: '90 ngày', value: 0 },
+      { label: '180 ngày', value: 0 },
+    ],
   };
+};
 
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+const getHeightClass = (value: number) => {
+  if (value >= 90) return 'h-28';
+  if (value >= 75) return 'h-24';
+  if (value >= 60) return 'h-20';
+  if (value >= 45) return 'h-16';
+  if (value >= 30) return 'h-12';
+  if (value >= 15) return 'h-10';
+  return 'h-8';
+};
 
-  const handleGoogleLogin = async () => {
-    setIsGoogleLoading(true);
-    setError(null);
-    // Simulate API delay
-    setTimeout(() => {
-      const userData = {
-        name: 'User (Google)',
-        isGoogleUser: true,
-        updatedAt: new Date().toISOString()
+const getHeatWidthClass = (value: number) => {
+  if (value >= 90) return 'w-full';
+  if (value >= 75) return 'w-5/6';
+  if (value >= 60) return 'w-3/4';
+  if (value >= 45) return 'w-2/3';
+  if (value >= 30) return 'w-1/2';
+  return 'w-1/3';
+};
+
+const getCurrentLanguageLabel = (language: Language) => (language === 'vi' ? 'VI' : 'EN');
+
+export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
+  const [snapshot, setSnapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const { t, language, setLanguage } = useLanguage();
+  const { effectiveTheme, setTheme } = useTheme();
+
+  const isDarkMode = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDarkMode);
+  const billionVndUnit = t('unitBillionVND');
+  const formatBillionVnd = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} ${billionVndUnit}`;
+  const currentLanguageLabel = getCurrentLanguageLabel(language);
+  const whyTitle = t('loginWhyTitle');
+  const whyDescription = t('loginWhyDescription');
+  const featureCards = [
+    {
+      icon: LineChart,
+      title: t('loginWhyCard1Title'),
+      description: t('loginWhyCard1Desc'),
+    },
+    {
+      icon: Building2,
+      title: t('loginWhyCard2Title'),
+      description: t('loginWhyCard2Desc'),
+    },
+    {
+      icon: FileSearch,
+      title: t('loginWhyCard3Title'),
+      description: t('loginWhyCard3Desc'),
+    },
+  ];
+  const loginCopy = language === 'vi'
+    ? {
+        errorTitle: 'Lỗi đăng nhập',
+        errorHint: 'Kiểm tra console (F12) để xem chi tiết lỗi.',
+        heroTitle: 'Làm Chủ Thị Trường Trái Phiếu Với Fireant',
+        heroDescription:
+          'Nền tảng dữ liệu và phân tích trái phiếu dành cho nhà đầu tư chuyên nghiệp - trực quan, tốc độ cao và tập trung vào quyết định đầu tư.',
+        primaryAction: 'Bắt Đầu Ngay',
+        signInButton: 'Đăng nhập',
+        heroStats: [
+          { label: 'Mã trái phiếu' },
+          { label: 'Tổ chức phát hành' },
+        ],
+        marketOverviewTitle: 'Tổng quan thị trường',
+        chartTitle: 'Khối lượng trái phiếu theo ngành',
+        yAxisName: 'Nghìn TP',
+        issuedLabel: 'Phát hành',
+        listedLabel: 'Niêm yết',
+        totalBondsLabel: 'Tổng mã trái phiếu',
+        totalIssuedLabel: 'Tổng giá trị phát hành',
+        totalRemainingLabel: 'Tổng dư nợ còn lại',
+        topIssuerTitle: 'Top doanh nghiệp dư nợ lớn nhất',
+        loadingSnapshot: 'Đang chờ cache dữ liệu',
+        unknownIndustry: 'Chưa xác định',
+        debtSuffix: 'dư nợ',
+        debtUnitSuffix: 'tỷ VND',
+        maturityLabel: 'Đáo hạn 90 ngày',
+        maturityDetail: 'Giám sát thanh khoản',
+      }
+    : {
+        errorTitle: 'Login error',
+        errorHint: 'Check the console (F12) for error details.',
+        heroTitle: 'Take Control of the Bond Market with Fireant',
+        heroDescription:
+          'An institutional bond data and analytics platform for professional investors - intuitive, fast, and focused on investment decisions.',
+        primaryAction: 'Get Started',
+        signInButton: 'Sign in',
+        heroStats: [
+          { label: 'Bond codes' },
+          { label: 'Issuers' },
+        ],
+        marketOverviewTitle: 'Market Overview',
+        chartTitle: 'Bond Volume by Industry',
+        yAxisName: 'Thousand bonds',
+        issuedLabel: 'Issued',
+        listedLabel: 'Listed',
+        totalBondsLabel: 'Total bond codes',
+        totalIssuedLabel: 'Total issued value',
+        totalRemainingLabel: 'Total remaining debt',
+        topIssuerTitle: 'Top issuers by outstanding debt',
+        loadingSnapshot: 'Waiting for cached data',
+        unknownIndustry: 'Unspecified',
+        debtSuffix: 'outstanding debt',
+        debtUnitSuffix: 'Billion VND',
+        maturityLabel: '90-day maturity',
+        maturityDetail: 'Liquidity monitoring',
       };
-      onLoginSuccess(userData);
-      setIsGoogleLoading(false);
-    }, 1000);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchOverview = async () => {
+      try {
+        const overview = await loadMarketOverviewData();
+        if (!active) return;
+        setSnapshot(buildSnapshotFromOverview(overview));
+      } catch (error) {
+        console.error('Login overview fetch error', error);
+      }
+    };
+
+    void fetchOverview();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const industryVolumeOptions = {
+    backgroundColor: 'transparent',
+    color: CHART_PALETTE,
+    tooltip: {
+      ...getChartTooltip(isDarkMode),
+      show: false,
+    },
+    grid: { left: '2%', right: '2%', top: '12%', bottom: '2%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => t(d.icbName as any)) : [],
+      axisLabel: {
+        fontSize: 10,
+        color: chartTheme.subText,
+        fontFamily: 'Manrope',
+        fontWeight: 'bold' as const,
+        rotate: 45,
+      },
+      axisLine: {
+        lineStyle: {
+          color: chartTheme.axisLine,
+        },
+      },
+      axisTick: {
+        lineStyle: {
+          color: chartTheme.axisLine,
+        },
+      },
+    },
+    yAxis: {
+      type: 'value',
+      splitNumber: 4,
+      splitLine: {
+        show: true,
+        lineStyle: {
+          color: chartTheme.grid,
+        },
+      },
+      name: loginCopy.yAxisName,
+      nameTextStyle: {
+        fontSize: 10,
+        color: chartTheme.text,
+        fontWeight: 'bold' as const,
+        fontFamily: 'Manrope',
+      },
+      axisLine: {
+        lineStyle: {
+          color: chartTheme.axisLine,
+        },
+      },
+      axisTick: {
+        lineStyle: {
+          color: chartTheme.axisLine,
+        },
+      },
+      axisLabel: {
+        fontSize: 10,
+        color: chartTheme.subText,
+        fontFamily: 'Manrope',
+        formatter: (value: number) => formatNumber(value, 0),
+      },
+    },
+    series: [
+      {
+        name: t('issuedVolumeTitle'),
+        type: 'bar',
+        data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalIssuedVolume || 0) / 1000)) : [],
+        itemStyle: { borderRadius: [10, 10, 0, 0] },
+        barWidth: '30%',
+      },
+      {
+        name: t('listedVolume'),
+        type: 'bar',
+        data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalCurrentListedVolume || 0) / 1000)) : [],
+        itemStyle: { borderRadius: [10, 10, 0, 0] },
+        barWidth: '30%',
+      },
+    ],
   };
 
-  const isLogin = authMode === 'login';
+  const handleLogin = async () => {
+    try {
+      setLoginError(null);
+      await onSignIn();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('OIDC sign-in failed:', errorMessage);
+      setLoginError(errorMessage || (language === 'vi' ? 'Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại.' : 'An error occurred while signing in. Please try again.'));
+    }
+  };
+
+  const scrollToSection = (target: string) => {
+    document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const heroStats = [
+    {
+      label: 'Mã trái phiếu',
+      value: snapshot ? formatNumber(snapshot.totalBonds, 0) : '0',
+      icon: Database,
+    },
+    {
+      label: 'Tổ chức phát hành',
+      value: snapshot ? formatNumber(snapshot.totalIssuers, 0) : '0',
+      icon: Users,
+    },
+    {
+      label: 'Dư nợ còn lại',
+      value: snapshot ? formatBillionVnd(snapshot.totalRemainingDebt) : `0 ${billionVndUnit}`,
+      icon: LineChart,
+    },
+    {
+      label: 'Giá trị phát hành',
+      value: snapshot ? formatBillionVnd(snapshot.totalIssuedValue) : `0 ${billionVndUnit}`,
+      icon: Building2,
+    },
+  ];
+
+  const topIssuerLabel = snapshot
+    ? snapshot.topIssuerSymbol
+      ? `${snapshot.topIssuerName} (${snapshot.topIssuerSymbol})`
+      : snapshot.topIssuerName
+    : 'FireAnt';
+
+  const previewCards = [
+    {
+      label: 'Tổ chức dẫn đầu',
+      value: topIssuerLabel,
+      detail: snapshot ? `${formatBillionVnd(snapshot.topIssuerRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
+      icon: Landmark,
+    },
+    {
+      label: 'Ngành dẫn đầu',
+      value: snapshot?.topIndustryName || 'Chưa xác định',
+      detail: snapshot ? `${formatBillionVnd(snapshot.topIndustryRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
+      icon: Globe2,
+    },
+    {
+      label: 'Đáo hạn 90 ngày',
+      value: snapshot ? `${formatNumber(snapshot.upcoming90, 0)} mã` : '0 mã',
+      detail: 'Giám sát thanh khoản',
+      icon: Clock3,
+    },
+  ];
+
+  const bars = snapshot?.issuerBars || [];
+  const hasSnapshotBars = bars.length > 0;
+  const heatmap = snapshot?.industryHeatmap || [];
+  const maturityTimeline = snapshot?.maturityTimeline || [
+    { label: '30 ngày', value: 0 },
+    { label: '90 ngày', value: 0 },
+    { label: '180 ngày', value: 0 },
+  ];
 
   return (
-    <div className="h-screen flex bg-bg-base font-sans text-text-base overflow-hidden relative transition-colors">
-      {/* Left side - Brand Panel (Product Introduction) */}
-
-      <div className="hidden lg:flex w-1/2 flex-col justify-center items-center p-4 lg:p-6 relative overflow-hidden border-r border-border-base transition-colors">
-        <div className="w-full max-w-[500px] p-6 lg:p-8 relative z-10 flex flex-col justify-between h-fit">
-          <div className="relative">
-            {/* 1. Header with Logo */}
-            <div className="flex items-center gap-2 mb-8 text-[#3634B3]">
-              <div className="h-8 w-8 bg-white dark:bg-slate-800 rounded-lg flex items-center justify-center border border-indigo-100 dark:border-indigo-900 shadow-sm transition-colors">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <span className="font-black text-lg tracking-tight uppercase">FIREANT</span>
-            </div>
-
-            <motion.div
-              key={authMode}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
+    <div className="min-h-dvh overflow-x-hidden overflow-y-auto bg-bg-base text-text-base">
+      <header className="sticky top-0 z-30 border-b border-border-base bg-surface-bright/95 py-3 shadow-md shadow-blue-950/5 backdrop-blur-xl dark:shadow-black/20">
+        <div className="mx-auto flex max-w-7xl flex-col items-stretch gap-3 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 lg:px-6 xl:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => scrollToSection('overview')}
+              className="flex shrink-0 items-center gap-3"
+              aria-label="FireAnt Bond Dashboard"
             >
-              {/* 2. Hero Section */}
-              <h1 className="text-2xl lg:text-3xl font-extrabold text-[#3634B3] mb-4 leading-tight tracking-tight transition-colors">
-                {t('heroTitle1')} <br />
-                <span className="text-text-base font-bold transition-colors">{t('heroTitle2')}</span>
-              </h1>
+              <Logo />
+              <span className="whitespace-nowrap border-l border-border-base pl-3 text-sm font-semibold text-blue-400">Bond Dashboard</span>
+            </button>
+          </div>
 
-              {/* 3. Description */}
-              <p className="text-xs lg:text-[13px] text-text-muted max-w-[420px] leading-relaxed font-medium mb-8 transition-colors">
-                {t('heroDesc')}
+          <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
+              title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+              aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+            >
+              {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2 text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
+              title={`${t('uiLanguage')}: ${t('languageName')}`}
+              aria-label={`${t('uiLanguage')}: ${t('languageName')}`}
+            >
+              <Languages className="h-5 w-5" />
+              <span className="hidden text-xs font-bold uppercase sm:inline">{currentLanguageLabel}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleLogin()}
+              disabled={isSigningIn}
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-action-accent px-3 text-xs font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
+            >
+              {loginCopy.signInButton}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {loginError && (
+        <div className="mx-4 mt-4 border-l-4 border-red-500 bg-red-50 p-4 sm:mx-6 lg:mx-8">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-red-800">{loginCopy.errorTitle}</p>
+              <p className="text-sm text-red-700 mt-1">{loginError}</p>
+              <p className="text-xs text-red-600 mt-2">
+                {loginCopy.errorHint}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main>
+        <section id="overview" className="relative overflow-hidden bg-bg-base px-3 pb-8 pt-8 sm:px-4 sm:pb-10 sm:pt-10 lg:px-6 lg:pb-12 lg:pt-12 xl:px-8">
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/10 via-transparent to-blue-900/5" />
+          <div className="mx-auto grid max-w-7xl items-start gap-8 xl:grid-cols-12">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45 }}
+              className="relative z-10 xl:col-span-5"
+            >
+              <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-tight text-text-base sm:text-4xl md:text-5xl xl:text-6xl">
+                {loginCopy.heroTitle}
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-text-muted sm:mt-5 sm:text-base sm:leading-8 md:text-lg">
+                {loginCopy.heroDescription}
               </p>
 
-              {/* 4. Grid tính năng (2 cột x 2 hàng) */}
-              <div className="grid grid-cols-2 gap-3 mb-10">
-                {[
-                  { icon: BarChart4, label: t('featureWatchlist') },
-                  { icon: LayoutGrid, label: t('featureDashboard') },
-                  { icon: ClipboardList, label: t('featureReports') },
-                  { icon: BellRing, label: t('featureAlerts') }
-                ].map((item, i) => (
-                  <div 
-                    key={i} 
-                    className="bg-bg-surface/40 backdrop-blur-sm border border-border-base rounded-2xl p-3.5 flex items-center gap-3 shadow-sm hover:shadow-md hover:bg-bg-surface transition-all cursor-pointer group"
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4">
+                <button
+                  type="button"
+                  onClick={() => void handleLogin()}
+                  disabled={isSigningIn}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-action-accent px-6 py-3.5 font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-8 sm:py-4"
+                >
+                  {loginCopy.primaryAction}
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4">
+                {heroStats.slice(0, 2).map((stat, index) => (
+                  <div
+                    key={stat.label}
+                    className="flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 backdrop-blur sm:p-4 dark:shadow-black/20"
                   >
-                    <div className="h-8 w-8 shrink-0 rounded-lg bg-bg-surface border border-border-base flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
-                      <item.icon className="h-4 w-4 text-[#3634B3]" />
+                    <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-container-low text-text-highlight">
+                      <stat.icon className="h-4 w-4" />
                     </div>
-                    <span className="text-[10px] font-bold text-text-base leading-tight tracking-tight uppercase transition-colors">{item.label}</span>
+                    <span className="text-xl font-bold text-text-base sm:text-2xl">
+                      {index === 0
+                        ? snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,000+'
+                        : snapshot ? formatNumber(snapshot.totalIssuers, 0) : '100+'}
+                    </span>
+                    <span className="mt-1 text-xs font-semibold uppercase tracking-widest text-text-muted">
+                      {stat.label}
+                    </span>
                   </div>
                 ))}
               </div>
             </motion.div>
-          </div>
 
-          <div className="space-y-5">
-            {/* 5. Khu vực dữ liệu realtime mini (3 card cùng 1 hàng) */}
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'VNINDEX', val: '1,285.4', change: '+1.26%' },
-                { label: 'FPT', val: '132.5', change: '+2.8%' },
-                { label: 'USD/VND', val: '25,420', change: '' }
-              ].map((stat, i) => (
-                <div key={i} className="bg-bg-surface border border-border-base rounded-xl p-3 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] transition-colors">
-                  <div className="flex flex-col gap-0.5">
-                    <p className="text-[8px] font-bold text-text-muted uppercase tracking-widest transition-colors">{stat.label}</p>
-                    <p className="text-[14px] font-extrabold text-text-base tracking-tight leading-none transition-colors">{stat.val}</p>
-                    {stat.change && (
-                      <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">
-                        {stat.change}
-                      </span>
-                    )}
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.05 }}
+              className="relative xl:col-span-7"
+            >
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="data-card overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-lg shadow-blue-950/5 backdrop-blur sm:p-5 xl:col-span-12 dark:shadow-black/20">
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <h3 className="text-left text-sm font-semibold text-text-base">{loginCopy.chartTitle}</h3>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[0] }} />
+                        <span className="text-xs font-semibold text-text-muted">{loginCopy.issuedLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[2] }} />
+                        <span className="text-xs font-semibold text-text-muted">{loginCopy.listedLabel}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="h-52 w-full overflow-hidden bg-bg-surface sm:h-64 lg:h-72">
+                    <ChartWithToolbar
+                      option={industryVolumeOptions}
+                      style={{ height: '100%', width: '100%' }}
+                      allowMagicType
+                      showToolbar={false}
+                      notMerge
+                      lazyUpdate
+                    />
                   </div>
                 </div>
+
+                <div className="data-card rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 dark:shadow-black/20 xl:col-span-4">
+                  <span className="mb-3 block text-sm font-semibold text-text-base">
+                    {loginCopy.marketOverviewTitle}
+                  </span>
+                  <div className="space-y-3">
+                    <div className="border-b border-border-base pb-1">
+                      <span className="block text-xs font-medium text-text-muted/80">
+                        {loginCopy.totalBondsLabel}
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold text-text-base">
+                        {snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,248'}
+                      </span>
+                    </div>
+                    <div className="border-b border-border-base pb-1">
+                      <span className="block text-xs font-medium text-text-muted/80">
+                        {loginCopy.totalIssuedLabel}
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold text-text-base">
+                        {snapshot ? formatBillionVnd(snapshot.totalIssuedValue) : `0 ${billionVndUnit}`}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-medium text-text-muted/80">
+                        {loginCopy.totalRemainingLabel}
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold text-text-base">
+                        {snapshot ? formatBillionVnd(snapshot.totalRemainingDebt) : `0 ${billionVndUnit}`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="data-card rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 dark:shadow-black/20 xl:col-span-8">
+                  <span className="mb-4 block text-sm font-semibold text-text-base">
+                    {loginCopy.topIssuerTitle}
+                  </span>
+                  <div className="space-y-3">
+                    {(bars.length > 0
+                      ? bars
+                      : [
+                          { label: 'VIC', value: 100, debt: 85000 },
+                          { label: 'NVL', value: 82, debt: 70000 },
+                          { label: 'MSN', value: 70, debt: 60000 },
+                          { label: 'VHM', value: 65, debt: 55000 },
+                          { label: 'DIG', value: 53, debt: 45000 },
+                        ]
+                    ).map((item) => (
+                      <div key={item.label} className="grid grid-cols-12 items-center gap-2 sm:gap-3">
+                        <span className="col-span-2 truncate text-sm font-semibold text-text-base sm:col-span-2">
+                          {item.label}
+                        </span>
+                        <div className="col-span-4 h-2 w-full overflow-hidden rounded-full bg-border-base/50 sm:col-span-5">
+                          <div className={`h-full rounded-full bg-action-accent ${getHeatWidthClass(item.value)}`} />
+                        </div>
+                        <span className="col-span-6 min-w-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-text-muted sm:col-span-5 sm:text-sm">
+                          {hasSnapshotBars
+                            ? formatBillionVnd(item.debt)
+                            : item.debt
+                              ? `${formatNumber(item.debt, 0)} ${loginCopy.debtUnitSuffix}`
+                              : `${item.value}%`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </section>
+
+        <section id="solutions" className="-mt-8 border-t border-border-base bg-bg-surface py-16 lg:-mt-10">
+          <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 xl:px-8">
+            <div className="text-center">
+              <h2 className="text-3xl font-semibold text-text-base">{whyTitle}</h2>
+              <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-text-muted">
+                {whyDescription}
+              </p>
+            </div>
+
+            <div className="mt-2 grid gap-6 md:grid-cols-3">
+              {featureCards.map((card) => (
+                <motion.div
+                  key={card.title}
+                  whileHover={{ y: -3 }}
+                  className="rounded-lg border border-border-base bg-surface-bright p-6 shadow-md shadow-slate-900/5 transition-colors hover:border-text-highlight dark:shadow-black/20"
+                >
+                  <card.icon className="mb-4 h-8 w-8 text-text-highlight" />
+                  <h3 className="text-xl font-semibold text-text-base">{card.title}</h3>
+                  <p className="mt-2 text-sm leading-7 text-text-muted">{card.description}</p>
+                </motion.div>
               ))}
             </div>
-
-            {/* 6. Footer trái dưới cùng */}
-            <div className="pt-6 border-t border-border-base flex items-center gap-3 transition-colors">
-              <div className="h-1 w-8 bg-[#3634B3] rounded-full transition-colors"></div>
-              <span className="text-[9px] font-black text-[#3634B3] tracking-[0.4em] uppercase transition-colors">FIREANT FINANCE</span>
-            </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* Right side - Form Panel */}
-      <div className="flex-1 flex flex-col justify-center items-center p-4 lg:p-8 relative overflow-hidden transition-colors">
-        <div className="w-full max-w-[540px] bg-bg-surface rounded-[32px] lg:rounded-[40px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.06)] p-8 lg:p-12 relative z-10 border border-border-base max-h-[85vh] h-fit overflow-y-auto no-scrollbar flex flex-col justify-center transition-colors">
-          <AnimatePresence mode="wait">
-            {isLogin ? (
-              <motion.div
-                key="login-form"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.3 }}
-              >
-                <div className="mb-8 text-center">
-                  <p className="text-[10px] font-bold text-[#3634B3] uppercase tracking-tight mb-2 transition-colors">{t('loginWelcome')}</p>
-                  <h2 className="text-xl font-bold text-text-base tracking-tight transition-colors">{t('loginAccount')}</h2>
-                </div>
-
-                <form onSubmit={handleLogin} className="space-y-5">
-                  {error && (
-                    <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900 shadow-sm rounded-xl flex items-center gap-2 text-rose-600 dark:text-rose-400 text-[10px] font-bold uppercase tracking-tight transition-colors">
-                      <AlertCircle className="h-4 w-4" />
-                      {error}
-                    </div>
-                  )}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('emailAddress')}</label>
-                    <div className="relative group">
-                      <input 
-                        type="email" 
-                        placeholder="name@company.com"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className="w-full px-5 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                      <Mail className="absolute right-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted group-hover:text-text-base transition-colors" />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('securePassword')}</label>
-                    <div className="relative group">
-                      <Lock className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input 
-                        type={showPassword ? 'text' : 'password'} 
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full px-12 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-5 top-1/2 -translate-y-1/2 p-1 hover:bg-bg-surface/50 rounded-lg transition-colors"
-                      >
-                        {showPassword ? <EyeOff className="h-4 w-4 text-text-muted" /> : <Eye className="h-4 w-4 text-text-muted" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between px-0.5">
-                    <label className="flex items-center gap-2 cursor-pointer group">
-                      <input type="checkbox" className="w-3.5 h-3.5 rounded border-border-base text-[#3634B3] focus:ring-0 cursor-pointer bg-bg-base" />
-                      <span className="text-[10px] text-text-muted font-medium group-hover:text-text-base transition-colors tracking-tight">{t('rememberMe')}</span>
-                    </label>
-                    <button type="button" onClick={() => setAuthMode('register')} className="text-[9px] font-bold text-[#3634B3] hover:underline uppercase tracking-tight transition-colors">{t('forgotPassword')}</button>
-                  </div>
-
-                  <button type="submit" className="w-full py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-extrabold rounded-xl shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-tight active:scale-[0.98]">
-                    {t('signIn')}
-                  </button>
-                </form>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="register-form"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.2 }}
-              >
-                <div className="mb-7 text-center">
-                  <h2 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('registerAccount')}</h2>
-                </div>
-
-                <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-extrabold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('fullName')}</label>
-                      <div className="relative group">
-                        <input 
-                          type="text" 
-                          placeholder="Nguyen Van A"
-                          value={fullName}
-                          onChange={(e) => setFullName(e.target.value)}
-                          className="w-full px-5 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-extrabold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('email')}</label>
-                      <div className="relative group">
-                        <input 
-                          type="email" 
-                          placeholder="example@sentinel.com"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="w-full px-5 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('password')}</label>
-                    <div className="relative group">
-                      <Lock className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input 
-                        type={showPassword ? 'text' : 'password'} 
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full px-12 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-5 top-1/2 -translate-y-1/2 p-1 hover:bg-bg-surface/50 rounded-lg transition-colors"
-                      >
-                        <Eye className="h-4 w-4 text-text-muted" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-tight block ml-1 transition-colors">{t('confirmPassword')}</label>
-                    <div className="relative group">
-                      <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-                      <input 
-                        type="password" 
-                        placeholder="••••••••"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full px-12 py-3 bg-bg-base border border-border-base rounded-xl text-sm transition-all focus:outline-none focus:ring-4 focus:ring-indigo-600/5 dark:focus:ring-indigo-400/5 focus:border-indigo-600/20 dark:focus:border-indigo-400/20 group-hover:border-indigo-600/10 dark:group-hover:border-indigo-400/10 font-medium tracking-tight text-text-base"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1 pt-0.5">
-                    <label className="flex items-start gap-3 cursor-pointer group">
-                      <input type="checkbox" className="mt-0.5 w-3.5 h-3.5 rounded border-border-base text-[#3634B3] focus:ring-0 cursor-pointer bg-bg-base" />
-                      <span className="text-[9px] text-text-muted font-medium leading-normal tracking-tight transition-colors">
-                        {t('agreeTerms')} <span className="font-bold text-text-base underline">{t('termsOfService')}</span>.
-                      </span>
-                    </label>
-                  </div>
-
-                  <button type="submit" className="w-full py-3 bg-[#3634B3] hover:opacity-90 text-white text-xs font-bold rounded-xl shadow-lg shadow-[#3634B3]/20 transition-all uppercase tracking-tight active:scale-[0.98]">
-                    {t('createAccount')}
-                  </button>
-                </form>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="space-y-4 mt-5">
-            <div className="relative py-1.5">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border-base transition-colors"></span>
-              </div>
-              <div className="relative flex justify-center text-[9px] uppercase">
-                <span className="bg-bg-surface px-3 text-text-muted font-bold tracking-tight transition-colors">{t('orContinueWith')}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={handleGoogleLogin}
-                disabled={isGoogleLoading}
-                className="flex items-center justify-center gap-2 py-2 border border-border-base rounded-xl hover:bg-bg-base transition-all active:scale-[0.98] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isGoogleLoading ? (
-                  <div className="h-3.5 w-3.5 border-2 border-[#3634B3]/20 border-t-[#3634B3] rounded-full animate-spin"></div>
-                ) : (
-                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="h-3.5 w-3.5" />
-                )}
-                <span className="text-[10px] font-bold text-text-base tracking-tight transition-colors">
-                  {isGoogleLoading ? t('signingIn') || 'Signing in...' : t('googleAuth')}
-                </span>
-              </button>
-              <button className="flex items-center justify-center gap-2 py-2 border border-border-base rounded-xl hover:bg-bg-base transition-all active:scale-[0.98] transition-colors">
-                <Apple className="h-3.5 w-3.5 text-text-base" />
-                <span className="text-[10px] font-bold text-text-base tracking-tight transition-colors">{t('appleAuth')}</span>
-              </button>
-            </div>
-
-            <div className="text-center text-[11px] text-text-muted mt-4 tracking-tight font-medium transition-colors">
-              {isLogin ? (
-                <>{t('dontHaveAccount')} <button onClick={() => setAuthMode('register')} className="text-[#3634B3] font-bold hover:underline">{t('signUp')}</button></>
-              ) : (
-                <>{t('alreadyHaveAccount')} <button onClick={() => setAuthMode('login')} className="text-[#3634B3] font-bold hover:underline">{t('signIn')}</button></>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
+
+

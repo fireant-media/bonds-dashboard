@@ -1,0 +1,198 @@
+import { ReactNode, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+type SortDirection = 'asc' | 'desc';
+
+export interface DataTableColumn<T> {
+  id: string;
+  header: ReactNode;
+  unit?: string;
+  accessor?: (row: T) => string | number | Date | null | undefined;
+  cell: (row: T) => ReactNode;
+  sortable?: boolean;
+  align?: 'left' | 'right' | 'center';
+  className?: string;
+}
+
+interface DataTableProps<T> {
+  rows: T[];
+  columns: DataTableColumn<T>[];
+  getRowKey: (row: T, index: number) => string;
+  pageSize?: number;
+  initialSort?: {
+    columnId: string;
+    direction: SortDirection;
+  };
+  emptyState?: ReactNode;
+  className?: string;
+}
+
+const compareValues = (
+  left: string | number | Date | null | undefined,
+  right: string | number | Date | null | undefined,
+) => {
+  if (left === right) return 0;
+  if (left === null || left === undefined) return 1;
+  if (right === null || right === undefined) return -1;
+
+  const leftValue = left instanceof Date ? left.getTime() : left;
+  const rightValue = right instanceof Date ? right.getTime() : right;
+
+  if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+    return leftValue - rightValue;
+  }
+
+  return String(leftValue).localeCompare(String(rightValue), undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+};
+
+export function DataTable<T>({
+  rows,
+  columns,
+  getRowKey,
+  pageSize = 20,
+  initialSort,
+  emptyState,
+  className,
+}: DataTableProps<T>) {
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState(initialSort || null);
+
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+
+    const column = columns.find((item) => item.id === sort.columnId);
+    if (!column?.accessor) return rows;
+
+    return [...rows].sort((left, right) => {
+      const result = compareValues(column.accessor?.(left), column.accessor?.(right));
+      return sort.direction === 'asc' ? result : -result;
+    });
+  }, [columns, rows, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  const handleSort = (column: DataTableColumn<T>) => {
+    if (!column.sortable || !column.accessor) return;
+
+    setPage(1);
+    setSort((current) => {
+      if (current?.columnId !== column.id) {
+        return { columnId: column.id, direction: 'asc' };
+      }
+
+      return {
+        columnId: column.id,
+        direction: current.direction === 'asc' ? 'desc' : 'asc',
+      };
+    });
+  };
+
+  return (
+    <div className={cn("overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-full text-left">
+          <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
+            <tr>
+              {columns.map((column) => {
+                const isSorted = sort?.columnId === column.id;
+                const SortIcon = !isSorted ? ArrowUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown;
+
+                return (
+                  <th
+                    key={column.id}
+                    className={cn(
+                      "px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap",
+                      column.align === 'right' && "text-right",
+                      column.align === 'center' && "text-center",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSort(column)}
+                      disabled={!column.sortable || !column.accessor}
+                      className={cn(
+                        "inline-flex items-center gap-2 text-left disabled:cursor-default",
+                        column.align === 'right' && "justify-end",
+                        column.align === 'center' && "justify-center",
+                      )}
+                    >
+                      <span>
+                        <span className="block">{column.header}</span>
+                        {column.unit && <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">{column.unit}</span>}
+                      </span>
+                      {column.sortable && <SortIcon className="h-3.5 w-3.5 shrink-0 text-text-highlight" />}
+                    </button>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-base">
+            {visibleRows.length > 0 ? (
+              visibleRows.map((row, index) => (
+                <tr key={getRowKey(row, index)} className="transition-colors hover:bg-surface-container-low/70">
+                  {columns.map((column) => (
+                    <td
+                      key={column.id}
+                      className={cn(
+                        "px-4 py-3 text-sm font-medium text-text-base whitespace-nowrap",
+                        column.align === 'right' && "text-right",
+                        column.align === 'center' && "text-center",
+                        column.className,
+                      )}
+                    >
+                      {column.cell(row)}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="px-4 py-10 text-center text-sm font-medium text-text-muted" colSpan={columns.length}>
+                  {emptyState || 'No data'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-3 border-t border-border-base bg-surface-container-low/70 px-4 py-3">
+          <p className="text-xs font-semibold text-text-muted">
+            {safePage} / {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={safePage === 1}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-text-highlight hover:text-text-highlight disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={safePage === totalPages}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-text-highlight hover:text-text-highlight disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

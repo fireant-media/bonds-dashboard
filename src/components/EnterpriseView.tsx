@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { Search, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
-import ReactECharts from 'echarts-for-react';
-import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
+import ChartWithToolbar from './ChartWithToolbar';
+import { formatInterestRate, formatNumber, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { useTheme } from '../ThemeContext';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 interface EnterpriseViewProps {
   selectedEnterprise: Enterprise | null;
@@ -18,6 +20,27 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
+import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
+import { readJsonResponse } from '../utils/http';
+import { buildFireantUrl } from '../api/fireant';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { ExportExcelButton } from './ui/ExportExcelButton';
+import { MetricCard } from './ui/Card';
+import { SortControl } from './ui/SortControl';
+import { exportRowsToExcel } from '../utils/excel';
+import { fireantApi } from '../api/fireant';
+import {
+  buildEnterpriseIndustryOptions,
+  buildIndustrySymbolLookup,
+  resolveIndustryKeyFromCandidates as resolveIndustryFromShared,
+  resolveIndustryKeyFromSymbolGroups,
+} from '../constants/industries';
+import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
+import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile } from '../services/bondData';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -28,11 +51,21 @@ export default function EnterpriseView({
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDark);
   const cachedData = getCache('enterprise_list');
   const [searchTerm, setSearchTerm] = useState('');
   const [industryFilter, setIndustryFilter] = useState('All');
-  const [issueValueSort, setIssueValueSort] = useState('None');
-  const [enterprises, setEnterprises] = useState<Enterprise[]>(cachedData || []);
+  const [enterpriseSortField, setEnterpriseSortField] = useState<'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
+  const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
+  const [enterpriseAppliedSortDirection, setEnterpriseAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
+  const [enterprises, setEnterprises] = useState<Enterprise[]>(
+    Array.isArray(cachedData)
+      ? cachedData.map((enterprise: Enterprise) => ({
+          ...enterprise,
+          industry: resolveIndustryFromShared(enterprise.industry),
+        }))
+      : []
+  );
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(getCache('enterprise_names_en') || {});
   const [issuerBonds, setIssuerBonds] = useState<Bond[]>([]);
   const [loading, setLoading] = useState(!cachedData);
@@ -42,34 +75,106 @@ export default function EnterpriseView({
   const [bondPage, setBondPage] = useState(1);
   const [enterprisePage, setEnterprisePage] = useState(1);
   const [bondTermFilter, setBondTermFilter] = useState('All');
-  const [bondInterestSort, setBondInterestSort] = useState('None');
+  const [bondSortField, setBondSortField] = useState<'issueDate' | 'maturityDate' | 'interestRate' | 'listedVolume' | 'issuedValue' | 'listedValue' | null>(null);
+  const [bondAppliedSortField, setBondAppliedSortField] = useState<'issueDate' | 'maturityDate' | 'interestRate' | 'listedVolume' | 'issuedValue' | 'listedValue' | null>(null);
+  const [bondAppliedSortDirection, setBondAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
+  const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
+  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [financialData, setFinancialData] = useState<any>(null);
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [issuerOpenMenu, setIssuerOpenMenu] = useState<'industry' | null>(null);
+  const [bondOpenMenu, setBondOpenMenu] = useState<'bondTerm' | null>(null);
+  const issuerMenuRef = useRef<HTMLDivElement | null>(null);
+  const bondMenuRef = useRef<HTMLDivElement | null>(null);
   const bondsPerPage = 10;
   const enterprisesPerPage = 10;
 
-  const chartColors = isDark 
-    ? ['#5c6bc0', '#ff8a65', '#4d5bbd', '#8e99f3', '#c5cae9', '#3949ab', '#64b5f6', '#ffb199', '#ffab91']
-    : ['#3634B3', '#ff7043', '#4fc3f7', '#7986cb', '#c5cae9', '#5c6bc0', '#8e99f3', '#ffab91', '#ff8a65'];
+  const chartColors = CHART_PALETTE;
 
   const legendStyle = {
     fontSize: 10,
-    color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    color: chartTheme.subText,
+    fontFamily: 'Manrope',
   };
 
   const axisLabelStyle = {
     fontSize: 10,
-    color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    color: chartTheme.subText,
+    fontFamily: 'Manrope',
   };
+
+  const tooltipTextStyle = { ...getChartTooltip(isDark).textStyle, fontSize: 10 };
+  const chartTooltip = getChartTooltip(isDark);
 
   const chartTitleStyle = {
     fontSize: 10,
-    color: isDark ? '#e5e7eb' : '#374151',
+    color: chartTheme.text,
     fontWeight: 'bold' as const,
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
+  };
+
+  const chartPalette = CHART_PALETTE;
+
+  const enterpriseIndustryOptions = useMemo(() => {
+    return buildEnterpriseIndustryOptions(enterprises).map((item) => ({
+      ...item,
+      label: t(item.label as any),
+    }));
+  }, [enterprises, t]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (issuerMenuRef.current && !issuerMenuRef.current.contains(event.target as Node)) {
+        setIssuerOpenMenu(null);
+      }
+      if (bondMenuRef.current && !bondMenuRef.current.contains(event.target as Node)) {
+        setBondOpenMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const selectedIndustryLabel = useMemo(() => {
+    if (industryFilter === 'All') return t('allIndustries');
+    return enterpriseIndustryOptions.find((industry) => industry.value === industryFilter)?.label || t('allIndustries');
+  }, [enterpriseIndustryOptions, industryFilter, t]);
+
+  const selectedBondTermLabel = useMemo(() => {
+    return bondTermFilter === 'All' ? t('term') : bondTermFilter;
+  }, [bondTermFilter, t]);
+
+  const enterpriseSortOptions = useMemo(() => ([
+    { value: '__default__', label: t('sortBy'), isDefault: true },
+    { value: 'bondCount', label: language === 'en' ? 'Bond Count' : 'Số lượng mã trái phiếu' },
+    { value: 'issuedValue', label: 'Giá trị phát hành' },
+    { value: 'remainingDebt', label: t('remainingDebtTitle') },
+  ]), [language, t]);
+
+  const bondSortOptions = useMemo(() => ([
+    { value: '__default__', label: t('sortBy'), isDefault: true },
+    { value: 'issueDate', label: t('issueDate') },
+    { value: 'maturityDate', label: t('maturityDate') },
+    { value: 'interestRate', label: t('interestRate') },
+    { value: 'listedVolume', label: t('listedVolume') },
+    { value: 'issuedValue', label: t('issuedValue') },
+    { value: 'listedValue', label: t('listedValueTitle') },
+  ]), [t]);
+
+  const issuerFilterWidthClass = 'w-76';
+  const bondTermWidthClass = 'w-32';
+  const issuerSortWidthClass = 'w-84';
+  const bondSortWidthClass = 'w-84';
+
+  const handleIndustryButtonClick = () => {
+    setIssuerOpenMenu((current) => (current === 'industry' ? null : 'industry'));
+  };
+
+  const handleBondTermButtonClick = () => {
+    setBondOpenMenu((current) => (current === 'bondTerm' ? null : 'bondTerm'));
   };
 
   useEffect(() => {
@@ -81,6 +186,7 @@ export default function EnterpriseView({
       if (!selectedEnterprise) {
         setIssuerBonds([]);
         setBondPage(1);
+        setLoadingCashFlows(false);
         return;
       }
 
@@ -88,7 +194,10 @@ export default function EnterpriseView({
       setBondError(null);
       setBondPage(1);
       setBondTermFilter('All');
-      setBondInterestSort('None');
+      setBondSortField(null);
+      setBondAppliedSortField(null);
+      setBondAppliedSortDirection(null);
+      setCashFlowPeriod('year');
       try {
         const token = getFireantToken();
         const cleanToken = token ? cleanTokenString(token) : undefined;
@@ -101,12 +210,9 @@ export default function EnterpriseView({
           headers['Authorization'] = `Bearer ${cleanToken}`;
         }
 
-        const response = await fetch(`/api/fireant/bonds/issuer/${selectedEnterprise.ticker}`, {
-          headers
-        });
+        const data = await loadIssuerBondsByFilter(selectedEnterprise.ticker);
 
-        if (response.ok) {
-          const data = await response.json();
+        if (Array.isArray(data)) {
           const mappedBonds: Bond[] = data.map((b: any) => ({
             id: b.bondCode,
             code: b.bondCode,
@@ -126,8 +232,41 @@ export default function EnterpriseView({
             status: b.status
           }));
           setIssuerBonds(mappedBonds);
-        } else {
-          throw new Error(`${language === 'vi' ? 'Lỗi khi lấy dữ liệu trái phiếu:' : 'Error fetching bond data:'} ${response.status}`);
+          setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, mappedBonds);
+
+          if (!cleanToken || mappedBonds.length === 0) return;
+
+          setLoadingCashFlows(true);
+
+          const fetchBondCashFlows = async (bond: Bond): Promise<Bond> => {
+            const cacheKey = `bond_cash_flows_${bond.code}`;
+            const cachedCashFlows = getCache(cacheKey);
+            if (cachedCashFlows) {
+              return { ...bond, cashFlows: cachedCashFlows };
+            }
+
+            const detailData = await loadBondDetail(bond.code);
+            if (!detailData) return bond;
+            const cashFlows = Array.isArray(detailData.cashFlows)
+              ? detailData.cashFlows.map((cf: any) => ({
+                  paymentDate: cf.paymentDate,
+                  interestAmount: (cf.interestAmount || 0) / 1000000000,
+                  principalAmount: (cf.principalAmount || 0) / 1000000000,
+                  totalCashflow: (cf.totalCashflow || 0) / 1000000000,
+                  bondRate: cf.bondRate || 0
+                }))
+              : [];
+
+            setCache(cacheKey, cashFlows);
+            return { ...bond, cashFlows };
+          };
+
+          const results = await mapWithConcurrency(mappedBonds, 8, fetchBondCashFlows);
+          const detailedBonds = results.map((result, index) =>
+            result.status === 'fulfilled' ? result.value : mappedBonds[index]
+          );
+          setIssuerBonds(detailedBonds);
+          setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, detailedBonds);
         }
       } catch (error) {
         console.error('Error fetching issuer bonds:', error);
@@ -138,6 +277,7 @@ export default function EnterpriseView({
         }
       } finally {
         setLoadingBonds(false);
+        setLoadingCashFlows(false);
       }
     };
 
@@ -166,7 +306,8 @@ export default function EnterpriseView({
         const symbol = selectedEnterprise.ticker;
 
         // Fetch multiple quarters to handle null values by falling back to previous periods
-        const response = await fetch(`/api/fireant/symbols/${encodeURIComponent(symbol)}/financial-data?type=Q&count=4`, {
+        const response = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(symbol)}/financial-data`, { type: 'Q', count: 4 }), {
+          cache: 'no-store',
           headers: {
             'Accept': 'application/json',
             'Authorization': `Bearer ${cleanToken}`
@@ -174,7 +315,7 @@ export default function EnterpriseView({
         });
 
         if (response.ok) {
-          const quarters = await response.json();
+          const quarters = await readJsonResponse<any[]>(response, `Financial data ${symbol}`);
           if (Array.isArray(quarters) && quarters.length > 0) {
             // Helper to find the latest non-null value for a given field across quarters
             const findLatestValue = (field: string) => {
@@ -210,6 +351,7 @@ export default function EnterpriseView({
             });
 
             setFinancialData(consolidatedData);
+            setCache(`enterprise_financial_${symbol}`, consolidatedData);
           } else {
             console.warn(`No financial values found for ${symbol}`);
           }
@@ -239,20 +381,10 @@ export default function EnterpriseView({
 
       const symbol = selectedEnterprise.ticker;
       try {
-        const token = getFireantToken();
-        if (!token) return;
-
-        const cleanToken = cleanTokenString(token);
-        const response = await fetch(`/api/fireant/symbols/${encodeURIComponent(symbol)}/profile`, {
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`
-          }
-        });
-
-        if (response.ok) {
-          const profile = await response.json();
+        const profile = await loadIssuerProfile(symbol);
+        if (profile) {
           setEnterpriseProfile(profile);
+          setCache(`enterprise_profile_${symbol}`, profile);
         }
       } catch (error) {
         console.error('Error fetching enterprise profile:', error);
@@ -281,37 +413,37 @@ export default function EnterpriseView({
           headers['Authorization'] = `Bearer ${cleanToken}`;
         }
 
-        // Fetch top debtors
-        let issuers = getCache('top_debt_200');
-        if (!issuers) {
-          const issuersRes = await fetch('/api/fireant/bonds/stats/issuers/top-debt?top=200', { headers });
-          if (issuersRes.ok) {
-            issuers = await issuersRes.json();
-            setCache('top_debt_200', issuers);
-          } else {
-            // Fallback to empty instead of throwing if we don't have token
-            if (issuersRes.status === 401 && !cleanToken) {
-              console.warn('Unauthorized and no token provided. Using empty list or cached data.');
-              issuers = [];
-            } else {
-              throw new Error(`${language === 'vi' ? 'Lỗi tải danh sách doanh nghiệp:' : 'Error loading enterprise list:'} ${issuersRes.status}`);
-            }
-          }
-        }
+        const issuers = await loadIssuerStatsSummary(200);
+        setCache('top_debt_200', issuers);
 
         if (!isMounted) return;
 
         if (issuers) {
-          const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+          const symbolGroups = await loadDedupedIndustrySymbols();
+          const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
 
-          // Map issuers immediately. Use existing industries if available.
           const mappedEnterprises: Enterprise[] = issuers.map((issuer: any) => {
             const currentEnt = enterprises.find(e => e.ticker === issuer.issuerSymbol);
             return {
               id: issuer.issuerSymbol,
               ticker: issuer.issuerSymbol,
               name: issuer.issuerName,
-              industry: currentEnt?.industry || 'N/A', 
+              industry: resolveIndustryKeyFromSymbolGroups(
+                issuer.issuerSymbol,
+                symbolToIndustryKey,
+                issuer?.infoObj?.icbNameLv2,
+                issuer?.infoObj?.icbNameLv1,
+                issuer?.infoObj?.icbCodeLv2,
+                issuer?.infoObj?.icbCodeLv1,
+                issuer?.icbNameLv2,
+                issuer?.icbNameLv1,
+                issuer?.icbCodeLv2,
+                issuer?.icbCodeLv1,
+                issuer?.industryName,
+                issuer?.industryCode,
+                issuer?.industry,
+                currentEnt?.industry
+              ),
               bondCount: issuer.bondCount,
               issuedValue: issuer.totalIssuedValue / 1000000000,
               initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue) / 1000000000,
@@ -322,103 +454,50 @@ export default function EnterpriseView({
           setEnterprises(mappedEnterprises);
           if (isMounted) setLoading(false); 
 
-          // Fetch industries background mapping
-          const icbCodes = ['3010', '3510', '30202005'];
-          const industriesMap: Record<string, string> = {
-            '3010': 'Banking',
-            '3510': 'RealEstate',
-            '30202005': 'Securities'
-          };
-
-          const industryBatches = await Promise.all(icbCodes.map(async (code) => {
-             try {
-               const res = await fetch(`/api/fireant/icb/${code}/symbols`, { headers });
-               if (res.ok) {
-                 const symbols = await res.json();
-                 return { code, symbols };
-               }
-             } catch(e) {}
-             return { code, symbols: [] };
-          }));
-
-          if (!isMounted) return;
-
-          const symbolToIndustry: Record<string, string> = {};
-          industryBatches.forEach(batch => {
-            batch.symbols.forEach((s: string) => {
-              symbolToIndustry[s] = industriesMap[batch.code];
-            });
-          });
-
-          const finalEnterprises = mappedEnterprises.map(ent => ({
-            ...ent,
-            industry: symbolToIndustry[ent.ticker] || 'Other'
-          }));
-
-          setEnterprises(finalEnterprises);
-          setCache('enterprise_list', finalEnterprises);
+          setCache('enterprise_list', mappedEnterprises);
 
           // Background fetch international names for English mode
-          const tickersToFetch = finalEnterprises
+          const tickersToFetch = mappedEnterprises
             .map(e => e.ticker)
             .filter(ticker => !enterpriseNamesEN[ticker]);
           
           if (tickersToFetch.length > 0) {
-            const fetchInChunks = async () => {
-              const chunkSize = 5;
+            const fetchNames = async () => {
               const currentENNames = { ...enterpriseNamesEN };
-              let totalUpdated = 0;
+              const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
+                const profile = await loadIssuerProfile(ticker);
+                if (!profile) return null;
+                return { ticker, name: profile.internationalName };
+              });
 
-              for (let i = 0; i < tickersToFetch.length; i += chunkSize) {
-                if (!isMounted) break;
-                
-                const chunk = tickersToFetch.slice(i, i + chunkSize);
-                const results = await Promise.all(
-                  chunk.map(async (ticker) => {
-                    try {
-                      const res = await fetch(`/api/fireant/symbols/${encodeURIComponent(ticker)}/profile`, { headers });
-                      if (res.ok) {
-                        const profile = await res.json();
-                        return { ticker, name: profile.internationalName };
-                      }
-                    } catch (e) {
-                      console.error(`Failed to fetch EN name for ${ticker}`, e);
-                    }
-                    return null;
-                  })
-                );
+              if (!isMounted) return;
 
-                let chunkUpdated = false;
-                results.forEach(res => {
-                  if (res && res.name) {
-                    currentENNames[res.ticker] = res.name;
-                    chunkUpdated = true;
-                    totalUpdated++;
-                  }
-                });
-
-                if (chunkUpdated && isMounted) {
-                  setEnterpriseNamesEN({ ...currentENNames });
-                  setCache('enterprise_names_en', { ...currentENNames });
+              let hasUpdates = false;
+              getFulfilledValues(results).forEach(res => {
+                if (res && res.name) {
+                  currentENNames[res.ticker] = res.name;
+                  hasUpdates = true;
                 }
+              });
 
-                // Small delay between chunks
-                if (i + chunkSize < tickersToFetch.length) {
-                  await new Promise(resolve => setTimeout(resolve, 200));
-                }
+              if (hasUpdates) {
+                setEnterpriseNamesEN({ ...currentENNames });
+                setCache('enterprise_names_en', { ...currentENNames });
               }
             };
 
-            fetchInChunks();
+            fetchNames();
           }
         }
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching enterprise data:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
+        if (!cachedData) {
+          if (error instanceof Error && error.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(error instanceof Error ? error.message : t('error'));
+          }
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -431,60 +510,142 @@ export default function EnterpriseView({
 
   useEffect(() => {
     setEnterprisePage(1);
-  }, [searchTerm, industryFilter, issueValueSort]);
+  }, [searchTerm, industryFilter, enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
 
   useEffect(() => {
     setBondPage(1);
-  }, [bondTermFilter, bondInterestSort]);
+  }, [bondTermFilter, bondAppliedSortField, bondAppliedSortDirection]);
 
-  const filteredEnterprises = enterprises.filter(e => 
-    (e.name.toLowerCase().includes(searchTerm.toLowerCase()) || e.ticker.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (industryFilter === 'All' || e.industry === industryFilter)
+  useEffect(() => {
+    setEnterprisePage(1);
+  }, [enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
+
+  const filteredEnterprises = useMemo(() => {
+    const search = searchTerm.toLowerCase();
+    return enterprises.filter((e) => (
+      (e.name.toLowerCase().includes(search) || e.ticker.toLowerCase().includes(search)) &&
+      (industryFilter === 'All' || e.industry === industryFilter)
+    ));
+  }, [enterprises, industryFilter, searchTerm]);
+
+  const sortedEnterprises = useMemo(() => {
+    return [...filteredEnterprises].sort((a, b) => {
+      if (!enterpriseAppliedSortField || !enterpriseAppliedSortDirection) return 0;
+      const direction = enterpriseAppliedSortDirection === 'asc' ? 1 : -1;
+      if (enterpriseAppliedSortField === 'bondCount') {
+        return (Number(a.bondCount || 0) - Number(b.bondCount || 0)) * direction;
+      }
+      if (enterpriseAppliedSortField === 'issuedValue') {
+        return (Number(a.issuedValue || 0) - Number(b.issuedValue || 0)) * direction;
+      }
+      if (enterpriseAppliedSortField === 'remainingDebt') {
+        return (Number(a.remainingDebt || 0) - Number(b.remainingDebt || 0)) * direction;
+      }
+      return 0;
+    });
+  }, [enterpriseAppliedSortDirection, enterpriseAppliedSortField, filteredEnterprises]);
+
+  const totalEnterprisePages = useMemo(() => Math.ceil(sortedEnterprises.length / enterprisesPerPage), [sortedEnterprises.length]);
+  const paginatedEnterprises = useMemo(
+    () => sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage),
+    [enterprisePage, sortedEnterprises]
   );
-
-  const sortedEnterprises = [...filteredEnterprises].sort((a, b) => {
-    if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
-    if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
-    return 0;
-  });
-
-  const totalEnterprisePages = Math.ceil(sortedEnterprises.length / enterprisesPerPage);
-  const paginatedEnterprises = sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage);
 
   const enterpriseBonds = selectedEnterprise 
     ? (issuerBonds.length > 0 ? issuerBonds : [])
     : [];
 
-  const filteredSortedBonds = [...enterpriseBonds]
-    .filter(bond => bondTermFilter === 'All' || bond.term === bondTermFilter)
-    .sort((a, b) => {
-      if (bondInterestSort === 'HighToLow') return b.interestRate - a.interestRate;
-      if (bondInterestSort === 'LowToHigh') return a.interestRate - b.interestRate;
-      return 0;
-    });
+  const filteredSortedBonds = useMemo(() => {
+    return [...enterpriseBonds]
+      .filter((bond) => bondTermFilter === 'All' || bond.term === bondTermFilter)
+      .sort((a, b) => {
+        if (!bondAppliedSortField || !bondAppliedSortDirection) return 0;
+        const direction = bondAppliedSortDirection === 'asc' ? 1 : -1;
+        if (bondAppliedSortField === 'issueDate') {
+          return ((parseDateToTimestamp(a.issueDate) || 0) - (parseDateToTimestamp(b.issueDate) || 0)) * direction;
+        }
+        if (bondAppliedSortField === 'maturityDate') {
+          return ((parseDateToTimestamp(a.maturityDate) || 0) - (parseDateToTimestamp(b.maturityDate) || 0)) * direction;
+        }
+        if (bondAppliedSortField === 'interestRate') {
+          return ((Number(a.interestRate || 0)) - (Number(b.interestRate || 0))) * direction;
+        }
+        if (bondAppliedSortField === 'listedVolume') {
+          return ((Number(a.listedVolume || 0)) - (Number(b.listedVolume || 0))) * direction;
+        }
+        if (bondAppliedSortField === 'issuedValue') {
+          return ((Number(a.issuedValue || 0)) - (Number(b.issuedValue || 0))) * direction;
+        }
+        if (bondAppliedSortField === 'listedValue') {
+          return ((Number(a.listedValue || 0)) - (Number(b.listedValue || 0))) * direction;
+        }
+        return 0;
+      });
+  }, [bondAppliedSortDirection, bondAppliedSortField, bondTermFilter, enterpriseBonds]);
 
-  const totalBondPages = Math.ceil(filteredSortedBonds.length / bondsPerPage);
-  const paginatedBonds = filteredSortedBonds.slice((bondPage - 1) * bondsPerPage, bondPage * bondsPerPage);
+  const totalBondPages = useMemo(() => Math.ceil(filteredSortedBonds.length / bondsPerPage), [filteredSortedBonds.length]);
+  const paginatedBonds = useMemo(
+    () => filteredSortedBonds.slice((bondPage - 1) * bondsPerPage, bondPage * bondsPerPage),
+    [bondPage, filteredSortedBonds]
+  );
 
-  // Get unique terms for the filter
-  const uniqueTerms = Array.from(new Set(enterpriseBonds.map(b => b.term))).sort((a, b) => {
+  const uniqueTerms = useMemo(() => {
+    return Array.from(new Set(enterpriseBonds.map((b) => b.term))).sort((a, b) => {
       const valA = parseInt(a as string) || 0;
       const valB = parseInt(b as string) || 0;
       return valA - valB;
     });
+  }, [enterpriseBonds]);
 
-  // Data for charts
-  const termData = enterpriseBonds.reduce((acc: any, bond) => {
-    acc[bond.term] = (acc[bond.term] || 0) + 1;
-    return acc;
-  }, {});
-  const pieData = Object.entries(termData)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => {
-      const valA = parseInt(a.name) || 0;
-      const valB = parseInt(b.name) || 0;
-      return valA - valB;
-    });
+  const pieData = useMemo(() => {
+    const termData = enterpriseBonds.reduce((acc: any, bond) => {
+      acc[bond.term] = (acc[bond.term] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(termData)
+      .map(([name, value]) => ({ name: `${name} ${t('monthUnit')}`, value, term: name }))
+      .sort((a, b) => {
+        const valA = parseInt(a.term || a.name) || 0;
+        const valB = parseInt(b.term || b.name) || 0;
+        return valA - valB;
+      });
+  }, [enterpriseBonds, t]);
+  const pieLegendRows = splitLegendItems(pieData.map((item) => item.name), 5, 2);
+  const pieLegendBase = {
+    orient: 'horizontal' as const,
+    itemWidth: 16,
+    itemHeight: 10,
+    itemGap: 12,
+    textStyle: {
+      ...legendStyle,
+      width: 84,
+      overflow: 'truncate' as const,
+      align: 'left' as const,
+      padding: [0, 0, 0, 6] as [number, number, number, number],
+    },
+  };
+  const pieLegendConfig = pieLegendRows.length > 1
+      ? [
+        {
+          ...pieLegendBase,
+          bottom: 24,
+          left: 'center' as const,
+          data: pieLegendRows[0],
+        },
+        {
+          ...pieLegendBase,
+          bottom: 0,
+          left: 'center' as const,
+          data: pieLegendRows[1],
+        },
+      ]
+    : {
+        ...pieLegendBase,
+        bottom: 0,
+        left: 'center' as const,
+        data: pieLegendRows[0],
+      };
 
   const interestTypeData = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -493,7 +654,39 @@ export default function EnterpriseView({
     return acc;
   }, {});
   const interestTypePieData = Object.entries(interestTypeData)
-    .map(([name, value]) => ({ name, value }));
+    .sort((a, b) => {
+      const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
+      return (order[a[0]] || 99) - (order[b[0]] || 99);
+    })
+    .map(([name, value]) => ({ 
+      name, 
+      value
+    }));
+  const interestTypePieLegendGroups = splitLegendItems(interestTypePieData.map((item) => item.name), 5, 2);
+  const interestTypePieLegendBase = {
+    textStyle: legendStyle,
+  };
+  const interestTypePieLegendConfig = interestTypePieLegendGroups.length > 1
+    ? [
+        {
+          ...interestTypePieLegendBase,
+          bottom: 28,
+          left: 'center' as const,
+          data: interestTypePieLegendGroups[0],
+        },
+        {
+          ...interestTypePieLegendBase,
+          bottom: 0,
+          left: 'center' as const,
+          data: interestTypePieLegendGroups[1],
+        },
+      ]
+    : {
+        ...interestTypePieLegendBase,
+        bottom: 0,
+        left: 'center' as const,
+        data: interestTypePieLegendGroups[0],
+      };
 
   const bubbleGroups = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -507,19 +700,23 @@ export default function EnterpriseView({
 
   const maxVolume = Math.max(...enterpriseBonds.map(b => b.listedVolume), 1);
 
-  const bubbleSeries = Object.entries(bubbleGroups).map(([name, data]) => ({
-    name,
-    data,
-    type: 'scatter',
-    symbolSize: (data: any) => {
-      const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
-      return Math.max(8, size);
-    },
-    itemStyle: { 
-      color: name === t('fixed') ? '#3634B3' : (name === t('floating') ? '#ff7043' : undefined),
-      opacity: 0.7 
-    }
-  }));
+  const bubbleSeries = Object.entries(bubbleGroups)
+    .sort((a, b) => {
+      const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
+      return (order[a[0]] || 99) - (order[b[0]] || 99);
+    })
+    .map(([name, data]) => ({
+      name,
+      data,
+      type: 'scatter',
+      symbolSize: (data: any) => {
+        const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
+        return Math.max(8, size);
+      },
+      itemStyle: { 
+        opacity: 0.7 
+      }
+    }));
 
   const maturityYearData = enterpriseBonds.reduce((acc: any, bond) => {
     const year = bond.maturityDate.split('-')[0];
@@ -529,66 +726,178 @@ export default function EnterpriseView({
   const sortedYears = Object.keys(maturityYearData).sort();
   const columnData = sortedYears.map(year => maturityYearData[year]);
 
+  const projectedCashFlowData = useMemo(() => {
+    const buckets = new Map<string, { label: string; interest: number; principal: number }>();
+
+    const ensureBucket = (date: Date) => {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const key = cashFlowPeriod === 'month'
+        ? `${year}-${String(month).padStart(2, '0')}`
+        : String(year);
+      const label = cashFlowPeriod === 'month' ? `T${month}/${year}` : String(year);
+
+      if (!buckets.has(key)) {
+        buckets.set(key, { label, interest: 0, principal: 0 });
+      }
+
+      return buckets.get(key)!;
+    };
+
+    enterpriseBonds.forEach((bond) => {
+      const cashFlows = Array.isArray(bond.cashFlows) ? bond.cashFlows : [];
+
+      cashFlows.forEach((cashFlow) => {
+        if (!cashFlow.paymentDate) return;
+
+        const paymentDate = new Date(cashFlow.paymentDate);
+        if (Number.isNaN(paymentDate.getTime())) return;
+
+        const bucket = ensureBucket(paymentDate);
+        bucket.interest += cashFlow.interestAmount || 0;
+        bucket.principal += cashFlow.principalAmount || 0;
+      });
+
+      if (cashFlows.length === 0 && bond.maturityDate && bond.listedValue) {
+        const maturityDate = new Date(bond.maturityDate);
+        if (!Number.isNaN(maturityDate.getTime())) {
+          const bucket = ensureBucket(maturityDate);
+          bucket.principal += bond.listedValue || 0;
+        }
+      }
+    });
+
+    const sortedEntries = Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const labels = sortedEntries.map(([, value]) => value.label);
+    const interest = sortedEntries.map(([, value]) => value.interest);
+    const principal = sortedEntries.map(([, value]) => value.principal);
+    const total = sortedEntries.map(([, value]) => value.interest + value.principal);
+
+    return { labels, interest, principal, total };
+  }, [enterpriseBonds, cashFlowPeriod]);
+
+  const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
+  const projectedCashFlowTitle = language === 'vi'
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
+    : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+
+  const handleExportEnterprises = async () => {
+    setExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: 'Enterprise_List',
+        sheetName: t('enterprise'),
+        rows: sortedEnterprises,
+        columns: [
+          { header: t('ticker'), value: (enterprise) => enterprise.ticker },
+          { header: t('issuerName'), value: (enterprise) => language === 'en' && enterpriseNamesEN[enterprise.ticker] ? enterpriseNamesEN[enterprise.ticker] : t(enterprise.name as any, enterprise.ticker) },
+          { header: t('bondCodeCount'), value: (enterprise) => formatNumber(enterprise.bondCount, 0) },
+          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (enterprise) => formatNumber(enterprise.issuedValue, 2) },
+          { header: `${t('remainingDebtTitle')} (${t('unitBillionVND')})`, value: (enterprise) => formatNumber(enterprise.remainingDebt, 2) },
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleExportBonds = async () => {
+    if (!selectedEnterprise) return;
+
+    setExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      exportRowsToExcel({
+        fileNameBase: `Bond_List_${selectedEnterprise.ticker}`,
+        sheetName: t('bondList'),
+        rows: filteredSortedBonds,
+        columns: [
+          { header: t('bondCode'), value: (bond) => bond.code },
+          { header: `${t('term')} (${t('monthUnit')})`, value: (bond) => bond.term },
+          { header: t('issueDate'), value: (bond) => formatDate(bond.issueDate) },
+          { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
+          { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => `${formatInterestRate(bond.interestRate)}%` },
+          {
+            header: t('interestType'),
+            value: (bond) => (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed'))
+              ? t('fixed')
+              : (bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating'))
+                ? t('floating')
+                : bond.interestType,
+          },
+          { header: t('listedVolume'), value: (bond) => formatNumber(bond.listedVolume || 0, 0) },
+          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
+          { header: `${t('listedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue || 0, 2) },
+          {
+            header: t('status'),
+            value: (bond) => (bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active'))
+              ? t('active')
+              : (bond.status?.toLowerCase().includes('hết hiệu lực') || bond.status?.toLowerCase().includes('inactive'))
+                ? t('inactive')
+                : bond.status,
+          },
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const pieOptions = {
+    color: chartPalette,
     tooltip: { 
-      trigger: 'item', 
-      formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
+      ...chartTooltip,
+      trigger: 'item',
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
-    legend: { 
-      bottom: 0, 
-      left: 'center',
-      width: 300,
-      itemWidth: 26,
-      itemHeight: 14,
-      itemGap: 10,
-      textStyle: { 
-        ...legendStyle,
-        width: 88,
-        overflow: 'truncate',
-        align: 'left',
-        padding: [0, 10, 0, 5]
-      } 
-    },
+    legend: pieLegendConfig,
     series: [{
       type: 'pie',
       radius: ['30%', '60%'],
       center: ['50%', '36%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 8 },
       label: { show: false },
       emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
-      data: pieData,
-      color: chartColors
+      data: pieData
     }]
   };
 
   const interestTypePieOptions = {
+    color: chartPalette,
     tooltip: { 
-      trigger: 'item', 
-      formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
+      ...chartTooltip,
+      trigger: 'item',
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
-    legend: { 
-      bottom: 0, 
-      left: 'center',
-      textStyle: legendStyle
-    },
+    legend: interestTypePieLegendConfig,
     series: [{
       type: 'pie',
       radius: ['40%', '70%'],
       center: ['50%', '45%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 8 },
       label: { show: false },
       emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
-      data: interestTypePieData,
-      color: chartColors.slice(0, 3)
+      data: interestTypePieData
     }]
   };
 
   const bubbleOptions = {
+    color: chartPalette,
     tooltip: {
+      ...chartTooltip,
       trigger: 'item',
-      formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${params.data[0]} ${t('monthUnit')}<br/>${t('interestRate')}: ${formatInterestRate(params.data[1])}%<br/>${t('listedVolume')}: ${formatNumber(params.data[2] || 0, 0)}`
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${highlightChartTooltipValue(params.data[0], ` ${t('monthUnit')}`)}<br/>${t('interestRate')}: ${highlightChartTooltipValue(formatInterestRate(params.data[1]), '%')}<br/>${t('listedVolume')}: ${highlightChartTooltipValue(formatNumber(params.data[2] || 0, 0))}`
     },
     legend: {
       bottom: 0,
@@ -598,8 +907,6 @@ export default function EnterpriseView({
     grid: { top: '15%', bottom: '20%', left: '15%', right: '10%' },
     xAxis: { 
       name: `${t('term')} (${t('monthUnit')})`, 
-      nameLocation: 'middle', 
-      nameGap: 25, 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: axisLabelStyle 
@@ -617,14 +924,18 @@ export default function EnterpriseView({
   };
 
   const columnOptions = {
+    color: chartPalette,
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
-      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${formatNumber(params[0].value, 2)} ${t('unitBillionShort')}`
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 2), ` ${t('unitBillionVND')}`)}`
     },
     grid: { top: '15%', bottom: '15%', left: '15%', right: '5%' },
     xAxis: { type: 'category', data: sortedYears, axisLabel: axisLabelStyle },
     yAxis: { 
-      name: t('unitBillionShort'), 
+      name: t('unitBillion'), 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: { 
@@ -637,36 +948,114 @@ export default function EnterpriseView({
       type: 'bar',
       data: columnData,
       itemStyle: { 
-        color: chartColors[0], 
         borderRadius: [4, 4, 0, 0] 
       },
       barWidth: '40%'
     }]
   };
 
+  const projectedCashFlowOptions = {
+    color: chartPalette,
+    tooltip: {
+      ...chartTooltip,
+      trigger: 'axis',
+      confine: true,
+      axisPointer: { type: 'line' },
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        let content = `${params[0].name}<br/>`;
+        let total = 0;
+        params.forEach((param: any) => {
+          total += param.value || 0;
+          content += `${param.marker} ${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value || 0, 2), ` ${t('unitBillionVND')}`)}<br/>`;
+        });
+        content += `<strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
+        return content;
+      }
+    },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: legendStyle
+    },
+    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: projectedCashFlowData.labels,
+      axisLabel: {
+        ...axisLabelStyle,
+        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
+      }
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none',
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 18,
+        bottom: 24,
+        filterMode: 'none',
+        brushSelect: false,
+        textStyle: axisLabelStyle,
+      },
+    ],
+    yAxis: {
+      type: 'value',
+      name: t('unitBillionVND'),
+      nameTextStyle: chartTitleStyle,
+      splitLine: { show: false },
+      axisLabel: {
+        ...axisLabelStyle,
+        formatter: (value: number) => formatNumber(value, 0)
+      }
+    },
+    series: [
+      {
+        name: t('totalInterestPayable'),
+        type: 'line',
+        stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 0),
+        data: projectedCashFlowData.interest,
+      },
+      {
+        name: t('totalPrincipalPayable'),
+        type: 'line',
+        stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 1),
+        data: projectedCashFlowData.principal,
+      }
+    ]
+  };
+
   if (loading) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3634B3]"></div>
-        <p className="text-gray-500 font-medium">{t('loadingEnterprisesMessage')}</p>
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p className="text-text-muted font-medium">{t('loadingEnterprisesMessage')}</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
-        <div className="bg-red-50 p-4 rounded-full">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
+        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900">{t('failedToLoadData')}</h3>
-        <p className="text-gray-500 max-w-md">{error}</p>
+        <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
+        <p className="text-text-muted max-w-md">{error}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-colors"
+            className="rounded-lg bg-action-accent px-6 py-2 font-bold text-slate-950 transition-colors hover:opacity-90"
           >
             {t('tryAgain')}
           </button>
@@ -677,16 +1066,16 @@ export default function EnterpriseView({
 
   if (selectedEnterprise) {
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-widest">
+      <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+        <div className="flex items-center gap-2 text-xs font-bold text-text-muted uppercase tracking-widest">
           <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">{t('enterprise').toUpperCase()}</button>
           <ChevronRight className="h-3 w-3" />
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-        <div className="flex items-start justify-between">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex items-start justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
           <div className="space-y-2">
-            <h2 className="text-4xl font-bold text-text-base tracking-tight">
+            <h2 className="text-2xl font-bold text-text-base tracking-tight md:text-4xl">
               {language === 'en' && enterpriseProfile?.internationalName 
                 ? enterpriseProfile.internationalName 
                 : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
@@ -695,7 +1084,7 @@ export default function EnterpriseView({
             {/* Financial Badges Section */}
             <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2 pt-1">
               {!loadingFinancial ? (() => {
-                const ind = selectedEnterprise.industry?.toLowerCase() || '';
+                const ind = selectedEnterprise.industry ? t(selectedEnterprise.industry as any).toLowerCase() : '';
                 const type = (financialData?.__companyType || '').toLowerCase();
                 const d = financialData && financialData.__symbol === selectedEnterprise.ticker ? financialData : {};
                 
@@ -811,17 +1200,17 @@ export default function EnterpriseView({
                 return activeBadges.map((badge, idx) => (
                   <div 
                     key={idx} 
-                    className="flex items-center px-4 py-1.5 bg-indigo-50/40 dark:bg-indigo-900/20 border border-indigo-100/50 dark:border-indigo-400/30 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all cursor-help h-[32px] shadow-sm select-none"
+                    className="flex h-8 items-center rounded-full border border-blue-100 bg-blue-50/80 px-4 py-1.5 shadow-sm transition-all hover:bg-blue-50 cursor-help select-none dark:border-blue-400/30 dark:bg-blue-900/20 dark:hover:bg-blue-900/30"
                     title={badge.tooltip}
                   >
-                    <span className="text-[10px] font-medium text-[#3634B3] mr-2 uppercase tracking-tight opacity-80">{badge.label}:</span>
-                    <span className="text-xs font-bold text-[#3634B3] leading-none">{badge.value}</span>
+                    <span className="mr-2 text-xs font-semibold uppercase text-text-highlight opacity-80">{badge.label}:</span>
+                    <span className="text-xs font-bold text-text-highlight leading-none">{badge.value}</span>
                   </div>
                 ));
               })() : loadingFinancial ? (
                 <div className="flex gap-2 animate-pulse">
                   {[1, 2, 3, 4, 5].map(idx => (
-                    <div key={idx} className="h-[32px] w-24 bg-bg-surface border border-border-base rounded-full"></div>
+                    <div key={idx} className="h-8 w-24 rounded-full border border-border-base bg-bg-surface"></div>
                   ))}
                 </div>
               ) : null}
@@ -831,7 +1220,7 @@ export default function EnterpriseView({
 
         {loadingBonds ? (
           <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-12 h-12 border-4 border-[#3634B3] border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-sm font-bold text-text-muted uppercase tracking-widest">{t('loadingBondsMessage')}</p>
           </div>
         ) : bondError ? (
@@ -850,126 +1239,391 @@ export default function EnterpriseView({
         ) : (
           <>
             {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('bondCodeCount')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
-              </div>
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssuedValueTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
-              </div>
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('initialDebtFull')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
-              </div>
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('remainingDebtTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <MetricCard
+                label={t('bondCodeCount')}
+                value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
+                unit={t('unitBondCode')}
+              />
+              <MetricCard
+                label={t('totalIssuedValueTitle')}
+                value={formatNumber(selectedEnterprise.issuedValue, 2)}
+                unit={t('unitBillionVND')}
+              />
+              <MetricCard
+                label={t('initialDebtFull')}
+                value={formatNumber(selectedEnterprise.initialDebt, 2)}
+                unit={t('unitBillionVND')}
+              />
+              <MetricCard
+                label={t('remainingDebtTitle')}
+                value={formatNumber(selectedEnterprise.remainingDebt, 2)}
+                unit={t('unitBillionVND')}
+              />
             </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('bondStructureByTerm')}</h3>
-            <ReactECharts option={pieOptions} style={{ height: '320px' }} />
+            <ChartWithToolbar
+              option={pieOptions}
+              style={{ height: '320px' }}
+              title={t('bondStructureByTerm')}
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  legend: pieLegendRows.length > 1
+                    ? [
+                        {
+                          bottom: 24,
+                          left: 'center',
+                          orient: 'horizontal',
+                          itemWidth: 16,
+                          itemHeight: 10,
+                          itemGap: 12,
+                          textStyle: {
+                            ...legendStyle,
+                            width: 84,
+                            overflow: 'truncate',
+                            align: 'left',
+                            padding: [0, 0, 0, 6],
+                          },
+                          data: pieLegendRows[0],
+                        },
+                        {
+                          bottom: 0,
+                          left: 'center',
+                          orient: 'horizontal',
+                          itemWidth: 16,
+                          itemHeight: 10,
+                          itemGap: 12,
+                          textStyle: {
+                            ...legendStyle,
+                            width: 84,
+                            overflow: 'truncate',
+                            align: 'left',
+                            padding: [0, 0, 0, 6],
+                          },
+                          data: pieLegendRows[1],
+                        }
+                      ]
+                    : {
+                      bottom: 0,
+                      left: 'center',
+                      orient: 'horizontal',
+                      itemWidth: 16,
+                      itemHeight: 10,
+                        itemGap: 12,
+                        textStyle: {
+                          ...legendStyle,
+                          width: 84,
+                          overflow: 'truncate',
+                          align: 'left',
+                          padding: [0, 0, 0, 6],
+                        },
+                        data: pieLegendRows[0],
+                      },
+                  series: [
+                    {
+                      center: ['35%', '50%'],
+                      radius: ['34%', '63%'],
+                      label: {
+                        show: true,
+                        position: 'outside',
+                        formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                        color: isDark ? '#e5e7eb' : '#1e293b',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                      },
+                      labelLine: {
+                        show: true,
+                        length: 12,
+                        length2: 10,
+                        smooth: true,
+                      },
+                      emphasis: {
+                        label: {
+                          show: true,
+                          fontSize: '12',
+                          fontWeight: 'bold',
+                          formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                        }
+                      },
+                    },
+                  ],
+                },
+              }}
+            />
           </div>
           <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
-            <ReactECharts option={interestTypePieOptions} style={{ height: '300px' }} />
+            <ChartWithToolbar
+              option={interestTypePieOptions}
+              style={{ height: '300px' }}
+              title={t('bondStructureByInterestType')}
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  legend: {
+                    left: 'center',
+                    bottom: 6,
+                    top: undefined,
+                    itemWidth: 16,
+                    itemHeight: 10,
+                    itemGap: 18,
+                    textStyle: {
+                      ...legendStyle,
+                      width: 160,
+                      overflow: 'truncate',
+                      align: 'center',
+                    },
+                  },
+                  series: [
+                    {
+                      center: ['50%', '44%'],
+                      radius: ['44%', '74%'],
+                      label: {
+                        show: true,
+                        position: 'inside',
+                        formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                        color: isDark ? '#e5e7eb' : '#1e293b',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                      },
+                      labelLine: {
+                        show: false,
+                        length: 12,
+                        length2: 10,
+                        smooth: true,
+                      },
+                      emphasis: {
+                        label: {
+                          show: true,
+                          position: 'inside',
+                          fontSize: '12',
+                          fontWeight: 'bold',
+                          formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                        }
+                      },
+                    },
+                  ],
+                },
+              }}
+            />
           </div>
           <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('interestRateVsTerm')}</h3>
-            <ReactECharts option={bubbleOptions} style={{ height: '300px' }} />
+            <ChartWithToolbar option={bubbleOptions} style={{ height: '300px' }} title={t('interestRateVsTerm')} />
           </div>
           <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
+            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
-            <ReactECharts option={columnOptions} style={{ height: '300px' }} />
+            <ChartWithToolbar option={columnOptions} style={{ height: '300px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
           </div>
         </div>
 
+        <div className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+          {loadingCashFlows && !hasProjectedCashFlowData ? (
+            <div className="h-80 flex items-center justify-center">
+              <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
+                <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                {t('loading')}
+              </div>
+            </div>
+          ) : hasProjectedCashFlowData ? (
+            <ChartWithToolbar
+              option={projectedCashFlowOptions}
+              style={{ height: '360px' }}
+              allowMagicType
+              title={projectedCashFlowTitle}
+              showDataZoomSliderOnHover
+              zoomConfig={{
+                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                chartStyle: { height: '100%', width: '100%' },
+                option: {
+                  grid: { bottom: '22%' },
+                  legend: {
+                    bottom: 8,
+                  },
+                  dataZoom: [
+                    {
+                      type: 'inside',
+                      xAxisIndex: 0,
+                      filterMode: 'none',
+                    },
+                    {
+                      type: 'slider',
+                      xAxisIndex: 0,
+                      height: 18,
+                      bottom: 44,
+                      filterMode: 'none',
+                      brushSelect: false,
+                      textStyle: axisLabelStyle,
+                    },
+                  ],
+                },
+              }}
+              actions={(
+                <div className="flex items-center justify-center gap-1 rounded-lg border border-border-base bg-bg-base p-1 sm:justify-self-end">
+                  <button
+                    type="button"
+                    onClick={() => setCashFlowPeriod('month')}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                      cashFlowPeriod === 'month'
+                        ? 'bg-action-accent text-slate-950 shadow-sm'
+                        : 'text-text-muted hover:text-text-base'
+                    }`}
+                  >
+                    {t('month')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCashFlowPeriod('year')}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                      cashFlowPeriod === 'year'
+                        ? 'bg-action-accent text-slate-950 shadow-sm'
+                        : 'text-text-muted hover:text-text-base'
+                    }`}
+                  >
+                    {t('year')}
+                  </button>
+                </div>
+              )}
+            />
+          ) : (
+            <div className="h-80 flex items-center justify-center text-sm font-medium text-text-muted">
+              {t('noData')}
+            </div>
+          )}
+        </div>
+
         {/* Bond List Table */}
-        <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
-          <div className="p-4 md:p-6 border-b border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+          <div className="p-4 border-b border-border-base flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <h3 className="text-sm font-bold text-text-base uppercase tracking-wider transition-colors">{t('bondList')}</h3>
-            <div className="flex flex-col sm:flex-row gap-3 md:gap-4 w-full sm:w-auto">
-              <div className="relative">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-                <select 
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-                  value={bondTermFilter}
-                  onChange={(e) => setBondTermFilter(e.target.value)}
+            <div ref={bondMenuRef} className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
+              <div className={`relative ${bondTermWidthClass}`}>
+                <button
+                  type="button"
+                  onClick={handleBondTermButtonClick}
+                  className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                  aria-haspopup="menu"
+                  aria-expanded={bondOpenMenu === 'bondTerm'}
                 >
-                  <option value="All">{t('term')}</option>
-                  {uniqueTerms.map(term => (
-                    <option key={term} value={term} className="bg-bg-surface">{term}</option>
-                  ))}
-                </select>
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                    <span className="truncate">{selectedBondTermLabel}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+                </button>
+                {bondOpenMenu === 'bondTerm' && (
+                  <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBondTermFilter('All');
+                        setBondPage(1);
+                        setBondOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        bondTermFilter === 'All'
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{t('term')}</span>
+                    </button>
+                    {uniqueTerms.map((term) => (
+                      <button
+                        key={term}
+                        type="button"
+                        onClick={() => {
+                          setBondTermFilter(term);
+                          setBondPage(1);
+                          setBondOpenMenu(null);
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                          bondTermFilter === term
+                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                            : 'text-text-base hover:bg-surface-container-low'
+                        )}
+                      >
+                        <span className="truncate">{term}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="relative">
-                <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-                <select 
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-                  value={bondInterestSort}
-                  onChange={(e) => setBondInterestSort(e.target.value)}
-                >
-                  <option value="None">{t('interestRate')}</option>
-                  <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-                  <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-                </select>
-              </div>
+              <SortControl
+                className={bondSortWidthClass}
+                label={t('sortBy')}
+                options={bondSortOptions}
+                value={bondSortField}
+                appliedValue={bondAppliedSortField}
+                appliedDirection={bondAppliedSortDirection}
+                onChange={(value) => {
+                  setBondSortField(value as typeof bondSortField);
+                  setBondAppliedSortField(null);
+                  setBondAppliedSortDirection(null);
+                }}
+                onDirectionChange={(direction) => {
+                  if (!direction || !bondSortField) return;
+                  setBondAppliedSortField(bondSortField);
+                  setBondAppliedSortDirection(direction);
+                }}
+                ascendingLabel={t('ascending')}
+                descendingLabel={t('descending')}
+              />
+              <ExportExcelButton loading={exportLoading} onClick={handleExportBonds} />
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left border-collapse">
-              <thead className="bg-[#3634B3] text-white">
+            <table className="w-full min-w-full text-left border-collapse">
+              <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
                 <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('term').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('monthUnit').toUpperCase()})</span>
+                      <span className="whitespace-nowrap leading-none">{t('term')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('monthUnit')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('interestRate').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitPercentLabel')})</span>
+                      <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume')}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('totalIssuedValueTitle').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                      <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
                     <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('listedValueTitle').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                      <span className="whitespace-nowrap leading-none">{t('listedValueTitle')}</span>
+                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                     </div>
                   </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status').toUpperCase()}</th>
+                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status')}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-border-base">
                 {paginatedBonds.map((bond, idx) => (
                   <tr 
                     key={bond.id} 
@@ -977,28 +1631,28 @@ export default function EnterpriseView({
                       setBondEnterpriseName(language === 'en' && enterpriseProfile?.internationalName ? enterpriseProfile.internationalName : selectedEnterprise.name);
                       setSelectedBond(bond);
                     }}
-                    className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
+                    className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-left">
-                      <span className="text-xs font-bold text-text-highlight group-hover:underline">{bond.code}</span>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className="text-sm font-bold text-text-highlight group-hover:underline">{bond.code}</span>
                     </td>
-                    <td className="px-6 py-4 text-left">
-                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
+                    <td className="px-6 py-4 text-center">
+                      <span className="px-2 py-1 rounded-lg text-sm font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
                     </td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-right transition-colors">{formatDate(bond.issueDate)}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-right transition-colors">{formatDate(bond.maturityDate)}</td>
-                    <td className="px-6 py-4 text-xs font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
-                    <td className={`px-6 py-4 text-xs font-bold whitespace-nowrap text-left transition-colors ${
+                    <td className="px-6 py-4 text-sm text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.issueDate)}</td>
+                    <td className="px-6 py-4 text-sm text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.maturityDate)}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
+                    <td className={`px-6 py-4 text-sm font-bold whitespace-nowrap text-center transition-colors ${
                       bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed') ? 'text-blue-600' : 'text-orange-600'
                     }`}>
                       {(bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
                        ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : bond.interestType)}
                     </td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-left">
-                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
+                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
+                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <span className={`px-2 py-1 rounded-full text-sm font-bold uppercase ${
                         bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
                       }`}>
                         {(bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active')) ? t('active') : 
@@ -1030,7 +1684,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(i + 1)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === i + 1 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1043,7 +1697,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(1)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === 1 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1053,7 +1707,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(2)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === 2 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1066,7 +1720,7 @@ export default function EnterpriseView({
                           onClick={() => setBondPage(3)}
                           className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                             bondPage === 3 
-                              ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                              ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                               : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                           }`}
                         >
@@ -1080,7 +1734,7 @@ export default function EnterpriseView({
                         {bondPage < totalBondPages && (
                           <>
                             <button
-                              className="px-3 py-1 text-xs font-bold rounded-lg bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20"
+                              className="px-3 py-1 text-xs font-bold rounded-lg bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                             >
                               {bondPage}
                             </button>
@@ -1094,7 +1748,7 @@ export default function EnterpriseView({
                       onClick={() => setBondPage(totalBondPages)}
                       className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                         bondPage === totalBondPages 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                       }`}
                     >
@@ -1123,76 +1777,174 @@ export default function EnterpriseView({
   }
 
   return (
-    <div className="p-0 md:p-6 space-y-4 md:space-y-6 transition-colors">
-      <div className="flex items-center justify-between">
+    <div className="min-w-0 space-y-3 transition-colors duration-300">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex flex-col gap-3 border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
         <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-text-base tracking-tight transition-colors">{t('enterprise')}</h2>
+          <h2 className="text-2xl font-bold text-text-base text-center transition-colors">{t('enterprise')}</h2>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 md:gap-4 items-stretch sm:items-center bg-bg-surface p-3 md:p-4 rounded-2xl border border-border-base shadow-sm transition-colors">
-        <div className="relative flex-1 min-w-0 sm:min-w-[300px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <input 
-            type="text" 
-            placeholder={t('searchPlaceholderEnterprises')}
-            className="w-full pl-10 pr-4 py-2 bg-bg-base border-border-base border rounded-xl text-sm text-text-base focus:ring-2 focus:ring-[#3634B3]/20 transition-all outline-none"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
+        <div className="flex justify-end">
+          <ExportExcelButton loading={exportLoading} onClick={handleExportEnterprises} />
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <div className="relative flex-1 sm:flex-none">
-            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select 
-              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-              value={issueValueSort}
-              onChange={(e) => setIssueValueSort(e.target.value)}
-            >
-              <option value="None" className="bg-bg-surface">{t('issuedValue')}</option>
-              <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-              <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-            </select>
-          </div>
-          <div className="relative flex-1 sm:flex-none">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select 
-              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
-            >
-              <option value="All" className="bg-bg-surface">{t('allIndustries')}</option>
-              {Array.from(new Set(enterprises.map(e => e.industry)))
-                .sort()
-                .map(industry => (
-                  <option key={industry} value={industry} className="bg-bg-surface">{t(industry as any)}</option>
-                ))
-              }
-            </select>
+        <div ref={issuerMenuRef} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={t('searchPlaceholderEnterprises')}
+                className="w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+              <div className={`relative ${issuerFilterWidthClass}`}>
+                <button
+                  type="button"
+                  onClick={handleIndustryButtonClick}
+                  className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
+                  aria-haspopup="menu"
+                  aria-expanded={issuerOpenMenu === 'industry'}
+                >
+                  <span className="inline-flex min-w-0 items-center gap-2">
+                    <Filter className="h-4 w-4 shrink-0 text-blue-600" />
+                    <span className="truncate">{selectedIndustryLabel}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+                </button>
+
+                {issuerOpenMenu === 'industry' && (
+                  <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIndustryFilter('All');
+                        setIssuerOpenMenu(null);
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                        industryFilter === 'All'
+                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                          : 'text-text-base hover:bg-surface-container-low'
+                      )}
+                    >
+                      <span>{t('allIndustries')}</span>
+                    </button>
+                    {enterpriseIndustryOptions.map((industry) => (
+                      <button
+                        key={industry.value}
+                        type="button"
+                        onClick={() => {
+                          setIndustryFilter(industry.value);
+                          setIssuerOpenMenu(null);
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
+                          industryFilter === industry.value
+                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
+                            : 'text-text-base hover:bg-surface-container-low'
+                        )}
+                      >
+                        <span className="truncate">{industry.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <SortControl
+                className={issuerSortWidthClass}
+                label={t('sortBy')}
+                options={enterpriseSortOptions}
+                value={enterpriseSortField}
+                appliedValue={enterpriseAppliedSortField}
+                appliedDirection={enterpriseAppliedSortDirection}
+                onChange={(value) => {
+                  setEnterpriseSortField(value as typeof enterpriseSortField);
+                  setEnterpriseAppliedSortField(null);
+                  setEnterpriseAppliedSortDirection(null);
+                }}
+                onDirectionChange={(direction) => {
+                  if (!direction || !enterpriseSortField) return;
+                  setEnterpriseAppliedSortField(enterpriseSortField);
+                  setEnterpriseAppliedSortDirection(direction);
+                }}
+                ascendingLabel={t('ascending')}
+                descendingLabel={t('descending')}
+              />
+            </div>
           </div>
         </div>
       </div>
 
       {/* Enterprise Table */}
-      <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
+      <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+        <div className="divide-y divide-border-base lg:hidden">
+          {loading ? (
+            <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</div>
+          ) : paginatedEnterprises.length > 0 ? (
+            paginatedEnterprises.map((enterprise) => (
+              <button
+                key={enterprise.id}
+                type="button"
+                onClick={() => setSelectedEnterprise(enterprise)}
+                className="w-full p-4 text-left transition-colors hover:bg-surface-container-low"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-base font-bold text-text-highlight">{enterprise.ticker}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">
+                      {language === 'en' && enterpriseNamesEN[enterprise.ticker]
+                        ? enterpriseNamesEN[enterprise.ticker]
+                        : t(enterprise.name as any, enterprise.ticker)}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(enterprise.industry as any) || enterprise.industry || 'N/A'}</p>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted" />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-bg-base p-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('bondCodeCount')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.bondCount, 0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('issuedValue')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.issuedValue, 2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('remainingDebtTitle')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-highlight">{formatNumber(enterprise.remainingDebt, 2)}</p>
+                  </div>
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('noData')}</div>
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="w-full min-w-max text-left">
             <thead>
-              <tr className="bg-[#3634B3] text-white transition-colors">
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker').toUpperCase()}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName').toUpperCase()}</th>
-                <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount').toUpperCase()}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
+              <tr className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
+                <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                    <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                   </div>
                 </th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('remainingDebtTitle').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
+                    <span className="whitespace-nowrap leading-none">{t('remainingDebtTitle')}</span>
+                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
                   </div>
                 </th>
               </tr>
@@ -1206,9 +1958,9 @@ export default function EnterpriseView({
                 <tr 
                   key={enterprise.id} 
                   onClick={() => setSelectedEnterprise(enterprise)}
-                  className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
+                  className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                 >
-                  <td className="px-6 py-5 text-left">
+                  <td className="px-6 py-5 text-center">
                     <span className="text-sm font-bold text-text-highlight">{enterprise.ticker}</span>
                   </td>
                   <td className="px-6 py-5 text-left">
@@ -1218,8 +1970,8 @@ export default function EnterpriseView({
                           ? enterpriseNamesEN[enterprise.ticker] 
                           : t(enterprise.name as any, enterprise.ticker)}
                       </p>
-                      <p className="text-[10px] font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
-                        {t(enterprise.industry as any)}
+                      <p className="text-xs font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
+                        {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
                       </p>
                     </div>
                   </td>
@@ -1244,7 +1996,7 @@ export default function EnterpriseView({
 
         {/* Enterprise Pagination Controls */}
         {totalEnterprisePages > 1 && (
-          <div className="p-4 border-t border-border-base flex items-center justify-end bg-bg-surface transition-colors">
+          <div className="p-4 border-t border-border-base flex items-center justify-end bg-surface-container-low/70 transition-colors">
             <div className="flex gap-2">
               <button 
                 onClick={() => setEnterprisePage(prev => Math.max(1, prev - 1))}
@@ -1261,7 +2013,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(i + 1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === i + 1 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1274,7 +2026,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 1 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1284,7 +2036,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(2)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 2 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1297,7 +2049,7 @@ export default function EnterpriseView({
                         onClick={() => setEnterprisePage(3)}
                         className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                           enterprisePage === 3 
-                            ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                            ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                             : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                         }`}
                       >
@@ -1311,7 +2063,7 @@ export default function EnterpriseView({
                       {enterprisePage < totalEnterprisePages && (
                         <>
                           <button
-                            className="px-3 py-1 text-xs font-bold rounded-lg bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20"
+                            className="px-3 py-1 text-xs font-bold rounded-lg bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                           >
                             {enterprisePage}
                           </button>
@@ -1325,7 +2077,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(totalEnterprisePages)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === totalEnterprisePages 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1348,3 +2100,4 @@ export default function EnterpriseView({
     </div>
   );
 }
+

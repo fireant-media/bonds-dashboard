@@ -1,226 +1,663 @@
+import ChartWithToolbar from './ChartWithToolbar';
 import ReactECharts from 'echarts-for-react';
-import { useState, useEffect } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
+import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
+import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
-interface TopDebtIssuer {
-  issuerName: string;
-  issuerSymbol: string;
-  totalIssuedValue: number;
-  totalRemainingDebt: number;
-  bondCount: number;
+interface ProjectedCashFlowBucket {
+  label: string;
+  interest: number;
+  principal: number;
 }
 
-interface IndustryData {
-  icbName: string;
-  totalCurrentListedValue: number;
-  totalRemainingDebt: number;
-  bondCount: number;
-  totalIssuedVolume: number;
-  totalCurrentListedVolume: number;
+interface TopInterestBond {
+  bondCode: string;
+  bondRate: number;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
-import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
+import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
+import { CHART_PALETTE, applyChartTheme, downloadChartImage, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
+import {
+  MARKET_OVERVIEW_CACHE_KEY,
+  MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY,
+  MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY,
+  MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY,
+  type IndustryData,
+  type TopDebtIssuer,
+} from '../services/marketOverviewData';
+import { loadIssuerStatsSummary } from '../services/industryBondData';
+import {
+  useMarketOverviewIndustryDataQuery,
+  useMarketOverviewIssuerStatsQuery,
+  useMarketOverviewTopInterestQuery,
+} from '../query/dashboardQueries';
+import { useVisibleOnce } from '../hooks/useVisibleOnce';
 
 export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
-  const cachedData = getCache('market_overview');
-  const [topDebtData, setTopDebtData] = useState<TopDebtIssuer[]>(cachedData?.topDebtData || []);
-  const [topInterestData, setTopInterestData] = useState<any[]>(cachedData?.topInterestData || []);
-  const [industryData, setIndustryData] = useState<IndustryData[]>(cachedData?.industryData || []);
-  const [loading, setLoading] = useState(!cachedData);
-  const [error, setError] = useState<string | null>(null);
+  const chartTheme = getChartTheme(isDark);
+  const cachedData = getCache(MARKET_OVERVIEW_CACHE_KEY) || getCache('market_overview');
+  const cachedIssuerStats = getCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY) || getCache('top_debt_200');
+  const cachedIndustryData = getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY);
+  const cachedTopInterestData = getCache('market_top_interest_bonds') || getCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY);
+  const cachedProjectedCashFlows = getCache('market_projected_cash_flows') || {};
+  const issuerStatsQuery = useMarketOverviewIssuerStatsQuery();
+  const topInterestQuery = useMarketOverviewTopInterestQuery();
+  const industryDataQuery = useMarketOverviewIndustryDataQuery();
+  const hasSeedData = Boolean(
+    (Array.isArray(cachedIssuerStats) && cachedIssuerStats.length > 0)
+    || (Array.isArray(cachedIndustryData) && cachedIndustryData.length > 0)
+    || (Array.isArray(cachedTopInterestData) && cachedTopInterestData.length > 0)
+    || cachedData
+  );
+  const [issuerStatsData, setIssuerStatsData] = useState<TopDebtIssuer[]>(
+    (Array.isArray(cachedIssuerStats) ? cachedIssuerStats : cachedData?.issuerStatsData || cachedData?.topDebtData || [])
+  );
+  const [topInterestData, setTopInterestData] = useState<any[]>(
+    (Array.isArray(cachedTopInterestData) ? cachedTopInterestData : cachedData?.topInterestData || [])
+  );
+  const [topInterestMetric, setTopInterestMetric] = useState<'highest' | 'lowest'>('highest');
+  const [loadingTopInterestChart, setLoadingTopInterestChart] = useState(false);
+  const [industryData, setIndustryData] = useState<IndustryData[]>(
+    (Array.isArray(cachedIndustryData) ? cachedIndustryData : cachedData?.industryData || [])
+  );
+  const [topIssuerMetric, setTopIssuerMetric] = useState<'remainingDebt' | 'issuedValue'>('remainingDebt');
+  const [loadingTopIssuerChart, setLoadingTopIssuerChart] = useState(false);
+  const [showTopIssuerDataView, setShowTopIssuerDataView] = useState(false);
+  const [showTopIssuerDataViewBackButton, setShowTopIssuerDataViewBackButton] = useState(false);
+  const [showTopIssuerZoom, setShowTopIssuerZoom] = useState(false);
+  const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
+  const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(cachedProjectedCashFlows);
+  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
+  const topIssuerChartRef = useRef<any>(null);
+  const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
 
   // Common styles for consistency
   const chartColors = {
-    primary: isDark ? '#5c6bc0' : '#3634B3',
-    secondary: isDark ? '#ff8a65' : '#ff7043',
+    primary: CHART_PALETTE[0],
+    secondary: CHART_PALETTE[2],
   };
 
   const legendStyle = {
     fontSize: 12,
-    color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    color: chartTheme.subText,
+    fontFamily: 'Manrope',
   };
 
   const categoryLabelStyle = {
     fontSize: 12,
-    color: isDark ? '#e5e7eb' : '#333',
+    color: chartTheme.subText,
     fontWeight: 'bold' as const,
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const valueLabelStyle = {
     fontSize: 12,
-    color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    color: chartTheme.subText,
+    fontFamily: 'Manrope',
+  };
+
+  const chartTitleStyle = {
+    fontSize: 10,
+    color: chartTheme.text,
+    fontWeight: 'bold' as const,
+    fontFamily: 'Manrope',
+  };
+
+  const tooltipTextStyle = getChartTooltip(isDark).textStyle;
+  const chartTooltip = getChartTooltip(isDark);
+  const chartPalette = CHART_PALETTE;
+  const bondVolumeUnitLabel = t('unitMillionShares');
+
+  const toNumber = (value: unknown) => {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : 0;
+  };
+
+  const toBillionVnd = (value: unknown) => {
+    const numberValue = toNumber(value);
+    if (!numberValue) return 0;
+    return Math.abs(numberValue) > 1000000 ? numberValue / 1000000000 : numberValue;
+  };
+
+  const serializeIssuerSummary = (issuer: TopDebtIssuer) => ([
+    issuer.issuerSymbol || '',
+    issuer.issuerName || '',
+    toNumber(issuer.totalIssuedVolume),
+    toNumber(issuer.totalIssuedValue),
+    toNumber(issuer.totalRemainingDebt),
+    toNumber(issuer.bondCount),
+  ].join(':'));
+
+  const serializeTopInterestBond = (bond: any) => ([
+    String(bond?.bondCode || bond?.code || ''),
+    toNumber(bond?.bondRate),
+  ].join(':'));
+
+  const serializeIndustrySummary = (industry: IndustryData) => ([
+    industry.icbCode || '',
+    industry.icbName || '',
+    toNumber(industry.totalIssuedValue),
+    toNumber(industry.totalCurrentListedValue),
+    toNumber(industry.totalRemainingDebt),
+    toNumber(industry.bondCount),
+    toNumber(industry.totalIssuedVolume),
+    toNumber(industry.totalCurrentListedVolume),
+  ].join(':'));
+
+  const getOverviewStateSignature = (
+    issuers: TopDebtIssuer[],
+    topInterest: any[],
+    industries: IndustryData[],
+  ) => ([
+    issuers.map(serializeIssuerSummary).join('|'),
+    topInterest.map(serializeTopInterestBond).join('|'),
+    industries.map(serializeIndustrySummary).join('|'),
+  ].join('||'));
+
+  const getOverviewPayloadSections = (payload: any) => {
+    const issuers = Array.isArray(payload?.issuerStatsData) ? payload.issuerStatsData : [];
+    const refreshedTopInterest = getCache('market_top_interest_bonds');
+    const topInterest = Array.isArray(refreshedTopInterest)
+      ? refreshedTopInterest
+      : Array.isArray(payload?.topInterestData)
+        ? payload.topInterestData
+        : [];
+    const industries = Array.isArray(payload?.industryData) ? payload.industryData : [];
+
+    return { issuers, topInterest, industries };
+  };
+
+  const getTopIssuerDisplayName = (issuer: TopDebtIssuer) => {
+    return t(issuer.issuerName as any, issuer.issuerSymbol);
+  };
+
+  const getTopIssuerChartData = (source: TopDebtIssuer[], metric: 'remainingDebt' | 'issuedValue') => {
+    const sorted = [...source].sort((a, b) => {
+      if (metric === 'issuedValue') return b.totalIssuedValue - a.totalIssuedValue;
+      return b.totalRemainingDebt - a.totalRemainingDebt;
+    });
+
+    return sorted.slice(0, 10);
+  };
+
+  const getTopInterestChartData = (source: TopInterestBond[], metric: 'highest' | 'lowest') => {
+    const sorted = [...source].sort((a, b) => {
+      return metric === 'highest' ? b.bondRate - a.bondRate : a.bondRate - b.bondRate;
+    });
+
+    return sorted.slice(0, 10);
+  };
+
+  const topIssuerMetricTitle = topIssuerMetric === 'remainingDebt'
+    ? (language === 'vi'
+      ? 'Top 10 doanh nghiệp có dư nợ trái phiếu lớn nhất'
+      : 'Top 10 enterprises with the highest bond debt')
+    : (language === 'vi'
+      ? 'Top 10 doanh nghiệp có giá trị phát hành lớn nhất'
+      : 'Top 10 enterprises with the highest issued value');
+
+  const topInterestChartTitle = topInterestMetric === 'highest'
+    ? (language === 'vi'
+      ? 'Top 10 mã trái phiếu lãi suất cao nhất'
+      : 'Top 10 bond codes with the highest interest rates')
+    : (language === 'vi'
+      ? 'Top 10 mã trái phiếu lãi suất thấp nhất'
+      : 'Top 10 bond codes with the lowest interest rates');
+
+  const getDateKey = (dateString: string, period: 'month' | 'year') => {
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const sortKey = `${year}-${String(month).padStart(2, '0')}`;
+
+    return {
+      sortKey,
+      bucketKey: period === 'month' ? sortKey : String(year),
+      label: period === 'month' ? `T${month}/${year}` : String(year)
+    };
+  };
+
+  const deferredIssuerStatsData = useDeferredValue(issuerStatsData);
+  const deferredTopInterestData = useDeferredValue(topInterestData);
+  const deferredIndustryData = useDeferredValue(industryData);
+
+  const marketKpis = useMemo(() => {
+    return deferredIndustryData.reduce(
+      (totals, industry) => ({
+        bondCount: totals.bondCount + toNumber(industry.bondCount),
+        issuedVolume: totals.issuedVolume + toNumber(industry.totalIssuedVolume),
+        issuedValue: totals.issuedValue + toNumber(industry.totalIssuedValue),
+        remainingDebt: totals.remainingDebt + toNumber(industry.totalRemainingDebt),
+      }),
+      {
+        bondCount: 0,
+        issuedVolume: 0,
+        issuedValue: 0,
+        remainingDebt: 0,
+      }
+    );
+  }, [deferredIndustryData]);
+
+  const kpiCards = [
+    {
+      label: t('totalBondCodes'),
+      value: formatNumber(marketKpis.bondCount, 0),
+      unit: t('bondCodeUnit')
+    },
+    {
+      label: t('totalIssuedVolume'),
+      value: formatNumber(marketKpis.issuedVolume / 1_000_000, 2),
+      unit: t('unitMillionShares')
+    },
+    {
+      label: t('totalIssuedValueTitle'),
+      value: formatNumber(marketKpis.issuedValue / 1000000000, 2),
+      unit: t('unitBillionVND')
+    },
+    {
+      label: t('totalRemainingDebt'),
+      value: formatNumber(marketKpis.remainingDebt / 1000000000, 2),
+      unit: t('unitBillionVND')
+    }
+  ];
+
+  useEffect(() => {
+    const nextIssuers = Array.isArray(issuerStatsQuery.data) ? issuerStatsQuery.data : [];
+    if (nextIssuers.length === 0) return;
+
+    setIssuerStatsData((previous) => {
+      const previousSignature = previous.map(serializeIssuerSummary).join('|');
+      const nextSignature = nextIssuers.map(serializeIssuerSummary).join('|');
+      return previousSignature === nextSignature ? previous : nextIssuers;
+    });
+    setCache('top_debt_200', nextIssuers);
+    setCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY, nextIssuers);
+  }, [issuerStatsQuery.data]);
+
+  useEffect(() => {
+    const nextTopInterest = Array.isArray(topInterestQuery.data) ? topInterestQuery.data : [];
+    if (nextTopInterest.length === 0) return;
+
+    setTopInterestData((previous) => {
+      const previousSignature = previous.map(serializeTopInterestBond).join('|');
+      const nextSignature = nextTopInterest.map(serializeTopInterestBond).join('|');
+      return previousSignature === nextSignature ? previous : nextTopInterest;
+    });
+    setCache(MARKET_OVERVIEW_TOP_INTEREST_CACHE_KEY, nextTopInterest);
+  }, [topInterestQuery.data]);
+
+  useEffect(() => {
+    const nextIndustryData = Array.isArray(industryDataQuery.data) ? industryDataQuery.data : [];
+    if (nextIndustryData.length === 0) return;
+
+    setIndustryData((previous) => {
+      const previousSignature = previous.map(serializeIndustrySummary).join('|');
+      const nextSignature = nextIndustryData.map(serializeIndustrySummary).join('|');
+      return previousSignature === nextSignature ? previous : nextIndustryData;
+    });
+    setCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY, nextIndustryData);
+  }, [industryDataQuery.data]);
+
+  const refreshTopIssuerChart = async (metric: 'remainingDebt' | 'issuedValue') => {
+    setLoadingTopIssuerChart(true);
+    try {
+      const freshIssuers = await loadIssuerStatsSummary(200);
+      if (Array.isArray(freshIssuers)) {
+        setIssuerStatsData(freshIssuers);
+        setCache('top_debt_200', freshIssuers);
+        setCache(MARKET_OVERVIEW_ISSUER_STATS_CACHE_KEY, freshIssuers);
+      }
+    } catch (error) {
+      console.error('Top issuer chart refresh error', error);
+    } finally {
+      setLoadingTopIssuerChart(false);
+    }
+  };
+
+  const refreshTopInterestChart = async (metric: 'highest' | 'lowest') => {
+    const cachedInterest = getCache('market_top_interest_bonds');
+    const baseFromCache = Array.isArray(cachedInterest) ? cachedInterest : [];
+    setLoadingTopInterestChart(true);
+    try {
+      const sourceIssuers = issuerStatsData.length > 0 ? issuerStatsData : (cachedIssuerStats || cachedData?.issuerStatsData || []);
+      const issuerSymbols: string[] = Array.from(
+        new Set(
+          sourceIssuers
+            .map((issuer) => issuer.issuerSymbol)
+            .filter((symbol): symbol is string => Boolean(symbol))
+        )
+      );
+      const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
+        const bonds = await loadIssuerBondsByFilter(symbol);
+        return Array.isArray(bonds) ? bonds : [];
+      });
+
+      const allBonds = getFulfilledValues(issuerBondResults)
+        .flat()
+        .reduce<TopInterestBond[]>((items, bond: any) => {
+          const bondCode = String(bond.bondCode || bond.code || '').trim();
+          const bondRate = Number(bond.bondRate || 0);
+          if (bondCode && Number.isFinite(bondRate)) {
+            items.push({ bondCode, bondRate });
+          }
+          return items;
+        }, []);
+
+      const uniqueBonds = Array.from(new Map(allBonds.map((bond) => [bond.bondCode, bond])).values());
+      setTopInterestData(uniqueBonds);
+      setCache('market_top_interest_bonds', uniqueBonds);
+    } catch (error) {
+      console.error('Top interest chart refresh error', error);
+    } finally {
+      setLoadingTopInterestChart(false);
+    }
   };
 
   useEffect(() => {
+    if (!projectedCashFlowSectionVisible && Object.keys(projectedCashFlowBuckets).length === 0) return;
+    if (!issuerStatsData.length) return;
+
     let isMounted = true;
-    const fetchData = async () => {
-      if (!cachedData) {
-        setLoading(true);
+
+    const fetchProjectedCashFlows = async () => {
+      const cached = getCache('market_projected_cash_flows');
+      if (cached && Object.keys(cached).length > 0) {
+        setProjectedCashFlowBuckets(cached);
+        return;
       }
-      setError(null);
+
+      setLoadingCashFlows(true);
+
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        const headers: any = {
-          'Accept': 'application/json'
-        };
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
+        const issuerSymbols = Array.from(new Set(issuerStatsData.map(issuer => issuer.issuerSymbol).filter(Boolean)));
+        const bondsByCode = new Map<string, any>();
 
-        let currentDebt = topDebtData;
-        let currentInterest = topInterestData;
-        let currentIndustry = industryData;
-
-        // Use Promise.all to fetch but handle results individually as they resolve
-        const fetchTopDebt = async () => {
-          try {
-            const res = await fetch('/api/fireant/bonds/stats/issuers/top-debt?top=10', { headers });
-            if (res.ok) {
-              const data = await res.json();
-              if (isMounted && Array.isArray(data)) {
-                setTopDebtData(data);
-                currentDebt = data;
-              }
-            } else if (res.status === 401) throw new Error('401');
-          } catch (e) { console.error('Debt fetch error', e); }
-        };
-
-        const fetchHighYield = async () => {
-          try {
-            const res = await fetch('/api/fireant/bonds/stats/bonds/high-yield?top=10', { headers });
-            if (res.ok) {
-              const data = await res.json();
-              if (isMounted && Array.isArray(data)) {
-                setTopInterestData(data);
-                currentInterest = data;
-              }
-            } else if (res.status === 401) throw new Error('401');
-          } catch (e) { console.error('Interest fetch error', e); }
-        };
-
-        const fetchIndustries = async () => {
-          try {
-            const res = await fetch('/api/fireant/bonds/stats/industries?top=100&level=1', { headers });
-            if (res.ok) {
-              const data = await res.json();
-              if (isMounted && Array.isArray(data)) {
-                setIndustryData(data);
-                currentIndustry = data;
-              }
-            } else if (res.status === 401) throw new Error('401');
-          } catch (e) { console.error('Industry fetch error', e); }
-        };
-
-        await Promise.all([fetchTopDebt(), fetchHighYield(), fetchIndustries()]);
-
+        const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
+          if (!isMounted) return [];
+          const data = await loadIssuerBondsByFilter(symbol);
+          return Array.isArray(data) ? data : [];
+        });
         if (!isMounted) return;
 
-        // Final cache update after all are done
-        setCache('market_overview', {
-          topDebtData: currentDebt,
-          topInterestData: currentInterest,
-          industryData: currentIndustry
+        getFulfilledValues(issuerBondResults).flat().forEach((bond: any) => {
+          const code = bond.bondCode || bond.code;
+          if (code) bondsByCode.set(String(code), bond);
         });
 
-      } catch (error) {
+        const buckets = new Map<string, ProjectedCashFlowBucket>();
+        const ensureBucket = (dateString: string) => {
+          const keyInfo = getDateKey(dateString, 'month');
+          if (!keyInfo) return null;
+
+          if (!buckets.has(keyInfo.bucketKey)) {
+            buckets.set(keyInfo.bucketKey, { label: keyInfo.label, interest: 0, principal: 0 });
+          }
+
+          return buckets.get(keyInfo.bucketKey)!;
+        };
+
+        const addCashFlows = (cashFlows: any[]) => {
+          cashFlows.forEach((cashFlow) => {
+            if (!cashFlow?.paymentDate) return;
+
+            const bucket = ensureBucket(cashFlow.paymentDate);
+            if (!bucket) return;
+
+            bucket.interest += toBillionVnd(cashFlow.interestAmount);
+            bucket.principal += toBillionVnd(cashFlow.principalAmount);
+          });
+        };
+
+        const bonds = Array.from(bondsByCode.values());
+        const cashFlowResults = await mapWithConcurrency(bonds, 10, async (bond) => {
+          const code = bond.bondCode || bond.code;
+          if (!code) return { bond, cashFlows: [] };
+
+          const cacheKey = `bond_cash_flows_${code}`;
+          const cachedCashFlows = getCache(cacheKey);
+          if (Array.isArray(cachedCashFlows)) {
+            return { bond, cashFlows: cachedCashFlows };
+          }
+
+          const detailData = await loadBondDetail(code);
+          if (!detailData) return { bond, cashFlows: [] };
+          const cashFlows = Array.isArray(detailData.cashFlows)
+            ? detailData.cashFlows.map((cashFlow: any) => ({
+                paymentDate: cashFlow.paymentDate,
+                interestAmount: toBillionVnd(cashFlow.interestAmount),
+                principalAmount: toBillionVnd(cashFlow.principalAmount),
+                totalCashflow: toBillionVnd(cashFlow.totalCashflow),
+                bondRate: cashFlow.bondRate || 0
+              }))
+            : [];
+
+          setCache(cacheKey, cashFlows);
+          return { bond, cashFlows };
+        });
         if (!isMounted) return;
-        console.error('Error fetching market data:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
-        }
+
+        getFulfilledValues(cashFlowResults).forEach(({ bond, cashFlows }) => {
+          if (cashFlows.length > 0) {
+            addCashFlows(cashFlows);
+            return;
+          }
+
+          const fallbackDate = bond.maturityDate || bond.paymentDate;
+          const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
+          if (!fallbackDate || !fallbackPrincipal) return;
+
+          const bucket = ensureBucket(fallbackDate);
+          if (bucket) bucket.principal += toBillionVnd(fallbackPrincipal);
+        });
+
+        if (!isMounted) return;
+
+        const finalBuckets = Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)));
+        setProjectedCashFlowBuckets(finalBuckets);
+        setCache('market_projected_cash_flows', finalBuckets);
+      } catch (error) {
+        console.error('Projected cash flow fetch error', error);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) setLoadingCashFlows(false);
       }
     };
 
-    fetchData();
-    return () => { isMounted = false; };
-  }, []);
+    void fetchProjectedCashFlows();
 
-  const topDebtOptions = {
-    tooltip: { 
-      trigger: 'axis', 
-      axisPointer: { type: 'shadow' },
-      formatter: (params: any) => {
-        const symbol = params[0].name;
-        const issuer = topDebtData.find(d => d.issuerSymbol === symbol);
-        let relVal = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
-        for (let i = 0; i < params.length; i++) {
-          relVal += `<br/>${params[i].marker}${params[i].seriesName}: ${formatNumber(params[i].value, 0)} ${t('unitBillionVND')}`;
+    return () => { isMounted = false; };
+  }, [issuerStatsData, projectedCashFlowBuckets, projectedCashFlowSectionVisible]);
+
+  const projectedCashFlowData = useMemo(() => {
+    const buckets = new Map<string, ProjectedCashFlowBucket>();
+
+    Object.entries(projectedCashFlowBuckets).forEach(([key, value]) => {
+      const keyInfo = getDateKey(`${key}-01`, cashFlowPeriod);
+      if (!keyInfo) return;
+
+      if (!buckets.has(keyInfo.bucketKey)) {
+        buckets.set(keyInfo.bucketKey, { label: keyInfo.label, interest: 0, principal: 0 });
+      }
+
+      const bucket = buckets.get(keyInfo.bucketKey)!;
+      bucket.interest += value.interest || 0;
+      bucket.principal += value.principal || 0;
+    });
+
+    const sortedEntries = Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const labels = sortedEntries.map(([, value]) => value.label);
+    const interest = sortedEntries.map(([, value]) => value.interest);
+    const principal = sortedEntries.map(([, value]) => value.principal);
+    const total = sortedEntries.map(([, value]) => value.interest + value.principal);
+
+    return { labels, interest, principal, total };
+  }, [projectedCashFlowBuckets, cashFlowPeriod]);
+
+  const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
+  const projectedCashFlowTitle = language === 'vi'
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
+    : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+
+  const topDebtData = useMemo(
+    () => getTopIssuerChartData(deferredIssuerStatsData, 'remainingDebt'),
+    [deferredIssuerStatsData]
+  );
+
+  const topIssuerDisplayData = useMemo(
+    () => getTopIssuerChartData(deferredIssuerStatsData, topIssuerMetric),
+    [deferredIssuerStatsData, topIssuerMetric]
+  );
+
+  const topInterestChartData = useMemo(
+    () => getTopInterestChartData(deferredTopInterestData as TopInterestBond[], topInterestMetric),
+    [deferredTopInterestData, topInterestMetric]
+  );
+
+  const topIssuerDataViewRows = useMemo(() => {
+    return topIssuerDisplayData.map((issuer) => ([
+      issuer.issuerSymbol || '',
+      formatNumber(issuer.totalRemainingDebt / 1000000000, 0),
+      formatNumber(issuer.totalIssuedValue / 1000000000, 0),
+    ]));
+  }, [topIssuerDisplayData]);
+  const debtLotsDataViewRows = useMemo(() => {
+    return topDebtData.map((issuer) => ([
+      issuer.issuerSymbol || '',
+      issuer.totalRemainingDebt / 1000000000,
+      issuer.bondCount,
+    ]));
+  }, [topDebtData]);
+
+  const topIssuerDataViewColumns: ChartDataTableColumn[] = useMemo(() => ([
+    { label: t('ticker'), align: 'center', kind: 'text' },
+    { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+    { label: t('totalIssuedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+  ]), [t]);
+
+  const topIssuerOptions = useMemo(() => {
+    const labels = topIssuerDisplayData.length > 0
+      ? topIssuerDisplayData.map((d) => d.issuerSymbol || getTopIssuerDisplayName(d))
+      : [];
+    const remainingDebtData = topIssuerDisplayData.length > 0
+      ? topIssuerDisplayData.map((d) => Math.round(d.totalRemainingDebt / 1000000000))
+      : [];
+    const issuedValueData = topIssuerDisplayData.length > 0
+      ? topIssuerDisplayData.map((d) => Math.round(d.totalIssuedValue / 1000000000))
+      : [];
+
+    return {
+      color: chartPalette,
+      tooltip: {
+        ...chartTooltip,
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        confine: true,
+        textStyle: tooltipTextStyle,
+        formatter: (params: any) => {
+          const index = params?.[0]?.dataIndex ?? 0;
+          const issuer = topIssuerDisplayData[index];
+          const symbol = issuer?.issuerSymbol || params?.[0]?.name || '';
+          const issuerLabel = issuer ? getTopIssuerDisplayName(issuer) : symbol;
+          let content = `${issuerLabel} (${symbol})`;
+          params.forEach((param: any) => {
+            const unit = param.seriesName === t('bondLotsTitle') ? '' : ` ${t('unitBillionVND')}`;
+            content += `<br/>${param.marker}${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value, 0), unit)}`;
+          });
+          return content;
         }
-        return relVal;
-      }
-    },
-    legend: { bottom: 5, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', top: '5%', bottom: '8%', containLabel: true },
-    xAxis: { 
-      type: 'value', 
-      splitLine: { show: false },
-      axisLabel: { 
-        ...valueLabelStyle,
-        formatter: (value: number) => formatNumber(value, 0)
-      } 
-    },
-    yAxis: { 
-      type: 'category',
-      data: topDebtData.length > 0 
-        ? [...topDebtData].reverse().map(d => d.issuerSymbol) 
-        : [],
-      axisLabel: categoryLabelStyle
-    },
-    series: [
-      {
-        name: t('totalIssuedValueTitle'),
-        type: 'bar',
-        data: topDebtData.length > 0 
-          ? [...topDebtData].reverse().map(d => Math.round(d.totalIssuedValue / 1000000000)) 
-          : [],
-        itemStyle: { color: chartColors.primary, borderRadius: [0, 4, 4, 0] },
-        barWidth: '40%'
       },
-      {
-        name: t('remainingDebtTitle'),
-        type: 'bar',
-        data: topDebtData.length > 0 
-          ? [...topDebtData].reverse().map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
-          : [],
-        itemStyle: { color: chartColors.secondary, borderRadius: [0, 4, 4, 0] },
-        barWidth: '40%'
-      }
-    ]
-  };
+      legend: { bottom: 5, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
+      grid: { left: '6%', right: '14%', top: '4%', bottom: '12%', containLabel: true },
+      xAxis: {
+        type: 'value',
+        splitLine: { show: false },
+        name: t('unitBillionVND'),
+        nameGap: 12,
+        nameTextStyle: chartTitleStyle,
+        axisLabel: {
+          ...valueLabelStyle,
+          margin: 12,
+          formatter: (value: number) => formatNumber(value, 0)
+        }
+      },
+      yAxis: {
+        type: 'category',
+        data: labels,
+        inverse: true,
+        axisLabel: {
+          ...categoryLabelStyle,
+          width: 120,
+          overflow: 'truncate',
+        }
+      },
+      series: [
+        {
+          name: t('remainingDebtTitle'),
+          type: 'bar',
+          data: remainingDebtData,
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '38%',
+          universalTransition: true,
+          animationDurationUpdate: 600,
+          animationEasingUpdate: 'cubicOut'
+        },
+        {
+          name: t('totalIssuedValueTitle'),
+          type: 'bar',
+          data: issuedValueData,
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '38%',
+          universalTransition: true,
+          animationDurationUpdate: 600,
+          animationEasingUpdate: 'cubicOut'
+        }
+      ]
+    };
+  }, [chartPalette, chartTooltip, chartTitleStyle, categoryLabelStyle, topIssuerDisplayData, t, tooltipTextStyle, valueLabelStyle, legendStyle]);
+  const themedTopIssuerOptions = useMemo(
+    () => applyChartTheme(topIssuerOptions, isDark),
+    [topIssuerOptions, isDark]
+  );
 
   const topInterestOptions = {
+    color: chartPalette,
+    __dataView: {
+      categoryLabel: t('bondCode'),
+      categoryAlign: 'center',
+    },
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
-        return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${formatInterestRate(params[0].value)}%`;
+        return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatInterestRate(params[0].value), '%')}`;
       }
     },
-    grid: { left: '5%', right: '8%', top: '10%', bottom: '8%', containLabel: true },
+    grid: { left: '5%', right: '8%', top: '14%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
-      data: topInterestData.length > 0 
-        ? topInterestData.map(d => d.bondCode) 
+      data: topInterestChartData.length > 0 
+        ? topInterestChartData.map(d => d.bondCode) 
         : [], 
       axisLabel: { ...categoryLabelStyle, rotate: 45 } 
     },
     yAxis: { 
       type: 'value', 
       splitLine: { show: false },
+      name: t('unitPercentLabel'),
+      nameGap: 24,
+      nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
         formatter: '{value}'
@@ -229,30 +666,45 @@ export default function MarketOverview() {
     series: [{
       name: t('interestRate'),
       type: 'bar',
-      data: topInterestData.length > 0 
-        ? topInterestData.map(d => d.bondRate) 
+      data: topInterestChartData.length > 0 
+        ? topInterestChartData.map(d => d.bondRate) 
         : [],
-      itemStyle: { color: chartColors.primary, borderRadius: [4, 4, 0, 0] },
+      itemStyle: { borderRadius: [4, 4, 0, 0] },
       barWidth: '50%',
-      barGap: 15
+      barGap: 15,
+      universalTransition: true,
+      animationDurationUpdate: 600,
+      animationEasingUpdate: 'cubicOut'
     }]
   };
 
   const debtLotsOptions = {
+    color: chartPalette,
+    __dataView: {
+      columns: [
+        { label: t('ticker'), align: 'center', kind: 'text' },
+        { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+        { label: t('bondLotsTitle'), unit: t('unitLot'), align: 'right', kind: 'number' },
+      ],
+      rows: debtLotsDataViewRows,
+    },
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         const symbol = params[0].name;
         const issuer = topDebtData.find(d => d.issuerSymbol === symbol);
         let res = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)}${p.seriesName === t('remainingDebtTitle') ? ' ' + t('unitBillionVND') : ''}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), p.seriesName === t('remainingDebtTitle') ? ` ${t('unitBillionVND')}` : '')}`;
         });
         return res;
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', bottom: '8%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '12%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: topDebtData.length > 0 
@@ -263,8 +715,9 @@ export default function MarketOverview() {
     yAxis: [
       { 
         type: 'value', 
-        name: t('unitBillionVND'), 
-        nameTextStyle: { ...valueLabelStyle, align: 'right', padding: [0, 0, 0, 40] },
+        name: t('unitBillionVND'),
+        nameGap: 24,
+        nameTextStyle: chartTitleStyle,
         splitLine: { show: false },
         axisLabel: {
           ...valueLabelStyle,
@@ -288,7 +741,7 @@ export default function MarketOverview() {
         data: topDebtData.length > 0 
           ? topDebtData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
           : [], 
-        itemStyle: { color: chartColors.primary },
+        itemStyle: { },
         barWidth: '60%',
         barGap: 15
       },
@@ -299,7 +752,7 @@ export default function MarketOverview() {
         data: topDebtData.length > 0 
           ? topDebtData.map(d => d.bondCount) 
           : [], 
-        itemStyle: { color: chartColors.secondary },
+        itemStyle: { },
         symbol: 'circle',
         symbolSize: 6
       }
@@ -307,18 +760,26 @@ export default function MarketOverview() {
   };
 
   const industryValueOptions = {
+    color: chartPalette,
+    __dataView: {
+      categoryLabel: t('marketTitle'),
+      categoryAlign: 'left',
+    },
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)} ${t('unitBillionVND')}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), ` ${t('unitBillionVND')}`)}`;
         });
         return res;
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '4%',top: '5%', bottom: '8%', containLabel: true },
+    grid: { left: '3%', right: '4%', top: '12%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: industryData.length > 0 
@@ -329,6 +790,8 @@ export default function MarketOverview() {
     yAxis: { 
       type: 'value', 
       splitLine: { show: false },
+      name: t('unitBillionVND'),
+      nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
         formatter: (value: number) => formatNumber(value, 0)
@@ -336,37 +799,45 @@ export default function MarketOverview() {
     },
     series: [
       { 
+        name: t('totalIssuedValueTitle'), 
+        type: 'bar', 
+        data: industryData.length > 0 
+          ? industryData.map(d => Math.round(d.totalIssuedValue / 1000000000)) 
+          : [], 
+        itemStyle: { } 
+      },
+      { 
         name: t('listedValueTitle'), 
         type: 'bar', 
         data: industryData.length > 0 
           ? industryData.map(d => Math.round(d.totalCurrentListedValue / 1000000000)) 
           : [], 
-        itemStyle: { color: chartColors.primary } 
-      },
-      { 
-        name: t('remainingDebtTitle'), 
-        type: 'bar', 
-        data: industryData.length > 0 
-          ? industryData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
-          : [], 
-        itemStyle: { color: chartColors.secondary } 
+        itemStyle: { } 
       }
     ]
   };
 
   const industryVolumeOptions = {
+    color: chartPalette,
+    __dataView: {
+      categoryLabel: t('marketTitle'),
+      categoryAlign: 'left',
+    },
     tooltip: { 
+      ...chartTooltip,
       trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
       formatter: (params: any) => {
         let res = params[0].name;
         params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${formatNumber(p.value, 0)} ${t('unitThousandShares')}`;
+          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 2), ` ${bondVolumeUnitLabel}`)}`;
         });
         return res;
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', top: '5%', bottom: '8%', containLabel: true },
+    grid: { left: '3%', right: '8%', top: '12%', bottom: '10%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: industryData.length > 0 ? industryData.map(d => t(d.icbName as any)) : [], 
@@ -375,52 +846,203 @@ export default function MarketOverview() {
     yAxis: { 
       type: 'value', 
       splitLine: { show: false },
+      name: bondVolumeUnitLabel,
+      nameGap: 28,
+      nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
-        formatter: (value: number) => formatNumber(value, 0)
+        formatter: (value: number) => formatNumber(value, 2)
       } 
     },
     series: [
+        {
+          name: t('issuedVolumeTitle'),
+          type: 'bar',
+          data: industryData.length > 0 ? industryData.map((d) => d.totalIssuedVolume / 1_000_000) : [],
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '30%'
+        },
+        {
+          name: t('listedVolume'),
+          type: 'bar',
+          data: industryData.length > 0 ? industryData.map((d) => d.totalCurrentListedVolume / 1_000_000) : [],
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          barWidth: '30%'
+        }
+    ]
+  };
+
+  const projectedCashFlowOptions = {
+    color: chartPalette,
+    __dataView: {
+      categoryLabel: t('year'),
+      categoryAlign: 'center',
+    },
+    tooltip: {
+      ...chartTooltip,
+      trigger: 'axis',
+      confine: true,
+      axisPointer: { type: 'line' },
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        const safeParams = Array.isArray(params) ? params : [];
+        const interest = safeParams.find((param: any) => param.seriesName === t('totalInterestPayable'))?.value || 0;
+        const principal = safeParams.find((param: any) => param.seriesName === t('totalPrincipalPayable'))?.value || 0;
+        const total = interest + principal;
+
+        const firstMarker = safeParams[0]?.marker || '';
+        const secondMarker = safeParams[1]?.marker || '';
+        const label = safeParams[0]?.name || '';
+
+        return `${label}<br/>${firstMarker} ${t('totalInterestPayable')}: ${highlightChartTooltipValue(formatNumber(interest, 2), ` ${t('unitBillionVND')}`)}<br/>${secondMarker} ${t('totalPrincipalPayable')}: ${highlightChartTooltipValue(formatNumber(principal, 2), ` ${t('unitBillionVND')}`)}<br/><strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
+      }
+    },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: legendStyle
+    },
+    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%' },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: projectedCashFlowData.labels,
+      axisLabel: {
+        ...categoryLabelStyle,
+        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0,
+        margin: 12
+      }
+    },
+    dataZoom: [
       {
-        name: t('issuedVolumeTitle'),
-        type: 'bar',
-        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalIssuedVolume / 1000)) : [],
-        itemStyle: { color: chartColors.primary, borderRadius: [4, 4, 0, 0] },
-        barWidth: '30%'
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none'
       },
       {
-        name: t('listedVolume'),
-        type: 'bar',
-        data: industryData.length > 0 ? industryData.map(d => Math.round(d.totalCurrentListedVolume / 1000)) : [],
-        itemStyle: { color: chartColors.secondary, borderRadius: [4, 4, 0, 0] },
-        barWidth: '30%'
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 18,
+        bottom: 24,
+        filterMode: 'none',
+        brushSelect: false,
+        textStyle: valueLabelStyle
+      }
+    ],
+    yAxis: {
+      type: 'value',
+      splitLine: { show: false },
+      name: t('unitBillionVND'),
+      nameGap: 12,
+      nameTextStyle: chartTitleStyle,
+      axisLabel: {
+        ...valueLabelStyle,
+        margin: 12,
+        formatter: (value: number) => formatNumber(value, 0)
+      }
+    },
+    series: [
+      {
+        name: t('totalInterestPayable'),
+        type: 'line',
+        stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 0),
+        data: projectedCashFlowData.interest,
+      },
+      {
+        name: t('totalPrincipalPayable'),
+        type: 'line',
+        stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 1),
+        data: projectedCashFlowData.principal,
       }
     ]
   };
 
-  if (loading) {
-    return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3634B3]"></div>
-        <p className="text-gray-500 font-medium">{t('loadingMarketData')}</p>
-      </div>
-    );
-  }
+  const handleTopIssuerDownload = async () => {
+    const instance = topIssuerChartRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    await downloadChartImage(instance, {
+      fileName: 'top-10-issuer-chart.png',
+      title: topIssuerMetricTitle,
+      backgroundColor: chartTheme.bg,
+      textColor: chartTheme.text,
+      titleAlign: 'center',
+    });
+  };
 
-  if (error) {
+  const handleTopIssuerReset = () => {
+    const instance = topIssuerChartRef.current?.getEchartsInstance?.();
+    instance?.restore?.();
+    setTopIssuerMetric('remainingDebt');
+    setShowTopIssuerDataView(false);
+    setShowTopIssuerDataViewBackButton(false);
+    setShowTopIssuerZoom(false);
+  };
+
+  const openTopIssuerDataView = (fromZoom = false) => {
+    setShowTopIssuerDataViewBackButton(fromZoom);
+    setShowTopIssuerDataView(true);
+    if (fromZoom) {
+      setShowTopIssuerZoom(false);
+    }
+  };
+
+  const closeTopIssuerDataView = () => {
+    setShowTopIssuerDataView(false);
+    setShowTopIssuerDataViewBackButton(false);
+  };
+
+  const handleTopIssuerDataViewBack = () => {
+    const shouldRestoreZoom = showTopIssuerDataViewBackButton;
+    closeTopIssuerDataView();
+    if (shouldRestoreZoom) {
+      setShowTopIssuerZoom(true);
+    }
+  };
+
+  const topIssuerToolbarButtonClass = (disabled = false) => (
+    `rounded-md p-1.5 transition-colors ${
+      disabled
+        ? 'cursor-not-allowed text-text-muted/60 opacity-60'
+        : 'text-text-muted hover:bg-surface-container-low hover:text-text-highlight'
+    }`
+  );
+
+  const hoverToolbarClass =
+    'flex flex-wrap items-center justify-end gap-1 text-text-muted opacity-100 pointer-events-auto lg:flex-nowrap lg:opacity-0 lg:pointer-events-none lg:transition-opacity lg:duration-200 lg:ease-out lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto';
+
+  const hasAnyOverviewData = issuerStatsData.length > 0 || topInterestData.length > 0 || industryData.length > 0;
+  const marketOverviewError = !hasAnyOverviewData
+    ? [industryDataQuery.error, issuerStatsQuery.error, topInterestQuery.error].find(Boolean)
+    : null;
+  const errorMessage = marketOverviewError instanceof Error
+    ? (marketOverviewError.message.includes('401') ? t('tokenError401') : marketOverviewError.message)
+    : marketOverviewError
+      ? t('error')
+      : null;
+  const isKpiSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
+  const isTopIssuerSectionLoading = (issuerStatsQuery.isLoading || loadingTopIssuerChart) && topIssuerDisplayData.length === 0;
+  const isTopInterestSectionLoading = (topInterestQuery.isLoading || loadingTopInterestChart) && topInterestChartData.length === 0;
+  const isIndustryChartSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
+  const isProjectedCashFlowPending = !projectedCashFlowSectionVisible && !hasProjectedCashFlowData && Object.keys(projectedCashFlowBuckets).length === 0;
+
+  if (errorMessage && !hasAnyOverviewData) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
-        <div className="bg-red-50 p-4 rounded-full">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
+        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900">{t('failedToLoadData')}</h3>
-        <p className="text-gray-500 max-w-md">{error}</p>
+        <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
+        <p className="text-text-muted max-w-md">{errorMessage}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-colors"
+            className="rounded-lg bg-action-accent px-6 py-2 font-bold text-slate-950 transition-colors hover:opacity-90 cursor-pointer"
           >
             {t('tryAgain')}
           </button>
@@ -430,68 +1052,398 @@ export default function MarketOverview() {
   }
 
   return (
-    <div className="space-y-2 transition-colors duration-300">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-2xl font-bold text-text-base tracking-tight">{t('marketOverview')}</h2>
+    <div className="min-w-0 transition-colors duration-300">
+      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-2">
-        {/* Top 10 Debt - Double Height */}
-        <div 
-          className="col-span-12 lg:col-span-6 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2">
-            <h3 className="text-base font-bold text-text-base text-center">{t('top10Debt')}</h3>
-            <p className="text-[10px] text-text-muted text-right mt-1">{t('unitBillion')}</p>
-          </div>
-          <ReactECharts option={topDebtOptions} style={{ height: '500px' }} />
+      <div className="grid min-w-0 grid-cols-12 gap-3">
+        <div className="col-span-12 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {isKpiSectionLoading
+            ? Array.from({ length: 4 }, (_, index) => <MetricCardSkeleton key={index} />)
+            : kpiCards.map((card) => (
+              <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} />
+            ))}
         </div>
 
-        <div className="col-span-12 lg:col-span-6 space-y-2">
-          {/* Top 10 Interest Rates */}
-          <div 
-            className="bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-          >
-            <div className="mb-2">
-              <h3 className="text-base font-bold text-text-base text-center">{t('top10Interest')}</h3>
-              <p className="text-[10px] text-text-muted text-right mt-1">{t('unitPercent')}</p>
+        {isTopIssuerSectionLoading ? (
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        ) : (
+        <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className={hoverToolbarClass}>
+                <button
+                  type="button"
+                  onClick={() => openTopIssuerDataView(false)}
+                  className={topIssuerToolbarButtonClass()}
+                  title={t('dataView')}
+                  aria-label={t('dataView')}
+                >
+                  <TableProperties className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className={topIssuerToolbarButtonClass()}
+                  title={t('lineChart')}
+                >
+                  <LineChart className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className={topIssuerToolbarButtonClass()}
+                  title={t('columnChart')}
+                >
+                  <BarChart3 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTopIssuerReset}
+                  className={topIssuerToolbarButtonClass()}
+                  title={t('reset')}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTopIssuerDownload}
+                  className={topIssuerToolbarButtonClass()}
+                  title={t('download')}
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTopIssuerZoom(true)}
+                  className={topIssuerToolbarButtonClass()}
+                  title="Zoom"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </button>
             </div>
-            <ReactECharts option={topInterestOptions} style={{ height: '250px' }} />
+            <div className="min-w-0 text-center">
+              <h3 className="text-center text-sm font-bold leading-snug break-words text-text-base md:text-base">{topIssuerMetricTitle}</h3>
+            </div>
+            <div className="flex justify-center md:justify-end">
+              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopIssuerMetric('remainingDebt');
+                    refreshTopIssuerChart('remainingDebt');
+                  }}
+                  disabled={loadingTopIssuerChart && topIssuerMetric === 'remainingDebt'}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                    topIssuerMetric === 'remainingDebt'
+                      ? 'bg-action-accent text-slate-950'
+                      : 'text-text-muted hover:text-text-base'
+                  }`}
+                >
+                  {t('remainingDebtTitle')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopIssuerMetric('issuedValue');
+                    refreshTopIssuerChart('issuedValue');
+                  }}
+                  disabled={loadingTopIssuerChart && topIssuerMetric === 'issuedValue'}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                    topIssuerMetric === 'issuedValue'
+                      ? 'bg-action-accent text-slate-950'
+                      : 'text-text-muted hover:text-text-base'
+                  }`}
+                >
+                  {t('totalIssuedValueTitle')}
+                </button>
+              </div>
+            </div>
           </div>
+          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+            <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
+          </div>
+        </Card>
+        )}
 
-          {/* Debt & Lots Relationship */}
-          <div 
-            className="bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-          >
-            <h3 className="text-base font-bold text-text-base text-center mb-2">{t('debtAndLots')}</h3>
-            <ReactECharts option={debtLotsOptions} style={{ height: '250px' }} />
-          </div>
+        <div className="col-span-12 flex min-h-0 flex-col space-y-3 lg:col-span-6">
+          {isTopInterestSectionLoading ? (
+            <SectionCardSkeleton className="flex-1" />
+          ) : (
+            <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
+              <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+                <ChartWithToolbar
+                  option={topInterestOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  allowMagicType
+                  title={topInterestChartTitle}
+                  actions={(
+                    <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopInterestMetric('highest');
+                          refreshTopInterestChart('highest');
+                        }}
+                        disabled={loadingTopInterestChart && topInterestMetric === 'highest'}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          topInterestMetric === 'highest'
+                            ? 'bg-action-accent text-slate-950'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {t('highest')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopInterestMetric('lowest');
+                          refreshTopInterestChart('lowest');
+                        }}
+                        disabled={loadingTopInterestChart && topInterestMetric === 'lowest'}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          topInterestMetric === 'lowest'
+                            ? 'bg-action-accent text-slate-950'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {t('lowest')}
+                      </button>
+                    </div>
+                  )}
+                />
+              </div>
+            </Card>
+          )}
+
+          <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+              <ChartWithToolbar
+                option={debtLotsOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={t('debtAndLots')}
+              />
+            </div>
+          </Card>
         </div>
 
-        {/* Industry Value - Full Width */}
-        <div 
-          className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2">
-            <h3 className="text-base font-bold text-text-base text-center">{t('valueByIndustry')}</h3>
-            <p className="text-[10px] text-text-muted text-right mt-1">{t('unitBillion')}</p>
-          </div>
-          <ReactECharts option={industryValueOptions} style={{ height: '350px' }} />
-        </div>
+        {isIndustryChartSectionLoading ? (
+          <SectionCardSkeleton className="col-span-12" />
+        ) : (
+          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+              <ChartWithToolbar
+                option={industryValueOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={t('valueByIndustry')}
+              />
+            </div>
+          </Card>
+        )}
 
-        {/* Industry Volume - Full Width */}
-        <div 
-          className="col-span-12 bg-bg-surface p-2 rounded-2xl border border-border-base shadow-sm"
-        >
-          <div className="mb-2">
-            <h3 className="text-base font-bold text-text-base text-center">{t('volumeByIndustry')}</h3>
-            <p className="text-[10px] text-text-muted text-right mt-1">{t('unitThousand')}</p>
-          </div>
-          <ReactECharts option={industryVolumeOptions} style={{ height: '350px' }} />
+        {isIndustryChartSectionLoading ? (
+          <SectionCardSkeleton className="col-span-12" />
+        ) : (
+          <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
+            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+              <ChartWithToolbar
+                option={industryVolumeOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={t('volumeByIndustry')}
+              />
+            </div>
+          </Card>
+        )}
+
+        <div ref={projectedCashFlowSectionRef} className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+          {isProjectedCashFlowPending ? (
+            <div className="min-h-80">
+              <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
+            </div>
+          ) : (
+            <div className="h-80 overflow-hidden md:h-96">
+              <ChartWithToolbar
+                option={projectedCashFlowOptions}
+                style={{ height: '360px', width: '100%' }}
+                allowMagicType
+                title={projectedCashFlowTitle}
+                showDataZoomSliderOnHover
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                    chartStyle: { height: '100%', width: '100%' },
+                    option: {
+                      grid: { bottom: '22%' },
+                      legend: {
+                        bottom: 8,
+                      },
+                      dataZoom: [
+                      {
+                        type: 'inside',
+                        xAxisIndex: 0,
+                        filterMode: 'none',
+                      },
+                        {
+                          type: 'slider',
+                          xAxisIndex: 0,
+                          height: 18,
+                          bottom: 44,
+                          filterMode: 'none',
+                          brushSelect: false,
+                          textStyle: valueLabelStyle,
+                      },
+                    ],
+                  },
+                }}
+                actions={(
+                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                    {(['month', 'year'] as const).map((period) => (
+                      <button
+                        key={period}
+                        type="button"
+                        onClick={() => setCashFlowPeriod(period)}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          cashFlowPeriod === period
+                            ? 'bg-action-accent text-slate-950'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {period === 'month' ? t('month') : t('year')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              />
+            </div>
+          )}
         </div>
       </div>
+
+      <ChartDataViewModal
+        isOpen={showTopIssuerDataView}
+        title={topIssuerMetricTitle}
+        columns={topIssuerDataViewColumns}
+        rows={topIssuerDataViewRows}
+        onClose={closeTopIssuerDataView}
+        onBack={handleTopIssuerDataViewBack}
+        showBackButton={showTopIssuerDataViewBackButton}
+        fileNameBase={`top-issuer-${topIssuerMetric}`}
+        sheetName={topIssuerMetricTitle}
+      />
+
+      {showTopIssuerZoom && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          onClick={() => setShowTopIssuerZoom(false)}
+        >
+          <div
+            className="group flex h-full max-h-screen w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className={hoverToolbarClass}>
+                  <button
+                    type="button"
+                    onClick={() => openTopIssuerDataView(true)}
+                    className={topIssuerToolbarButtonClass()}
+                    title={t('dataView')}
+                    aria-label={t('dataView')}
+                  >
+                    <TableProperties className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className={topIssuerToolbarButtonClass(true)}
+                    title={t('lineChart')}
+                  >
+                    <LineChart className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className={topIssuerToolbarButtonClass(true)}
+                    title={t('columnChart')}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTopIssuerReset}
+                    className={topIssuerToolbarButtonClass()}
+                    title={t('reset')}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTopIssuerDownload}
+                    className={topIssuerToolbarButtonClass()}
+                    title={t('download')}
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="min-w-0 pt-3 text-center">
+                  <h3 className="line-clamp-2 text-base font-bold leading-snug text-text-base md:text-2xl">
+                    {topIssuerMetricTitle}
+                  </h3>
+                </div>
+                <div className="mt-2 flex justify-end text-right">
+                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTopIssuerMetric('remainingDebt');
+                        refreshTopIssuerChart('remainingDebt');
+                      }}
+                      disabled={loadingTopIssuerChart && topIssuerMetric === 'remainingDebt'}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                        topIssuerMetric === 'remainingDebt'
+                          ? 'bg-action-accent text-slate-950'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {t('remainingDebtTitle')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTopIssuerMetric('issuedValue');
+                        refreshTopIssuerChart('issuedValue');
+                      }}
+                      disabled={loadingTopIssuerChart && topIssuerMetric === 'issuedValue'}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                        topIssuerMetric === 'issuedValue'
+                          ? 'bg-action-accent text-slate-950'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {t('totalIssuedValueTitle')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTopIssuerZoom(false)}
+                className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-container-low hover:text-text-highlight"
+                title={t('close')}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
+              <ReactECharts option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
