@@ -3,8 +3,8 @@ import { QueryClient, dehydrate, hydrate, type DehydratedState } from '@tanstack
 const DASHBOARD_STALE_TIME = 15 * 60 * 1000;
 const DASHBOARD_GC_TIME = 60 * 60 * 1000;
 
-const QUERY_PERSIST_KEY = 'dashboard_query_cache_v2';
-const QUERY_PERSIST_TS_KEY = 'dashboard_query_cache_ts_v2';
+const QUERY_PERSIST_KEY = 'dashboard_query_cache_v3';
+const QUERY_PERSIST_TS_KEY = 'dashboard_query_cache_ts_v3';
 const QUERY_PERSIST_MAX_AGE = 24 * 60 * 60 * 1000;
 
 const PERSISTABLE_ROOT_KEYS = new Set(['dashboard', 'bond', 'news', 'watchlist']);

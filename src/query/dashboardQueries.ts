@@ -82,12 +82,11 @@ export const useIndustryDashboardQuery = (industryId: string) =>
   useQuery({
     queryKey: dashboardQueryKeys.industryDashboard(industryId),
     queryFn: () => loadIndustryDashboardData(industryId),
-    placeholderData: (previous) => previous,
     initialData: (() => {
-      const groupData = getCache(`industry_bond_group_v10_${industryId}`);
+      const groupData = getCache(`industry_bond_group_v11_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(groupData)) return groupData;
 
-      const baseData = getCache(`industry_bond_base_v9_${industryId}`);
+      const baseData = getCache(`industry_bond_base_v10_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(baseData)) return baseData;
 
       return undefined;
@@ -98,12 +97,11 @@ export const useIndustryBaseDashboardQuery = (industryId: string) =>
   useQuery({
     queryKey: dashboardQueryKeys.industryDashboardBase(industryId),
     queryFn: () => loadIndustryBaseBondGroupData(industryId),
-    placeholderData: (previous) => previous,
     initialData: (() => {
-      const baseData = getCache(`industry_bond_base_v9_${industryId}`);
+      const baseData = getCache(`industry_bond_base_v10_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(baseData)) return baseData;
 
-      const groupData = getCache(`industry_bond_group_v10_${industryId}`);
+      const groupData = getCache(`industry_bond_group_v11_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(groupData)) return groupData;
 
       return undefined;
@@ -115,9 +113,8 @@ export const useIndustryFullDashboardQuery = (industryId: string, enabled = true
     queryKey: dashboardQueryKeys.industryDashboardFull(industryId),
     queryFn: () => loadIndustryBondGroupData(industryId),
     enabled,
-    placeholderData: (previous) => previous,
     initialData: (() => {
-      const groupData = getCache(`industry_bond_group_v10_${industryId}`);
+      const groupData = getCache(`industry_bond_group_v11_${industryId}`);
       if (hasMeaningfulIndustryDashboardData(groupData)) return groupData;
       return undefined;
     })(),
@@ -134,7 +131,7 @@ export const useIndustrySymbolsQuery = () =>
   useQuery({
     queryKey: dashboardQueryKeys.industrySymbols(),
     queryFn: () => loadDedupedIndustrySymbols(),
-    initialData: getCache('icb_symbol_groups_v1') || undefined,
+    initialData: getCache('icb_symbol_groups_v2') || undefined,
   });
 
 export const useBondDetailQuery = (code?: string | null, enabled = true) =>

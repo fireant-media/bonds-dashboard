@@ -91,12 +91,12 @@ type ProcedureResult<T> =
       [key: string]: unknown;
     };
 
-const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v1';
+const SYMBOL_GROUP_CACHE_KEY = 'icb_symbol_groups_v2';
 const INDUSTRY_BOND_ROWS_CACHE_PREFIX = 'industry_bond_rows_v6_';
-const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v9_';
-const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v10_';
+const INDUSTRY_BOND_BASE_CACHE_PREFIX = 'industry_bond_base_v10_';
+const INDUSTRY_BOND_GROUP_CACHE_PREFIX = 'industry_bond_group_v11_';
 const INDUSTRY_BOND_LOOKUP_CACHE_PREFIX = 'industry_bond_lookup_v1_';
-const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v5_';
+const INDUSTRY_STATS_CACHE_PREFIX = 'industry_stats_api_v6_';
 const INDUSTRY_STATS_ROWS_CACHE_PREFIX = 'industry_stats_rows_v2_';
 const ISSUER_STATS_CACHE_PREFIX = 'issuer_stats_api_v1_';
 let symbolGroupsPromise: Promise<Record<string, string[]>> | null = null;
@@ -120,12 +120,32 @@ const toBillionVnd = (value: unknown) => {
 };
 
 const normalizeCode = (value: unknown) => String(value ?? '').trim();
+const normalizeSymbol = (value: unknown) => normalizeCode(value).toUpperCase();
 
 const firstDefined = (...values: unknown[]) => {
   for (const value of values) {
     if (value !== undefined && value !== null && String(value).trim() !== '') return value;
   }
   return undefined;
+};
+
+const getIcbSymbolValue = (row: any) => {
+  if (typeof row === 'string' || typeof row === 'number') return normalizeSymbol(row);
+
+  return normalizeSymbol(firstDefined(
+    row?.symbol,
+    row?.ticker,
+    row?.code,
+    row?.stockSymbol,
+    row?.securityCode,
+    row?.organCode,
+    row?.Symbol,
+    row?.Ticker,
+    row?.Code,
+    row?.StockSymbol,
+    row?.SecurityCode,
+    row?.OrganCode,
+  ));
 };
 
 const hasMeaningfulIndustryBondGroupData = (value: unknown) => {
@@ -193,7 +213,6 @@ const findIndustryStatsRow = (rows: IndustryStats[], industry: IndustryNavItem) 
 
   return rows.find((row) => candidates.has(normalizeCode(row.icbCode)))
     || rows.find((row) => normalizeCode(row.icbName).toLowerCase() === normalizeCode(industry.id).toLowerCase())
-    || rows[0]
     || normalizeIndustryStat({});
 };
 
@@ -352,7 +371,7 @@ const extractRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => 
 
 const normalizeIssuerStats = (issuer: any): IssuerStatsSummary => ({
   issuerName: String(issuer?.issuerName || issuer?.name || issuer?.issuerSymbol || ''),
-  issuerSymbol: String(issuer?.issuerSymbol || issuer?.symbol || ''),
+  issuerSymbol: normalizeSymbol(issuer?.issuerSymbol || issuer?.symbol || issuer?.Symbol),
   issuerInstitutionID: issuer?.issuerInstitutionID !== undefined ? Number(issuer.issuerInstitutionID) : undefined,
   industryId: normalizeCode(firstDefined(issuer?.industryId, issuer?.industryID, issuer?.industry, issuer?.Industry, issuer?.industryCode)),
   industryName: normalizeCode(firstDefined(issuer?.industryName, issuer?.IndustryName, issuer?.icbNameLv1, issuer?.ICBNameLv1, issuer?.icbNameLv2, issuer?.ICBNameLv2, issuer?.icbNameLv3, issuer?.ICBNameLv3, issuer?.icbNameLv4, issuer?.ICBNameLv4)),
@@ -378,15 +397,6 @@ const normalizeIssuerStats = (issuer: any): IssuerStatsSummary => ({
   avgFloatingRate: toNumber(issuer?.avgFloatingRate || issuer?.floatingRate),
 });
 
-const buildRemainingDebtMap = (issuerStats: IssuerStatsSummary[]) => {
-  return new Map(
-    issuerStats.map((issuer) => [
-      String(issuer.issuerSymbol || '').toUpperCase(),
-      toNumber(issuer.totalRemainingDebt),
-    ] as const)
-  );
-};
-
 const issuerMatchesIndustry = (issuer: IssuerStatsSummary, industry: IndustryNavItem) => {
   return resolveIndustryKeyFromCandidates(
     issuer.industryId,
@@ -401,9 +411,6 @@ const issuerMatchesIndustry = (issuer: IssuerStatsSummary, industry: IndustryNav
     issuer.icbNameLv3,
     issuer.icbCodeLv4,
     issuer.icbNameLv4,
-    industry.id,
-    industry.code,
-    industry.icbCode,
   ) === industry.id;
 };
 
@@ -457,6 +464,52 @@ export const loadIssuerStatsSummary = async (top = 200, forceRefresh = false): P
 
   issuerStatsPromises.set(inflightKey, promise);
   return promise;
+};
+
+const getIndustrySymbolSet = async (industryId: string, forceRefresh = false) => {
+  const symbolGroups = await loadDedupedIndustrySymbols(forceRefresh);
+  return new Set(
+    (symbolGroups[industryId] || [])
+      .map(normalizeSymbol)
+      .filter(Boolean)
+  );
+};
+
+const buildIssuerSummariesFromStats = (
+  issuerStats: IssuerStatsSummary[],
+  industrySymbols: Set<string>,
+): IndustryIssuerSummary[] => {
+  return issuerStats
+    .filter((issuer) => {
+      const symbol = normalizeSymbol(issuer.issuerSymbol);
+      return symbol && industrySymbols.has(symbol);
+    })
+    .map((issuer) => ({
+      issuerSymbol: normalizeSymbol(issuer.issuerSymbol),
+      issuerName: normalizeCode(issuer.issuerName || issuer.issuerSymbol),
+      totalIssuedValue: toNumber(issuer.totalIssuedValue),
+      totalRemainingDebt: toNumber(issuer.totalRemainingDebt),
+      totalDebtFull: toNumber(issuer.totalDebtFull),
+      totalIssuedVolume: toNumber(issuer.totalIssuedVolume),
+      totalCurrentListedValue: toNumber(issuer.totalCurrentListedValue),
+      totalCurrentListedVolume: toNumber(issuer.totalCurrentListedVolume),
+      bondCount: toNumber(issuer.bondCount),
+    }))
+    .filter((issuer) => issuer.totalRemainingDebt > 0 || issuer.totalIssuedValue > 0 || issuer.bondCount > 0)
+    .sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt);
+};
+
+const loadIndustryIssuerSummariesFromTopDebt = async (
+  industryId: string,
+  forceRefresh = false,
+): Promise<IndustryIssuerSummary[]> => {
+  const [industrySymbols, issuerStats] = await Promise.all([
+    getIndustrySymbolSet(industryId, forceRefresh),
+    loadIssuerStatsSummary(2000, forceRefresh).catch(() => []),
+  ]);
+
+  if (industrySymbols.size === 0) return [];
+  return buildIssuerSummariesFromStats(issuerStats, industrySymbols);
 };
 
 const getDateKey = (dateString: string) => {
@@ -548,7 +601,10 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
         : [];
 
       if (fallbackSymbols.length > 0) {
-        const issuerBatches = await fetchWithLimit(fallbackSymbols.slice(0, 24), 6, async (symbol: string) => {
+        const topDebtSymbols = (await loadIndustryIssuerSummariesFromTopDebt(industry.id, forceRefresh).catch(() => []))
+          .map((issuer) => issuer.issuerSymbol);
+        const issuerSymbols = topDebtSymbols.length > 0 ? topDebtSymbols : fallbackSymbols;
+        const issuerBatches = await fetchWithLimit(issuerSymbols.slice(0, 24), 6, async (symbol: string) => {
           const rows = await loadIssuerBondsByFilter(symbol).catch(() => []);
           return Array.isArray(rows) ? rows : [];
         });
@@ -569,13 +625,13 @@ const loadIndustryBondRows = async (industryId: string, forceRefresh = false) =>
     }
 
     if (bonds.length === 0) {
-      const issuerStats = await loadIssuerStatsSummary(1000, forceRefresh).catch(() => []);
+      const issuerStats = await loadIssuerStatsSummary(2000, forceRefresh).catch(() => []);
       const industryIssuerSymbols = Array.isArray(issuerStats)
         ? issuerStats.filter((issuer) => issuerMatchesIndustry(issuer, industry)).map((issuer) => issuer.issuerSymbol).filter(Boolean)
         : [];
 
       if (industryIssuerSymbols.length > 0) {
-        const issuerBatches = await fetchWithLimit(Array.from(new Set(industryIssuerSymbols)).slice(0, 24), 6, async (symbol: string) => {
+        const issuerBatches = await fetchWithLimit(Array.from(new Set(industryIssuerSymbols.map(normalizeSymbol))).slice(0, 24), 6, async (symbol: string) => {
           const rows = await loadIssuerBondsByFilter(symbol).catch(() => []);
           return Array.isArray(rows) ? rows : [];
         });
@@ -617,10 +673,10 @@ export const loadDedupedIndustrySymbols = async (forceRefresh = false) => {
 
     await Promise.all(INDUSTRY_NAV_ITEMS.map(async (industry) => {
       try {
-        const symbols = await fireantApi.getIcbSymbols(industry.code);
+        const symbols = await fireantApi.getIcbSymbols(industry.icbCode || industry.code);
         rawSymbolsByIndustry.set(
           industry.id,
-          Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(String).filter(Boolean)))
+          Array.from(new Set((Array.isArray(symbols) ? symbols : []).map(getIcbSymbolValue).filter(Boolean)))
         );
       } catch (error) {
         console.warn(`[industry-bond-data] Failed to load ICB symbols for ${industry.id}`, error);
@@ -637,9 +693,10 @@ export const loadDedupedIndustrySymbols = async (forceRefresh = false) => {
         const uniqueSymbols: string[] = [];
 
         (rawSymbolsByIndustry.get(industry.id) || []).forEach((symbol) => {
-          if (assignedSymbols.has(symbol)) return;
-          assignedSymbols.set(symbol, industry.id);
-          uniqueSymbols.push(symbol);
+          const normalizedSymbol = normalizeSymbol(symbol);
+          if (!normalizedSymbol || assignedSymbols.has(normalizedSymbol)) return;
+          assignedSymbols.set(normalizedSymbol, industry.id);
+          uniqueSymbols.push(normalizedSymbol);
         });
 
         groupedSymbols[industry.id] = uniqueSymbols;
@@ -733,14 +790,20 @@ export const loadIndustryBaseBondGroupData = async (industryId: string, forceRef
   if (inflight) return inflight;
 
   const promise = (async () => {
-    const [bonds, issuerStats, industryStats] = await Promise.all([
+    const [bonds, issuerSummariesFromTopDebt, industryStats, industrySymbols] = await Promise.all([
       loadIndustryBondRows(industry.id, forceRefresh),
-      loadIssuerStatsSummary(1000, forceRefresh).catch(() => []),
+      loadIndustryIssuerSummariesFromTopDebt(industry.id, forceRefresh).catch(() => []),
       loadIndustryStats(industry.id, forceRefresh).catch(() => null),
+      getIndustrySymbolSet(industry.id, forceRefresh).catch(() => new Set<string>()),
     ]);
-    const symbols = Array.from(new Set(bonds.map((bond) => getBondIssuerSymbol(bond)).filter(Boolean)));
-    const remainingDebtByIssuer = buildRemainingDebtMap(issuerStats);
-    const issuerSummaries = buildIssuerSummaries(bonds, remainingDebtByIssuer);
+    const bondSymbols = bonds.map((bond) => getBondIssuerSymbol(bond)).filter(Boolean);
+    const symbols = Array.from(new Set([
+      ...Array.from(industrySymbols),
+      ...bondSymbols.map(normalizeSymbol),
+    ]));
+    const issuerSummaries = issuerSummariesFromTopDebt.length > 0
+      ? issuerSummariesFromTopDebt
+      : buildIssuerSummaries(bonds);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
       symbols,
@@ -893,19 +956,24 @@ export const loadIndustryBondGroupData = async (industryId: string, forceRefresh
 
   const promise = (async () => {
     const baseData = await loadIndustryBaseBondGroupData(industry.id, forceRefresh);
-    const issuerStatsPromise = loadIssuerStatsSummary(1000, forceRefresh).catch(() => []);
     const detailMapPromise = loadBondDetailsMapByCodes(
       baseData.bonds.map((bond) => getBondCode(bond)),
       { concurrency: 8, forceRefresh },
     );
-    const [issuerStats, detailMap] = await Promise.all([issuerStatsPromise, detailMapPromise]);
+    const [issuerSummariesFromTopDebt, detailMap] = await Promise.all([
+      loadIndustryIssuerSummariesFromTopDebt(industry.id, forceRefresh).catch(() => baseData.issuerSummaries || []),
+      detailMapPromise,
+    ]);
     const detailedBonds = baseData.bonds.map((bond) => {
       const code = getBondCode(bond);
       const detailData = code ? detailMap[code.toUpperCase()] : null;
       return detailData ? mergeBondDetail(bond, detailData) : bond;
     });
-    const remainingDebtByIssuer = buildRemainingDebtMap(issuerStats);
-    const issuerSummaries = buildIssuerSummaries(detailedBonds, remainingDebtByIssuer);
+    const issuerSummaries = issuerSummariesFromTopDebt.length > 0
+      ? issuerSummariesFromTopDebt
+      : baseData.issuerSummaries.length > 0
+        ? baseData.issuerSummaries
+        : buildIssuerSummaries(detailedBonds);
     const groupedData: IndustryBondGroupData = {
       industryId: industry.id,
       symbols: baseData.symbols,

@@ -60,26 +60,42 @@ const hasMeaningfulIndustryData = (value: unknown) => {
   );
 };
 
+const getIndustryPayloadForView = (value: unknown, industry: string) => {
+  if (!hasMeaningfulIndustryData(value)) return null;
+
+  const data = value as {
+    industryId?: string;
+    bonds?: unknown[];
+    issuerSummaries?: unknown[];
+    rankingData?: unknown[];
+    symbols?: unknown[];
+    industryStats?: { bondCount?: number };
+    projectedCashFlowBuckets?: Record<string, ProjectedCashFlowBucket>;
+  };
+  const payloadIndustry = String(data.industryId || '').trim();
+  return !payloadIndustry || payloadIndustry === industry ? data : null;
+};
+
 export default function IndustryView({ industry }: IndustryViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
   const chartTheme = getChartTheme(isDark);
-  const cacheKey = `industry_bond_group_v10_${industry}`;
-  const baseCacheKey = `industry_bond_base_v9_${industry}`;
-  const statsCacheKey = `industry_stats_api_v5_${industry}`;
+  const cacheKey = `industry_bond_group_v11_${industry}`;
+  const baseCacheKey = `industry_bond_base_v10_${industry}`;
+  const statsCacheKey = `industry_stats_api_v6_${industry}`;
   const cachedData = getCache(cacheKey);
   const cachedBaseData = getCache(baseCacheKey);
   const cachedStats = getCache(statsCacheKey);
-  const meaningfulCachedData = hasMeaningfulIndustryData(cachedData) ? cachedData : null;
-  const meaningfulCachedBaseData = hasMeaningfulIndustryData(cachedBaseData) ? cachedBaseData : meaningfulCachedData;
+  const meaningfulCachedData = getIndustryPayloadForView(cachedData, industry);
+  const meaningfulCachedBaseData = getIndustryPayloadForView(cachedBaseData, industry) || meaningfulCachedData;
   const cachedProjectedCashFlows = meaningfulCachedData?.projectedCashFlowBuckets || getCache(`industry_projected_cash_flows_${industry}`) || {};
   const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
   const shouldLoadFullIndustryData = projectedCashFlowSectionVisible || Object.keys(cachedProjectedCashFlows).length > 0;
   const industryBaseQuery = useIndustryBaseDashboardQuery(industry);
   const industryFullQuery = useIndustryFullDashboardQuery(industry, shouldLoadFullIndustryData);
-  const meaningfulBaseQueryData = hasMeaningfulIndustryData(industryBaseQuery.data) ? industryBaseQuery.data : null;
-  const meaningfulFullQueryData = hasMeaningfulIndustryData(industryFullQuery.data) ? industryFullQuery.data : null;
+  const meaningfulBaseQueryData = getIndustryPayloadForView(industryBaseQuery.data, industry);
+  const meaningfulFullQueryData = getIndustryPayloadForView(industryFullQuery.data, industry);
   const basePayload = meaningfulBaseQueryData || meaningfulCachedBaseData;
   const fullPayload = meaningfulFullQueryData || meaningfulCachedData;
   const industryStats = cachedStats || fullPayload?.industryStats || basePayload?.industryStats || null;
