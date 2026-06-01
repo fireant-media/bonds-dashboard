@@ -54,6 +54,12 @@ const selectPreferredNews = (primary?: NewsItem[] | null, fallback?: NewsItem[] 
   return [];
 };
 
+const getPreferredCachedNews = (symbol?: string | null) =>
+  selectPreferredNews(
+    getCachedNews(symbol),
+    symbol ? getCachedNews(null) : null
+  );
+
 function NewsThumbnail({ news }: { news: NewsItem }) {
   const [hasError, setHasError] = useState(false);
   const [resolvedImage, setResolvedImage] = useState<string>(news.image || news.images?.[0] || '');
@@ -164,10 +170,7 @@ export default function RightPanel({
   });
 
   useEffect(() => {
-    const preferredNews = selectPreferredNews(
-      getCachedNews(newsSymbol),
-      newsSymbol ? getCachedNews(null) : null
-    );
+    const preferredNews = getPreferredCachedNews(newsSymbol);
 
     if (preferredNews.length > 0) {
       setNewsList(preferredNews);
@@ -181,9 +184,12 @@ export default function RightPanel({
     if (!isOpen || activePanelTab !== 'news') return;
 
     const fetchNews = async (force = false) => {
-      const lastUpdate = getNewsLastUpdate(newsSymbol);
+      const preferredCachedNews = getPreferredCachedNews(newsSymbol);
+      const lastUpdate = getNewsLastUpdate(newsSymbol) ?? (newsSymbol ? getNewsLastUpdate(null) : null);
       const now = Date.now();
-      if (!force && lastUpdate && now - lastUpdate < 120000) {
+      if (!force && preferredCachedNews.length > 0 && lastUpdate && now - lastUpdate < 120000) {
+        setNewsList(preferredCachedNews);
+        setNewsError(null);
         return;
       }
 
