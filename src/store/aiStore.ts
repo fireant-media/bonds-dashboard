@@ -1,7 +1,8 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import type { AIModelInfo } from "../api/ai";
 import { getAIStatus, listAIModels } from "../api/ai";
+import { safeSetLocalStorageItem } from "../utils/localStorageBudget";
 
 interface AIState {
   // Configuration loaded from server
@@ -32,7 +33,31 @@ interface AIState {
 }
 
 const STORAGE_KEY = "sentinel_ai_preferences";
-const CLIENT_FALLBACK_AI_MODEL = "gpt-4o-mini";
+const CLIENT_FALLBACK_AI_MODEL = "gpt-5.4-mini";
+
+const safeAIStorage: StateStorage = {
+  getItem: (key) => {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (error) {
+      console.warn("Failed to read AI preferences from localStorage", error);
+      return null;
+    }
+  },
+  setItem: (key, value) => {
+    safeSetLocalStorageItem(key, value, {
+      maxLength: 20_000,
+      warnLabel: "AI preferences",
+    });
+  },
+  removeItem: (key) => {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (error) {
+      console.warn("Failed to remove AI preferences from localStorage", error);
+    }
+  },
+};
 
 export const useAIStore = create<AIState>()(
   persist(
@@ -109,6 +134,7 @@ export const useAIStore = create<AIState>()(
     }),
     {
       name: STORAGE_KEY,
+      storage: createJSONStorage(() => safeAIStorage),
       partialize: (state) => ({
         selectedModel: state.selectedModel,
         systemPrompt: state.systemPrompt,

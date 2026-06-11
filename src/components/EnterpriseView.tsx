@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown } from 'lucide-react';
+import { Search, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown, Hash, BadgeDollarSign, Landmark, Wallet } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
 import ChartWithToolbar from './ChartWithToolbar';
+import AIInsightPanel from './AIInsightPanel';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { clsx, type ClassValue } from 'clsx';
@@ -14,6 +15,8 @@ interface EnterpriseViewProps {
   setSelectedEnterprise: (enterprise: Enterprise | null) => void;
   setSelectedBond: (bond: Bond | null) => void;
   setBondEnterpriseName: (name: string) => void;
+  listTitle?: string;
+  breadcrumbTitle?: string;
 }
 
 import { getFireantToken, cleanTokenString } from '../utils/token';
@@ -42,11 +45,18 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const roundMetric = (value: number, digits = 2) => {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+};
+
 export default function EnterpriseView({ 
   selectedEnterprise, 
   setSelectedEnterprise,
   setSelectedBond,
-  setBondEnterpriseName
+  setBondEnterpriseName,
+  listTitle,
+  breadcrumbTitle,
 }: EnterpriseViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
@@ -780,6 +790,69 @@ export default function EnterpriseView({
   const projectedCashFlowTitle = language === 'vi'
     ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+  const enterpriseDisplayName = selectedEnterprise
+    ? (language === 'en' && enterpriseProfile?.internationalName
+      ? enterpriseProfile.internationalName
+      : t(selectedEnterprise.name as any, selectedEnterprise.ticker))
+    : '';
+  const enterpriseInsightTitle = language === 'vi'
+    ? 'Nhận định tổ chức phát hành'
+    : 'Issuer insight';
+  const enterpriseInsightPayload = useMemo(() => {
+    if (!selectedEnterprise) return null;
+
+    const topBonds = [...enterpriseBonds]
+      .sort((left, right) => Number(right.listedValue || 0) - Number(left.listedValue || 0))
+      .slice(0, 6)
+      .map((bond) => ({
+        bondCode: bond.code,
+        tenorMonths: Number(bond.term || 0),
+        interestRate: roundMetric(Number(bond.interestRate || 0)),
+        interestType: bond.interestType || '',
+        issueDate: bond.issueDate,
+        maturityDate: bond.maturityDate,
+        listedValueBillion: roundMetric(Number(bond.listedValue || 0)),
+      }));
+
+    const financialHighlights = financialData ? {
+      totalAssetsBillion: roundMetric(Number(financialData.TotalAsset || financialData.TotalAssets || financialData.Assets || 0) / 1_000_000_000),
+      equityBillion: roundMetric(Number(financialData.TotalStockHolderEquity || financialData.StockHolderEquity || financialData.OwnerEquity || financialData.Equity || 0) / 1_000_000_000),
+      revenueBillion: roundMetric(Number(financialData.TotalRevenue_TTM || financialData.TotalRevenue || financialData.NetSale_TTM || financialData.NetSale || 0) / 1_000_000_000),
+      profitBillion: roundMetric(Number(financialData.ProfitAfterTax_TTM || financialData.ProfitAfterTax || financialData.ParentCompanyShareholderProfitAfterTax_TTM || 0) / 1_000_000_000),
+    } : null;
+
+    return {
+      issuer: {
+        ticker: selectedEnterprise.ticker,
+        name: enterpriseDisplayName,
+        industry: selectedEnterprise.industry,
+        bondCount: enterpriseBonds.length > 0 ? enterpriseBonds.length : selectedEnterprise.bondCount,
+        issuedValueBillion: roundMetric(Number(selectedEnterprise.issuedValue || 0)),
+        initialDebtBillion: roundMetric(Number(selectedEnterprise.initialDebt || 0)),
+        remainingDebtBillion: roundMetric(Number(selectedEnterprise.remainingDebt || 0)),
+      },
+      termStructure: pieData.slice(0, 6).map((item) => ({
+        term: item.name,
+        bondCount: Number(item.value || 0),
+      })),
+      interestTypeStructure: interestTypePieData.map((item) => ({
+        type: String(item.name || ''),
+        bondCount: Number(item.value || 0),
+      })),
+      topBonds,
+      maturityDistribution: sortedYears.slice(0, 8).map((year, index) => ({
+        year,
+        listedValueBillion: roundMetric(Number(columnData[index] || 0)),
+      })),
+      projectedCashFlows: projectedCashFlowData.labels.slice(0, 6).map((label, index) => ({
+        period: label,
+        interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
+        principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
+        totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
+      })),
+      financialHighlights,
+    };
+  }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, projectedCashFlowData, selectedEnterprise, sortedYears]);
 
   const handleExportEnterprises = async () => {
     setExportLoading(true);
@@ -1068,7 +1141,9 @@ export default function EnterpriseView({
     return (
       <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
         <div className="flex items-center gap-2 text-xs font-bold text-text-muted uppercase tracking-widest">
-          <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">{t('enterprise').toUpperCase()}</button>
+          <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">
+            {(breadcrumbTitle || listTitle || t('enterprise')).toUpperCase()}
+          </button>
           <ChevronRight className="h-3 w-3" />
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
@@ -1244,23 +1319,36 @@ export default function EnterpriseView({
                 label={t('bondCodeCount')}
                 value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
                 unit={t('unitBondCode')}
+                icon={Hash}
               />
               <MetricCard
                 label={t('totalIssuedValueTitle')}
                 value={formatNumber(selectedEnterprise.issuedValue, 2)}
                 unit={t('unitBillionVND')}
+                icon={BadgeDollarSign}
               />
               <MetricCard
                 label={t('initialDebtFull')}
                 value={formatNumber(selectedEnterprise.initialDebt, 2)}
                 unit={t('unitBillionVND')}
+                icon={Landmark}
               />
               <MetricCard
                 label={t('remainingDebtTitle')}
                 value={formatNumber(selectedEnterprise.remainingDebt, 2)}
                 unit={t('unitBillionVND')}
+                icon={Wallet}
               />
             </div>
+
+        <AIInsightPanel
+          cacheKey={`enterprise-insight-${selectedEnterprise.ticker}`}
+          title={enterpriseInsightTitle}
+          pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
+          sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
+          payload={enterpriseInsightPayload}
+          className="min-h-80"
+        />
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1780,7 +1868,7 @@ export default function EnterpriseView({
     <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex flex-col gap-3 border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between md:-mx-4 md:px-4">
         <div>
-          <h2 className="text-2xl font-bold text-text-base text-center transition-colors">{t('enterprise')}</h2>
+          <h2 className="text-2xl font-bold text-text-base text-center transition-colors">{listTitle || t('enterprise')}</h2>
         </div>
       </div>
 

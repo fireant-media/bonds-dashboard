@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -28,7 +28,7 @@ interface DataTableProps<T> {
   initialSort?: {
     columnId: string;
     direction: SortDirection;
-  };
+  } | null;
   emptyState?: ReactNode;
   className?: string;
 }
@@ -64,7 +64,12 @@ export function DataTable<T>({
   className,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
-  const [sort, setSort] = useState(initialSort || null);
+  const [sort, setSort] = useState(initialSort ?? null);
+
+  useEffect(() => {
+    setSort(initialSort ?? null);
+    setPage(1);
+  }, [initialSort?.columnId, initialSort?.direction]);
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows;

@@ -1,4 +1,4 @@
-import { fireantApi, fireantRequest } from '../api/fireant';
+import { fireantApi, fireantRequest, type BondRestFilterBody } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
@@ -103,6 +103,15 @@ const normalizeDate = (value: unknown) => {
   return text ? text.split('T')[0] : '';
 };
 
+const toIsoDateString = (value: unknown) => {
+  const text = asString(value);
+  if (!text) return null;
+  if (text.includes('T')) return text;
+  const timestamp = Date.parse(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(timestamp)) return text;
+  return new Date(timestamp).toISOString();
+};
+
 const buildQueryCacheKey = (prefix: string, query: Record<string, unknown>) => {
   const entries = Object.entries(query)
     .filter(([, value]) => value !== null && value !== undefined && value !== '')
@@ -112,11 +121,73 @@ const buildQueryCacheKey = (prefix: string, query: Record<string, unknown>) => {
 
 const normalizeBondCode = (value: unknown) => asString(value).toUpperCase();
 
+const pruneEmptyQueryFields = <T extends Record<string, unknown>>(query: T) =>
+  Object.fromEntries(
+    Object.entries(query).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  ) as Partial<T>;
+
+const toRestBondFilterBody = (query: BondFilterQuery): BondRestFilterBody =>
+  pruneEmptyQueryFields({
+    bondTypeID: query.BondTypeID,
+    bondRateTypeID: query.BondRateTypeID,
+    currencyID: query.CurrencyID,
+    marketID: query.MarketID,
+    icbCode: query.ICBCode,
+    issueFormID: query.IssueFormID,
+    issueMethodID: query.IssueMethodID,
+    statusID: query.StatusID,
+    issuerName: query.IssuerName,
+    issuerInstitutionID: query.IssuerInstitutionID,
+    issuerSymbol: query.IssuerSymbol,
+    isListing: query.IsListing,
+    issueDateFrom: toIsoDateString(query.IssueDateFrom),
+    issueDateTo: toIsoDateString(query.IssueDateTo),
+    maturityDateFrom: toIsoDateString(query.MaturityDateFrom),
+    maturityDateTo: toIsoDateString(query.MaturityDateTo),
+    minBondRate: query.MinBondRate,
+    maxBondRate: query.MaxBondRate,
+    minTenorMonths: query.MinTenorMonths,
+    maxTenorMonths: query.MaxTenorMonths,
+    top: query.Top,
+    sortBy: query.SortBy,
+  });
+
 const extractRows = <T>(payload: ProcedureResult<T> | null | undefined): T[] => {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
   const candidate = payload.rows || payload.data || payload.items || payload.result;
   return Array.isArray(candidate) ? candidate : [];
+};
+
+const hasRestBondFilterCriteria = (query: BondFilterQuery) => Boolean(
+  query.ICBCode
+  || query.IssueDateFrom
+  || query.IssueDateTo
+  || query.MaturityDateFrom
+  || query.MaturityDateTo
+  || query.MinBondRate !== undefined
+  || query.MaxBondRate !== undefined
+  || query.MinTenorMonths !== undefined
+  || query.MaxTenorMonths !== undefined
+  || query.BondTypeID !== undefined
+  || query.BondRateTypeID !== undefined
+  || query.CurrencyID !== undefined
+  || query.MarketID !== undefined
+  || query.IssueFormID !== undefined
+  || query.IssueMethodID !== undefined
+  || query.IssuerName
+  || query.IssuerInstitutionID !== undefined
+  || query.IssuerSymbol
+  || query.IsListing !== undefined
+  || query.StatusID !== undefined
+  || query.Top !== undefined
+  || query.SortBy !== undefined
+);
+
+const isIssuerOnlyBondFilterQuery = (query: BondFilterQuery) => {
+  const { IssuerSymbol, StatusID, IsListing, Top, SortBy, ...rest } = query;
+  const hasOtherCriteria = Object.values(rest).some((value) => value !== undefined && value !== null && value !== '');
+  return Boolean(IssuerSymbol) && !hasOtherCriteria;
 };
 
 const tryProcedure = async <T>(
@@ -179,6 +250,67 @@ const normalizeBondRow = (row: any): BondDataRow => {
     bondInfos,
     raw: row,
   };
+};
+
+const shouldEnrichBondValueFields = (row: BondDataRow) =>
+  row.totalIssuedValue <= 0 || row.currentListedValue <= 0;
+
+const mergeBondRowWithDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
+  const detail = detailPayload?.detail || detailPayload || {};
+  const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
+
+  const nextCurrentListedValue = row.currentListedValue > 0
+    ? row.currentListedValue
+    : toNumber(firstDefined(detail?.currentListedValue, detail?.CurrentListedValue, historyItem?.value));
+  const nextTotalIssuedValue = row.totalIssuedValue > 0
+    ? row.totalIssuedValue
+    : toNumber(firstDefined(detail?.totalIssuedValue, detail?.TotalIssuedValue, historyItem?.value));
+  const nextCurrentListedVolume = row.currentListedVolume > 0
+    ? row.currentListedVolume
+    : toNumber(firstDefined(detail?.currentListedVolume, detail?.CurrentListedVolume, historyItem?.volume));
+
+  return {
+    ...row,
+    currentListedVolume: nextCurrentListedVolume,
+    currentListedValue: nextCurrentListedValue,
+    totalIssuedValue: nextTotalIssuedValue,
+    raw: {
+      ...row.raw,
+      detail,
+    },
+  };
+};
+
+const enrichBondFilterRowsWithDetails = async (
+  rows: BondDataRow[],
+) => {
+  const rowsNeedingDetails = rows.filter(shouldEnrichBondValueFields);
+  if (rowsNeedingDetails.length === 0) return rows;
+
+  const targetCodes = Array.from(
+    new Set(
+      rowsNeedingDetails
+        .map((row) => normalizeBondCode(row.bondCode))
+        .filter(Boolean),
+    ),
+  );
+
+  if (targetCodes.length === 0) return rows;
+
+  try {
+    const detailMap = await loadBondDetailsMapByCodes(targetCodes, {
+      concurrency: 6,
+      forceRefresh: false,
+    });
+
+    return rows.map((row) => {
+      const detailPayload = detailMap[normalizeBondCode(row.bondCode)];
+      return detailPayload ? mergeBondRowWithDetail(row, detailPayload) : row;
+    });
+  } catch (error) {
+    console.warn('[bond-data] Failed to enrich bond filter rows with detail values', error);
+    return rows;
+  }
 };
 
 const normalizeCategoryRow = (row: any): BondCategoryItem => ({
@@ -272,13 +404,19 @@ export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDa
   const promise = (async () => {
     let payload: ProcedureResult<BondDataRow>;
 
-    if (query.IssuerSymbol || (query.MaturityDateFrom && query.MaturityDateTo)) {
+    if (isIssuerOnlyBondFilterQuery(query)) {
       payload = await fallbackFilterBonds(query) as unknown as ProcedureResult<BondDataRow>;
-    } else if (query.ICBCode) {
-      payload = await fireantApi.getBondsByIndustryFilter({
-        icbCode: query.ICBCode,
-        statusID: query.StatusID ?? 1,
-      }) as unknown as ProcedureResult<BondDataRow>;
+    } else if (hasRestBondFilterCriteria(query)) {
+      try {
+        payload = await fireantApi.filterBonds(toRestBondFilterBody(query)) as unknown as ProcedureResult<BondDataRow>;
+      } catch (error) {
+        console.warn('[bond-data] REST bonds/filter failed, falling back to legacy procedure', error);
+        payload = await tryProcedure<ProcedureResult<BondDataRow>>(
+          'bond_Filter',
+          query as Record<string, string | number | boolean | null | undefined>,
+          async () => fallbackFilterBonds(query) as unknown as ProcedureResult<BondDataRow>,
+        );
+      }
     } else {
       payload = await tryProcedure<ProcedureResult<BondDataRow>>(
         'bond_Filter',
@@ -287,7 +425,8 @@ export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDa
       );
     }
 
-    const rows = extractRows(payload).map(normalizeBondRow).filter((item) => Boolean(item.bondCode));
+    const normalizedRows = extractRows(payload).map(normalizeBondRow).filter((item) => Boolean(item.bondCode));
+    const rows = await enrichBondFilterRowsWithDetails(normalizedRows);
     setCache(cacheKey, rows);
     return rows;
   })().finally(() => {
@@ -299,26 +438,38 @@ export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDa
 };
 
 export const loadMaturingBonds = async (days: number): Promise<BondDataRow[]> => {
-  const now = new Date();
-  const fromDate = now.toISOString().split('T')[0];
-  const to = new Date(now);
-  to.setDate(to.getDate() + Math.max(0, days));
-  const toDate = to.toISOString().split('T')[0];
-
-  return loadBondFilterRows({
-    StatusID: 1,
-    IsListing: 1,
-    MaturityDateFrom: fromDate,
-    MaturityDateTo: toDate,
+  const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
+    endpoint: 'bonds/stats/bonds/maturing-soon',
+    days,
   });
+  const cached = getCache(cacheKey);
+  if (cached) return cached as BondDataRow[];
+
+  const rows = (await fireantApi.getMaturingSoon(days))
+    .map(normalizeBondRow)
+    .filter((item) => Boolean(item.bondCode));
+  setCache(cacheKey, rows);
+  return rows;
 };
 
 export const loadIssuerBondsByFilter = async (issuerSymbol: string): Promise<BondDataRow[]> =>
-  loadBondFilterRows({
-    StatusID: 1,
-    IsListing: 1,
-    IssuerSymbol: issuerSymbol,
-  });
+  {
+    const normalizedIssuerSymbol = asString(issuerSymbol);
+    const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
+      endpoint: 'bonds/issuer',
+      issuerSymbol: normalizedIssuerSymbol,
+      statusID: 1,
+      isListing: 1,
+    });
+    const cached = getCache(cacheKey);
+    if (cached) return cached as BondDataRow[];
+
+    const rows = (await fireantApi.getIssuerBonds(normalizedIssuerSymbol))
+      .map(normalizeBondRow)
+      .filter((item) => Boolean(item.bondCode));
+    setCache(cacheKey, rows);
+    return rows;
+  };
 
 export const loadBondsByIndustryFilter = async (
   icbCode: string | number,

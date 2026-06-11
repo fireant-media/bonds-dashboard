@@ -1,9 +1,10 @@
 import ChartWithToolbar from './ChartWithToolbar';
+import AIInsightPanel from './AIInsightPanel';
 import ReactECharts from 'echarts-for-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { formatInterestRate, formatNumber } from '../utils/format';
+import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
+import { BadgeDollarSign, BarChart3, Boxes, Download, Hash, Landmark, LineChart, Maximize2, RotateCcw, TableProperties, Wallet, X } from 'lucide-react';
 import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
 interface ProjectedCashFlowBucket {
@@ -38,6 +39,13 @@ import {
   useMarketOverviewTopInterestQuery,
 } from '../query/dashboardQueries';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
+
+const TOP_INTEREST_CHART_LIMIT = 10;
+
+const roundMetric = (value: number, digits = 2) => {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+};
 
 export default function MarketOverview() {
   const { effectiveTheme } = useTheme();
@@ -194,7 +202,7 @@ export default function MarketOverview() {
       return metric === 'highest' ? b.bondRate - a.bondRate : a.bondRate - b.bondRate;
     });
 
-    return sorted.slice(0, 10);
+    return sorted.slice(0, TOP_INTEREST_CHART_LIMIT);
   };
 
   const topIssuerMetricTitle = topIssuerMetric === 'remainingDebt'
@@ -253,22 +261,26 @@ export default function MarketOverview() {
     {
       label: t('totalBondCodes'),
       value: formatNumber(marketKpis.bondCount, 0),
-      unit: t('bondCodeUnit')
+      unit: t('bondCodeUnit'),
+      icon: Hash,
     },
     {
       label: t('totalIssuedVolume'),
       value: formatNumber(marketKpis.issuedVolume / 1_000_000, 2),
-      unit: t('unitMillionShares')
+      unit: t('unitMillionShares'),
+      icon: Boxes,
     },
     {
       label: t('totalIssuedValueTitle'),
       value: formatNumber(marketKpis.issuedValue / 1000000000, 2),
-      unit: t('unitBillionVND')
+      unit: t('unitBillionVND'),
+      icon: BadgeDollarSign,
     },
     {
       label: t('totalRemainingDebt'),
       value: formatNumber(marketKpis.remainingDebt / 1000000000, 2),
-      unit: t('unitBillionVND')
+      unit: t('unitBillionVND'),
+      icon: Wallet,
     }
   ];
 
@@ -522,6 +534,55 @@ export default function MarketOverview() {
     () => getTopInterestChartData(deferredTopInterestData as TopInterestBond[], topInterestMetric),
     [deferredTopInterestData, topInterestMetric]
   );
+  const marketInsightTitle = language === 'vi'
+    ? 'Nhận định tổng quan thị trường trái phiếu'
+    : 'Bond market overview insight';
+  const marketInsightPayload = useMemo(() => ({
+    kpis: {
+      bondCount: marketKpis.bondCount,
+      issuedVolumeMillion: roundMetric(marketKpis.issuedVolume / 1_000_000),
+      issuedValueBillion: roundMetric(marketKpis.issuedValue / 1_000_000_000),
+      remainingDebtBillion: roundMetric(marketKpis.remainingDebt / 1_000_000_000),
+    },
+    topIssuersByRemainingDebt: topDebtData.slice(0, 6).map((issuer) => ({
+      issuerSymbol: issuer.issuerSymbol || '',
+      issuerName: issuer.issuerName || '',
+      remainingDebtBillion: roundMetric(issuer.totalRemainingDebt / 1_000_000_000),
+      issuedValueBillion: roundMetric(issuer.totalIssuedValue / 1_000_000_000),
+      bondCount: issuer.bondCount,
+    })),
+    topBondRates: topInterestChartData.slice(0, 6).map((bond) => ({
+      bondCode: bond.bondCode,
+      bondRate: roundMetric(bond.bondRate),
+    })),
+  }), [marketKpis, topDebtData, topInterestChartData]);
+  const marketFlowInsightTitle = language === 'vi'
+    ? 'Nhận xét dòng tiền và cơ cấu theo ngành'
+    : 'Industry structure and cash flow insight';
+  const marketFlowInsightPayload = useMemo(() => ({
+    valueByIndustry: [...deferredIndustryData]
+      .sort((left, right) => toNumber(right.totalCurrentListedValue) - toNumber(left.totalCurrentListedValue))
+      .slice(0, 8)
+      .map((industry) => ({
+        industry: t(industry.icbName as any),
+        listedValueBillion: roundMetric(toNumber(industry.totalCurrentListedValue) / 1_000_000_000),
+        remainingDebtBillion: roundMetric(toNumber(industry.totalRemainingDebt) / 1_000_000_000),
+      })),
+    volumeByIndustry: [...deferredIndustryData]
+      .sort((left, right) => toNumber(right.totalIssuedVolume) - toNumber(left.totalIssuedVolume))
+      .slice(0, 8)
+      .map((industry) => ({
+        industry: t(industry.icbName as any),
+        issuedVolumeMillion: roundMetric(toNumber(industry.totalIssuedVolume) / 1_000_000),
+        listedVolumeMillion: roundMetric(toNumber(industry.totalCurrentListedVolume) / 1_000_000),
+      })),
+    projectedCashFlows: projectedCashFlowData.labels.map((label, index) => ({
+      period: label,
+      interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
+      principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
+      totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
+    })),
+  }), [deferredIndustryData, projectedCashFlowData, t]);
 
   const topIssuerDataViewRows = useMemo(() => {
     return topIssuerDisplayData.map((issuer) => ([
@@ -530,13 +591,6 @@ export default function MarketOverview() {
       formatNumber(issuer.totalIssuedValue / 1000000000, 0),
     ]));
   }, [topIssuerDisplayData]);
-  const debtLotsDataViewRows = useMemo(() => {
-    return topDebtData.map((issuer) => ([
-      issuer.issuerSymbol || '',
-      issuer.totalRemainingDebt / 1000000000,
-      issuer.bondCount,
-    ]));
-  }, [topDebtData]);
 
   const topIssuerDataViewColumns: ChartDataTableColumn[] = useMemo(() => ([
     { label: t('ticker'), align: 'center', kind: 'text' },
@@ -650,7 +704,10 @@ export default function MarketOverview() {
       data: topInterestChartData.length > 0 
         ? topInterestChartData.map(d => d.bondCode) 
         : [], 
-      axisLabel: { ...categoryLabelStyle, rotate: 45 } 
+      axisLabel: {
+        ...categoryLabelStyle,
+        rotate: 45,
+      }
     },
     yAxis: { 
       type: 'value', 
@@ -676,87 +733,6 @@ export default function MarketOverview() {
       animationDurationUpdate: 600,
       animationEasingUpdate: 'cubicOut'
     }]
-  };
-
-  const debtLotsOptions = {
-    color: chartPalette,
-    __dataView: {
-      columns: [
-        { label: t('ticker'), align: 'center', kind: 'text' },
-        { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
-        { label: t('bondLotsTitle'), unit: t('unitLot'), align: 'right', kind: 'number' },
-      ],
-      rows: debtLotsDataViewRows,
-    },
-    tooltip: { 
-      ...chartTooltip,
-      trigger: 'axis',
-      confine: true,
-      textStyle: tooltipTextStyle,
-      formatter: (params: any) => {
-        const symbol = params[0].name;
-        const issuer = topDebtData.find(d => d.issuerSymbol === symbol);
-        let res = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
-        params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), p.seriesName === t('remainingDebtTitle') ? ` ${t('unitBillionVND')}` : '')}`;
-        });
-        return res;
-      }
-    },
-    legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', top: '12%', bottom: '10%', containLabel: true },
-    xAxis: { 
-      type: 'category', 
-      data: topDebtData.length > 0 
-        ? topDebtData.map(d => d.issuerSymbol) 
-        : [], 
-      axisLabel: { ...categoryLabelStyle, rotate: 45 } 
-    },
-    yAxis: [
-      { 
-        type: 'value', 
-        name: t('unitBillionVND'),
-        nameGap: 24,
-        nameTextStyle: chartTitleStyle,
-        splitLine: { show: false },
-        axisLabel: {
-          ...valueLabelStyle,
-          formatter: (value: number) => formatNumber(value, 0)
-        } 
-      },
-      { 
-        type: 'value', 
-        name: '', 
-        splitLine: { show: false },
-        axisLabel: {
-          ...valueLabelStyle,
-          formatter: (value: number) => formatNumber(value, 0)
-        } 
-      }
-    ],
-    series: [
-      { 
-        name: t('remainingDebtTitle'), 
-        type: 'bar', 
-        data: topDebtData.length > 0 
-          ? topDebtData.map(d => Math.round(d.totalRemainingDebt / 1000000000)) 
-          : [], 
-        itemStyle: { },
-        barWidth: '60%',
-        barGap: 15
-      },
-      { 
-        name: t('bondLotsTitle'), 
-        type: 'line', 
-        yAxisIndex: 1, 
-        data: topDebtData.length > 0 
-          ? topDebtData.map(d => d.bondCount) 
-          : [], 
-        itemStyle: { },
-        symbol: 'circle',
-        symbolSize: 6
-      }
-    ]
   };
 
   const industryValueOptions = {
@@ -1064,7 +1040,7 @@ export default function MarketOverview() {
           {isKpiSectionLoading
             ? Array.from({ length: 4 }, (_, index) => <MetricCardSkeleton key={index} />)
             : kpiCards.map((card) => (
-              <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} />
+              <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} icon={card.icon} />
             ))}
         </div>
 
@@ -1124,8 +1100,13 @@ export default function MarketOverview() {
                   <Maximize2 className="h-4 w-4" />
                 </button>
             </div>
-            <div className="min-w-0 text-center">
-              <h3 className="text-center text-sm font-bold leading-snug break-words text-text-base md:text-base">{topIssuerMetricTitle}</h3>
+            <div className="flex min-w-0 justify-center text-center">
+              <div className="inline-flex max-w-full items-center justify-center gap-2 transition-colors duration-200 group-hover:text-blue-600">
+                <Landmark className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                <h3 className="text-center text-base font-bold leading-snug break-words text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
+                  {topIssuerMetricTitle}
+                </h3>
+              </div>
             </div>
             <div className="flex justify-center md:justify-end">
               <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
@@ -1163,7 +1144,7 @@ export default function MarketOverview() {
             </div>
           </div>
           <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
+            <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} autoResize />
           </div>
         </Card>
         )}
@@ -1172,8 +1153,8 @@ export default function MarketOverview() {
           {isTopInterestSectionLoading ? (
             <SectionCardSkeleton className="flex-1" />
           ) : (
-            <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
-              <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
+            <Card className="flex flex-none flex-col p-3 md:p-4">
+              <div className="h-80 min-w-0 overflow-hidden md:h-96">
                 <ChartWithToolbar
                   option={topInterestOptions}
                   style={{ height: '100%', width: '100%' }}
@@ -1218,16 +1199,14 @@ export default function MarketOverview() {
             </Card>
           )}
 
-          <Card className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
-            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-              <ChartWithToolbar
-                option={debtLotsOptions}
-                style={{ height: '100%', width: '100%' }}
-                allowMagicType
-                title={t('debtAndLots')}
-              />
-            </div>
-          </Card>
+          <AIInsightPanel
+            cacheKey="market-overview-insight"
+            title={marketInsightTitle}
+            pageTitle={t('marketOverview')}
+            sectionTitle={t('marketOverview')}
+            payload={marketInsightPayload}
+            className="flex min-h-0 flex-1 flex-col"
+          />
         </div>
 
         {isIndustryChartSectionLoading ? (
@@ -1321,6 +1300,15 @@ export default function MarketOverview() {
             </div>
           )}
         </div>
+
+        <AIInsightPanel
+          cacheKey="market-overview-structure-insight"
+          title={marketFlowInsightTitle}
+          pageTitle={t('marketOverview')}
+          sectionTitle={projectedCashFlowTitle}
+          payload={marketFlowInsightPayload}
+          className="col-span-12"
+        />
       </div>
 
       <ChartDataViewModal
@@ -1439,7 +1427,7 @@ export default function MarketOverview() {
               </button>
             </div>
             <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
-              <ReactECharts option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} />
+              <ReactECharts option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} autoResize />
             </div>
           </div>
         </div>

@@ -164,6 +164,7 @@ interface DashboardRoutePrefetchTarget {
   activeIndustry?: string;
   ticker?: string | null;
   bondCode?: string | null;
+  filterSubTab?: 'issuer' | 'bonds' | null;
 }
 
 export const prefetchDashboardRouteData = async (
@@ -189,7 +190,15 @@ export const prefetchDashboardRouteData = async (
       }));
       break;
     }
-    case 'enterprise': {
+    case 'filter': {
+      if (target.filterSubTab === 'bonds') {
+        tasks.push(queryClient.prefetchQuery({
+          queryKey: dashboardQueryKeys.marketOverviewIssuerStats(),
+          queryFn: () => loadMarketOverviewIssuerStats(),
+        }));
+        break;
+      }
+
       const symbol = String(target.ticker || '').trim();
       if (symbol) {
         tasks.push(queryClient.prefetchQuery({

@@ -1,8 +1,10 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import ChartWithToolbar from './ChartWithToolbar';
+import AIInsightPanel from './AIInsightPanel';
 import { IndustryType } from '../types';
 import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
+import { BadgeDollarSign, Boxes, GalleryVerticalEnd, Landmark, Wallet } from 'lucide-react';
 
 interface IndustryViewProps {
   industry: IndustryType;
@@ -74,6 +76,11 @@ const getIndustryPayloadForView = (value: unknown, industry: string) => {
   };
   const payloadIndustry = String(data.industryId || '').trim();
   return !payloadIndustry || payloadIndustry === industry ? data : null;
+};
+
+const roundMetric = (value: number, digits = 2) => {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
 };
 
 export default function IndustryView({ industry }: IndustryViewProps) {
@@ -278,32 +285,38 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         { 
           label: t('issuedVolumeTitle'), 
           value: issuedVolume.value,
-          unit: getBondVolumeUnitLabel(issuedVolume.unitScale)
+          unit: getBondVolumeUnitLabel(issuedVolume.unitScale),
+          icon: Boxes,
         },
         { 
           label: industryIssuedValueLabel, 
           value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2), 
-          unit: t('unitBillionVND') 
+          unit: t('unitBillionVND'),
+          icon: BadgeDollarSign,
         },
         { 
           label: industryInitialDebtLabel, 
           value: formatNumber(industryStats.totalDebtFull / 1000000000, 2), 
-          unit: t('unitBillionVND') 
+          unit: t('unitBillionVND'),
+          icon: Landmark,
         },
         { 
           label: t('listedVolume'), 
           value: listedVolume.value,
-          unit: getBondVolumeUnitLabel(listedVolume.unitScale)
+          unit: getBondVolumeUnitLabel(listedVolume.unitScale),
+          icon: GalleryVerticalEnd,
         },
         { 
           label: t('listedValueTitle'), 
           value: formatNumber(industryStats.totalCurrentListedValue / 1000000000, 2), 
-          unit: t('unitBillionVND') 
+          unit: t('unitBillionVND'),
+          icon: BadgeDollarSign,
         },
         { 
           label: t('remainingDebtTitle'), 
           value: formatNumber(industryStats.totalRemainingDebt / 1000000000, 2), 
-          unit: t('unitBillionVND') 
+          unit: t('unitBillionVND'),
+          icon: Wallet,
         },
       ];
     }
@@ -780,6 +793,43 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const projectedCashFlowTitle = language === 'vi'
     ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+  const industryPageTitle = `${t('marketTitle')} ${getIndustryLabel(industry)}`;
+  const industryInsightTitle = language === 'vi'
+    ? `Nhận định ngành ${getIndustryLabel(industry)}`
+    : `${getIndustryLabel(industry)} insight`;
+  const industryInsightPayload = useMemo(() => ({
+    industry: getIndustryLabel(industry),
+    summary: industryStats ? {
+      bondCount: Number(industryStats.bondCount || 0),
+      issuedVolumeMillion: roundMetric(Number(industryStats.totalIssuedVolume || 0) / 1_000_000),
+      issuedValueBillion: roundMetric(Number(industryStats.totalIssuedValue || 0) / 1_000_000_000),
+      listedValueBillion: roundMetric(Number(industryStats.totalCurrentListedValue || 0) / 1_000_000_000),
+      remainingDebtBillion: roundMetric(Number(industryStats.totalRemainingDebt || 0) / 1_000_000_000),
+    } : null,
+    interestProfile: industryStats ? {
+      averageRate: roundMetric(Number(industryStats.avgRate || 0)),
+      averageCouponRate: roundMetric(Number(industryStats.avgCouponRate || 0)),
+      floatingRateRatio: roundMetric(Number(industryStats.floatingRate || 0)),
+    } : null,
+    leadingIssuers: deferredRankingData.slice(0, 6).map((item) => ({
+      issuerSymbol: item.issuerSymbol || '',
+      issuerName: item.issuerName || '',
+      remainingDebtBillion: roundMetric(Number(item.totalRemainingDebt || 0) / 1_000_000_000),
+      issuedValueBillion: roundMetric(Number(item.totalIssuedValue || 0) / 1_000_000_000),
+      bondCount: Number(item.bondCount || 0),
+    })),
+    issuedValueLeaders: issuedValueTreemapData.slice(0, 6).map((item) => ({
+      issuerSymbol: item.issuerSymbol || '',
+      issuerName: item.fullName || item.name || '',
+      issuedValueBillion: roundMetric(Number(item.value || 0)),
+    })),
+    projectedCashFlows: projectedCashFlowData.labels.slice(0, 6).map((label, index) => ({
+      period: label,
+      interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
+      principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
+      totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
+    })),
+  }), [deferredRankingData, getIndustryLabel, industry, industryStats, issuedValueTreemapData, projectedCashFlowData]);
 
   const projectedCashFlowOptions = {
     color: chartPalette,
@@ -911,9 +961,17 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         {isIndustrySummaryLoading
           ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
           : kpis.map((kpi, idx) => (
-            <MetricCard key={idx} label={kpi.label} value={kpi.value} unit={kpi.unit} />
+            <MetricCard key={idx} label={kpi.label} value={kpi.value} unit={kpi.unit} icon={kpi.icon} />
           ))}
       </div>
+
+      <AIInsightPanel
+        cacheKey={`industry-insight-${industry}`}
+        title={industryInsightTitle}
+        pageTitle={industryPageTitle}
+        sectionTitle={getIndustryLabel(industry)}
+        payload={industryInsightPayload}
+      />
 
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {/* Ranking - Double Height */}

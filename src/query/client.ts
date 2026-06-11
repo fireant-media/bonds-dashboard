@@ -1,4 +1,5 @@
 import { QueryClient, dehydrate, hydrate, type DehydratedState } from '@tanstack/react-query';
+import { safeSetLocalStorageItem } from '../utils/localStorageBudget';
 
 const DASHBOARD_STALE_TIME = 15 * 60 * 1000;
 const DASHBOARD_GC_TIME = 60 * 60 * 1000;
@@ -6,6 +7,7 @@ const DASHBOARD_GC_TIME = 60 * 60 * 1000;
 const QUERY_PERSIST_KEY = 'dashboard_query_cache_v3';
 const QUERY_PERSIST_TS_KEY = 'dashboard_query_cache_ts_v3';
 const QUERY_PERSIST_MAX_AGE = 24 * 60 * 60 * 1000;
+const QUERY_PERSIST_MAX_LENGTH = 650_000;
 
 const PERSISTABLE_ROOT_KEYS = new Set(['dashboard', 'bond', 'news', 'watchlist']);
 
@@ -99,8 +101,22 @@ export const setupDashboardQueryPersistence = (queryClient: QueryClient) => {
         },
       });
 
-      window.localStorage.setItem(QUERY_PERSIST_KEY, JSON.stringify(state));
-      window.localStorage.setItem(QUERY_PERSIST_TS_KEY, String(Date.now()));
+      const serialized = JSON.stringify(state);
+      const saved = safeSetLocalStorageItem(QUERY_PERSIST_KEY, serialized, {
+        maxLength: QUERY_PERSIST_MAX_LENGTH,
+        preserveKeys: [QUERY_PERSIST_TS_KEY],
+        warnOnFailure: false,
+        warnLabel: 'React Query cache',
+      });
+
+      if (saved) {
+        safeSetLocalStorageItem(QUERY_PERSIST_TS_KEY, String(Date.now()), {
+          maxLength: 64,
+          preserveKeys: [QUERY_PERSIST_KEY],
+          warnOnFailure: false,
+          warnLabel: 'React Query cache timestamp',
+        });
+      }
     } catch (error) {
       console.warn('Failed to persist React Query cache', error);
     }

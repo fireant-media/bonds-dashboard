@@ -1,8 +1,11 @@
 
+import { safeSetLocalStorageItem } from './localStorageBudget';
+
 // Persistent cache for API data to avoid spinners on tab navigation and after login
 const MEMORY_CACHE: Record<string, { data: any, timestamp: number }> = {};
 const DEFAULT_TTL = 30 * 60 * 1000; // Increase to 30 minutes for better persistence
 const CACHE_PREFIX = 'sentinel_cache_';
+const MAX_PERSISTED_CACHE_ITEM_LENGTH = 450_000;
 
 export const setCache = (key: string, data: any): boolean => {
   const item = { data, timestamp: Date.now() };
@@ -10,14 +13,12 @@ export const setCache = (key: string, data: any): boolean => {
   // Save to memory
   MEMORY_CACHE[key] = item;
   
-  // Save to localStorage for persistence
-  try {
-    localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(item));
-    return true;
-  } catch (e) {
-    console.warn('Failed to save cache to localStorage', e);
-    return false;
-  }
+  const serialized = JSON.stringify(item);
+  return safeSetLocalStorageItem(`${CACHE_PREFIX}${key}`, serialized, {
+    maxLength: MAX_PERSISTED_CACHE_ITEM_LENGTH,
+    warnOnFailure: false,
+    warnLabel: `cache ${key}`,
+  });
 };
 
 export const getCache = (key: string, ttl = DEFAULT_TTL) => {

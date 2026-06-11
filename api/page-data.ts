@@ -10,6 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     view,
     query: req.query as Record<string, string | string[] | undefined>,
     body: req.body,
+    headers: req.headers as Record<string, string | string[] | undefined>,
   });
 
   res.setHeader('Cache-Control', 'no-store, max-age=0');

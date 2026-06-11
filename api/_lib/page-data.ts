@@ -7,6 +7,7 @@ interface PageDataRequest {
   view?: string;
   query: Record<string, QueryValue>;
   body?: any;
+  headers?: Record<string, QueryValue>;
 }
 
 interface PageDataResponse {
@@ -91,6 +92,7 @@ async function fireantFetch<T>(
     method?: string;
     query?: Record<string, string | number | boolean | null | undefined>;
     body?: unknown;
+    accessToken?: string;
   } = {},
 ): Promise<T> {
   const method = options.method || 'GET';
@@ -101,10 +103,11 @@ async function fireantFetch<T>(
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   };
 
-  if (FIREANT_ACCESS_TOKEN) {
-    headers.Authorization = FIREANT_ACCESS_TOKEN.startsWith('Bearer ')
-      ? FIREANT_ACCESS_TOKEN
-      : `Bearer ${FIREANT_ACCESS_TOKEN}`;
+  const accessToken = normalizeText(options.accessToken || FIREANT_ACCESS_TOKEN);
+  if (accessToken) {
+    headers.Authorization = accessToken.startsWith('Bearer ')
+      ? accessToken
+      : `Bearer ${accessToken}`;
   }
 
   if (method !== 'GET' && method !== 'HEAD') {
@@ -131,6 +134,13 @@ async function fireantFetch<T>(
 
   return data as T;
 }
+
+const getRequestAccessToken = (request: PageDataRequest) => {
+  const headerToken = getQueryValue(request.headers?.['x-fireant-access-token']);
+  const authHeader = getQueryValue(request.headers?.authorization);
+  const rawToken = headerToken || authHeader || FIREANT_ACCESS_TOKEN;
+  return normalizeText(rawToken).replace(/^bearer\s+/i, '');
+};
 
 const getRows = <T>(payload: T[] | { data?: T[]; rows?: T[]; items?: T[]; result?: T[] } | null | undefined): T[] => {
   if (!payload) return [];
@@ -301,14 +311,14 @@ const aggregateIndustryStats = (stats: any[]) => stats.reduce(
   { bondCount: 0, totalIssuedVolume: 0, totalIssuedValue: 0, totalRemainingDebt: 0 },
 );
 
-async function getLevel1IndustryStats() {
-  return getRows<any>(await fireantFetch('bonds/stats/industries', { query: { top: 1000, level: 1 } }))
+async function getLevel1IndustryStats(accessToken?: string) {
+  return getRows<any>(await fireantFetch('bonds/stats/industries', { query: { top: 1000, level: 1 }, accessToken }))
     .map(normalizeIndustryStat)
     .filter((stat) => stat.icbCode);
 }
 
-async function getIssuerStats(top = 200) {
-  return getRows<any>(await fireantFetch('bonds/stats/issuers/top-debt', { query: { top } }))
+async function getIssuerStats(top = 200, accessToken?: string) {
+  return getRows<any>(await fireantFetch('bonds/stats/issuers/top-debt', { query: { top }, accessToken }))
     .map((issuer) => ({
       issuerName: normalizeText(issuer?.issuerName || issuer?.name || issuer?.issuerSymbol),
       issuerSymbol: normalizeText(issuer?.issuerSymbol || issuer?.symbol).toUpperCase(),
@@ -326,12 +336,12 @@ async function getIssuerStats(top = 200) {
     .filter((issuer) => issuer.issuerSymbol || issuer.issuerName);
 }
 
-async function getDedupedIndustrySymbols() {
+async function getDedupedIndustrySymbols(accessToken?: string) {
   const rawSymbolsByIndustry = new Map<string, string[]>();
 
   await Promise.all(INDUSTRIES.map(async (industry) => {
     try {
-      const payload = await fireantFetch<any[]>(`icb/${encodeURIComponent(industry.code)}/symbols`);
+      const payload = await fireantFetch<any[]>(`icb/${encodeURIComponent(industry.code)}/symbols`, { accessToken });
       rawSymbolsByIndustry.set(
         industry.id,
         Array.from(new Set(getRows(payload).map(getIcbSymbolValue).filter(Boolean))),
@@ -360,13 +370,13 @@ async function getDedupedIndustrySymbols() {
   return groupedSymbols;
 }
 
-async function getIssuerBonds(symbol: string) {
-  const rows = getRows<any>(await fireantFetch(`bonds/issuer/${encodeURIComponent(symbol)}`));
+async function getIssuerBonds(symbol: string, accessToken?: string) {
+  const rows = getRows<any>(await fireantFetch(`bonds/issuer/${encodeURIComponent(symbol)}`, { accessToken }));
   return rows.map(normalizeBondRow).filter((bond) => bond.bondCode);
 }
 
-async function getBondDetail(code: string) {
-  return fireantFetch<any>(`bonds/${encodeURIComponent(code)}`);
+async function getBondDetail(code: string, accessToken?: string) {
+  return fireantFetch<any>(`bonds/${encodeURIComponent(code)}`, { accessToken });
 }
 
 const buildIssuerSummaries = (bonds: any[]) => {
@@ -486,10 +496,10 @@ const buildChartPayload = (
   series,
 });
 
-async function attachCashFlows(bonds: any[], detailLimit: number) {
+async function attachCashFlows(bonds: any[], detailLimit: number, accessToken?: string) {
   const limited = bonds.slice(0, detailLimit);
   const details = await mapWithConcurrency(limited, 8, async (bond) => {
-    const detailData = await getBondDetail(bond.bondCode);
+    const detailData = await getBondDetail(bond.bondCode, accessToken);
     const detail = detailData?.detail || {};
     const cashFlows = Array.isArray(detailData?.cashFlows) ? detailData.cashFlows : [];
     return {
@@ -521,13 +531,14 @@ async function attachCashFlows(bonds: any[], detailLimit: number) {
   return bonds.map((bond) => detailByCode.get(bond.bondCode) || bond);
 }
 
-async function fetchIndustryBonds(icbCode: string, includeDetails: boolean, detailLimit: number) {
+async function fetchIndustryBonds(icbCode: string, includeDetails: boolean, detailLimit: number, accessToken?: string) {
   const includeCodes = icbCode === '30' ? ['30'] : [icbCode];
   const excludeCodes = icbCode === '30' ? new Set(['3010', '30202005']) : new Set<string>();
   const batches = await mapWithConcurrency(includeCodes, 3, async (code) => {
     const rows = getRows<any>(await fireantFetch('bonds/filter', {
       method: 'POST',
       body: { icbCode: code, statusID: 1 },
+      accessToken,
     }));
     return rows.map(normalizeBondRow);
   });
@@ -539,17 +550,17 @@ async function fetchIndustryBonds(icbCode: string, includeDetails: boolean, deta
   });
 
   const bonds = Array.from(deduped.values());
-  return includeDetails ? attachCashFlows(bonds, detailLimit) : bonds;
+  return includeDetails ? attachCashFlows(bonds, detailLimit, accessToken) : bonds;
 }
 
-async function getIndustryStatsForPage(industry: IndustryItem) {
+async function getIndustryStatsForPage(industry: IndustryItem, accessToken?: string) {
   const [level1, level2, level4] = await Promise.all([
-    fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 1 } }).catch(() => []),
+    fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 1 }, accessToken }).catch(() => []),
     industry.id === 'Banking' || industry.id === 'Financials'
-      ? fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 2 } }).catch(() => [])
+      ? fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 2 }, accessToken }).catch(() => [])
       : Promise.resolve([]),
     industry.id === 'Securities' || industry.id === 'Financials'
-      ? fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 4 } }).catch(() => [])
+      ? fireantFetch<any[]>('bonds/stats/industries', { query: { top: 1000, level: 4 }, accessToken }).catch(() => [])
       : Promise.resolve([]),
   ]);
   const byCode = new Map(
@@ -637,19 +648,20 @@ function getSchema() {
 }
 
 async function buildMarketOverview(request: PageDataRequest) {
+  const accessToken = getRequestAccessToken(request);
   const includeCashFlows = getQueryValue(request.query.includeCashFlows) === '1';
   const detailLimit = Math.min(getQueryNumber(request.query.detailLimit, 120), 300);
   const [industryStats, issuerStats, highYield] = await Promise.all([
-    getLevel1IndustryStats(),
-    getIssuerStats(200).catch(() => []),
-    fireantFetch<any[]>('bonds/stats/bonds/high-yield', { query: { top: 10 } }).catch(() => []),
+    getLevel1IndustryStats(accessToken),
+    getIssuerStats(200, accessToken).catch(() => []),
+    fireantFetch<any[]>('bonds/stats/bonds/high-yield', { query: { top: 10 }, accessToken }).catch(() => []),
   ]);
   const totals = aggregateIndustryStats(industryStats);
   const topIssuers = issuerStats.slice(0, 10);
   const bondsForCashFlow = includeCashFlows
-    ? await mapWithConcurrency(issuerStats.slice(0, 30), 6, async (issuer) => getIssuerBonds(issuer.issuerSymbol)).then((batches) => batches.flat())
+    ? await mapWithConcurrency(issuerStats.slice(0, 30), 6, async (issuer) => getIssuerBonds(issuer.issuerSymbol, accessToken)).then((batches) => batches.flat())
     : [];
-  const projectedBonds = includeCashFlows ? await attachCashFlows(bondsForCashFlow, detailLimit) : [];
+  const projectedBonds = includeCashFlows ? await attachCashFlows(bondsForCashFlow, detailLimit, accessToken) : [];
 
   return {
     page: 'market-overview',
@@ -718,16 +730,17 @@ async function buildMarketOverview(request: PageDataRequest) {
 }
 
 async function buildIndustry(request: PageDataRequest) {
+  const accessToken = getRequestAccessToken(request);
   const industryId = getQueryValue(request.query.industryId);
   const icbCode = getQueryValue(request.query.icbCode);
   const industry = INDUSTRY_BY_ID[industryId] || INDUSTRY_BY_CODE[icbCode] || INDUSTRY_BY_ID.Banking;
   const includeCashFlows = getQueryValue(request.query.includeCashFlows) !== '0';
   const detailLimit = Math.min(getQueryNumber(request.query.detailLimit, 150), 500);
   const [industryStats, bonds, issuerStats, symbolGroups] = await Promise.all([
-    getIndustryStatsForPage(industry),
-    fetchIndustryBonds(industry.code, includeCashFlows, detailLimit),
-    getIssuerStats(2000).catch(() => []),
-    getDedupedIndustrySymbols().catch(() => ({} as Record<string, string[]>)),
+    getIndustryStatsForPage(industry, accessToken),
+    fetchIndustryBonds(industry.code, includeCashFlows, detailLimit, accessToken),
+    getIssuerStats(2000, accessToken).catch(() => []),
+    getDedupedIndustrySymbols(accessToken).catch(() => ({} as Record<string, string[]>)),
   ]);
   const industrySymbols = new Set(symbolGroups[industry.id] || []);
   const issuerSummariesFromStats = buildIssuerSummariesFromStats(issuerStats, industrySymbols);
@@ -794,20 +807,21 @@ async function buildIndustry(request: PageDataRequest) {
 }
 
 async function buildIssuer(request: PageDataRequest) {
+  const accessToken = getRequestAccessToken(request);
   const symbol = getQueryValue(request.query.symbol).toUpperCase();
   const q = getQueryValue(request.query.q);
   if (!symbol && q) {
-    const results = await fireantFetch<any>('symbols/search', { query: { q } }).catch(() => []);
+    const results = await fireantFetch<any>('symbols/search', { query: { q }, accessToken }).catch(() => []);
     return { page: 'issuer-search', query: q, results: getRows(results) };
   }
   if (!symbol) return { page: 'issuer', error: 'Missing symbol query parameter' };
 
   const [bonds, profile, financialData] = await Promise.all([
-    getIssuerBonds(symbol),
-    fireantFetch<any>(`symbols/${encodeURIComponent(symbol)}/profile`).catch(() => null),
-    fireantFetch<any>(`symbols/${encodeURIComponent(symbol)}/financial-data`, { query: { type: 'Q', count: 4 } }).catch(() => null),
+    getIssuerBonds(symbol, accessToken),
+    fireantFetch<any>(`symbols/${encodeURIComponent(symbol)}/profile`, { accessToken }).catch(() => null),
+    fireantFetch<any>(`symbols/${encodeURIComponent(symbol)}/financial-data`, { query: { type: 'Q', count: 4 }, accessToken }).catch(() => null),
   ]);
-  const detailedBonds = await attachCashFlows(bonds, Math.min(getQueryNumber(request.query.detailLimit, 120), 300));
+  const detailedBonds = await attachCashFlows(bonds, Math.min(getQueryNumber(request.query.detailLimit, 120), 300), accessToken);
   const totals = buildIssuerSummaries(detailedBonds)[0] || {};
 
   return {
@@ -844,6 +858,7 @@ async function buildIssuer(request: PageDataRequest) {
 }
 
 async function buildWatchlist(request: PageDataRequest) {
+  const accessToken = getRequestAccessToken(request);
   const codes = getCodes(request);
   if (codes.length === 0) {
     return {
@@ -852,7 +867,7 @@ async function buildWatchlist(request: PageDataRequest) {
       note: 'Watchlist nam trong localStorage cua browser; gui codes=AAA,BBB hoac POST { codes: [...] } de hydrate du lieu.',
     };
   }
-  const bonds = await attachCashFlows(codes.map((code) => ({ bondCode: code })), Math.min(codes.length, 200));
+  const bonds = await attachCashFlows(codes.map((code) => ({ bondCode: code })), Math.min(codes.length, 200), accessToken);
   const totals = bonds.reduce(
     (acc, bond) => ({
       bondCount: acc.bondCount + 1,
@@ -893,8 +908,9 @@ async function buildWatchlist(request: PageDataRequest) {
 }
 
 async function buildMaturity(request: PageDataRequest) {
+  const accessToken = getRequestAccessToken(request);
   const days = getQueryNumber(request.query.days, 365);
-  const rows = getRows<any>(await fireantFetch('bonds/stats/bonds/maturing-soon', { query: { days } }))
+  const rows = getRows<any>(await fireantFetch('bonds/stats/bonds/maturing-soon', { query: { days }, accessToken }))
     .map(normalizeBondRow)
     .filter((bond) => bond.bondCode);
   const today = new Date();
@@ -950,8 +966,18 @@ async function buildMaturity(request: PageDataRequest) {
 
 export async function handlePageDataRequest(request: PageDataRequest): Promise<PageDataResponse> {
   const view = request.view || getQueryValue(request.query.view) || 'schema';
+  const accessToken = getRequestAccessToken(request);
   try {
     if (view === 'schema') return { status: 200, data: getSchema() };
+    if (!accessToken) {
+      return {
+        status: 401,
+        data: {
+          error: 'FireAnt access token is required',
+          view,
+        },
+      };
+    }
     if (view === 'market-overview') return { status: 200, data: await buildMarketOverview(request) };
     if (view === 'industry') return { status: 200, data: await buildIndustry(request) };
     if (view === 'issuer') return { status: 200, data: await buildIssuer(request) };

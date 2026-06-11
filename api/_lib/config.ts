@@ -21,14 +21,12 @@ export const OPENAI_BASE_URL =
 
 export const OPENAI_API_KEY = readEnv(
   "OPENAI_API_KEY",
-  "VITE_FIREANT_ACCESS_TOKEN",
-  "FIREANT_ACCESS_TOKEN",
 );
 
 export const FIREANT_ACCESS_TOKEN = readEnv("VITE_FIREANT_ACCESS_TOKEN", "FIREANT_ACCESS_TOKEN");
 
 export const DEFAULT_AI_MODEL =
-  readEnv("OPENAI_DEFAULT_MODEL", "FIREANT_AI_DEFAULT_MODEL") || "gpt-4o-mini";
+  readEnv("OPENAI_DEFAULT_MODEL", "FIREANT_AI_DEFAULT_MODEL") || "gpt-5.4-mini";
 
 export const FIREANT_WEB_URL = "https://fireant.vn";
 

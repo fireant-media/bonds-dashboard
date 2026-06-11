@@ -1,4 +1,4 @@
-import { LayoutDashboard, Building2, Briefcase, Bookmark, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Building2, Bookmark, CalendarClock, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -17,9 +17,10 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   activeIndustry: string;
   setActiveIndustry: (industry: string) => void;
+  activeFilterSubTab: 'issuer' | 'bonds';
+  setActiveFilterSubTab: (subTab: 'issuer' | 'bonds') => void;
   isOpen: boolean;
   onToggle: () => void;
-  onEnterpriseTabClick: () => void;
 }
 
 export default function Sidebar({
@@ -27,11 +28,13 @@ export default function Sidebar({
   setActiveTab,
   activeIndustry,
   setActiveIndustry,
+  activeFilterSubTab,
+  setActiveFilterSubTab,
   isOpen,
   onToggle,
-  onEnterpriseTabClick
 }: SidebarProps) {
   const [isIndustryOpen, setIsIndustryOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
     () => getCache('sidebar_industry_issued_values_v2')
   );
@@ -41,7 +44,8 @@ export default function Sidebar({
   const menuItems = [
     { id: 'overview', label: t('overview'), icon: LayoutDashboard },
     { id: 'industry', label: t('industry'), icon: Building2, hasSubmenu: true },
-    { id: 'enterprise', label: t('enterprise'), icon: Briefcase },
+    { id: 'filter', label: t('filterTab'), icon: SlidersHorizontal, hasSubmenu: true },
+    { id: 'maturity-list', label: t('upcomingBonds'), icon: CalendarClock },
     { id: 'watchlist', label: t('watchList'), icon: Bookmark },
   ];
 
@@ -50,6 +54,15 @@ export default function Sidebar({
       setIndustryIssuedValues(industryIssuedValuesQuery.data);
     }
   }, [industryIssuedValuesQuery.data]);
+
+  useEffect(() => {
+    if (activeTab === 'industry') {
+      setIsIndustryOpen(true);
+    }
+    if (activeTab === 'filter') {
+      setIsFilterOpen(true);
+    }
+  }, [activeTab]);
 
   const subIndustries = useMemo(() => {
     const items = INDUSTRY_NAV_ITEMS.map((item) => ({
@@ -75,7 +88,7 @@ export default function Sidebar({
             <div key={item.id}>
               <button
                 onMouseEnter={() => {
-                  if (item.id === 'overview' || item.id === 'enterprise') {
+                  if (item.id === 'overview' || item.id === 'filter') {
                     warmDashboardCoreDataInBackground();
                   }
                 }}
@@ -83,18 +96,20 @@ export default function Sidebar({
                   if (item.hasSubmenu) {
                     if (!isOpen) {
                       onToggle();
-                      setIsIndustryOpen(true);
-                      setActiveTab('industry');
+                      if (item.id === 'industry') {
+                        setIsIndustryOpen(true);
+                        setActiveTab('industry');
+                      } else {
+                        setIsFilterOpen(true);
+                        setActiveTab('filter');
+                      }
                       return;
                     }
-                    setIsIndustryOpen(!isIndustryOpen);
-                  } else if (item.id === 'enterprise') {
-                    if (activeTab === item.id && isOpen) {
-                      onToggle();
+                    if (item.id === 'industry') {
+                      setIsIndustryOpen(!isIndustryOpen);
                       return;
                     }
-                    if (!isOpen) onToggle();
-                    onEnterpriseTabClick();
+                    setIsFilterOpen(!isFilterOpen);
                   } else {
                     if (activeTab === item.id && isOpen) {
                       onToggle();
@@ -112,20 +127,22 @@ export default function Sidebar({
                     : "text-text-muted hover:bg-surface-container-low hover:text-text-highlight"
                 )}
                 title={!isOpen ? item.label : undefined}
-              >
+                >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id ? "text-slate-950" : "text-text-muted group-hover:text-text-highlight")} />
                   {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id ? "font-semibold" : "font-medium")}>{item.label}</span>}
                 </div>
                 {isOpen && item.hasSubmenu && (
-                  isIndustryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
+                  ((item.id === 'industry' && isIndustryOpen) || (item.id === 'filter' && isFilterOpen))
+                    ? <ChevronDown className="h-4 w-4" />
+                    : <ChevronRight className="h-4 w-4" />
                 )}
                 {isOpen && !item.hasSubmenu && activeTab === item.id && (
                   <ChevronRight className="h-4 w-4 animate-in slide-in-from-left-2 duration-300" />
                 )}
               </button>
 
-              {isOpen && item.hasSubmenu && isIndustryOpen && (
+              {isOpen && item.id === 'industry' && isIndustryOpen && (
                 <div className="mt-1 ml-6 lg:ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
                   {subIndustries.map((sub) => (
                     <button
@@ -150,6 +167,39 @@ export default function Sidebar({
                       )}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {isOpen && item.id === 'filter' && isFilterOpen && (
+                <div className="mt-1 ml-6 lg:ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
+                  {[
+                    { id: 'issuer' as const, label: t('filterByIssuer') },
+                    { id: 'bonds' as const, label: t('filterByBond') },
+                  ].map((sub) => {
+                    const isActive = activeTab === 'filter' && activeFilterSubTab === sub.id;
+
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          warmDashboardCoreDataInBackground();
+                          setActiveFilterSubTab(sub.id);
+                        }}
+                        className={cn(
+                          "w-full text-left px-4 py-2 text-sm leading-snug rounded-lg transition-colors flex items-start justify-between gap-2 group break-words",
+                          isActive
+                            ? "bg-action-accent text-slate-950 font-semibold shadow-md shadow-cyan-500/20"
+                            : "text-text-muted hover:text-text-highlight hover:bg-surface-container-low"
+                        )}
+                      >
+                        <span className="min-w-0">{sub.label}</span>
+                        {isActive && (
+                          <ChevronRight className="mt-1 h-3 w-3 shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { formatNumber } from '../utils/format';
-import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X } from 'lucide-react';
+import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X, type LucideIcon } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { applyChartTheme, downloadChartImage, getChartTheme } from '../utils/chart';
@@ -39,6 +39,7 @@ interface ChartWithToolbarProps {
   notMerge?: boolean;
   lazyUpdate?: boolean;
   title?: ReactNode;
+  titleIcon?: LucideIcon;
   titleAlign?: 'left' | 'center' | 'right';
   actions?: ReactNode;
   actionsPlacement?: 'inline' | 'below';
@@ -382,6 +383,7 @@ export default function ChartWithToolbar({
   notMerge,
   lazyUpdate,
   title,
+  titleIcon: TitleIcon = BarChart3,
   titleAlign = 'center',
   actions,
   actionsPlacement = 'below',
@@ -392,6 +394,8 @@ export default function ChartWithToolbar({
   const isDark = effectiveTheme === 'dark';
   const chartTheme = getChartTheme(isDark);
   const chartRef = useRef<any>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const zoomChartContainerRef = useRef<HTMLDivElement | null>(null);
   const [showDataView, setShowDataView] = useState(false);
   const [showDataViewBackButton, setShowDataViewBackButton] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
@@ -422,6 +426,12 @@ export default function ChartWithToolbar({
   ), [dataTable.headers]);
   const dataViewTitle = getTitleText(title);
   const dataViewFileName = dataViewTitle || t('dataView');
+  const titleWrapClass =
+    titleAlign === 'left'
+      ? 'min-w-0 text-left'
+      : titleAlign === 'right'
+        ? 'min-w-0 text-right'
+        : 'min-w-0 text-center';
 
   useEffect(() => {
     setChartMode(baseChartMode);
@@ -611,6 +621,32 @@ export default function ChartWithToolbar({
     };
   }, [showZoom]);
 
+  useEffect(() => {
+    const container = chartContainerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(() => {
+      chartRef.current?.getEchartsInstance?.()?.resize?.();
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [chartMode, renderedOption]);
+
+  useEffect(() => {
+    if (!showZoom) return undefined;
+
+    const container = zoomChartContainerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return undefined;
+
+    const observer = new ResizeObserver(() => {
+      chartRef.current?.getEchartsInstance?.()?.resize?.();
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [renderedZoomOption, showZoom]);
+
   return (
     <div
       className={`group flex min-h-0 flex-col ${className || ''}`}
@@ -690,9 +726,20 @@ export default function ChartWithToolbar({
                   }
                 >
                   {title ? (
-                    <div className={titleAlign === 'left' ? 'min-w-0 text-left' : titleAlign === 'right' ? 'min-w-0 text-right' : 'min-w-0 text-center'}>
-                      <div className="line-clamp-2 text-sm font-bold leading-snug text-text-base md:text-base">
-                        {title}
+                    <div className={titleWrapClass}>
+                      <div
+                        className={`inline-flex max-w-full items-center gap-2 transition-colors duration-200 ${
+                          titleAlign === 'left'
+                            ? 'justify-start'
+                            : titleAlign === 'right'
+                              ? 'justify-end'
+                              : 'justify-center'
+                        }`}
+                      >
+                        <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                        <div className="line-clamp-2 text-base font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
+                          {title}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -709,8 +756,11 @@ export default function ChartWithToolbar({
                 <div className="flex min-w-0 justify-center text-center">
                   {title ? (
                     <div className="min-w-0 max-w-3xl">
-                      <div className="line-clamp-2 text-sm font-bold leading-snug text-text-base md:text-base">
-                        {title}
+                      <div className="inline-flex max-w-full items-center justify-center gap-2 transition-colors duration-200">
+                        <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                        <div className="line-clamp-2 text-base font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
+                          {title}
+                        </div>
                       </div>
                     </div>
                   ) : null}
@@ -726,11 +776,12 @@ export default function ChartWithToolbar({
           </div>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1">
+      <div ref={chartContainerRef} className="min-h-0 flex-1 overflow-hidden">
           <ReactECharts
             ref={chartRef}
             option={renderedOption}
             style={{ height: '100%', width: '100%' }}
+            autoResize
             notMerge={notMerge}
             lazyUpdate={lazyUpdate}
         />
@@ -814,8 +865,11 @@ export default function ChartWithToolbar({
                 ) : null}
                 {title ? (
                   <div className="min-w-0 pt-3 text-center">
-                    <div className="line-clamp-2 text-base font-bold leading-snug text-text-base md:text-2xl">
-                      {title}
+                    <div className="inline-flex max-w-full items-center justify-center gap-2 transition-colors duration-200">
+                      <TitleIcon className="h-5 w-5 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                      <div className="line-clamp-2 text-lg font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-2xl">
+                        {title}
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -838,11 +892,12 @@ export default function ChartWithToolbar({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
+            <div ref={zoomChartContainerRef} className="flex-1 min-h-0 overflow-hidden px-4 pb-4 pt-2">
               <ReactECharts
                 ref={chartRef}
                 option={renderedZoomOption}
                 style={zoomChartStyle}
+                autoResize
                 notMerge={notMerge}
                 lazyUpdate={lazyUpdate}
               />

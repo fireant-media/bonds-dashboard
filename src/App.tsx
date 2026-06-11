@@ -1,8 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
-import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
 import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
-import RightPanel from './components/RightPanel';
 import LoginView from './components/LoginView';
 import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { useLanguage } from './LanguageContext';
@@ -14,20 +13,20 @@ import { buildAppApiUrl } from './api/config';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
 import { dashboardQueryClient } from './query/client';
 import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/dashboardQueries';
-import { Calendar, Menu, Newspaper } from 'lucide-react';
+import { Menu } from 'lucide-react';
 
 const MarketOverview = lazy(() => import('./components/MarketOverview'));
 const IndustryView = lazy(() => import('./components/IndustryView'));
-const EnterpriseView = lazy(() => import('./components/EnterpriseView'));
+const FilterView = lazy(() => import('./components/FilterView'));
 const MaturityListView = lazy(() => import('./components/MaturityListView'));
 const NewsListView = lazy(() => import('./components/NewsListView'));
 const WatchlistView = lazy(() => import('./components/WatchlistView'));
 const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
 const HelpView = lazy(() => import('./components/HelpView'));
-// AI chat removed from dashboard UI
+const AIChatBot = lazy(() => import('./components/AIChatBot'));
 
-const RESERVED_ROUTES = ['industry', 'enterprise', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
+const RESERVED_ROUTES = ['industry', 'enterprise', 'filter', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
 
 const isBondCode = (s: string) => {
   if (!s) return false;
@@ -43,7 +42,7 @@ export default function App() {
   const { user, isLoading: authLoading, signIn, signOut } = useOidcAuth();
   
   // Derive activeTab from location.pathname
-  const { activeTab, activeIndustry, ticker, bondCode } = (() => {
+  const { activeTab, activeIndustry, ticker, bondCode, filterSubTab } = (() => {
     // If we have a background location (from state), use that to determine the active tab
     const currentPath = location.state?.backgroundLocation?.pathname || location.pathname;
     const parts = currentPath.split('/').filter(Boolean);
@@ -62,9 +61,20 @@ export default function App() {
       };
     }
     
+    if (currentPath.startsWith('/filter')) {
+      const subTab = parts[1] === 'bonds' ? 'bonds' : 'issuer';
+      return {
+        activeTab: 'filter',
+        filterSubTab: subTab as 'issuer' | 'bonds',
+        ticker: subTab === 'issuer' ? parts[2] || null : null,
+        bondCode: urlBondCode,
+      };
+    }
+
     if (currentPath.startsWith('/enterprise')) {
       return { 
-        activeTab: 'enterprise', 
+        activeTab: 'filter',
+        filterSubTab: 'issuer' as const,
         ticker: parts[1] || null,
         bondCode: urlBondCode
       };
@@ -89,9 +99,7 @@ export default function App() {
 
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<'maturity' | 'news'>('maturity');
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
@@ -102,7 +110,7 @@ export default function App() {
         navigate(`/industry/${activeIndustry || 'Banking'}`);
         break;
       }
-      case 'enterprise': navigate('/enterprise'); break;
+      case 'filter': navigate('/filter/issuer'); break;
       case 'maturity-list': navigate('/maturity'); break;
       case 'news-list': navigate('/news'); break;
       case 'watchlist': navigate('/watchlist'); break;
@@ -114,6 +122,10 @@ export default function App() {
 
   const setActiveIndustry = (industry: string) => {
     navigate(`/industry/${industry}`);
+  };
+
+  const setActiveFilterSubTab = (subTab: 'issuer' | 'bonds') => {
+    navigate(subTab === 'bonds' ? '/filter/bonds' : '/filter/issuer');
   };
 
   const handleSetSelectedBond = (bond: Bond | null) => {
@@ -135,26 +147,14 @@ export default function App() {
   const appFrameRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleRightPanelTabClick = (tab: 'maturity' | 'news') => {
-    if (isRightPanelOpen && rightPanelTab === tab) {
-      setIsRightPanelOpen(false);
-      return;
-    }
-
-    setRightPanelTab(tab);
-    setIsRightPanelOpen(true);
-  };
-
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 1023px)');
     const syncPanels = (event: MediaQueryList | MediaQueryListEvent) => {
       setIsMobileLayout(event.matches);
       if (event.matches) {
         setIsSidebarOpen(false);
-        setIsRightPanelOpen(true);
       } else {
         setIsSidebarOpen(true);
-        setIsRightPanelOpen(true);
       }
     };
 
@@ -169,19 +169,19 @@ export default function App() {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
     }
-  }, [activeTab, activeIndustry, ticker]);
+  }, [activeTab, activeIndustry, ticker, filterSubTab]);
 
   const handleSetSelectedEnterprise = (enterprise: Enterprise | null) => {
     if (enterprise) {
-      navigate(`/enterprise/${enterprise.ticker}`);
+      navigate(`/filter/issuer/${enterprise.ticker}`);
     } else {
-      navigate('/enterprise');
+      navigate('/filter/issuer');
     }
   };
 
   // Sync selectedEnterprise with URL ticker
   useEffect(() => {
-    if (activeTab === 'enterprise' && ticker) {
+    if (activeTab === 'filter' && filterSubTab === 'issuer' && ticker) {
       if (!selectedEnterprise || selectedEnterprise.ticker !== ticker) {
         const cachedEnterprises = (getCache('enterprise_list') || []) as Enterprise[];
         const cached = cachedEnterprises.find((e) => e.ticker === ticker);
@@ -200,10 +200,10 @@ export default function App() {
           });
         }
       }
-    } else if (activeTab === 'enterprise' && !ticker && selectedEnterprise) {
+    } else if (activeTab === 'filter' && filterSubTab === 'issuer' && !ticker && selectedEnterprise) {
       setSelectedEnterprise(null);
     }
-  }, [activeTab, ticker, selectedEnterprise]);
+  }, [activeTab, filterSubTab, ticker, selectedEnterprise]);
 
   // Sync selectedBond from URL bondCode
   useEffect(() => {
@@ -284,6 +284,7 @@ export default function App() {
       activeIndustry,
       ticker,
       bondCode,
+      filterSubTab,
     });
 
     void currentViewPrefetch.finally(() => {
@@ -292,12 +293,17 @@ export default function App() {
       void import('./components/MarketOverview');
       void import('./components/IndustryView');
       void import('./components/EnterpriseView');
+      void import('./components/FilterView');
     });
 
     if (activeTab === 'industry') {
       void import('./components/IndustryView');
-    } else if (activeTab === 'enterprise') {
+    } else if (activeTab === 'filter') {
+      void import('./components/FilterView');
       void import('./components/EnterpriseView');
+      if (filterSubTab === 'bonds') {
+        void import('./components/MarketBondFilterView');
+      }
     } else if (activeTab === 'maturity-list') {
       void import('./components/MaturityListView');
     } else if (activeTab === 'news-list') {
@@ -308,7 +314,7 @@ export default function App() {
       void import('./components/MarketOverview');
     }
 
-  }, [user, authLoading, activeTab, activeIndustry, ticker, bondCode]);
+  }, [user, authLoading, activeTab, activeIndustry, ticker, bondCode, filterSubTab]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -350,7 +356,7 @@ export default function App() {
         initialDebt: cached?.initialDebt || 0,
         remainingDebt: cached?.remainingDebt || 0,
       };
-      navigate(`/enterprise/${selection.ticker}`);
+      navigate(`/filter/issuer/${selection.ticker}`);
       setSelectedBond(null);
       setBondEnterpriseName('');
       return;
@@ -432,18 +438,10 @@ export default function App() {
     }
   };
 
-  const handleEnterpriseTabClick = () => {
-    navigate('/enterprise');
-  };
-
   const handleSelectNews = (news: NewsItem) => {
     const url = news.originalUrl || news.url;
     if (!url || url === '#') return;
     window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleSeeMoreNews = () => {
-    navigate('/news');
   };
 
   if (location.pathname === '/signin-callback') {
@@ -509,9 +507,10 @@ export default function App() {
               setActiveTab={setActiveTab} 
               activeIndustry={activeIndustry} 
               setActiveIndustry={setActiveIndustry} 
+              activeFilterSubTab={filterSubTab || 'issuer'}
+              setActiveFilterSubTab={setActiveFilterSubTab}
               isOpen={isSidebarOpen} 
               onToggle={() => setIsSidebarOpen(!isSidebarOpen)} 
-              onEnterpriseTabClick={handleEnterpriseTabClick} 
             />
           </div>
           </>
@@ -523,7 +522,7 @@ export default function App() {
             !isProfileMode ? "bg-bg-base" : "h-full"
           )}>
             {!isProfileMode && isMobileLayout && (
-              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
+              <div className="flex shrink-0 items-center gap-2 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
                 <button
                   type="button"
                   onClick={() => setIsSidebarOpen(true)}
@@ -533,30 +532,6 @@ export default function App() {
                 >
                   <Menu className="h-5 w-5" />
                 </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleRightPanelTabClick('maturity')}
-                    className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95",
-                      isRightPanelOpen && rightPanelTab === 'maturity' && "border-text-highlight bg-action-accent text-slate-950 shadow-md shadow-cyan-500/20 hover:text-slate-950"
-                    )}
-                    title={t('upcomingBonds')}
-                  >
-                    <Calendar className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRightPanelTabClick('news')}
-                    className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95",
-                      isRightPanelOpen && rightPanelTab === 'news' && "border-text-highlight bg-action-accent text-slate-950 shadow-md shadow-cyan-500/20 hover:text-slate-950"
-                    )}
-                    title={t('relatedNews')}
-                  >
-                    <Newspaper className="h-5 w-5" />
-                  </button>
-                </div>
               </div>
             )}
             <main className="flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
@@ -583,14 +558,27 @@ export default function App() {
                   <Routes location={location.state?.backgroundLocation || location}>
                     <Route path="/" element={<MarketOverview />} />
                     <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
-                    <Route path="/enterprise/:ticker?" element={
-                      <EnterpriseView 
-                        selectedEnterprise={selectedEnterprise} 
+                    <Route path="/filter" element={<Navigate to="/filter/issuer" replace />} />
+                    <Route path="/filter/issuer/:ticker?" element={
+                      <FilterView
+                        activeSubTab="issuer"
+                        selectedEnterprise={selectedEnterprise}
                         setSelectedEnterprise={handleSetSelectedEnterprise}
                         setSelectedBond={handleSetSelectedBond}
                         setBondEnterpriseName={setBondEnterpriseName}
                       />
                     } />
+                    <Route path="/filter/bonds" element={
+                      <FilterView
+                        activeSubTab="bonds"
+                        selectedEnterprise={selectedEnterprise}
+                        setSelectedEnterprise={handleSetSelectedEnterprise}
+                        setSelectedBond={handleSetSelectedBond}
+                        setBondEnterpriseName={setBondEnterpriseName}
+                      />
+                    } />
+                    <Route path="/enterprise" element={<LegacyEnterpriseRedirect />} />
+                    <Route path="/enterprise/:ticker" element={<LegacyEnterpriseRedirect />} />
                     <Route path="/maturity" element={
                       <MaturityListView 
                         setSelectedBond={handleSetSelectedBond}
@@ -616,43 +604,13 @@ export default function App() {
                 </Suspense>
               </div>
             </main>
-
-            {!isProfileMode && (!isMobileLayout || isRightPanelOpen) && (
-              <>
-              {isRightPanelOpen && isMobileLayout && (
-                <button
-                  type="button"
-                  onClick={() => setIsRightPanelOpen(false)}
-                  className="fixed inset-0 top-16 z-30 bg-black/20 lg:hidden"
-                  aria-label={t('hideSidebar')}
-                />
-              )}
-              <div className={cn(
-                "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright/95 backdrop-blur",
-                isRightPanelOpen
-                  ? "fixed bottom-0 right-0 top-16 z-40 w-80 max-w-full border-l shadow-xl lg:static lg:z-auto lg:w-64 lg:shadow-none"
-                  : "w-0 border-0"
-              )}>
-                <RightPanel 
-                  isOpen={isRightPanelOpen}
-                  onToggle={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                  activePanelTab={rightPanelTab}
-                  setActivePanelTab={setRightPanelTab}
-                  setSelectedBond={handleSetSelectedBond}
-                  setBondEnterpriseName={setBondEnterpriseName}
-                  onSeeMoreMaturity={() => setActiveTab('maturity-list')}
-                  onSelectNews={handleSelectNews}
-                  onSeeMoreNews={handleSeeMoreNews}
-                  newsSymbol={activeTab === 'enterprise' ? (ticker || selectedEnterprise?.ticker || null) : null}
-                />
-              </div>
-              </>
-            )}
           </div>
         </div>
       </div>
 
-      {/* AI chat removed from dashboard UI */}
+      <Suspense fallback={null}>
+        <AIChatBot />
+      </Suspense>
 
       {selectedBond && (
         <Suspense fallback={null}>
@@ -672,4 +630,9 @@ import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+function LegacyEnterpriseRedirect() {
+  const { ticker } = useParams();
+  return <Navigate to={ticker ? `/filter/issuer/${ticker}` : '/filter/issuer'} replace />;
 }

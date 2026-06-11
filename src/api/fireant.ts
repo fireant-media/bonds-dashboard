@@ -16,6 +16,36 @@ export interface IndustryBondsFilterQuery {
   statusID?: number | null;
 }
 
+export interface BondRestFilterBody {
+  bondTypeID?: number | null;
+  bondRateTypeID?: number | null;
+  currencyID?: number | null;
+  marketID?: number | null;
+  icbCode?: string | null;
+  issueFormID?: number | null;
+  issueMethodID?: number | null;
+  statusID?: number | null;
+  issuerName?: string | null;
+  issuerInstitutionID?: number | null;
+  issuerSymbol?: string | null;
+  isListing?: number | null;
+  issueDateFrom?: string | null;
+  issueDateTo?: string | null;
+  maturityDateFrom?: string | null;
+  maturityDateTo?: string | null;
+  minBondRate?: number | null;
+  maxBondRate?: number | null;
+  minTenorMonths?: number | null;
+  maxTenorMonths?: number | null;
+  top?: number | null;
+  sortBy?: number | null;
+}
+
+const pruneEmptyBody = <T extends object>(body: T) =>
+  Object.fromEntries(
+    Object.entries(body as Record<string, unknown>).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  ) as Partial<T>;
+
 const inflightRequests = new Map<string, Promise<unknown>>();
 
 export class FireantApiError extends Error {
@@ -111,20 +141,20 @@ export const fireantApi = {
       },
     }),
   getBondsByIndustryFilter: (query: IndustryBondsFilterQuery = {}) =>
+    fireantApi.filterBonds({
+      icbCode: query.icbCode ? String(query.icbCode) : null,
+      statusID: query.statusID ?? 1,
+    }),
+  getBondsFilter: (query: IndustryBondsFilterQuery = {}) =>
+    fireantApi.getBondsByIndustryFilter(query),
+  filterBonds: (body: BondRestFilterBody = {}) =>
     fireantRequest<any[]>("bonds/filter", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        icbCode: query.icbCode,
-        statusID: query.statusID,
-      }),
+      body: JSON.stringify(pruneEmptyBody(body)),
     }),
-  getBondsFilter: (query: IndustryBondsFilterQuery = {}) =>
-    fireantApi.getBondsByIndustryFilter(query),
-  filterBonds: (query: Record<string, string | number | boolean | null | undefined> = {}) =>
-    fireantRequest<any[]>("bond_Filter", { query }),
   getBondStatisticsByIssuer: (top = 200, sortBy = 2, statusId = 1, isListing = 1) =>
     fireantRequest<any[]>("bond_StatisticsByIssuer", {
       query: {

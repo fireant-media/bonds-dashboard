@@ -65,6 +65,7 @@ Primary REST sources:
 - Symbols by ICB: `fireantApi.getIcbSymbols(code)` -> `GET /icb/{code}/symbols`
 - Bonds by issuer: `fireantApi.getIssuerBonds(symbol)` -> `GET /bonds/issuer/{symbol}`
 - Bonds by industry: `fireantApi.getBondsByIndustryFilter({ icbCode, statusID })` -> `POST /bonds/filter`
+- Generic bond filter: `fireantApi.filterBonds(body)` -> `POST /bonds/filter`
 - Bond detail/cash flows: `fireantApi.getBond(code)` -> `GET /bonds/{code}`
 - Maturing bonds: `fireantApi.getMaturingSoon(days)` -> `GET /bonds/stats/bonds/maturing-soon?days={days}`
 - Issuer stats: `fireantApi.getTopDebtIssuers(top)` -> `GET /bonds/stats/issuers/top-debt?top={top}`
@@ -79,6 +80,81 @@ Legacy procedure endpoints are compatibility only:
 - `/api/fireant/bond_Filter?MaturityDateFrom=...&MaturityDateTo=...` is translated in `api/proxy.ts` to `/bonds/stats/bonds/maturing-soon`.
 - `bond_StatisticsByIssuer` is translated to `/bonds/stats/issuers/top-debt`.
 - `bond_GetCategoryList` is translated for issuer and industry category usage.
+
+## POST /bonds/filter Contract
+
+Use `POST /bonds/filter` as the primary API for ad hoc bond filtering in UI filters and AI/system data requests.
+
+Canonical JSON body:
+
+```json
+{
+  "bondTypeID": 0,
+  "bondRateTypeID": 0,
+  "currencyID": 0,
+  "marketID": 0,
+  "icbCode": "string",
+  "issueFormID": 0,
+  "issueMethodID": 0,
+  "statusID": 0,
+  "issuerName": "string",
+  "issuerInstitutionID": 0,
+  "issuerSymbol": "string",
+  "isListing": 0,
+  "issueDateFrom": "2026-06-11T03:46:58.595Z",
+  "issueDateTo": "2026-06-11T03:46:58.595Z",
+  "maturityDateFrom": "2026-06-11T03:46:58.595Z",
+  "maturityDateTo": "2026-06-11T03:46:58.595Z",
+  "minBondRate": 0,
+  "maxBondRate": 0,
+  "minTenorMonths": 0,
+  "maxTenorMonths": 0,
+  "top": 0,
+  "sortBy": 0
+}
+```
+
+Examples:
+
+Filter by tenor:
+
+```json
+{
+  "statusID": 1,
+  "minTenorMonths": 0,
+  "maxTenorMonths": 50
+}
+```
+
+Filter by issue date:
+
+```json
+{
+  "statusID": 1,
+  "issueDateFrom": "2026-06-11T03:46:58.595Z",
+  "issueDateTo": "2026-06-11T03:46:58.595Z"
+}
+```
+
+Filter by maturity date:
+
+```json
+{
+  "statusID": 1,
+  "maturityDateFrom": "2026-06-11T03:46:58.595Z",
+  "maturityDateTo": "2026-06-11T03:46:58.595Z"
+}
+```
+
+Filter by bond yield / rate:
+
+```json
+{
+  "statusID": 0,
+  "minBondRate": 0,
+  "maxBondRate": 0
+}
+```
 
 ## ICB Industries
 
@@ -158,7 +234,7 @@ For expensive grouped industry loaders, keep an in-flight promise map alongside 
 - `loadIssuerBondsByFilter(symbol)` must use `GET /bonds/issuer/{symbol}` directly.
 - `loadMaturingBonds(days)` must use `/bonds/stats/bonds/maturing-soon` directly.
 - `loadBondsByIndustryFilter(icbCode, statusID)` must use `POST /bonds/filter` directly.
-- `loadBondFilterRows(query)` may call legacy `bond_Filter` only for unsupported ad hoc filters.
+- `loadBondFilterRows(query)` should use `POST /bonds/filter` for tenor/date/rate/general market filters and may call legacy `bond_Filter` only as a compatibility fallback when REST filtering fails.
 - Normalize every API payload through `normalizeBondRow` before UI mapping.
 - Cache by normalized query and dedupe in-flight calls with maps to avoid duplicate StrictMode requests.
 - Convert VND values to billion VND only at UI/chart boundaries. Keep raw service totals in original API units unless a function name or interface explicitly documents billion VND.

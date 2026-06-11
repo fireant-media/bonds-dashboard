@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, Filter, Calendar, Activity, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ChevronDown, ArrowUpDown } from 'lucide-react';
 import { Bond } from '../types';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { clsx, type ClassValue } from 'clsx';
@@ -78,8 +78,8 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const [industryFilter, setIndustryFilter] = useState('All');
   const [warningFilter, setWarningFilter] = useState('All');
   const [exportLoading, setExportLoading] = useState(false);
-  const [sortField, setSortField] = useState<'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | null>(null);
-  const [appliedSortField, setAppliedSortField] = useState<'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | null>(null);
+  const [sortField, setSortField] = useState<'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | 'status' | null>(null);
+  const [appliedSortField, setAppliedSortField] = useState<'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | 'status' | null>(null);
   const [appliedSortDirection, setAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [openMenu, setOpenMenu] = useState<'range' | 'industry' | 'warning' | null>(null);
@@ -286,6 +286,14 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     if (days <= 270) return { value: 'medium-term', label: t('statusMediumTerm'), color: 'bg-blue-600/5 text-blue-600 border-blue-600/10', icon: Activity, iconColor: 'text-blue-600' };
     return { value: 'long-term', label: t('statusLongTerm'), color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30', icon: CheckCircle2, iconColor: 'text-green-600' };
   };
+  const getStatusSortRank = (days: number) => {
+    const status = getWarningStatus(days).value;
+    if (status === 'very-near') return 1;
+    if (status === 'near') return 2;
+    if (status === 'monitor') return 3;
+    if (status === 'medium-term') return 4;
+    return 5;
+  };
 
   const filteredBonds = bonds.filter(bond => {
     const matchesSearch = bond.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -317,6 +325,10 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
     if (appliedSortField === 'interestRate') {
       return ((a.interestRate || 0) - (b.interestRate || 0)) * direction;
+    }
+
+    if (appliedSortField === 'status') {
+      return (getStatusSortRank(a.daysLeft) - getStatusSortRank(b.daysLeft)) * direction;
     }
 
     return defaultSort;
@@ -385,7 +397,46 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     { value: 'daysLeft', label: remainingTermLabel },
     { value: 'listedValue', label: t('issuedValueShort') },
     { value: 'interestRate', label: t('interestRate') },
+    { value: 'status', label: t('situation') },
   ]), [remainingTermLabel, t]);
+
+  const handleTableSort = (field: 'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | 'status') => {
+    if (appliedSortField === field) {
+      const nextDirection = appliedSortDirection === 'asc' ? 'desc' : 'asc';
+      setSortField(field);
+      setAppliedSortField(field);
+      setAppliedSortDirection(nextDirection);
+      return;
+    }
+
+    setSortField(field);
+    setAppliedSortField(field);
+    setAppliedSortDirection('asc');
+  };
+
+  const renderSortHeader = (
+    field: 'maturityDate' | 'daysLeft' | 'listedValue' | 'interestRate' | 'status',
+    label: string,
+    unit?: string,
+  ) => {
+    const isActive = appliedSortField === field;
+    const direction = isActive ? appliedSortDirection : null;
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleTableSort(field)}
+        className="inline-flex w-full items-center justify-center gap-2 text-center transition-opacity hover:opacity-90"
+      >
+        <div className="flex flex-col items-center">
+          <span className="whitespace-nowrap leading-none">{label}</span>
+          {unit ? <span className="whitespace-nowrap mt-1 leading-none">({unit})</span> : null}
+        </div>
+        <ArrowUpDown className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+        {direction ? <span className="sr-only">{direction}</span> : null}
+      </button>
+    );
+  };
 
   useEffect(() => {
     setCurrentPage(1);
@@ -515,7 +566,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
             </div>
 
             <div className="flex w-full items-center lg:justify-end">
-              <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} />
+              <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} showIcon={false} />
             </div>
           </div>
 
@@ -725,26 +776,21 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
               <tr className="bg-blue-600 text-white transition-colors">
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode')}</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('enterprise')}</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate')}</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap leading-none">{remainingTermLabel}</span>
-                    <span className="whitespace-nowrap mt-1 leading-none">({t('daysUnit')})</span>
-                  </div>
+                  {renderSortHeader('maturityDate', t('maturityDate'))}
                 </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
-                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionShort')})</span>
-                  </div>
+                  {renderSortHeader('daysLeft', remainingTermLabel, t('daysUnit'))}
                 </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
-                    <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
-                  </div>
+                  {renderSortHeader('listedValue', t('issuedValue'), t('unitBillionShort'))}
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('situation')}</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {renderSortHeader('interestRate', t('interestRate'), t('unitPercentLabel'))}
+                </th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
+                  {renderSortHeader('status', t('situation'))}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-base transition-colors">

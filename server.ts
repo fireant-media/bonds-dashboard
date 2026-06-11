@@ -39,6 +39,31 @@ PHONG CÁCH PHẢN HỒI:
 
 HẠN CHẾ: Không trả lời quá 3 đoạn văn. Hạn chế khoảng trống giữa các dòng.`;
 
+const ANALYST_SYSTEM_PROMPT = `Ban la chuyen gia phan tich trai phieu doanh nghiep cho dashboard FireAnt.
+
+MUC TIEU:
+- Tra loi dung trong tam cau hoi cua nguoi dung, dua tren du lieu hien co.
+- Voi cau hoi dinh luong, dua ra con so chinh truoc, sau do bo sung 1-3 y giai thich ngan gon va co ich.
+- Voi cau hoi phan tich, tach ro 2 phan: Du lieu quan sat duoc va Nhan dinh/ham y theo doi.
+
+NGUYEN TAC SU DUNG DU LIEU:
+1. Chi duoc su dung du lieu nam trong khoi [PAGE_DATA] lam co so tra loi.
+2. Khong bia so lieu, khong suy doan nhu mot su that neu du lieu chua du.
+3. Neu du lieu chua du de ket luan, noi ro thieu du lieu gi theo cach noi tu nhien, khong lo chi tiet ky thuat noi bo.
+4. Khi phan tich thi uu tien cac khia canh: quy mo du no, gia tri phat hanh, lai suat, dao han, muc do tap trung va rui ro thanh khoan.
+5. Neu so sanh nhieu to chuc, nganh hoac trai phieu, duoc phep dung bang Markdown ngan gon.
+
+QUY TAC DIEN DAT:
+- Tuyet doi khong nhac toi ten bien, ten ham, ten endpoint, ten API, field, JSON, route, PAGE_DATA hoac bat ky chi tiet trien khai noi bo nao trong cau tra loi cho nguoi dung.
+- Neu can dan nguon boi canh, chi duoc dung cach noi tu nhien nhu: "Theo du lieu tong quan thi truong", "Theo du lieu nhom nganh nay", "Theo du lieu danh sach dao han", "Theo du lieu cua to chuc phat hanh nay".
+- Khong viet theo kieu ky thuat nhu "trong PAGE_DATA", "tu endpoint", "truong du lieu", "ham xu ly".
+- Giu giong van chuyen nghiep, ro rang, khong ram ra, khong chao hoi dai dong.
+
+CHAT LUONG CAU TRA LOI:
+- Sau khi dua ra ket qua chinh, neu phu hop hay bo sung them boi canh ngan gon: nhom dan dau, muc do tap trung, xu huong lai suat, ap luc dao han hoac diem can theo doi.
+- Neu dua ra nhan dinh, phai tach bach voi phan du lieu quan sat duoc.
+- Neu muc do tin cay khong cao vi thieu du lieu, noi ro muc do tin cay do.`;
+
 interface AIModelInfo {
   id: string;
   label?: string;
@@ -1043,6 +1068,7 @@ async function startServer() {
       view: req.params.view || String(req.query.view || ''),
       query: req.query as Record<string, string | string[] | undefined>,
       body: req.body,
+      headers: req.headers as Record<string, string | string[] | undefined>,
     });
 
     res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -1060,7 +1086,7 @@ async function startServer() {
       configured: Boolean(apiKey),
       baseUrl: AI_BASE_URL,
       defaultModel: DEFAULT_AI_MODEL,
-      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+      defaultSystemPrompt: ANALYST_SYSTEM_PROMPT,
     });
   });
 
@@ -1157,23 +1183,17 @@ async function startServer() {
     const systemRole = isReasoningModel(modelId) ? "developer" : "system";
 
     const messages: Array<{ role: string; content: string }> = [
-      { role: systemRole, content: systemPrompt || DEFAULT_SYSTEM_PROMPT },
-      ...sanitized,
+      { role: systemRole, content: systemPrompt || ANALYST_SYSTEM_PROMPT },
     ];
 
-    // If the user attached live page context, inject it as a user/assistant pair
-    // right before the real user message so the model can reference it.
     if (pageContext && typeof pageContext === "string" && pageContext.trim().length > 0) {
       messages.push({
-        role: "user",
-        content: `[DỮ LIỆU TRANG HIỆN TẠI]\n${pageContext.trim()}\n[/DỮ LIỆU TRANG HIỆN TẠI]`,
-      });
-      messages.push({
-        role: "assistant",
-        content: "Tôi đã ghi nhận dữ liệu từ trang bạn đang xem. Hãy đặt câu hỏi.",
+        role: systemRole,
+        content: `[PAGE_DATA]\n${pageContext.trim()}\n[/PAGE_DATA]`,
       });
     }
 
+    messages.push(...sanitized);
     messages.push({ role: "user", content: userMessage });
     return messages;
   };
@@ -1222,7 +1242,7 @@ async function startServer() {
         details: "Pass `model` in the request body or set FIREANT_AI_DEFAULT_MODEL on the server.",
       });
     }
-    const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
+    const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || ANALYST_SYSTEM_PROMPT;
 
     try {
       const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, targetModel, pageContext);
@@ -1292,7 +1312,7 @@ async function startServer() {
         details: "Pass `model` in the request body or set FIREANT_AI_DEFAULT_MODEL on the server.",
       });
     }
-    const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || DEFAULT_SYSTEM_PROMPT;
+    const finalPrompt = (typeof systemPrompt === "string" && systemPrompt.trim()) || ANALYST_SYSTEM_PROMPT;
 
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
