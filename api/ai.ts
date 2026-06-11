@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
-import { DEFAULT_AI_MODEL, OPENAI_API_KEY, OPENAI_BASE_URL } from './_lib/config.js';
+import { DEFAULT_AI_MODEL, FIREANT_ACCESS_TOKEN, FIREANT_WEB_URL, OPENAI_API_KEY, OPENAI_BASE_URL } from './_lib/config.js';
 
 export const config = {
   supportsResponseStreaming: true,
@@ -14,6 +14,7 @@ interface AIModelInfo {
 const AI_API_KEY = OPENAI_API_KEY;
 const AI_BASE_URL = OPENAI_BASE_URL;
 const MODELS_CACHE_TTL = 30 * 60 * 1000;
+const FIREANT_WEB_TOKEN_TTL = 15 * 60 * 1000;
 
 const FALLBACK_MODELS: AIModelInfo[] = [
   { id: DEFAULT_AI_MODEL, label: DEFAULT_AI_MODEL },
@@ -53,12 +54,127 @@ CHAT LUONG CAU TRA LOI:
 let cachedModels: AIModelInfo[] | null = null;
 let cachedModelsKey = '';
 let lastModelsFetch = 0;
+let cachedFireantWebToken = '';
+let lastFireantWebTokenFetch = 0;
 
-const getRequestAIKey = (req: VercelRequest): string => {
-  const headerToken = req.headers['x-fireant-access-token'];
-  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
-  return (rawToken || AI_API_KEY || '').replace(/^bearer\s+/i, '').trim();
+interface AIKeyCandidate {
+  key: string;
+  source: 'request' | 'openai_env' | 'fireant_env' | 'fireant_web';
+  issuer: string | null;
+}
+
+const normalizeAIKey = (value: unknown): string => {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  return String(rawValue || '').replace(/^bearer\s+/i, '').trim();
 };
+
+const decodeTokenIssuer = (token: string): string | null => {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { iss?: unknown };
+    return typeof payload.iss === 'string' ? payload.iss : null;
+  } catch {
+    return null;
+  }
+};
+
+const getRequestAIKey = (req: VercelRequest): string =>
+  normalizeAIKey(req.headers['x-fireant-access-token']) || normalizeAIKey(AI_API_KEY);
+
+const isInvalidIssuerError = (message: string): boolean => {
+  const lower = (message || '').toLowerCase();
+  return lower.includes('not from a valid issuer') || lower.includes('invalid issuer');
+};
+
+const isUnauthorizedError = (message: string): boolean => {
+  const lower = (message || '').toLowerCase();
+  return lower.includes('unauthorized') || lower.includes('http 401') || lower === '401';
+};
+
+async function fetchFireantWebToken(force = false): Promise<string> {
+  const now = Date.now();
+  if (!force && cachedFireantWebToken && now - lastFireantWebTokenFetch < FIREANT_WEB_TOKEN_TTL) {
+    return cachedFireantWebToken;
+  }
+
+  try {
+    const response = await axios.get(`${FIREANT_WEB_URL}/bai-viet`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Cache-Control': 'no-cache',
+      },
+      timeout: 15000,
+    });
+
+    const html = String(response.data || '');
+    const scriptTag = '<script id="__NEXT_DATA__" type="application/json">';
+    const startIdx = html.indexOf(scriptTag);
+    if (startIdx === -1) return '';
+
+    const jsonStart = html.indexOf('{', startIdx);
+    const scriptEndIdx = html.indexOf('</script>', jsonStart);
+    const data = JSON.parse(html.substring(jsonStart, scriptEndIdx));
+
+    const findTokenRecursively = (value: unknown, depth = 0): string | null => {
+      if (!value || typeof value !== 'object' || depth > 10) return null;
+
+      const record = value as Record<string, unknown>;
+      const directTokenCandidates = [record.accessToken, record.token, record.jwt];
+      for (const candidate of directTokenCandidates) {
+        const normalized = normalizeAIKey(candidate);
+        if (normalized.length > 20) return normalized;
+      }
+
+      for (const child of Object.values(record)) {
+        const nestedToken = findTokenRecursively(child, depth + 1);
+        if (nestedToken) return nestedToken;
+      }
+
+      return null;
+    };
+
+    const token = normalizeAIKey(
+      data?.props?.pageProps?.initialState?.auth?.accessToken
+      || data?.props?.pageProps?.initialState?.auth?.token
+      || findTokenRecursively(data),
+    );
+
+    if (token) {
+      cachedFireantWebToken = token;
+      lastFireantWebTokenFetch = now;
+    }
+
+    return token;
+  } catch (error: any) {
+    console.warn('[AI] Failed to fetch FireAnt web token:', error?.message || error);
+    return '';
+  }
+}
+
+async function getAIKeyCandidates(req: VercelRequest): Promise<AIKeyCandidate[]> {
+  const candidates: AIKeyCandidate[] = [];
+  const seen = new Set<string>();
+
+  const addCandidate = (key: string, source: AIKeyCandidate['source']) => {
+    const normalized = normalizeAIKey(key);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push({
+      key: normalized,
+      source,
+      issuer: decodeTokenIssuer(normalized),
+    });
+  };
+
+  addCandidate(normalizeAIKey(req.headers['x-fireant-access-token']), 'request');
+  addCandidate(normalizeAIKey(AI_API_KEY), 'openai_env');
+  addCandidate(normalizeAIKey(FIREANT_ACCESS_TOKEN), 'fireant_env');
+  addCandidate(await fetchFireantWebToken(), 'fireant_web');
+
+  return candidates;
+}
 
 const isChatModelId = (id: string): boolean => {
   if (!id) return false;
@@ -198,7 +314,7 @@ const buildChatMessages = (
 };
 
 async function handleStatus(req: VercelRequest, res: VercelResponse) {
-  const apiKey = getRequestAIKey(req);
+  const apiKey = getRequestAIKey(req) || normalizeAIKey(FIREANT_ACCESS_TOKEN);
   res.json({
     configured: Boolean(apiKey),
     baseUrl: AI_BASE_URL,
@@ -208,8 +324,8 @@ async function handleStatus(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handleModels(req: VercelRequest, res: VercelResponse) {
-  const apiKey = getRequestAIKey(req);
-  if (!apiKey) {
+  const candidates = await getAIKeyCandidates(req);
+  if (candidates.length === 0) {
     return res.status(200).json({
       error: 'AI service not configured',
       models: [],
@@ -218,58 +334,88 @@ async function handleModels(req: VercelRequest, res: VercelResponse) {
   }
 
   const force = req.query.refresh === '1' || req.query.refresh === 'true';
-  const result = await fetchAvailableModels(apiKey, force);
-  res.json({ models: result.models, defaultModel: DEFAULT_AI_MODEL, error: result.error });
+  let lastResult: { models: AIModelInfo[]; error: string | null } = { models: [], error: null };
+
+  for (const candidate of candidates) {
+    const result = await fetchAvailableModels(candidate.key, force);
+    lastResult = result;
+
+    if (!result.error) {
+      return res.json({ models: result.models, defaultModel: DEFAULT_AI_MODEL, error: null });
+    }
+
+    if (isInvalidIssuerError(result.error) || isUnauthorizedError(result.error)) {
+      console.warn(`[AI] Rejected token from ${candidate.source}; issuer=${candidate.issuer || 'unknown'}; detail=${result.error}`);
+      continue;
+    }
+
+    return res.json({ models: result.models, defaultModel: DEFAULT_AI_MODEL, error: result.error });
+  }
+
+  return res.json({
+    models: lastResult.models,
+    defaultModel: DEFAULT_AI_MODEL,
+    error: lastResult.error || 'Khong tim thay FireAnt access token hop le cho AI gateway.',
+  });
 }
 
 async function handleChat(req: VercelRequest, res: VercelResponse) {
   const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
-  const apiKey = getRequestAIKey(req);
+  const apiKeys = await getAIKeyCandidates(req);
 
   if (!userMessage) return res.status(400).json({ error: 'User message is required' });
-  if (!apiKey) return res.status(503).json({ error: 'AI service not configured' });
-
-  let targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
-  if (!targetModel) {
-    const result = await fetchAvailableModels(apiKey, true);
-    targetModel = result.models[0]?.id || '';
-  }
-
-  if (!targetModel) return res.status(400).json({ error: 'No AI model selected' });
+  if (apiKeys.length === 0) return res.status(503).json({ error: 'AI service not configured' });
 
   const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || ANALYST_SYSTEM_PROMPT;
 
   try {
-    const candidateModels = await getCandidateModels(apiKey, targetModel);
     let lastDetail = '';
 
-    for (const candidateModel of candidateModels) {
-      const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, candidateModel, pageContext);
-      const response = await axios.post(
-        `${AI_BASE_URL}/chat/completions`,
-        { model: candidateModel, messages: chatMessages, stream: false },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 60000,
-          validateStatus: (status) => status < 500,
-        },
-      );
-
-      if (response.status === 200) {
-        const text = response.data?.choices?.[0]?.message?.content || '';
-        if (!text) throw new Error('No response text from AI provider');
-        return res.json({ text, model: candidateModel, history: [] });
+    for (const apiKey of apiKeys) {
+      let targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
+      if (!targetModel) {
+        const result = await fetchAvailableModels(apiKey.key, true);
+        targetModel = result.models[0]?.id || '';
       }
 
-      lastDetail = response.data?.error?.message || `HTTP ${response.status}`;
-      if (!isModelTierError(lastDetail)) {
-        return res.status(response.status).json({
-          error: 'AI provider error',
-          details: lastDetail,
-        });
+      if (!targetModel) continue;
+
+      const candidateModels = await getCandidateModels(apiKey.key, targetModel);
+
+      for (const candidateModel of candidateModels) {
+        const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, candidateModel, pageContext);
+        const response = await axios.post(
+          `${AI_BASE_URL}/chat/completions`,
+          { model: candidateModel, messages: chatMessages, stream: false },
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey.key}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 60000,
+            validateStatus: (status) => status < 500,
+          },
+        );
+
+        if (response.status === 200) {
+          const text = response.data?.choices?.[0]?.message?.content || '';
+          if (!text) throw new Error('No response text from AI provider');
+          return res.json({ text, model: candidateModel, history: [] });
+        }
+
+        lastDetail = response.data?.error?.message || `HTTP ${response.status}`;
+
+        if (isInvalidIssuerError(lastDetail) || isUnauthorizedError(lastDetail)) {
+          console.warn(`[AI] Rejected token from ${apiKey.source}; issuer=${apiKey.issuer || 'unknown'}; detail=${lastDetail}`);
+          break;
+        }
+
+        if (!isModelTierError(lastDetail)) {
+          return res.status(response.status).json({
+            error: 'AI provider error',
+            details: lastDetail,
+          });
+        }
       }
     }
 
@@ -287,18 +433,10 @@ async function handleChat(req: VercelRequest, res: VercelResponse) {
 
 async function handleChatStream(req: VercelRequest, res: VercelResponse) {
   const { messages = [], userMessage, model, systemPrompt, pageContext } = req.body || {};
-  const apiKey = getRequestAIKey(req);
+  const apiKeys = await getAIKeyCandidates(req);
 
   if (!userMessage) return res.status(400).json({ error: 'User message is required' });
-  if (!apiKey) return res.status(503).json({ error: 'AI service not configured' });
-
-  let targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
-  if (!targetModel) {
-    const result = await fetchAvailableModels(apiKey, true);
-    targetModel = result.models[0]?.id || '';
-  }
-
-  if (!targetModel) return res.status(400).json({ error: 'No AI model selected' });
+  if (apiKeys.length === 0) return res.status(503).json({ error: 'AI service not configured' });
 
   const finalPrompt = (typeof systemPrompt === 'string' && systemPrompt.trim()) || ANALYST_SYSTEM_PROMPT;
 
@@ -323,43 +461,64 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
   });
 
   try {
-    const candidateModels = await getCandidateModels(apiKey, targetModel);
     let upstream: Response | null = null;
-    let finalModel = targetModel;
+    let finalModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
     let lastMessage = '';
 
-    for (const candidateModel of candidateModels) {
-      const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, candidateModel, pageContext);
-      const candidate = await fetch(`${AI_BASE_URL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-        },
-        body: JSON.stringify({ model: candidateModel, messages: chatMessages, stream: true }),
-        signal: abortController.signal,
-      });
+    for (const apiKey of apiKeys) {
+      let targetModel = (typeof model === 'string' && model.trim()) || DEFAULT_AI_MODEL;
+      if (!targetModel) {
+        const result = await fetchAvailableModels(apiKey.key, true);
+        targetModel = result.models[0]?.id || '';
+      }
 
-      if (candidate.ok) {
-        upstream = candidate;
-        finalModel = candidateModel;
+      if (!targetModel) continue;
+
+      const candidateModels = await getCandidateModels(apiKey.key, targetModel);
+
+      for (const candidateModel of candidateModels) {
+        const chatMessages = buildChatMessages(messages, userMessage, finalPrompt, candidateModel, pageContext);
+        const candidate = await fetch(`${AI_BASE_URL}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey.key}`,
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+          },
+          body: JSON.stringify({ model: candidateModel, messages: chatMessages, stream: true }),
+          signal: abortController.signal,
+        });
+
+        if (candidate.ok) {
+          upstream = candidate;
+          finalModel = candidateModel;
+          break;
+        }
+
+        const errorBody = await candidate.text().catch(() => '');
+        let parsed: any = null;
+        try {
+          parsed = JSON.parse(errorBody);
+        } catch {
+          parsed = null;
+        }
+
+        lastMessage = parsed?.error?.message || errorBody.slice(0, 400) || `HTTP ${candidate.status}`;
+
+        if (isInvalidIssuerError(lastMessage) || isUnauthorizedError(lastMessage)) {
+          console.warn(`[AI] Rejected token from ${apiKey.source}; issuer=${apiKey.issuer || 'unknown'}; detail=${lastMessage}`);
+          break;
+        }
+
+        if (!isModelTierError(lastMessage)) {
+          sendEvent('error', { message: lastMessage });
+          res.end();
+          return;
+        }
+      }
+
+      if (upstream) {
         break;
-      }
-
-      const errorBody = await candidate.text().catch(() => '');
-      let parsed: any = null;
-      try {
-        parsed = JSON.parse(errorBody);
-      } catch {
-        parsed = null;
-      }
-
-      lastMessage = parsed?.error?.message || errorBody.slice(0, 400) || `HTTP ${candidate.status}`;
-      if (!isModelTierError(lastMessage)) {
-        sendEvent('error', { message: lastMessage });
-        res.end();
-        return;
       }
     }
 
@@ -449,8 +608,8 @@ async function handleChatStream(req: VercelRequest, res: VercelResponse) {
 }
 
 async function handlePing(req: VercelRequest, res: VercelResponse) {
-  const apiKey = getRequestAIKey(req);
-  if (!apiKey) {
+  const apiKeys = await getAIKeyCandidates(req);
+  if (apiKeys.length === 0) {
     return res.status(503).json({
       ok: false,
       error: 'FireAnt access token is required for AI ping',
@@ -458,25 +617,52 @@ async function handlePing(req: VercelRequest, res: VercelResponse) {
   }
 
   const startedAt = Date.now();
-  try {
-    const response = await axios.get(`${AI_BASE_URL}/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      timeout: 15000,
-      validateStatus: (status) => status < 600,
-    });
+  for (const apiKey of apiKeys) {
+    try {
+      const response = await axios.get(`${AI_BASE_URL}/models`, {
+        headers: { Authorization: `Bearer ${apiKey.key}` },
+        timeout: 15000,
+        validateStatus: (status) => status < 600,
+      });
 
-    res.json({
-      ok: response.status === 200,
-      status: response.status,
-      elapsed: Date.now() - startedAt,
-    });
-  } catch (error: any) {
-    res.status(502).json({
-      ok: false,
-      elapsed: Date.now() - startedAt,
-      message: error.message,
-    });
+      if (response.status === 200) {
+        return res.json({
+          ok: true,
+          status: response.status,
+          elapsed: Date.now() - startedAt,
+        });
+      }
+
+      const detail = response.data?.error?.message || `HTTP ${response.status}`;
+      if (isInvalidIssuerError(detail) || isUnauthorizedError(detail)) {
+        console.warn(`[AI] Rejected token from ${apiKey.source}; issuer=${apiKey.issuer || 'unknown'}; detail=${detail}`);
+        continue;
+      }
+
+      return res.json({
+        ok: false,
+        status: response.status,
+        elapsed: Date.now() - startedAt,
+        message: detail,
+      });
+    } catch (error: any) {
+      if (isInvalidIssuerError(error?.message || '') || isUnauthorizedError(error?.message || '')) {
+        continue;
+      }
+
+      return res.status(502).json({
+        ok: false,
+        elapsed: Date.now() - startedAt,
+        message: error.message,
+      });
+    }
   }
+
+  return res.status(502).json({
+    ok: false,
+    elapsed: Date.now() - startedAt,
+    message: 'Khong tim thay FireAnt access token hop le cho AI gateway.',
+  });
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

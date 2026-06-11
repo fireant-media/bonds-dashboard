@@ -217,7 +217,16 @@ export const useOidcAuth = () => {
     }
     try {
       pruneAuthStoragePressure();
-      await authManager.signinPopup();
+      await authManager.removeUser().catch((error) => {
+        console.warn('Failed to clear local OIDC user before sign-in', error);
+      });
+      removeFireantToken();
+      useAuthStore.getState().setUser(null);
+      useAuthStore.getState().setAccount(null);
+      await authManager.signinPopup({
+        prompt: 'login',
+        max_age: 0,
+      });
     } catch (error) {
       console.error('Sign-in popup failed', error);
       throw error;

@@ -10,6 +10,17 @@ const TOKEN_KEY = 'fireant_access_token';
 
 type TokenSource = 'session' | 'localStorage' | 'env' | 'none';
 
+const decodeTokenIssuer = (token: string): string => {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload?.iss === 'string' ? payload.iss : '';
+  } catch {
+    return '';
+  }
+};
+
 function resolveFireantToken(): { token: string | null; source: TokenSource } {
   const sessionToken = getStoredAccessToken();
   if (sessionToken && sessionToken.trim().length > 10) {
@@ -64,6 +75,7 @@ export const getFireantTokenDebugInfo = () => {
   return {
     hasToken: Boolean(cleanedToken),
     source,
+    issuer: cleanedToken ? decodeTokenIssuer(cleanedToken) : '',
     length: cleanedToken.length,
     preview: cleanedToken ? `${cleanedToken.slice(0, 12)}...${cleanedToken.slice(-6)}` : '',
   };
