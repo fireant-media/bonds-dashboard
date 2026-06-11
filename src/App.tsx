@@ -4,7 +4,6 @@ import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import LoginView from './components/LoginView';
 import { IndustryType, Enterprise, NewsItem, Bond } from './types';
-import { useLanguage } from './LanguageContext';
 import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
 import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
@@ -13,7 +12,6 @@ import { buildAppApiUrl } from './api/config';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
 import { dashboardQueryClient } from './query/client';
 import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/dashboardQueries';
-import { Menu } from 'lucide-react';
 
 const MarketOverview = lazy(() => import('./components/MarketOverview'));
 const IndustryView = lazy(() => import('./components/IndustryView'));
@@ -36,7 +34,6 @@ const isBondCode = (s: string) => {
 };
 
 export default function App() {
-  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isLoading: authLoading, signIn, signOut } = useOidcAuth();
@@ -98,8 +95,6 @@ export default function App() {
   })();
 
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   
@@ -144,24 +139,7 @@ export default function App() {
     }
   };
 
-  const appFrameRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(max-width: 1023px)');
-    const syncPanels = (event: MediaQueryList | MediaQueryListEvent) => {
-      setIsMobileLayout(event.matches);
-      if (event.matches) {
-        setIsSidebarOpen(false);
-      } else {
-        setIsSidebarOpen(true);
-      }
-    };
-
-    syncPanels(mediaQuery);
-    mediaQuery.addEventListener('change', syncPanels);
-    return () => mediaQuery.removeEventListener('change', syncPanels);
-  }, []);
 
   useEffect(() => {
     // Reset scroll position only when the main logical view changes
@@ -474,6 +452,10 @@ export default function App() {
   }
 
   const isProfileMode = activeTab === 'profile' || activeTab === 'help';
+  const isDashboardSidebarMode =
+    activeTab === 'overview' ||
+    activeTab === 'industry' ||
+    (activeTab === 'filter' && filterSubTab === 'issuer');
 
   return (
     <div className="h-dvh overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
@@ -483,56 +465,29 @@ export default function App() {
         onLogoClick={() => setActiveTab('overview')}
         onLogout={handleLogout}
         onSearchSelect={handleSearchSelect}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        activeIndustry={activeIndustry}
+        setActiveIndustry={setActiveIndustry}
+        activeFilterSubTab={filterSubTab || 'issuer'}
+        setActiveFilterSubTab={setActiveFilterSubTab}
       />
       
-      <div ref={appFrameRef} className="flex flex-1 min-h-0 flex-col lg:flex-row relative items-stretch overflow-hidden">
-        {!isProfileMode && (
-          <>
-          {isSidebarOpen && (
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 top-16 z-40 bg-black/20 lg:hidden"
-              aria-label={t('hideSidebar')}
-            />
-          )}
+      <div className="flex flex-1 min-h-0 flex-col relative items-stretch overflow-hidden">
+        <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
           <div className={cn(
-            "transition-all duration-300 ease-in-out shrink-0 border-border-base bg-surface-bright/95 backdrop-blur",
-            isSidebarOpen
-              ? "fixed bottom-0 left-0 top-16 z-50 w-72 max-w-full border-r shadow-xl lg:static lg:z-auto lg:w-64 lg:shadow-none"
-              : "hidden lg:block lg:w-14 lg:border-r"
-          )}>
-            <Sidebar 
-              activeTab={activeTab} 
-              setActiveTab={setActiveTab} 
-              activeIndustry={activeIndustry} 
-              setActiveIndustry={setActiveIndustry} 
-              activeFilterSubTab={filterSubTab || 'issuer'}
-              setActiveFilterSubTab={setActiveFilterSubTab}
-              isOpen={isSidebarOpen} 
-              onToggle={() => setIsSidebarOpen(!isSidebarOpen)} 
-            />
-          </div>
-          </>
-        )}
-        
-        <div className="flex-1 min-w-0 h-full overflow-hidden transition-all duration-300">
-          <div className={cn(
-            "flex h-full min-h-0 flex-col lg:flex-row items-stretch overflow-hidden transition-all duration-300",
+            "flex h-full min-h-0 w-full items-stretch overflow-hidden transition-all duration-300",
             !isProfileMode ? "bg-bg-base" : "h-full"
           )}>
-            {!isProfileMode && isMobileLayout && (
-              <div className="flex shrink-0 items-center gap-2 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-sm backdrop-blur lg:hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsSidebarOpen(true)}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-all hover:border-text-highlight hover:text-text-highlight active:scale-95"
-                  aria-label={t('showSidebar')}
-                  title={t('showSidebar')}
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-              </div>
+            {!isProfileMode && isDashboardSidebarMode && (
+              <Sidebar
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                activeIndustry={activeIndustry}
+                setActiveIndustry={setActiveIndustry}
+                activeFilterSubTab={filterSubTab || 'issuer'}
+                setActiveFilterSubTab={setActiveFilterSubTab}
+              />
             )}
             <main className="flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
               <div
@@ -541,11 +496,11 @@ export default function App() {
                   "h-full min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar overscroll-contain",
                   isProfileMode
                     ? "w-full"
-                    : activeTab === 'overview'
-                    ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
-                      : activeTab === 'maturity-list' || activeTab === 'watchlist'
-                        ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
-                        : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                  : activeTab === 'overview'
+                  ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                    : activeTab === 'maturity-list' || activeTab === 'watchlist'
+                      ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                      : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
                 )}
               >
                 <Suspense

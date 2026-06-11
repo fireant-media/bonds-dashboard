@@ -22,6 +22,8 @@ export const translations = {
     dataView: 'Xem dữ liệu',
     zoom: 'Phóng to',
     filter: 'Lọc',
+    dashboardMenu: 'Dashboard',
+    bondNavigationMenu: 'Danh sách trái phiếu',
     filterTab: 'Bộ lọc',
     sort: 'Sắp xếp',
     ascending: 'Tăng dần',
@@ -126,10 +128,10 @@ export const translations = {
     
     // Sidebar
     overview: 'Tổng quan thị trường',
-    industry: 'Nhóm ngành',
+    industry: 'Ngành',
     enterprise: 'Tổ chức phát hành',
-    filterByIssuer: 'Theo tổ chức phát hành',
-    filterByBond: 'Theo trái phiếu',
+    filterByIssuer: 'Doanh nghiệp niêm yết',
+    filterByBond: 'Danh sách trái phiếu',
     maturityList: 'Danh sách đáo hạn',
     news: 'Tin tức',
     favorites: 'Danh mục theo dõi',
@@ -200,7 +202,7 @@ export const translations = {
     compact: 'Nén',
     
     // Right Panel
-    watchList: 'Danh mục đang theo dõi',
+    watchList: 'Danh sách theo dõi',
     upcomingMaturity: 'Sắp đáo hạn',
     seeMore: 'Xem thêm',
     
@@ -602,7 +604,7 @@ export const translations = {
     // Right Panel Specific
     newsError: 'Lỗi tải tin tức',
     dataError: 'Lỗi tải dữ liệu',
-    upcomingBonds: 'Trái phiếu sắp đáo hạn',
+    upcomingBonds: 'Danh sách trái phiếu sắp đáo hạn',
     noLatestNews: 'Không có tin tức mới nhất',
     unitMillionTrillion: 'triệu tỷ',
     unitKTy: 'k tỷ',
@@ -893,6 +895,8 @@ export const translations = {
     dataView: 'Data view',
     zoom: 'Zoom',
     filter: 'Filter',
+    dashboardMenu: 'Dashboard',
+    bondNavigationMenu: 'Bond List',
     filterTab: 'Filter',
     sort: 'Sort',
     ascending: 'Ascending',
@@ -997,10 +1001,10 @@ export const translations = {
     
     // Sidebar
     overview: 'Market Overview',
-    industry: 'Industries',
+    industry: 'Industry',
     enterprise: 'Issuers',
-    filterByIssuer: 'By Issuer',
-    filterByBond: 'By Bond',
+    filterByIssuer: 'Listed Company',
+    filterByBond: 'Bond List',
     maturityList: 'Maturity List',
     news: 'News',
     favorites: 'Watchlist',
@@ -1473,7 +1477,7 @@ export const translations = {
     // Right Panel Specific
     newsError: 'Error loading news',
     dataError: 'Error loading data',
-    upcomingBonds: 'Upcoming Bonds',
+    upcomingBonds: 'Upcoming Bond List',
     noLatestNews: 'No latest news available',
     unitMillionTrillion: 'million trillion',
     unitTy: 'billion',

@@ -3,6 +3,7 @@ import { Building2, ChevronDown, Filter, Trash2 } from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, parseDateToTimestamp } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
+import BondSectionNav from './BondSectionNav';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Card } from './ui/Card';
@@ -400,6 +401,8 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
   return (
     <div className="min-w-0 transition-colors duration-300">
+      <BondSectionNav activeSection="watchlist" />
+
       <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight break-words text-text-base transition-colors">{t('watchList')}</h1>

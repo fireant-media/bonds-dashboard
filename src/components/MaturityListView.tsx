@@ -6,6 +6,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import BondSectionNav from './BondSectionNav';
 import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
 import {
@@ -494,6 +495,8 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
+      <BondSectionNav activeSection="maturity" />
+
       <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight break-words transition-colors dark:text-text-base">

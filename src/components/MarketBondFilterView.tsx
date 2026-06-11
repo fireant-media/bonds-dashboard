@@ -21,6 +21,7 @@ import { MARKET_OVERVIEW_CACHE_KEY, type MarketOverviewPayload } from '../servic
 import { useAIStore } from '../store/aiStore';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { getCache } from '../utils/cache';
+import BondSectionNav from './BondSectionNav';
 import { DataTable, DataTableColumn } from './ui/DataTable';
 
 const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
@@ -468,6 +469,8 @@ export default function MarketBondFilterView({
 
   return (
     <div className="space-y-4">
+      <BondSectionNav activeSection="market" />
+
       <section className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -508,8 +511,8 @@ export default function MarketBondFilterView({
             </div>
           </div>
 
-          <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
-            <div className="flex flex-col gap-3">
+          <div className="py-2">
+            <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
                 <label className="flex-1 space-y-2">
                   <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
@@ -532,7 +535,7 @@ export default function MarketBondFilterView({
                       }
                     }}
                     placeholder={t('aiFilterPlaceholder')}
-                    className="w-full resize-none rounded-lg border border-blue-100 bg-white px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+                    className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
                   />
                 </label>
                 <button
