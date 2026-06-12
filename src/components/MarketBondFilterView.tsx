@@ -1,75 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { BadgePercent, CalendarRange, ListFilter, Loader2, RefreshCcw, Search, Sparkles } from 'lucide-react';
+import { ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
-import { BondDataRow, loadBondFilterRows } from '../services/bondData';
+import {
+  BondDataRow,
+  loadBondDetailsMapByCodes,
+  loadBondFilterRows,
+  loadGovernmentBondRows,
+  loadIssuerProfile,
+  loadUnlistedEnterpriseBondRows,
+} from '../services/bondData';
 import {
   buildBondFilterQueryFromCriteria,
-  extractBondFilterCriteria,
   filterBondRowsByCriteria,
-  getAIBondRateTypeLabel,
   getBondFilterPresetSignature,
-  hasAIBondFilterCriteria,
-  normalizeAIBondRateType,
   sortBondRowsByCriteria,
-  summarizeBondFilterCriteria,
   type AIBondSortBy,
   type AIBondFilterCriteria,
 } from '../services/aiBondFilter';
 import { MARKET_OVERVIEW_CACHE_KEY, type MarketOverviewPayload } from '../services/marketOverviewData';
-import { useAIStore } from '../store/aiStore';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { getCache } from '../utils/cache';
 import BondSectionNav from './BondSectionNav';
+import {
+  buildIndustrySymbolLookup,
+  resolveEnterpriseIndustryFromCandidates,
+  resolveIndustryKeyFromSymbolGroups,
+} from '../constants/industries';
+import {
+  BondFilterPanel,
+  useBondFilterController,
+} from './BondFilterPanel';
 import { DataTable, DataTableColumn } from './ui/DataTable';
+import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 
 const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
-const AI_PROMPT_SUGGESTION_LIMIT = 3;
-const AI_FILTER_SUMMARY_LIMIT = 3;
-const AI_SECONDARY_SORT_LIMIT = 2;
-
-interface FilterState {
-  tenorMin: string;
-  tenorMax: string;
-  issueDateFrom: string;
-  issueDateTo: string;
-  maturityDateFrom: string;
-  maturityDateTo: string;
-  bondRateMin: string;
-  bondRateMax: string;
-  bondRateType: string;
-  sortBy?: AIBondSortBy;
-  secondarySorts?: AIBondSortBy[];
-}
+type MarketRowSource = 'listed-market' | 'government-beta' | 'unlisted-enterprise-beta';
 
 interface MarketBondFilterViewProps {
   setSelectedBond: (bond: Bond | null) => void;
   setBondEnterpriseName: (name: string) => void;
 }
-
-const DEFAULT_FILTERS: FilterState = {
-  tenorMin: '',
-  tenorMax: '',
-  issueDateFrom: '',
-  issueDateTo: '',
-  maturityDateFrom: '',
-  maturityDateTo: '',
-  bondRateMin: '',
-  bondRateMax: '',
-  bondRateType: '',
-  sortBy: undefined,
-  secondarySorts: [],
-};
-
-const FALLBACK_AI_MODEL = 'gpt-5.4-mini';
-
-const toOptionalNumber = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
-};
 
 const normalizeBondRateType = (row: BondDataRow) =>
   normalizeInterestType(
@@ -106,57 +78,97 @@ const toBondModel = (row: BondDataRow): Bond => ({
   status: row.status || '',
 });
 
-const toCriteriaFromFilterState = (filters: FilterState): AIBondFilterCriteria => ({
-  minTenorMonths: toOptionalNumber(filters.tenorMin) ?? undefined,
-  maxTenorMonths: toOptionalNumber(filters.tenorMax) ?? undefined,
-  issueDateFrom: filters.issueDateFrom || undefined,
-  issueDateTo: filters.issueDateTo || undefined,
-  maturityDateFrom: filters.maturityDateFrom || undefined,
-  maturityDateTo: filters.maturityDateTo || undefined,
-  minBondRate: toOptionalNumber(filters.bondRateMin) ?? undefined,
-  maxBondRate: toOptionalNumber(filters.bondRateMax) ?? undefined,
-  bondRateType: normalizeAIBondRateType(filters.bondRateType),
-  sortBy: filters.sortBy,
-  secondarySorts: filters.secondarySorts,
-});
+const mergeRowWithBondDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
+  const detail = detailPayload?.detail || detailPayload || {};
+  const issuerName = String(detail?.issuerName || detail?.IssuerName || row.issuerName || row.issuerSymbol || '').trim();
+  const issuerSymbol = String(detail?.issuerSymbol || detail?.IssuerSymbol || row.issuerSymbol || '').trim();
+  const bondType = String(detail?.bondType || detail?.BondType || row.bondType || '').trim();
+  const industry = resolveEnterpriseIndustryFromCandidates(
+    detail?.icbNameLv2,
+    detail?.ICBNameLv2,
+    detail?.icbNameLv1,
+    detail?.ICBNameLv1,
+    detail?.industryName,
+    detail?.IndustryName,
+    detail?.infoObj?.icbNameLv2,
+    detail?.infoObj?.icbNameLv1,
+    detail?.infoObj?.icbName,
+    detail?.infoObj?.icbCode,
+    issuerName,
+    issuerSymbol,
+    row.industry,
+  );
 
-const toFilterStateFromCriteria = (criteria: AIBondFilterCriteria): FilterState => ({
-  ...DEFAULT_FILTERS,
-  tenorMin: criteria.minTenorMonths !== undefined ? String(criteria.minTenorMonths) : '',
-  tenorMax: criteria.maxTenorMonths !== undefined ? String(criteria.maxTenorMonths) : '',
-  issueDateFrom: criteria.issueDateFrom || '',
-  issueDateTo: criteria.issueDateTo || '',
-  maturityDateFrom: criteria.maturityDateFrom || '',
-  maturityDateTo: criteria.maturityDateTo || '',
-  bondRateMin: criteria.minBondRate !== undefined ? String(criteria.minBondRate) : '',
-  bondRateMax: criteria.maxBondRate !== undefined ? String(criteria.maxBondRate) : '',
-  bondRateType: criteria.bondRateType ? getAIBondRateTypeLabel(criteria.bondRateType, 'en') : '',
-  sortBy: criteria.sortBy,
-  secondarySorts: criteria.secondarySorts || [],
-});
-
-const normalizeSecondarySorts = (
-  values: Array<AIBondSortBy | undefined>,
-  primarySort?: AIBondSortBy,
-) => Array.from(new Set(values.filter((value): value is AIBondSortBy => value !== undefined)))
-  .filter((value) => value !== primarySort)
-  .slice(0, AI_SECONDARY_SORT_LIMIT);
-
-const createFilterStateFromCriteria = (
-  criteria: AIBondFilterCriteria,
-  rateTypeOptions: string[],
-  language: 'vi' | 'en',
-): FilterState => {
-  const nextFilters = toFilterStateFromCriteria(criteria);
-
-  if (criteria.bondRateType) {
-    const matchedRateType = rateTypeOptions.find((option) => normalizeAIBondRateType(option) === criteria.bondRateType);
-    nextFilters.bondRateType = matchedRateType || getAIBondRateTypeLabel(criteria.bondRateType, language);
-  }
-
-  nextFilters.secondarySorts = normalizeSecondarySorts(criteria.secondarySorts || [], criteria.sortBy);
-  return nextFilters;
+  return {
+    ...row,
+    issuerName,
+    bondType,
+    industry,
+    raw: {
+      ...row.raw,
+      issuerName,
+      bondType,
+      industry,
+      detail,
+    },
+  };
 };
+
+const mergeRowWithIssuerProfile = (row: BondDataRow, issuerProfile: any): BondDataRow => {
+  const issuerName = String(
+    issuerProfile?.name ||
+    issuerProfile?.companyName ||
+    issuerProfile?.internationalName ||
+    row.issuerName ||
+    row.issuerSymbol ||
+    '',
+  ).trim();
+  const industry = resolveEnterpriseIndustryFromCandidates(
+    issuerProfile?.icbNameLv2,
+    issuerProfile?.ICBNameLv2,
+    issuerProfile?.icbNameLv1,
+    issuerProfile?.ICBNameLv1,
+    issuerProfile?.industryName,
+    issuerProfile?.IndustryName,
+    issuerProfile?.industry,
+    issuerProfile?.Industry,
+    issuerProfile?.icbName,
+    issuerProfile?.ICBName,
+    issuerProfile?.icbCode,
+    issuerProfile?.ICBCode,
+    issuerName,
+    row.issuerSymbol,
+    row.industry,
+  );
+
+  return {
+    ...row,
+    issuerName,
+    industry,
+    raw: {
+      ...row.raw,
+      issuerName,
+      industry,
+      issuerProfile,
+    },
+  };
+};
+
+const getRowSource = (row: BondDataRow): MarketRowSource | undefined => {
+  const value = row.raw?._marketSource;
+  return value === 'listed-market' || value === 'government-beta' || value === 'unlisted-enterprise-beta'
+    ? value
+    : undefined;
+};
+
+const withMarketSource = (rows: BondDataRow[], source: MarketRowSource) =>
+  rows.map((row) => ({
+    ...row,
+    raw: {
+      ...row.raw,
+      _marketSource: source,
+    },
+  }));
 
 const resolveTableSort = (
   sortBy?: AIBondSortBy,
@@ -194,22 +206,165 @@ export default function MarketBondFilterView({
   setSelectedBond,
   setBondEnterpriseName,
 }: MarketBondFilterViewProps) {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const location = useLocation();
-  const [draftFilters, setDraftFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const enterpriseList = useMemo(
+    () => (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string }>,
+    [],
+  );
   const [rows, setRows] = useState<BondDataRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [aiSummary, setAiSummary] = useState<string[]>([]);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [isApplyingAIFilter, setIsApplyingAIFilter] = useState(false);
+  const [visibleBondCodes, setVisibleBondCodes] = useState<string[]>([]);
+  const [industrySymbolLookup, setIndustrySymbolLookup] = useState<Map<string, string>>(new Map());
   const initialFetchLimit = useMemo(() => resolveInitialMarketBondFetchLimit(), []);
-  const appliedCriteria = useMemo(() => toCriteriaFromFilterState(appliedFilters), [appliedFilters]);
   const presetSignatureRef = useRef('');
+  const enterpriseIndustryBySymbol = useMemo(
+    () => new Map(
+      enterpriseList
+        .map((item) => {
+          const ticker = String(item?.ticker || '').trim();
+          const industry = resolveEnterpriseIndustryFromCandidates(item?.industry);
+          return ticker && industry ? [ticker, industry] as const : null;
+        })
+        .filter((item): item is readonly [string, string] => Boolean(item)),
+    ),
+    [enterpriseList],
+  );
 
-  const { isLoadingStatus } = useAIStore();
+  const resolveRowIndustry = (row: BondDataRow) => resolveEnterpriseIndustryFromCandidates(
+    row.industry,
+    row.issuerName,
+    row.issuerSymbol,
+    row.raw?.issuerProfile?.icbNameLv2,
+    row.raw?.issuerProfile?.ICBNameLv2,
+    row.raw?.issuerProfile?.icbNameLv1,
+    row.raw?.issuerProfile?.ICBNameLv1,
+    row.raw?.issuerProfile?.industryName,
+    row.raw?.issuerProfile?.IndustryName,
+    row.raw?.issuerProfile?.industry,
+    row.raw?.issuerProfile?.Industry,
+    row.raw?.issuerProfile?.icbName,
+    row.raw?.issuerProfile?.ICBName,
+    row.raw?.issuerProfile?.icbCode,
+    row.raw?.issuerProfile?.ICBCode,
+    row.raw?.infoObj?.icbNameLv2,
+    row.raw?.infoObj?.icbNameLv1,
+    row.raw?.infoObj?.icbCode,
+    row.raw?.industryName,
+    row.raw?.IndustryName,
+    row.raw?.icbNameLv2,
+    row.raw?.ICBNameLv2,
+    row.raw?.icbNameLv1,
+    row.raw?.ICBNameLv1,
+  );
+
+  const resolveMappedIndustry = (row: BondDataRow) => resolveEnterpriseIndustryFromCandidates(
+    resolveIndustryKeyFromSymbolGroups(
+      row.issuerSymbol,
+      industrySymbolLookup,
+      enterpriseIndustryBySymbol.get(String(row.issuerSymbol || '').trim()),
+      row.issuerName,
+      row.issuerSymbol,
+      row.raw?.infoObj?.icbNameLv2,
+      row.raw?.infoObj?.icbNameLv1,
+      row.raw?.infoObj?.icbCode,
+      row.raw?.industryName,
+    ),
+    enterpriseIndustryBySymbol.get(String(row.issuerSymbol || '').trim()),
+  );
+
+  const resolveDisplayedIndustry = (row: BondDataRow) => {
+    const source = getRowSource(row);
+
+    if (source === 'government-beta') {
+      return '';
+    }
+
+    const directIndustry = resolveRowIndustry(row);
+
+    if (source === 'listed-market') {
+      return resolveMappedIndustry(row) || directIndustry;
+    }
+
+    if (source === 'unlisted-enterprise-beta') {
+      return directIndustry;
+    }
+
+    return directIndustry || resolveMappedIndustry(row);
+  };
+
+  const rateTypeOptions = useMemo(() => {
+    return Array.from(
+      new Set(rows.map((row) => normalizeBondRateType(row)).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [rows]);
+
+  const issuerOptions = useMemo(() => {
+    return Array.from(
+      new Set(rows.map((row) => row.issuerName || row.issuerSymbol).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [rows]);
+
+  const bondTypeOptions = useMemo(() => {
+    return Array.from(
+      new Set(rows.map((row) => row.bondType).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [rows]);
+
+  const industryOptions = useMemo(() => {
+    return Array.from(
+      new Set(rows.map((row) => row.industry).filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right));
+  }, [rows]);
+
+  const {
+    draftFilters,
+    setDraftFilters,
+    appliedFilters,
+    appliedCriteria,
+    aiPrompt,
+    setAiPrompt,
+    aiSummary,
+    setAiSummary,
+    aiError,
+    setAiError,
+    isApplyingAIFilter,
+    isLoadingStatus,
+    aiPromptSuggestions,
+    showPromptSuggestions,
+    applyDraftFilters,
+    resetFilters,
+    applyCriteriaPreset,
+    applyAIFilter,
+  } = useBondFilterController({
+    rateTypeOptions,
+    issuerOptions,
+    bondTypeOptions,
+    industryOptions,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadIndustryLookup = async () => {
+      try {
+        const symbolGroups = await loadDedupedIndustrySymbols();
+        if (cancelled) return;
+        setIndustrySymbolLookup(buildIndustrySymbolLookup(symbolGroups));
+      } catch (lookupError) {
+        if (!cancelled) {
+          console.warn('Failed to load industry symbol lookup for market bonds', lookupError);
+        }
+      }
+    };
+
+    void loadIndustryLookup();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -219,16 +374,32 @@ export default function MarketBondFilterView({
       setError(null);
 
       try {
-        const nextRows = await loadBondFilterRows(
-          buildBondFilterQueryFromCriteria(appliedCriteria, {
-            statusID: 1,
-            isListing: 1,
-            top: initialFetchLimit,
-          }),
-        );
+        const [marketRows, governmentRows, unlistedEnterpriseRows] = await Promise.all([
+          loadBondFilterRows(
+            buildBondFilterQueryFromCriteria(appliedCriteria, {
+              statusID: 1,
+              isListing: 1,
+              top: initialFetchLimit,
+            }),
+          ),
+          loadGovernmentBondRows(),
+          loadUnlistedEnterpriseBondRows(),
+        ]);
 
         if (!cancelled) {
-          setRows(nextRows);
+          const mergedRows = Array.from(
+            new Map(
+              [
+                ...withMarketSource(marketRows, 'listed-market'),
+                ...withMarketSource(governmentRows, 'government-beta'),
+                ...withMarketSource(unlistedEnterpriseRows, 'unlisted-enterprise-beta'),
+              ].map((row) => [row.bondCode, row]),
+            ).values(),
+          ).map((row) => ({
+            ...row,
+            industry: resolveDisplayedIndustry(row),
+          }));
+          setRows(mergedRows);
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -248,36 +419,7 @@ export default function MarketBondFilterView({
     return () => {
       cancelled = true;
     };
-  }, [appliedCriteria, initialFetchLimit, t]);
-
-  const rateTypeOptions = useMemo(() => {
-    return Array.from(
-      new Set(rows.map((row) => normalizeBondRateType(row)).filter(Boolean)),
-    ).sort((left, right) => left.localeCompare(right));
-  }, [rows]);
-  const aiPromptSuggestions = useMemo(() => {
-    const suggestions = language === 'en'
-      ? [
-          'Find bonds with the highest coupon rate.',
-          'Find bonds maturing soonest.',
-          'Find high-coupon bonds with early maturity and larger listed value.',
-        ]
-      : [
-          'Tìm các trái phiếu có lãi suất cao nhất.',
-          'Tìm các trái phiếu đáo hạn sớm nhất.',
-          'Tìm các trái phiếu lãi suất cao, đáo hạn sớm và giá trị niêm yết lớn.',
-        ];
-
-    const normalizePromptKey = (value: string) =>
-      value
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    return Array.from(new Map(suggestions.map((item) => [normalizePromptKey(item), item])).values()).slice(0, AI_PROMPT_SUGGESTION_LIMIT);
-  }, [language]);
+  }, [appliedCriteria, enterpriseIndustryBySymbol, industrySymbolLookup, initialFetchLimit, t]);
 
   useEffect(() => {
     const preset = (
@@ -295,91 +437,127 @@ export default function MarketBondFilterView({
     if (!signature || presetSignatureRef.current === signature) return;
 
     presetSignatureRef.current = signature;
-    const nextFilters = createFilterStateFromCriteria(
-      preset.criteria,
-      rateTypeOptions,
-      language === 'en' ? 'en' : 'vi',
-    );
-    setDraftFilters(nextFilters);
-    setAppliedFilters(nextFilters);
-    setAiPrompt(preset.prompt || '');
-    setAiSummary(
-      preset.summary && preset.summary.length > 0
-        ? preset.summary.slice(0, AI_FILTER_SUMMARY_LIMIT)
-        : summarizeBondFilterCriteria(preset.criteria, 'vi').slice(0, AI_FILTER_SUMMARY_LIMIT),
-    );
-    setAiError(null);
-  }, [language, location.state, rateTypeOptions]);
+    applyCriteriaPreset(preset.criteria, preset.prompt, preset.summary);
+  }, [applyCriteriaPreset, location.state]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateVisibleRows = async () => {
+      if (visibleBondCodes.length === 0) return;
+
+      const candidateRows = visibleBondCodes
+        .map((code) => rows.find((row) => row.bondCode === code))
+        .filter((row): row is BondDataRow => Boolean(row));
+      const codesNeedingDetails = candidateRows
+        .filter((row) => !row.raw?.detail)
+        .map((row) => row.bondCode);
+      const symbolsNeedingProfiles = Array.from(
+        new Set(
+          candidateRows
+            .filter((row) => row.issuerSymbol && !row.raw?.issuerProfile && !resolveDisplayedIndustry(row))
+            .map((row) => String(row.issuerSymbol || '').trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (codesNeedingDetails.length === 0 && symbolsNeedingProfiles.length === 0) return;
+
+      try {
+        const [detailMap, profileEntries] = await Promise.all([
+          codesNeedingDetails.length > 0
+            ? loadBondDetailsMapByCodes(codesNeedingDetails, {
+                concurrency: 6,
+                forceRefresh: false,
+              })
+            : Promise.resolve({} as Record<string, any>),
+          symbolsNeedingProfiles.length > 0
+            ? Promise.all(
+                symbolsNeedingProfiles.map(async (symbol) => [symbol, await loadIssuerProfile(symbol)] as const),
+              )
+            : Promise.resolve([] as ReadonlyArray<readonly [string, any]>),
+        ]);
+
+        if (cancelled) return;
+
+        const profileMap = new Map<string, any>(
+          profileEntries.filter((entry): entry is readonly [string, any] => Boolean(entry[1])),
+        );
+
+        setRows((currentRows) => currentRows.map((row) => {
+          let mergedRow = row;
+          const detailPayload = detailMap[row.bondCode];
+          if (detailPayload) {
+            mergedRow = mergeRowWithBondDetail(mergedRow, detailPayload);
+          }
+
+          const issuerProfile = profileMap.get(String(mergedRow.issuerSymbol || '').trim());
+          if (issuerProfile) {
+            mergedRow = mergeRowWithIssuerProfile(mergedRow, issuerProfile);
+          }
+
+          return {
+            ...mergedRow,
+            industry: resolveDisplayedIndustry(mergedRow),
+          };
+        }));
+      } catch (detailError) {
+        if (!cancelled) {
+          console.warn('Failed to hydrate visible market bond rows', detailError);
+        }
+      }
+    };
+
+    void hydrateVisibleRows();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, visibleBondCodes]);
 
   const filteredRows = useMemo(() => {
-    const nextRows = filterBondRowsByCriteria(rows, appliedCriteria).filter((row) => {
-      if (!appliedFilters.bondRateType) return true;
-      return normalizeBondRateType(row) === appliedFilters.bondRateType;
+    const manuallyFilteredRows = filterBondRowsByCriteria(rows, appliedCriteria).filter((row) => {
+      const searchTerm = appliedFilters.searchTerm.trim().toLowerCase();
+      if (searchTerm) {
+        const haystack = [
+          row.bondCode,
+          row.issuerName,
+          row.issuerSymbol,
+          row.bondType,
+          row.industry,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (!haystack.includes(searchTerm)) {
+          return false;
+        }
+      }
+
+      return true;
     });
-    return sortBondRowsByCriteria(nextRows, appliedCriteria);
-  }, [appliedCriteria, appliedFilters.bondRateType, rows]);
+
+    return sortBondRowsByCriteria(manuallyFilteredRows, appliedCriteria);
+  }, [
+    appliedCriteria,
+    appliedFilters.searchTerm,
+    rows,
+  ]);
+
   const tableInitialSort = useMemo(
     () => resolveTableSort(appliedCriteria.sortBy, appliedCriteria.secondarySorts || []),
     [appliedCriteria.secondarySorts, appliedCriteria.sortBy],
   );
-  const showPromptSuggestions = aiSummary.length === 0 && !aiError && !aiPrompt.trim();
-
-  const applyNextFilters = (nextFilters: FilterState) => {
-    setDraftFilters(nextFilters);
-    setAppliedFilters(nextFilters);
-  };
-
-  const handleApplyAIFilter = async () => {
-    if (!aiPrompt.trim() || isApplyingAIFilter) return;
-
-    setAiError(null);
-    setIsApplyingAIFilter(true);
-
-    try {
-      let aiState = useAIStore.getState();
-      if (!aiState.configured && !aiState.isLoadingStatus) {
-        await aiState.refreshStatus();
-        aiState = useAIStore.getState();
-      }
-
-      if (!aiState.configured) {
-        throw new Error(t('aiNotConfigured'));
-      }
-
-      const extraction = await extractBondFilterCriteria({
-        message: aiPrompt.trim(),
-        model: aiState.selectedModel || aiState.defaultModel || FALLBACK_AI_MODEL,
-      });
-
-      if (!extraction.isFilterRequest || !hasAIBondFilterCriteria(extraction.criteria)) {
-        throw new Error(t('aiFilterNoCriteria'));
-      }
-
-      applyNextFilters(
-        createFilterStateFromCriteria(
-          extraction.criteria,
-          rateTypeOptions,
-          language === 'en' ? 'en' : 'vi',
-        ),
-      );
-      setAiSummary(
-        extraction.summary.length > 0
-          ? extraction.summary.slice(0, AI_FILTER_SUMMARY_LIMIT)
-          : summarizeBondFilterCriteria(extraction.criteria, 'vi').slice(0, AI_FILTER_SUMMARY_LIMIT),
-      );
-    } catch (requestError) {
-      console.error('Failed to apply AI bond filter', requestError);
-      setAiError(
-        requestError instanceof Error && requestError.message
-          ? requestError.message
-          : t('aiFilterInvalidResponse'),
-      );
-    } finally {
-      setIsApplyingAIFilter(false);
-    }
-  };
 
   const columns = useMemo<DataTableColumn<BondDataRow>[]>(() => ([
+    {
+      id: 'order',
+      header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
+      align: 'center',
+      className: 'w-14',
+      cell: (_row, index) => index + 1,
+    },
     {
       id: 'bondCode',
       header: t('bondCode'),
@@ -397,6 +575,35 @@ export default function MarketBondFilterView({
           {row.bondCode}
         </button>
       ),
+    },
+    {
+      id: 'issuerName',
+      header: t('issuer'),
+      accessor: (row) => row.issuerName || row.issuerSymbol,
+      sortable: true,
+      cell: (row) => {
+        const issuerName = row.issuerName || row.issuerSymbol || t('none');
+        const industry = resolveDisplayedIndustry(row);
+        const industryLabel = industry ? (t(industry as any) || industry) : '';
+
+        return (
+          <div className="max-w-xs min-w-0">
+            <div className="truncate">{issuerName}</div>
+            {industryLabel ? (
+              <div className="mt-1 text-xs font-semibold text-text-muted">
+                {industryLabel}
+              </div>
+            ) : null}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'bondType',
+      header: t('bondTypeLabel'),
+      accessor: (row) => row.bondType,
+      sortable: true,
+      cell: (row) => row.bondType || t('none'),
     },
     {
       id: 'tenorPeriod',
@@ -471,175 +678,32 @@ export default function MarketBondFilterView({
     <div className="space-y-4">
       <BondSectionNav activeSection="market" />
 
-      <section className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                <ListFilter className="h-4 w-4 text-blue-600" />
-                <span>{t('filterTab')}</span>
-              </div>
-              <h2 className="text-xl font-bold text-text-base">{t('marketBondList')}</h2>
-              <p className="text-sm font-medium text-text-muted">
-                {t('filterResults')}: {formatNumber(filteredRows.length, 0)} / {formatNumber(rows.length, 0)}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => {
-                  setAiError(null);
-                  setAppliedFilters({ ...draftFilters });
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
-              >
-                <Search className="h-4 w-4" />
-                <span>{t('applyFilters')}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  applyNextFilters(DEFAULT_FILTERS);
-                  setAiSummary([]);
-                  setAiError(null);
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border-base bg-bg-base px-4 py-2.5 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight"
-              >
-                <RefreshCcw className="h-4 w-4" />
-                <span>{t('resetFilters')}</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="py-2">
-            <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-                <label className="flex-1 space-y-2">
-                  <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
-                    <Sparkles className="h-4 w-4" />
-                    <span>{t('applyAIFilter')}</span>
-                  </span>
-                  <textarea
-                    rows={2}
-                    value={aiPrompt}
-                    onChange={(event) => {
-                      const nextPrompt = event.target.value;
-                      setAiPrompt(nextPrompt);
-
-                      if (aiSummary.length > 0) {
-                        setAiSummary([]);
-                      }
-
-                      if (aiError) {
-                        setAiError(null);
-                      }
-                    }}
-                    placeholder={t('aiFilterPlaceholder')}
-                    className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void handleApplyAIFilter()}
-                  disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  <span>{t('applyAIFilter')}</span>
-                </button>
-              </div>
-
-              {showPromptSuggestions && (
-                <div className="flex flex-wrap gap-2">
-                  {aiPromptSuggestions.slice(0, AI_PROMPT_SUGGESTION_LIMIT).map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => {
-                        setAiPrompt(suggestion);
-                        setAiSummary([]);
-                        setAiError(null);
-                      }}
-                      className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {(aiSummary.length > 0 || aiError) && (
-                <div className="space-y-2">
-                  {aiSummary.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {aiSummary.slice(0, AI_FILTER_SUMMARY_LIMIT).map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          onClick={() => {
-                            setAiPrompt(item);
-                            setAiError(null);
-                          }}
-                          className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
-                        >
-                          {item}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {aiError && <p className="text-sm font-medium text-red-600">{aiError}</p>}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <RangeField
-              icon={ListFilter}
-              label={t('term')}
-              unit={t('monthUnit')}
-              minValue={draftFilters.tenorMin}
-              maxValue={draftFilters.tenorMax}
-              onMinChange={(value) => setDraftFilters((current) => ({ ...current, tenorMin: value }))}
-              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, tenorMax: value }))}
-            />
-            <RangeField
-              icon={BadgePercent}
-              label={t('interestRate')}
-              unit={t('unitPercentLabel')}
-              minValue={draftFilters.bondRateMin}
-              maxValue={draftFilters.bondRateMax}
-              onMinChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMin: value }))}
-              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMax: value }))}
-            />
-            <FilterSelect
-              icon={BadgePercent}
-              label={t('interestType')}
-              value={draftFilters.bondRateType}
-              options={rateTypeOptions}
-              onChange={(value) => setDraftFilters((current) => ({ ...current, bondRateType: value }))}
-            />
-            <RangeField
-              icon={CalendarRange}
-              label={t('issueDate')}
-              minValue={draftFilters.issueDateFrom}
-              maxValue={draftFilters.issueDateTo}
-              onMinChange={(value) => setDraftFilters((current) => ({ ...current, issueDateFrom: value }))}
-              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issueDateTo: value }))}
-              inputType="date"
-            />
-            <RangeField
-              icon={CalendarRange}
-              label={t('maturityDate')}
-              minValue={draftFilters.maturityDateFrom}
-              maxValue={draftFilters.maturityDateTo}
-              onMinChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateFrom: value }))}
-              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateTo: value }))}
-              inputType="date"
-            />
-          </div>
-        </div>
-      </section>
+      <BondFilterPanel
+        title={t('marketBondList')}
+        resultCount={filteredRows.length}
+        totalCount={rows.length}
+        draftFilters={draftFilters}
+        setDraftFilters={setDraftFilters}
+        rateTypeOptions={rateTypeOptions}
+        aiPrompt={aiPrompt}
+        setAiPrompt={setAiPrompt}
+        aiSummary={aiSummary}
+        setAiSummary={setAiSummary}
+        aiError={aiError}
+        setAiError={setAiError}
+        isApplyingAIFilter={isApplyingAIFilter}
+        isLoadingStatus={isLoadingStatus}
+        aiPromptSuggestions={aiPromptSuggestions}
+        showPromptSuggestions={showPromptSuggestions}
+        onApply={applyDraftFilters}
+        onReset={resetFilters}
+        onApplyAI={applyAIFilter}
+        variant="market"
+        issuerOptions={issuerOptions}
+        bondTypeOptions={bondTypeOptions}
+        industryOptions={industryOptions}
+        searchOptions={rows.map((row) => row.bondCode)}
+      />
 
       {loading ? (
         <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center text-sm font-medium text-text-muted shadow-md shadow-blue-950/5 dark:shadow-black/20">
@@ -657,90 +721,15 @@ export default function MarketBondFilterView({
           pageSize={15}
           initialSort={tableInitialSort}
           emptyState={t('noData')}
+          onVisibleRowsChange={(nextVisibleRows) => {
+            const nextCodes = nextVisibleRows.map((row) => row.bondCode);
+            setVisibleBondCodes((currentCodes) => (
+              currentCodes.length === nextCodes.length
+              && currentCodes.every((code, index) => code === nextCodes[index])
+            ) ? currentCodes : nextCodes);
+          }}
         />
       )}
     </div>
-  );
-}
-
-interface RangeFieldProps {
-  icon: typeof Search;
-  label: string;
-  minValue: string;
-  maxValue: string;
-  onMinChange: (value: string) => void;
-  onMaxChange: (value: string) => void;
-  unit?: string;
-  inputType?: 'number' | 'date';
-}
-
-function RangeField({
-  icon: Icon,
-  label,
-  minValue,
-  maxValue,
-  onMinChange,
-  onMaxChange,
-  unit,
-  inputType = 'number',
-}: RangeFieldProps) {
-  return (
-    <div className="space-y-2">
-      <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-        <Icon className="h-4 w-4 text-blue-600" />
-        <span>{unit ? `${label} (${unit})` : label}</span>
-      </span>
-      <div className="grid grid-cols-2 gap-2">
-        <input
-          type={inputType}
-          inputMode={inputType === 'number' ? 'decimal' : undefined}
-          value={minValue}
-          placeholder={inputType === 'date' ? undefined : 'Min'}
-          onChange={(event) => onMinChange(event.target.value)}
-          className="w-full rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors focus:border-blue-400"
-        />
-        <input
-          type={inputType}
-          inputMode={inputType === 'number' ? 'decimal' : undefined}
-          value={maxValue}
-          placeholder={inputType === 'date' ? undefined : 'Max'}
-          onChange={(event) => onMaxChange(event.target.value)}
-          className="w-full rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors focus:border-blue-400"
-        />
-      </div>
-    </div>
-  );
-}
-
-interface FilterSelectProps {
-  icon: typeof Search;
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (value: string) => void;
-}
-
-function FilterSelect({ icon: Icon, label, value, options, onChange }: FilterSelectProps) {
-  const { t } = useLanguage();
-
-  return (
-    <label className="space-y-2">
-      <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-        <Icon className="h-4 w-4 text-blue-600" />
-        <span>{label}</span>
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors focus:border-blue-400"
-      >
-        <option value="">{t('all')}</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

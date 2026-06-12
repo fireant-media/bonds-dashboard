@@ -51,6 +51,89 @@ export const INDUSTRY_LABEL_KEYS = INDUSTRY_NAV_ITEMS.reduce<Record<string, stri
 export const normalizeIndustryName = (value: unknown) =>
   String(value || '').trim().toLowerCase();
 
+const BANKING_LABEL_KEY = 'Banking';
+const SECURITIES_LABEL_KEY = 'Securities';
+const FINANCIALS_OTHER_LABEL_KEY = 'financialsOtherIndustry';
+
+const normalizeIndustryMatcherText = (value: unknown) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const BANKING_PATTERNS = [
+  'ngan hang',
+  'banking',
+  'commercial bank',
+  'joint stock commercial bank',
+  'tmcp',
+  'bank',
+];
+
+const SECURITIES_PATTERNS = [
+  'chung khoan',
+  'cong ty chung khoan',
+  'ctck',
+  'securities',
+  'securites',
+  'securities corporation',
+  'securities joint stock company',
+];
+
+const FINANCIALS_OTHER_PATTERNS = [
+  'tai chinh',
+  'financial',
+  'finance',
+  'leasing',
+  'bao hiem',
+  'insurance',
+  'asset management',
+  'quan ly quy',
+  'fund management',
+];
+
+const PUBLIC_ISSUER_PATTERNS = [
+  'kho bac',
+  'bo tai chinh',
+  'bo ',
+  'uy ban nhan dan',
+  'ubnd',
+  'chinh phu',
+  'nha nuoc',
+  'thanh pho',
+  'tinh ',
+  ' tinh',
+  'so ',
+  ' so ',
+];
+
+const matchesIndustryPattern = (text: string, patterns: string[]) =>
+  patterns.some((pattern) => text.includes(pattern));
+
+const inferIndustryKeyFromText = (value: unknown) => {
+  const normalized = normalizeIndustryMatcherText(value);
+  if (!normalized) return '';
+
+  if (matchesIndustryPattern(normalized, SECURITIES_PATTERNS)) {
+    return SECURITIES_LABEL_KEY;
+  }
+
+  if (matchesIndustryPattern(normalized, BANKING_PATTERNS)) {
+    return BANKING_LABEL_KEY;
+  }
+
+  if (
+    !matchesIndustryPattern(normalized, PUBLIC_ISSUER_PATTERNS)
+    && matchesIndustryPattern(normalized, FINANCIALS_OTHER_PATTERNS)
+  ) {
+    return FINANCIALS_OTHER_LABEL_KEY;
+  }
+
+  return '';
+};
+
 const INDUSTRY_LABEL_KEY_BY_ALIAS = INDUSTRY_NAV_ITEMS.reduce<Record<string, string>>((acc, item) => {
   const aliases = new Set<string>([
     item.id,
@@ -110,13 +193,19 @@ export const resolveIndustryKeyFromCandidates = (...candidates: Array<unknown>) 
     }
 
     const resolved = resolveIndustryLabelKey(value);
-    if (resolved) resolvedKeys.push(resolved);
+    if (resolved) {
+      resolvedKeys.push(resolved);
+      continue;
+    }
+
+    const inferred = inferIndustryKeyFromText(value);
+    if (inferred) resolvedKeys.push(inferred);
   }
 
-  const prioritized = resolvedKeys.find((key) => key === 'Securities' || key === 'Banking');
+  const prioritized = resolvedKeys.find((key) => key === SECURITIES_LABEL_KEY || key === BANKING_LABEL_KEY);
   if (prioritized) return prioritized;
 
-  const firstNonFinancials = resolvedKeys.find((key) => key && key !== 'Financials');
+  const firstNonFinancials = resolvedKeys.find((key) => key && key !== FINANCIALS_OTHER_LABEL_KEY);
   if (firstNonFinancials) return firstNonFinancials;
 
   return resolvedKeys[0] || '';

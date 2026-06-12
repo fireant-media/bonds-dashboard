@@ -4,11 +4,13 @@ import { readJsonResponse } from "../utils/http";
 
 const FIREANT_PROXY_PATH = "/api/fireant";
 export const FIREANT_PROXY_BASE = buildAppApiUrl(FIREANT_PROXY_PATH);
+export type FireantBaseTarget = "default" | "beta";
 
 type QueryValue = string | number | boolean | null | undefined;
 
 export interface FireantRequestOptions extends RequestInit {
   query?: Record<string, QueryValue>;
+  baseTarget?: FireantBaseTarget;
 }
 
 export interface IndustryBondsFilterQuery {
@@ -71,7 +73,7 @@ export function buildFireantHeaders(extra?: HeadersInit): Headers {
   return headers;
 }
 
-export function buildFireantUrl(path: string, query?: Record<string, QueryValue>) {
+export function buildFireantUrl(path: string, query?: Record<string, QueryValue>, baseTarget: FireantBaseTarget = "default") {
   const normalizedPath = path.replace(/^\/+/, "");
   const params = new URLSearchParams();
 
@@ -80,13 +82,17 @@ export function buildFireantUrl(path: string, query?: Record<string, QueryValue>
     params.set(key, String(value));
   });
 
+  if (baseTarget === "beta") {
+    params.set("__base", "beta");
+  }
+
   const queryString = params.toString();
   return `${FIREANT_PROXY_BASE}/${normalizedPath}${queryString ? `?${queryString}` : ""}`;
 }
 
 export async function fireantRequest<T = unknown>(path: string, options: FireantRequestOptions = {}): Promise<T> {
-  const { query, headers, ...requestOptions } = options;
-  const url = buildFireantUrl(path, query);
+  const { query, headers, baseTarget = "default", ...requestOptions } = options;
+  const url = buildFireantUrl(path, query, baseTarget);
   const method = String(requestOptions.method || "GET").toUpperCase();
   const canDedupe = method === "GET" && !requestOptions.body;
   const dedupeKey = `${method}:${url}`;
@@ -127,7 +133,8 @@ export async function fireantRequest<T = unknown>(path: string, options: Fireant
 }
 
 export const fireantApi = {
-  getBond: (code: string) => fireantRequest<any>(`bonds/${encodeURIComponent(code)}`),
+  getBond: (code: string, baseTarget: FireantBaseTarget = "default") =>
+    fireantRequest<any>(`bonds/${encodeURIComponent(code)}`, { baseTarget }),
   getIssuerBonds: (issuerSymbol: string) => fireantRequest<any[]>(`bonds/issuer/${encodeURIComponent(issuerSymbol)}`),
   getBondsByIssuer: (issuerSymbol: string) =>
     fireantRequest<any[]>("bonds/get-bonds-by-issuer", { query: { issuerSymbol } }),
@@ -147,9 +154,10 @@ export const fireantApi = {
     }),
   getBondsFilter: (query: IndustryBondsFilterQuery = {}) =>
     fireantApi.getBondsByIndustryFilter(query),
-  filterBonds: (body: BondRestFilterBody = {}) =>
+  filterBonds: (body: BondRestFilterBody = {}, baseTarget: FireantBaseTarget = "default") =>
     fireantRequest<any[]>("bonds/filter", {
       method: "POST",
+      baseTarget,
       headers: {
         "Content-Type": "application/json",
       },

@@ -7,7 +7,6 @@ import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import BondSectionNav from './BondSectionNav';
-import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
 import {
   buildEnterpriseIndustryOptions,
@@ -15,6 +14,9 @@ import {
   resolveIndustryKeyFromCandidates,
   resolveIndustryKeyFromSymbolGroups,
 } from '../constants/industries';
+import { filterBondRowsByCriteria } from '../services/aiBondFilter';
+import type { BondDataRow } from '../services/bondData';
+import { BondFilterPanel, useBondFilterController } from './BondFilterPanel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -63,6 +65,27 @@ const normalizeMaturityBond = (bond: any, enterpriseIndustry?: string): Maturity
   industry: bond?.industry || getMaturityIndustryKey(bond, enterpriseIndustry),
 });
 
+const toMaturityBondRow = (bond: MaturityBond): BondDataRow => ({
+  bondCode: bond.code,
+  issuerSymbol: bond.ticker || bond.enterpriseId || '',
+  issuerName: bond.issuerName,
+  bondType: '',
+  industry: bond.industry || '',
+  issueDate: bond.issueDate || '',
+  maturityDate: bond.maturityDate || '',
+  tenorPeriod: Number.parseFloat(String(bond.term || '')) || 0,
+  bondRate: Number(bond.interestRate || 0),
+  bondRateType: bond.interestType || '',
+  currentListedVolume: Number(bond.listedVolume || 0),
+  currentListedValue: Number(bond.listedValue || 0) * 1000000000,
+  totalIssuedValue: Number(bond.issuedValue || bond.listedValue || 0) * 1000000000,
+  totalRemainingDebt: 0,
+  totalDebtFull: 0,
+  status: bond.status || '',
+  bondInfos: {},
+  raw: bond,
+});
+
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
@@ -92,6 +115,31 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     return getCache('enterprise_names_en') || {};
   });
   const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string; issuedValue?: number }>;
+  const rateTypeOptions = useMemo(() => {
+    return Array.from(new Set(
+      bonds
+        .map((bond) => String(bond.interestType || '').trim())
+        .filter(Boolean),
+    )).sort((left, right) => left.localeCompare(right));
+  }, [bonds]);
+  const {
+    draftFilters,
+    setDraftFilters,
+    appliedCriteria,
+    aiPrompt,
+    setAiPrompt,
+    aiSummary,
+    setAiSummary,
+    aiError,
+    setAiError,
+    isApplyingAIFilter,
+    isLoadingStatus,
+    aiPromptSuggestions,
+    showPromptSuggestions,
+    applyDraftFilters,
+    resetFilters,
+    applyAIFilter,
+  } = useBondFilterController(rateTypeOptions);
 
   useEffect(() => {
     let isMounted = true;
@@ -296,14 +344,21 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     return 5;
   };
 
+  const maturityBondRows = useMemo(() => bonds.map(toMaturityBondRow), [bonds]);
+  const criteriaMatchedCodes = useMemo(
+    () => new Set(filterBondRowsByCriteria(maturityBondRows, appliedCriteria).map((row) => row.bondCode)),
+    [appliedCriteria, maturityBondRows],
+  );
+
   const filteredBonds = bonds.filter(bond => {
+    const matchesBondFilter = criteriaMatchedCodes.has(bond.code);
     const matchesSearch = bond.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
                          bond.issuerName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesIndustry = industryFilter === 'All' || bond.industry === industryFilter;
     const status = getWarningStatus(bond.daysLeft);
     const matchesWarning = warningFilter === 'All' || status.value === warningFilter;
 
-    return matchesSearch && matchesIndustry && matchesWarning;
+    return matchesBondFilter && matchesSearch && matchesIndustry && matchesWarning;
   });
 
   const sortedBonds = [...filteredBonds].sort((a, b) => {
@@ -441,7 +496,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [appliedSortDirection, appliedSortField]);
+  }, [appliedSortDirection, appliedSortField, appliedCriteria]);
 
   const handleIndustryButtonClick = () => {
     setOpenMenu((current) => (current === 'industry' ? null : 'industry'));
@@ -497,13 +552,35 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     <div className="min-w-0 space-y-3 transition-colors duration-300">
       <BondSectionNav activeSection="maturity" />
 
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+      <div className="mb-3 mt-1 flex min-w-0 items-center justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight break-words transition-colors dark:text-text-base">
             {t('maturityTitle')}
           </h1>
         </div>
       </div>
+
+      <BondFilterPanel
+        title={t('maturityTitle')}
+        resultCount={sortedBonds.length}
+        totalCount={bonds.length}
+        draftFilters={draftFilters}
+        setDraftFilters={setDraftFilters}
+        rateTypeOptions={rateTypeOptions}
+        aiPrompt={aiPrompt}
+        setAiPrompt={setAiPrompt}
+        aiSummary={aiSummary}
+        setAiSummary={setAiSummary}
+        aiError={aiError}
+        setAiError={setAiError}
+        isApplyingAIFilter={isApplyingAIFilter}
+        isLoadingStatus={isLoadingStatus}
+        aiPromptSuggestions={aiPromptSuggestions}
+        showPromptSuggestions={showPromptSuggestions}
+        onApply={applyDraftFilters}
+        onReset={resetFilters}
+        onApplyAI={applyAIFilter}
+      />
 
       {/* Filters */}
       <div className="bg-bg-surface p-4 rounded-lg shadow-sm border border-border-base mb-4 transition-colors">
@@ -566,10 +643,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                   ))}
                 </div>
               )}
-            </div>
-
-            <div className="flex w-full items-center lg:justify-end">
-              <ExportExcelButton loading={exportLoading} onClick={handleExportExcel} showIcon={false} />
             </div>
           </div>
 

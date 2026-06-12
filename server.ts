@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import {
   FIREANT_ACCESS_TOKEN,
   FIREANT_BASE_URL,
+  FIREANT_BETA_BASE_URL,
   FIREANT_WEB_URL,
   STATIC_FIREANT_URL,
   DEFAULT_AI_MODEL,
@@ -211,10 +212,13 @@ async function startServer() {
   app.all("/api/fireant/*", async (req, res) => {
     try {
       const targetPath = (req.params as any)[0];
-      const query = new URLSearchParams(req.query as any).toString();
-      const url = `${FIREANT_BASE_URL}/${targetPath}${query ? `?${query}` : ""}`;
+      const { __base, ...upstreamQuery } = req.query as Record<string, unknown>;
+      const baseTarget = String(Array.isArray(__base) ? __base[0] : (__base || '')).trim() === 'beta' ? 'beta' : 'default';
+      const query = new URLSearchParams(upstreamQuery as any).toString();
+      const upstreamBaseUrl = baseTarget === 'beta' ? FIREANT_BETA_BASE_URL : FIREANT_BASE_URL;
+      const url = `${upstreamBaseUrl}/${targetPath}${query ? `?${query}` : ""}`;
       
-      console.log(`[Proxy] ${req.method} ${url}`);
+      console.log(`[Proxy] ${req.method} ${url} (base=${baseTarget})`);
       
       // Get a fresh token if not provided by client
       let token = req.headers.authorization;

@@ -13,6 +13,9 @@ const readEnv = (...keys: string[]): string => {
 export const FIREANT_BASE_URL =
   readEnv("FIREANT_BASE_URL", "VITE_FIREANT_BASE_URL") || "https://restv2.fireant.vn";
 
+export const FIREANT_BETA_BASE_URL =
+  readEnv("FIREANT_BETA_BASE_URL", "VITE_FIREANT_BETA_BASE_URL") || "https://betarest.fireant.vn";
+
 export const TRADESTATION_BASE_URL =
   readEnv("TRADESTATION_BASE_URL", "VITE_TRADESTATION_BASE_URL") || "https://tradestation.fireant.vn";
 

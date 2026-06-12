@@ -1029,7 +1029,7 @@ export default function MarketOverview() {
 
   return (
     <div className="min-w-0 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+      <div className="mb-3 mt-1 flex min-w-0 items-center justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
         </div>
@@ -1049,7 +1049,16 @@ export default function MarketOverview() {
         ) : (
         <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
           <div className="flex min-w-0 flex-col gap-1">
-            <div className={hoverToolbarClass}>
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 justify-start text-left">
+                <div className="inline-flex max-w-full items-center justify-start gap-2 transition-colors duration-200 group-hover:text-blue-600">
+                  <Landmark className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                  <h3 className="text-left text-base font-bold leading-snug break-words text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
+                    {topIssuerMetricTitle}
+                  </h3>
+                </div>
+              </div>
+              <div className={hoverToolbarClass}>
                 <button
                   type="button"
                   onClick={() => openTopIssuerDataView(false)}
@@ -1099,13 +1108,6 @@ export default function MarketOverview() {
                 >
                   <Maximize2 className="h-4 w-4" />
                 </button>
-            </div>
-            <div className="flex min-w-0 justify-center text-center">
-              <div className="inline-flex max-w-full items-center justify-center gap-2 transition-colors duration-200 group-hover:text-blue-600">
-                <Landmark className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
-                <h3 className="text-center text-base font-bold leading-snug break-words text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
-                  {topIssuerMetricTitle}
-                </h3>
               </div>
             </div>
             <div className="flex justify-center md:justify-end">
@@ -1210,9 +1212,9 @@ export default function MarketOverview() {
         </div>
 
         {isIndustryChartSectionLoading ? (
-          <SectionCardSkeleton className="col-span-12" />
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
         ) : (
-          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4">
+          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               <ChartWithToolbar
                 option={industryValueOptions}
@@ -1225,9 +1227,9 @@ export default function MarketOverview() {
         )}
 
         {isIndustryChartSectionLoading ? (
-          <SectionCardSkeleton className="col-span-12" />
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
         ) : (
-          <Card className="col-span-12 flex flex-col p-3 md:p-4 min-h-0">
+          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
             <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
               <ChartWithToolbar
                 option={industryVolumeOptions}
@@ -1334,7 +1336,16 @@ export default function MarketOverview() {
           >
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">
-                <div className={hoverToolbarClass}>
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <div className="min-w-0 text-left">
+                    <div className="inline-flex max-w-full items-center justify-start gap-2">
+                      <Landmark className="h-5 w-5 shrink-0 text-blue-600" />
+                      <h3 className="line-clamp-2 text-left text-base font-bold leading-snug text-text-base md:text-2xl">
+                        {topIssuerMetricTitle}
+                      </h3>
+                    </div>
+                  </div>
+                  <div className={hoverToolbarClass}>
                   <button
                     type="button"
                     onClick={() => openTopIssuerDataView(true)}
@@ -1377,10 +1388,6 @@ export default function MarketOverview() {
                     <Download className="h-4 w-4" />
                   </button>
                 </div>
-                <div className="min-w-0 pt-3 text-center">
-                  <h3 className="line-clamp-2 text-base font-bold leading-snug text-text-base md:text-2xl">
-                    {topIssuerMetricTitle}
-                  </h3>
                 </div>
                 <div className="mt-2 flex justify-end text-right">
                   <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">

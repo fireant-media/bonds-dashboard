@@ -7,7 +7,6 @@ import { useLanguage } from '../LanguageContext';
 import { useAuthUser, useIsGoogleUser } from '../auth/authStore';
 import type { UserAccount } from '../models/users';
 import SentinelFooter from './SentinelFooter';
-import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
 
 function cn(...inputs: ClassValue[]) {
@@ -425,7 +424,6 @@ function SecuritySettingsView() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-8">
                     <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('currentSessions')}</h3>
                     <div className="flex items-center gap-3">
-                      <ExportExcelButton loading={sessionsExportLoading} onClick={handleExportSessions} />
                       <button className="text-xs font-bold text-red-600 hover:underline uppercase tracking-widest transition-colors">{t('logoutAllDevices')}</button>
                     </div>
                 </div>
@@ -534,7 +532,6 @@ function ActivityLogView() {
       <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
         <div className="flex flex-col gap-3 px-4 py-4 md:px-8 md:py-6 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('activityLog')}</h3>
-          <ExportExcelButton loading={activityExportLoading} onClick={handleExportActivities} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">

@@ -384,7 +384,7 @@ export default function ChartWithToolbar({
   lazyUpdate,
   title,
   titleIcon: TitleIcon = BarChart3,
-  titleAlign = 'center',
+  titleAlign = 'left',
   actions,
   actionsPlacement = 'below',
   zoomConfig,
@@ -655,124 +655,108 @@ export default function ChartWithToolbar({
       onMouseLeave={showDataZoomSliderOnHover && supportsHover ? () => setShowSlider(false) : undefined}
     >
       <div className="flex flex-col gap-1">
-        {showToolbar ? (
-          <div className={hoverToolbarClass}>
-            <button
-              type="button"
-              onClick={() => openDataView(false)}
-              className={toolbarButtonClass()}
-              title={t('dataView')}
-              aria-label={t('dataView')}
-            >
-              <TableProperties className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartMode('line')}
-              disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'line')}
-              className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'line')}
-              title={t('lineChart')}
-            >
-              <LineChart className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartMode('bar')}
-              disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'bar')}
-              className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'bar')}
-              title={t('columnChart')}
-            >
-              <BarChart3 className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleReset}
-              className={toolbarButtonClass()}
-              title={t('reset')}
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleDownload}
-              className={toolbarButtonClass()}
-              title={t('download')}
-            >
-              <Download className="h-4 w-4" />
-            </button>
-            {showZoomButton ? (
-              <button
-                type="button"
-                onClick={() => setShowZoom(true)}
-                className={toolbarButtonClass()}
-                title={t('zoom')}
-              >
-                <Maximize2 className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {(title || actions) ? (
+        {(title || actions || showToolbar) ? (
           <div className="flex flex-col gap-2">
-            {actionsPlacement === 'inline' ? (
-              <div className="flex items-center gap-3">
-                <div
-                  className={
-                    titleAlign === 'left'
-                      ? 'flex min-w-0 flex-1 justify-start'
-                      : titleAlign === 'right'
-                        ? 'flex min-w-0 flex-1 justify-end'
-                        : 'flex min-w-0 flex-1 justify-center'
-                  }
-                >
-                  {title ? (
-                    <div className={titleWrapClass}>
-                      <div
-                        className={`inline-flex max-w-full items-center gap-2 transition-colors duration-200 ${
-                          titleAlign === 'left'
-                            ? 'justify-start'
-                            : titleAlign === 'right'
-                              ? 'justify-end'
-                              : 'justify-center'
-                        }`}
-                      >
-                        <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
-                        <div className="line-clamp-2 text-base font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
-                          {title}
-                        </div>
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className={
+                  titleAlign === 'left'
+                    ? 'flex min-w-0 flex-1 justify-start'
+                    : titleAlign === 'right'
+                      ? 'flex min-w-0 flex-1 justify-end'
+                      : 'flex min-w-0 flex-1 justify-center'
+                }
+              >
+                {title ? (
+                  <div className={titleWrapClass}>
+                    <div
+                      className={`inline-flex max-w-full items-center gap-2 transition-colors duration-200 ${
+                        titleAlign === 'left'
+                          ? 'justify-start'
+                          : titleAlign === 'right'
+                            ? 'justify-end'
+                            : 'justify-center'
+                      }`}
+                    >
+                      <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                      <div className="line-clamp-2 text-base font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
+                        {title}
                       </div>
                     </div>
-                  ) : null}
-                </div>
-
-                {actions ? (
-                  <div className="flex shrink-0 items-center justify-end gap-2 text-right">
-                    {actions}
                   </div>
                 ) : null}
               </div>
-            ) : (
-              <>
-                <div className="flex min-w-0 justify-center text-center">
-                  {title ? (
-                    <div className="min-w-0 max-w-3xl">
-                      <div className="inline-flex max-w-full items-center justify-center gap-2 transition-colors duration-200">
-                        <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
-                        <div className="line-clamp-2 text-base font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
-                          {title}
-                        </div>
-                      </div>
-                    </div>
+
+              {actions && actionsPlacement === 'inline' ? (
+                <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                  {actions}
+                </div>
+              ) : null}
+
+              {showToolbar ? (
+                <div className={hoverToolbarClass}>
+                  <button
+                    type="button"
+                    onClick={() => openDataView(false)}
+                    className={toolbarButtonClass()}
+                    title={t('dataView')}
+                    aria-label={t('dataView')}
+                  >
+                    <TableProperties className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('line')}
+                    disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'line')}
+                    className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'line')}
+                    title={t('lineChart')}
+                  >
+                    <LineChart className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('bar')}
+                    disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'bar')}
+                    className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'bar')}
+                    title={t('columnChart')}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    className={toolbarButtonClass()}
+                    title={t('reset')}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    className={toolbarButtonClass()}
+                    title={t('download')}
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
+                  {showZoomButton ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowZoom(true)}
+                      className={toolbarButtonClass()}
+                      title={t('zoom')}
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                    </button>
                   ) : null}
                 </div>
+              ) : null}
+            </div>
 
-                {actions ? (
-                  <div className="flex min-w-0 justify-end text-right">
-                    {actions}
-                  </div>
-                ) : null}
-              </>
-            )}
+            {actions && actionsPlacement === 'below' ? (
+              <div className="flex min-w-0 justify-end text-right">
+                {actions}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -812,8 +796,25 @@ export default function ChartWithToolbar({
           >
             <div className="flex items-start justify-between gap-3 border-b border-border-base px-4 py-3">
               <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    {title ? (
+                      <div className="min-w-0 text-left">
+                        <div className="inline-flex max-w-full items-center gap-2 transition-colors duration-200">
+                          <TitleIcon className="h-5 w-5 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                          <div className="line-clamp-2 text-lg font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-2xl">
+                            {title}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <h3 className="line-clamp-2 text-left text-sm font-bold leading-snug text-text-base">
+                        {t('zoom')}
+                      </h3>
+                    )}
+                  </div>
                 {showToolbar ? (
-                  <div className={`${hoverToolbarClass} text-right`}>
+                  <div className={`${hoverToolbarClass} shrink-0 text-right`}>
                     <button
                       type="button"
                       onClick={() => openDataView(true)}
@@ -863,20 +864,7 @@ export default function ChartWithToolbar({
                     </button>
                   </div>
                 ) : null}
-                {title ? (
-                  <div className="min-w-0 pt-3 text-center">
-                    <div className="inline-flex max-w-full items-center justify-center gap-2 transition-colors duration-200">
-                      <TitleIcon className="h-5 w-5 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
-                      <div className="line-clamp-2 text-lg font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-2xl">
-                        {title}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <h3 className="line-clamp-2 pt-3 text-center text-sm font-bold leading-snug text-text-base">
-                    {t('zoom')}
-                  </h3>
-                )}
+                </div>
                 {actions ? (
                   <div className="mt-2 flex min-w-0 justify-end text-right">
                     {actions}

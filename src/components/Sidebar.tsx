@@ -72,10 +72,6 @@ export default function Sidebar({
   return (
     <aside className="hidden h-full min-h-0 w-72 shrink-0 border-r border-border-base bg-surface-bright/95 md:flex">
       <div className="min-h-0 flex-1 overflow-hidden p-3 lg:p-4">
-        <div className="mb-3 px-3 pt-1 text-xs font-bold uppercase tracking-wider text-text-muted/80">
-          {t('dashboardMenu')}
-        </div>
-
         <nav className="space-y-1">
           {dashboardItems.map((item) => {
             const Icon = item.icon;

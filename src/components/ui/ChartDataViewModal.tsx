@@ -3,7 +3,6 @@ import { clsx, type ClassValue } from 'clsx';
 import { ArrowLeft, ChevronDown, Search, X } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import { exportRowsToExcel } from '../../utils/excel';
-import { ExportExcelButton } from './ExportExcelButton';
 import { SortControl } from './SortControl';
 import { twMerge } from 'tailwind-merge';
 
@@ -323,10 +322,6 @@ export function ChartDataViewModal({
                 descendingLabel={t('descending')}
                 stretch={false}
               />
-
-              <div className="ml-auto">
-                <ExportExcelButton loading={false} onClick={handleExport} />
-              </div>
             </div>
           </div>
         </div>

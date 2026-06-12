@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_WEB_URL } from './_lib/config.js';
+import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_BETA_BASE_URL, FIREANT_WEB_URL } from './_lib/config.js';
 
 let fireantToken: string | null = null;
 let lastTokenFetch = 0;
 
 type QueryValue = string | string[] | undefined;
+type BaseTarget = 'default' | 'beta';
 
 interface UpstreamTarget {
   path: string;
@@ -189,7 +190,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   if (!path) return res.status(400).json({ error: "Path is required" });
 
-  const target = resolveUpstreamTarget(path, otherQuery as Record<string, QueryValue>, req);
+  const baseTarget = getQueryValue(otherQuery.__base) === 'beta' ? 'beta' as BaseTarget : 'default' as BaseTarget;
+  const { __base: _ignoredBase, ...upstreamQuery } = otherQuery;
+  const target = resolveUpstreamTarget(path, upstreamQuery as Record<string, QueryValue>, req);
 
   const queryObj = new URLSearchParams();
   Object.entries(target.query).forEach(([key, value]) => {
@@ -201,9 +204,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
   
   const queryString = queryObj.toString();
-  const url = `${FIREANT_BASE_URL}/${target.path}${queryString ? `?${queryString}` : ""}`;
+  const upstreamBaseUrl = baseTarget === 'beta' ? FIREANT_BETA_BASE_URL : FIREANT_BASE_URL;
+  const url = `${upstreamBaseUrl}/${target.path}${queryString ? `?${queryString}` : ""}`;
 
-  console.log(`[Vercel Proxy] ${req.method} ${url}`);
+  console.log(`[Vercel Proxy] ${req.method} ${url} (base=${baseTarget})`);
 
   const fetchWithToken = async (authToken: string | null) => {
     const headers: any = {

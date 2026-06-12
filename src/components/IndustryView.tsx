@@ -359,59 +359,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       ]);
   }, [deferredRankingData]);
 
-  const getRankingOptions = () => {
-    const displayData = [...deferredRankingData].reverse();
-    const categoryCount = displayData.length;
-    const maxDebt = deferredRankingData.length > 0 ? Math.max(...deferredRankingData.map((d) => d.totalRemainingDebt / 1000000000)) : 0;
-    const interval = (industry === 'Banking' || industry === 'RealEstate') ? 20000 : (maxDebt > 10000 ? 5000 : 2000);
-
-    return {
-      color: chartPalette,
-      __dataView: {
-        categoryLabel: t('ticker'),
-        categoryAlign: 'center',
-      },
-      tooltip: { 
-        ...chartTooltip,
-        trigger: 'axis',
-        confine: true,
-        textStyle: tooltipTextStyle,
-        formatter: (params: any) => {
-          const symbol = params[0].name;
-          const issuer = deferredRankingData.find(d => d.issuerSymbol === symbol);
-          const displayName = issuer ? t(issuer.issuerName as any, issuer.issuerSymbol) : symbol;
-          return `${displayName}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 0), ` ${t('unitBillionVND')}`)}`;
-        }
-      },
-      grid: { left: '3%', right: '8%', top: '3%', bottom: '3%', containLabel: true },
-      xAxis: { 
-        type: 'value', 
-        splitLine: { show: false },
-        interval: interval,
-        name: t('unitBillionVND'),
-        nameTextStyle: chartTitleStyle,
-        axisLabel: { 
-          ...valueLabelStyle,
-          formatter: (value: number) => formatNumber(value, 0)
-        } 
-      },
-      yAxis: { 
-        type: 'category', 
-        data: displayData.map(d => d.issuerSymbol), 
-        axisLabel: categoryLabelStyle 
-      },
-      series: [{
-        name: t('remainingDebtTitle'),
-        type: 'bar',
-        data: displayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)),
-        itemStyle: { borderRadius: [0, 4, 4, 0] },
-        barWidth: getAdaptiveBarWidth(categoryCount)
-      }]
-    };
-  };
-
-  const rankingOptions = getRankingOptions();
-
   const getMarketShareOptions = () => {
     const hasData = deferredRankingData.length > 0;
     let chartData: { value: number; name: string; itemStyle: { color: string } }[] = [];
@@ -422,16 +369,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       const top9 = deferredRankingData.slice(0, 9);
       const top9Debt = top9.reduce((sum, item) => sum + item.totalRemainingDebt, 0);
       const othersDebt = totalDebt - top9Debt;
-
-      const colors = isDark 
-        ? [
-          '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe',
-          '#1d4ed8', '#1e40af', '#1e3a8a', '#2563eb', '#172554'
-        ]
-        : [
-          '#2563eb', '#1e3a8a', '#1e40af', '#1d4ed8', '#3b82f6', 
-          '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#eff6ff'
-        ];
       
       chartData = top9.map((item, idx) => {
         return {
@@ -481,6 +418,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
     return {
       color: chartPalette,
+      grid: undefined,
+      xAxis: undefined,
+      yAxis: undefined,
       __dataView: {
         columns: [
           { label: t('ticker'), align: 'center', kind: 'text' },
@@ -692,7 +632,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         columns: [
           { label: t('ticker'), align: 'center', kind: 'text' },
           { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
-          { label: t('bondLotsTitle'), unit: t('unitLot'), align: 'right', kind: 'number' },
+          { label: language === 'vi' ? 'Số mã trái phiếu' : 'Bond codes', align: 'right', kind: 'number' },
         ],
         rows: combinedDataViewRows,
       },
@@ -750,7 +690,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           itemStyle: { } 
         },
         { 
-          name: t('bondLotsTitle'), 
+          name: language === 'vi' ? 'Số mã trái phiếu' : 'Bond codes', 
           type: 'line', 
           yAxisIndex: 1, 
           data: displayData.map(d => d.bondCount), 
@@ -793,6 +733,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const projectedCashFlowTitle = language === 'vi'
     ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+  const combinedChartTitle = language === 'vi'
+    ? 'Số mã trái phiếu & Dư nợ còn lại của các doanh nghiệp'
+    : 'Bond codes & remaining debt of companies';
   const industryPageTitle = `${t('marketTitle')} ${getIndustryLabel(industry)}`;
   const industryInsightTitle = language === 'vi'
     ? `Nhận định ngành ${getIndustryLabel(industry)}`
@@ -952,7 +895,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+      <div className="mb-3 mt-1">
         <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
       </div>
 
@@ -974,87 +917,71 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       />
 
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
-        {/* Ranking - Double Height */}
         {isIndustryChartsLoading ? (
           <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
         ) : (
           <div 
-            className="col-span-12 flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
+            className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
           >
-            <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-              <ChartWithToolbar option={rankingOptions} style={{ height: '100%', width: '100%' }} title={t('debtRanking')} />
+            <div className="h-80 overflow-hidden md:h-96">
+              <ChartWithToolbar
+                option={marketShareOptions}
+                style={{ height: '100%', width: '100%' }}
+                notMerge
+                title={t('marketShare')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    series: [
+                      {
+                        center: ['33%', '50%'],
+                        radius: ['42%', '72%'],
+                        label: {
+                          show: true,
+                          position: 'outside',
+                          formatter: '{d}%',
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                          fontSize: 11,
+                          fontWeight: 'bold',
+                        },
+                        labelLine: {
+                          show: true,
+                          length: 12,
+                          length2: 10,
+                          smooth: true,
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            fontSize: 12,
+                            fontWeight: 'bold',
+                            formatter: '{d}%',
+                            color: isDark ? '#e5e7eb' : '#1e293b',
+                          }
+                        },
+                      },
+                    ],
+                  },
+                }}
+              />
             </div>
           </div>
         )}
 
-        <div className="col-span-12 flex flex-col gap-3 lg:col-span-6">
-          {/* Market Share */}
-          {isIndustryChartsLoading ? (
-            <SectionCardSkeleton className="flex-1" />
-          ) : (
-            <div 
-              className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
-            >
-              <div className="min-h-80 flex-1 overflow-hidden md:min-h-96">
-                <ChartWithToolbar
-                  option={marketShareOptions}
-                  style={{ height: '100%', width: '100%' }}
-                  title={t('marketShare')}
-                  zoomConfig={{
-                    shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                    chartStyle: { height: '100%', width: '100%' },
-                    option: {
-                      series: [
-                        {
-                          center: ['33%', '50%'],
-                          radius: ['42%', '72%'],
-                          label: {
-                            show: true,
-                            position: 'outside',
-                            formatter: '{d}%',
-                            color: isDark ? '#e5e7eb' : '#1e293b',
-                            fontSize: 11,
-                            fontWeight: 'bold',
-                          },
-                          labelLine: {
-                            show: true,
-                            length: 12,
-                            length2: 10,
-                            smooth: true,
-                          },
-                          emphasis: {
-                            label: {
-                              show: true,
-                              fontSize: 12,
-                              fontWeight: 'bold',
-                              formatter: '{d}%',
-                              color: isDark ? '#e5e7eb' : '#1e293b',
-                            }
-                          },
-                        },
-                      ],
-                    },
-                  }}
-                />
-              </div>
+        {isIndustryChartsLoading ? (
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        ) : (
+          <div 
+            className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
+          >
+            <div className="h-80 overflow-hidden md:h-96">
+              <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Interest Rates */}
-          {isIndustryChartsLoading ? (
-            <SectionCardSkeleton className="flex-1" />
-          ) : (
-            <div 
-              className="flex flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 min-h-0"
-            >
-              <div className="min-h-72 flex-1 overflow-hidden md:min-h-80">
-                <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6">
           {issuedValueTreemapData.length > 0 ? (
             <div className="h-80 overflow-hidden md:h-96">
               <ChartWithToolbar
@@ -1112,16 +1039,15 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           )}
         </div>
 
-        {/* Combined Chart */}
         <div 
-          className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
+          className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
         >
           <div className="h-80 overflow-hidden md:h-96">
             <ChartWithToolbar
               option={combinedOptions}
               style={{ height: '100%', width: '100%' }}
               allowMagicType
-              title={t('debtAndLotsEnterprise')}
+              title={combinedChartTitle}
             />
           </div>
         </div>

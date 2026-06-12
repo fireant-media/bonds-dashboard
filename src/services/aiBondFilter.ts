@@ -10,6 +10,9 @@ export type AIBondRateType = 'fixed' | 'floating';
 export type AIBondSortBy = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export interface AIBondFilterCriteria {
+  industry?: string;
+  issuer?: string;
+  bondType?: string;
   minTenorMonths?: number;
   maxTenorMonths?: number;
   issueDateFrom?: string;
@@ -19,6 +22,12 @@ export interface AIBondFilterCriteria {
   minBondRate?: number;
   maxBondRate?: number;
   bondRateType?: AIBondRateType;
+  minListedVolume?: number;
+  maxListedVolume?: number;
+  minIssuedValueBillion?: number;
+  maxIssuedValueBillion?: number;
+  minListedValueBillion?: number;
+  maxListedValueBillion?: number;
   sortBy?: AIBondSortBy;
   secondarySorts?: AIBondSortBy[];
 }
@@ -339,6 +348,9 @@ function mergeBondFilterCriteria(
 
 function normalizeCriteria(value: unknown): AIBondFilterCriteria {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const industry = String(source.industry ?? '').trim() || undefined;
+  const issuer = String(source.issuer ?? '').trim() || undefined;
+  const bondType = String(source.bondType ?? '').trim() || undefined;
 
   let minTenorMonths = normalizeNumber(source.minTenorMonths);
   let maxTenorMonths = normalizeNumber(source.maxTenorMonths);
@@ -350,6 +362,24 @@ function normalizeCriteria(value: unknown): AIBondFilterCriteria {
   let maxBondRate = normalizeNumber(source.maxBondRate);
   if (minBondRate !== undefined && maxBondRate !== undefined && minBondRate > maxBondRate) {
     [minBondRate, maxBondRate] = [maxBondRate, minBondRate];
+  }
+
+  let minListedVolume = normalizeNumber(source.minListedVolume);
+  let maxListedVolume = normalizeNumber(source.maxListedVolume);
+  if (minListedVolume !== undefined && maxListedVolume !== undefined && minListedVolume > maxListedVolume) {
+    [minListedVolume, maxListedVolume] = [maxListedVolume, minListedVolume];
+  }
+
+  let minIssuedValueBillion = normalizeNumber(source.minIssuedValueBillion);
+  let maxIssuedValueBillion = normalizeNumber(source.maxIssuedValueBillion);
+  if (minIssuedValueBillion !== undefined && maxIssuedValueBillion !== undefined && minIssuedValueBillion > maxIssuedValueBillion) {
+    [minIssuedValueBillion, maxIssuedValueBillion] = [maxIssuedValueBillion, minIssuedValueBillion];
+  }
+
+  let minListedValueBillion = normalizeNumber(source.minListedValueBillion);
+  let maxListedValueBillion = normalizeNumber(source.maxListedValueBillion);
+  if (minListedValueBillion !== undefined && maxListedValueBillion !== undefined && minListedValueBillion > maxListedValueBillion) {
+    [minListedValueBillion, maxListedValueBillion] = [maxListedValueBillion, minListedValueBillion];
   }
 
   let issueDateFrom = normalizeDate(source.issueDateFrom);
@@ -365,6 +395,9 @@ function normalizeCriteria(value: unknown): AIBondFilterCriteria {
   }
 
   return pruneEmptyValues({
+    industry,
+    issuer,
+    bondType,
     minTenorMonths,
     maxTenorMonths,
     issueDateFrom,
@@ -374,6 +407,12 @@ function normalizeCriteria(value: unknown): AIBondFilterCriteria {
     minBondRate,
     maxBondRate,
     bondRateType: normalizeAIBondRateType(source.bondRateType),
+    minListedVolume,
+    maxListedVolume,
+    minIssuedValueBillion,
+    maxIssuedValueBillion,
+    minListedValueBillion,
+    maxListedValueBillion,
     sortBy: normalizeAIBondSortBy(source.sortBy),
     secondarySorts: normalizeSecondarySorts(source.secondarySorts),
   });
@@ -393,6 +432,18 @@ function extractJsonObject(value: string) {
 
 function buildFallbackSummary(criteria: AIBondFilterCriteria) {
   const summary: string[] = [];
+
+  if (criteria.industry) {
+    summary.push(`Nganh nghe: ${criteria.industry}`);
+  }
+
+  if (criteria.issuer) {
+    summary.push(`To chuc phat hanh: ${criteria.issuer}`);
+  }
+
+  if (criteria.bondType) {
+    summary.push(`Loai trai phieu: ${criteria.bondType}`);
+  }
 
   if (criteria.minTenorMonths !== undefined || criteria.maxTenorMonths !== undefined) {
     if (criteria.minTenorMonths !== undefined && criteria.maxTenorMonths !== undefined) {
@@ -440,6 +491,36 @@ function buildFallbackSummary(criteria: AIBondFilterCriteria) {
     summary.push('Loại lãi suất thả nổi');
   }
 
+  if (criteria.minListedVolume !== undefined || criteria.maxListedVolume !== undefined) {
+    if (criteria.minListedVolume !== undefined && criteria.maxListedVolume !== undefined) {
+      summary.push(`Khoi luong niem yet tu ${formatNumber(criteria.minListedVolume, 0)} den ${formatNumber(criteria.maxListedVolume, 0)}`);
+    } else if (criteria.minListedVolume !== undefined) {
+      summary.push(`Khoi luong niem yet tu ${formatNumber(criteria.minListedVolume, 0)} tro len`);
+    } else if (criteria.maxListedVolume !== undefined) {
+      summary.push(`Khoi luong niem yet den ${formatNumber(criteria.maxListedVolume, 0)}`);
+    }
+  }
+
+  if (criteria.minIssuedValueBillion !== undefined || criteria.maxIssuedValueBillion !== undefined) {
+    if (criteria.minIssuedValueBillion !== undefined && criteria.maxIssuedValueBillion !== undefined) {
+      summary.push(`Gia tri phat hanh tu ${formatNumber(criteria.minIssuedValueBillion, 2)} den ${formatNumber(criteria.maxIssuedValueBillion, 2)} ty VND`);
+    } else if (criteria.minIssuedValueBillion !== undefined) {
+      summary.push(`Gia tri phat hanh tu ${formatNumber(criteria.minIssuedValueBillion, 2)} ty VND tro len`);
+    } else if (criteria.maxIssuedValueBillion !== undefined) {
+      summary.push(`Gia tri phat hanh den ${formatNumber(criteria.maxIssuedValueBillion, 2)} ty VND`);
+    }
+  }
+
+  if (criteria.minListedValueBillion !== undefined || criteria.maxListedValueBillion !== undefined) {
+    if (criteria.minListedValueBillion !== undefined && criteria.maxListedValueBillion !== undefined) {
+      summary.push(`Gia tri niem yet tu ${formatNumber(criteria.minListedValueBillion, 2)} den ${formatNumber(criteria.maxListedValueBillion, 2)} ty VND`);
+    } else if (criteria.minListedValueBillion !== undefined) {
+      summary.push(`Gia tri niem yet tu ${formatNumber(criteria.minListedValueBillion, 2)} ty VND tro len`);
+    } else if (criteria.maxListedValueBillion !== undefined) {
+      summary.push(`Gia tri niem yet den ${formatNumber(criteria.maxListedValueBillion, 2)} ty VND`);
+    }
+  }
+
   if (criteria.sortBy !== undefined) {
     summary.push(getAIBondSortByLabel(criteria.sortBy, 'vi'));
   }
@@ -456,7 +537,7 @@ export function isBondFilterIntent(message: string) {
   if (!text) return false;
 
   const hasFilterVerb = /(loc|filter|tim|liet ke|danh sach|chon|show|xem cac|goi y cac|sap xep|xep theo|order by|sort by)/.test(text);
-  const hasFieldKeyword = /(ky han|tenor|dao han|maturity|phat hanh|issue|lai suat|bond rate|ma trai phieu|bond code|khoi luong phat hanh|gia tri phat hanh|khoi luong niem yet|gia tri niem yet|listed volume|listed value|issued volume|issued value)/.test(text);
+  const hasFieldKeyword = /(nganh|industry|to chuc phat hanh|issuer|loai trai phieu|bond type|ky han|tenor|dao han|maturity|phat hanh|issue|lai suat|bond rate|ma trai phieu|bond code|khoi luong phat hanh|gia tri phat hanh|khoi luong niem yet|gia tri niem yet|listed volume|listed value|issued volume|issued value)/.test(text);
   const hasSortKeyword = /(sap xep|xep theo|giam dan|tang dan|cao nhat|thap nhat|gan nhat|moi nhat|top)/.test(text);
   const hasTypeKeyword = /(co dinh|fixed|tha noi|floating|variable)/.test(text);
   const hasRangeSignal = /(tu | den | duoi | tren | trong | khoang | sau | truoc | nho hon | lon hon | it nhat | toi da | toi thieu |\d{4}|\d+\s*%|\d+\s*thang)/.test(text);
@@ -482,8 +563,11 @@ export async function extractBondFilterCriteria({
         'Ban la bo xu ly trich xuat tieu chi loc trai phieu doanh nghiep.',
         'Nhiem vu cua ban la chuyen mo ta tu nhien thanh JSON ngan gon, khong giai thich them.',
         'Ngay hien tai la 2026-06-11. Neu nguoi dung noi hom nay, thang nay, quy nay, nam nay, 12 thang toi, 6 thang toi... thi phai quy doi ra ngay thang cu the.',
-        'Chi ho tro cac truong: minTenorMonths, maxTenorMonths, issueDateFrom, issueDateTo, maturityDateFrom, maturityDateTo, minBondRate, maxBondRate, bondRateType, sortBy, secondarySorts.',
+        'Chi ho tro cac truong: industry, issuer, bondType, minTenorMonths, maxTenorMonths, issueDateFrom, issueDateTo, maturityDateFrom, maturityDateTo, minBondRate, maxBondRate, bondRateType, minListedVolume, maxListedVolume, minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion, sortBy, secondarySorts.',
+        'industry la nganh nghe; issuer la ten to chuc phat hanh; bondType la loai trai phieu.',
         'bondRateType chi nhan mot trong hai gia tri: "fixed" hoac "floating".',
+        'Cac truong gia tri theo ty VND gom: minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion.',
+        'Chi dien industry, issuer, bondType neu nguoi dung neu ro tieu chi nay. Khong dua ma trai phieu vao issuer.',
         'sortBy chi nhan mot trong cac gia tri: 0 ten to chuc phat hanh, 1 ma trai phieu, 2 tong khoi luong phat hanh giam dan, 3 tong gia tri phat hanh giam dan, 4 dao han gan nhat, 5 phat hanh moi nhat, 6 lai suat danh nghia giam dan, 7 khoi luong niem yet giam dan, 8 gia tri niem yet giam dan.',
         'secondarySorts la danh sach thu tu uu tien tiep theo neu cau hoi co nhieu dieu kien xep hang.',
         'Neu nguoi dung hoi "trai phieu co lai suat cao nhat" thi phai uu tien {"sortBy": 6} va khong duoc tu y dat minBondRate/maxBondRate.',
@@ -584,6 +668,15 @@ export function summarizeBondFilterCriteria(criteria: AIBondFilterCriteria, lang
 
   return summary.map((item) =>
     item
+      .replace('Nganh nghe', 'Industry')
+      .replace('To chuc phat hanh', 'Issuer')
+      .replace('Loai trai phieu', 'Bond type')
+      .replace('Khoi luong niem yet', 'Listed volume')
+      .replace('Gia tri phat hanh', 'Issued value')
+      .replace('Gia tri niem yet', 'Listed value')
+      .replace('ty VND', 'Billion VND')
+      .replace('tro len', 'and above')
+      .replace(' den ', ' to ')
       .replace('Kỳ hạn', 'Tenor')
       .replace('tháng trở lên', 'months and above')
       .replace('tháng', 'months')
@@ -645,10 +738,88 @@ export function getNormalizedBondRateTypeFromRow(row: BondDataRow): AIBondRateTy
   );
 }
 
-export function filterBondRowsByCriteria(rows: BondDataRow[], criteria: AIBondFilterCriteria) {
-  if (!criteria.bondRateType) return rows;
+function parseComparableDate(value?: string) {
+  if (!value) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+}
 
-  return rows.filter((row) => getNormalizedBondRateTypeFromRow(row) === criteria.bondRateType);
+function matchesMinMaxNumber(value: number, min?: number, max?: number) {
+  if (min !== undefined && value < min) return false;
+  if (max !== undefined && value > max) return false;
+  return true;
+}
+
+function matchesDateRange(value: string, min?: string, max?: string) {
+  if (!min && !max) return true;
+
+  const candidate = parseComparableDate(value);
+  if (candidate === undefined) return false;
+
+  const minTime = parseComparableDate(min);
+  const maxTime = parseComparableDate(max);
+
+  if (minTime !== undefined && candidate < minTime) return false;
+  if (maxTime !== undefined && candidate > maxTime) return false;
+  return true;
+}
+
+function matchesTextCriteria(value: string, expected?: string) {
+  const candidate = normalizeLabelKey(value);
+  const normalizedExpected = normalizeLabelKey(expected || '');
+  if (!normalizedExpected) return true;
+  if (!candidate) return false;
+  return candidate === normalizedExpected || candidate.includes(normalizedExpected);
+}
+
+export function filterBondRowsByCriteria(rows: BondDataRow[], criteria: AIBondFilterCriteria) {
+  return rows.filter((row) => {
+    if (!matchesTextCriteria(row.industry || '', criteria.industry)) {
+      return false;
+    }
+
+    if (!matchesTextCriteria(`${row.issuerName || ''} ${row.issuerSymbol || ''}`.trim(), criteria.issuer)) {
+      return false;
+    }
+
+    if (!matchesTextCriteria(row.bondType || '', criteria.bondType)) {
+      return false;
+    }
+
+    if (!matchesMinMaxNumber(Number(row.tenorPeriod || 0), criteria.minTenorMonths, criteria.maxTenorMonths)) {
+      return false;
+    }
+
+    if (!matchesDateRange(row.issueDate, criteria.issueDateFrom, criteria.issueDateTo)) {
+      return false;
+    }
+
+    if (!matchesDateRange(row.maturityDate, criteria.maturityDateFrom, criteria.maturityDateTo)) {
+      return false;
+    }
+
+    if (!matchesMinMaxNumber(Number(row.bondRate || 0), criteria.minBondRate, criteria.maxBondRate)) {
+      return false;
+    }
+
+    if (criteria.bondRateType && getNormalizedBondRateTypeFromRow(row) !== criteria.bondRateType) {
+      return false;
+    }
+
+    if (!matchesMinMaxNumber(Number(row.currentListedVolume || 0), criteria.minListedVolume, criteria.maxListedVolume)) {
+      return false;
+    }
+
+    if (!matchesMinMaxNumber(Number(row.totalIssuedValue || 0) / 1000000000, criteria.minIssuedValueBillion, criteria.maxIssuedValueBillion)) {
+      return false;
+    }
+
+    if (!matchesMinMaxNumber(Number(row.currentListedValue || 0) / 1000000000, criteria.minListedValueBillion, criteria.maxListedValueBillion)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 function compareBondRowsBySort(left: BondDataRow, right: BondDataRow, sortBy: AIBondSortBy) {
@@ -701,7 +872,28 @@ export function sortBondRowsByCriteria(rows: BondDataRow[], criteria: AIBondFilt
 }
 
 export function hasAIBondFilterCriteria(criteria: AIBondFilterCriteria) {
-  return Object.keys(criteria).length > 0;
+  return Boolean(
+    criteria.industry
+    || criteria.issuer
+    || criteria.bondType
+    || criteria.minTenorMonths !== undefined
+    || criteria.maxTenorMonths !== undefined
+    || criteria.issueDateFrom
+    || criteria.issueDateTo
+    || criteria.maturityDateFrom
+    || criteria.maturityDateTo
+    || criteria.minBondRate !== undefined
+    || criteria.maxBondRate !== undefined
+    || criteria.bondRateType
+    || criteria.minListedVolume !== undefined
+    || criteria.maxListedVolume !== undefined
+    || criteria.minIssuedValueBillion !== undefined
+    || criteria.maxIssuedValueBillion !== undefined
+    || criteria.minListedValueBillion !== undefined
+    || criteria.maxListedValueBillion !== undefined
+    || criteria.sortBy !== undefined
+    || (Array.isArray(criteria.secondarySorts) && criteria.secondarySorts.length > 0)
+  );
 }
 
 export function buildBondFilterResultPreview(rows: BondDataRow[], limit = 5) {

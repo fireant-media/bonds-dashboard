@@ -1,4 +1,4 @@
-import { fireantApi, fireantRequest, type BondRestFilterBody } from '../api/fireant';
+import { fireantApi, fireantRequest, type BondRestFilterBody, type FireantBaseTarget } from '../api/fireant';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
@@ -57,6 +57,7 @@ export interface BondDataRow {
   bondCode: string;
   issuerSymbol: string;
   issuerName: string;
+  bondType: string;
   industry: string;
   issueDate: string;
   maturityDate: string;
@@ -77,6 +78,11 @@ const BOND_CATEGORY_CACHE_PREFIX = 'bond_category_v1_';
 const BOND_FILTER_CACHE_PREFIX = 'bond_filter_v1_';
 const BOND_DETAIL_CACHE_PREFIX = 'bond_detail_';
 const ISSUER_PROFILE_CACHE_PREFIX = 'issuer_profile_';
+const GOVERNMENT_BOND_CACHE_PREFIX = 'bond_government_v1_';
+const UNLISTED_ENTERPRISE_BOND_CACHE_PREFIX = 'bond_unlisted_enterprise_v1_';
+const GOVERNMENT_BOND_BASE_TARGET: FireantBaseTarget = 'beta';
+const GOVERNMENT_BOND_TYPE_IDS = [2, 3, 6] as const;
+const UNLISTED_ENTERPRISE_BOND_TYPE_IDS = [3, 4] as const;
 
 const categoryPromises = new Map<string, Promise<BondCategoryItem[]>>();
 const filterPromises = new Map<string, Promise<BondDataRow[]>>();
@@ -120,6 +126,21 @@ const buildQueryCacheKey = (prefix: string, query: Record<string, unknown>) => {
 };
 
 const normalizeBondCode = (value: unknown) => asString(value).toUpperCase();
+
+const resolveBondCodeFromListItem = (value: unknown) => {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return normalizeBondCode(value);
+  }
+
+  return normalizeBondCode(firstDefined(
+    (value as any)?.bondCode,
+    (value as any)?.BondCode,
+    (value as any)?.code,
+    (value as any)?.Code,
+    (value as any)?.id,
+    (value as any)?.ID,
+  ));
+};
 
 const pruneEmptyQueryFields = <T extends Record<string, unknown>>(query: T) =>
   Object.fromEntries(
@@ -204,7 +225,7 @@ const tryProcedure = async <T>(
 };
 
 const normalizeBondRow = (row: any): BondDataRow => {
-  const bondInfos = row?.bondInfos || row?.BondInfos || {};
+  const bondInfos = row?.bondInfos || row?.BondInfos || row?.infoObj || row?.InfoObj || {};
   const issuerSymbol = asString(firstDefined(
     row?.issuerSymbol,
     row?.IssuerSymbol,
@@ -224,6 +245,14 @@ const normalizeBondRow = (row: any): BondDataRow => {
     bondCode: asString(firstDefined(row?.bondCode, row?.BondCode, row?.code, row?.Code)),
     issuerSymbol,
     issuerName,
+    bondType: asString(firstDefined(
+      row?.bondType,
+      row?.BondType,
+      bondInfos?.BondType,
+      bondInfos?.bondType,
+      row?.detail?.bondType,
+      row?.Detail?.BondType,
+    )),
     industry: resolveEnterpriseIndustryFromCandidates(
       row?.icbNameLv2,
       row?.ICBNameLv2,
@@ -235,6 +264,8 @@ const normalizeBondRow = (row: any): BondDataRow => {
       bondInfos?.ICBNameLv1,
       bondInfos?.ICBName,
       bondInfos?.ICBCode,
+      issuerName,
+      issuerSymbol,
     ),
     issueDate: normalizeDate(firstDefined(row?.issueDate, row?.IssueDate, row?.releaseDate, row?.ReleaseDate)),
     maturityDate: normalizeDate(firstDefined(row?.maturityDate, row?.MaturityDate, row?.dueDate, row?.DueDate)),
@@ -255,9 +286,46 @@ const normalizeBondRow = (row: any): BondDataRow => {
 const shouldEnrichBondValueFields = (row: BondDataRow) =>
   row.totalIssuedValue <= 0 || row.currentListedValue <= 0;
 
+const getBondDetailCacheKey = (code: string, baseTarget: FireantBaseTarget) =>
+  `${BOND_DETAIL_CACHE_PREFIX}${baseTarget === 'beta' ? 'beta_' : ''}${code}`;
+
+const getBondDetailInflightKey = (code: string, baseTarget: FireantBaseTarget) =>
+  `${baseTarget}:${code}`;
+
 const mergeBondRowWithDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
   const detail = detailPayload?.detail || detailPayload || {};
   const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
+  const nextIssuerName = asString(firstDefined(
+    detail?.issuerName,
+    detail?.IssuerName,
+    row.issuerName,
+    row.issuerSymbol,
+  ));
+  const nextBondType = asString(firstDefined(
+    detail?.bondType,
+    detail?.BondType,
+    row.bondType,
+    row.raw?.bondType,
+  ));
+  const nextIndustry = resolveEnterpriseIndustryFromCandidates(
+    detail?.icbNameLv2,
+    detail?.ICBNameLv2,
+    detail?.icbNameLv1,
+    detail?.ICBNameLv1,
+    detail?.industryName,
+    detail?.IndustryName,
+    detail?.infoObj?.icbNameLv2,
+    detail?.infoObj?.icbNameLv1,
+    detail?.infoObj?.icbName,
+    detail?.infoObj?.icbCode,
+    detailPayload?.icbNameLv2,
+    detailPayload?.ICBNameLv2,
+    detailPayload?.industryName,
+    detailPayload?.IndustryName,
+    nextIssuerName,
+    row.issuerSymbol,
+    row.industry,
+  );
 
   const nextCurrentListedValue = row.currentListedValue > 0
     ? row.currentListedValue
@@ -271,14 +339,56 @@ const mergeBondRowWithDetail = (row: BondDataRow, detailPayload: any): BondDataR
 
   return {
     ...row,
+    issuerName: nextIssuerName,
+    bondType: nextBondType,
+    industry: nextIndustry,
     currentListedVolume: nextCurrentListedVolume,
     currentListedValue: nextCurrentListedValue,
     totalIssuedValue: nextTotalIssuedValue,
     raw: {
       ...row.raw,
+      issuerName: nextIssuerName,
+      bondType: nextBondType,
       detail,
     },
   };
+};
+
+const normalizeBondDetailPayloadToRow = (detailPayload: any): BondDataRow | null => {
+  const detail = detailPayload?.detail || detailPayload || {};
+  const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
+
+  const row = normalizeBondRow({
+    ...detailPayload,
+    ...detail,
+    bondCode: firstDefined(detail?.bondCode, detail?.BondCode, detailPayload?.bondCode, detailPayload?.BondCode, detailPayload?.code),
+    issuerSymbol: firstDefined(detail?.issuerSymbol, detail?.IssuerSymbol, detailPayload?.issuerSymbol, detailPayload?.IssuerSymbol),
+    issuerName: firstDefined(detail?.issuerName, detail?.IssuerName, detailPayload?.issuerName, detailPayload?.IssuerName),
+    bondType: firstDefined(detail?.bondType, detail?.BondType, detailPayload?.bondType, detailPayload?.BondType),
+    issueDate: firstDefined(detail?.issueDate, detail?.IssueDate, detailPayload?.issueDate, detailPayload?.IssueDate),
+    maturityDate: firstDefined(detail?.maturityDate, detail?.MaturityDate, detailPayload?.maturityDate, detailPayload?.MaturityDate),
+    tenorPeriod: firstDefined(detail?.tenorPeriod, detail?.TenorPeriod, detailPayload?.tenorPeriod, detailPayload?.TenorPeriod),
+    bondRate: firstDefined(detail?.bondRate, detail?.BondRate, detail?.interestRate, detail?.InterestRate, detail?.couponRate, detail?.CouponRate),
+    bondRateType: firstDefined(
+      detail?.bondRateType,
+      detail?.BondRateType,
+      detail?.interestRateType,
+      detail?.InterestRateType,
+      detail?.couponRateType,
+      detail?.CouponRateType,
+      detail?.interestType,
+    ),
+    currentListedVolume: firstDefined(detail?.currentListedVolume, detail?.CurrentListedVolume, historyItem?.volume),
+    currentListedValue: firstDefined(detail?.currentListedValue, detail?.CurrentListedValue, historyItem?.value),
+    totalIssuedValue: firstDefined(detail?.totalIssuedValue, detail?.TotalIssuedValue, historyItem?.value),
+    totalRemainingDebt: firstDefined(detail?.totalRemainingDebt, detail?.TotalRemainingDebt),
+    totalDebtFull: firstDefined(detail?.totalDebtFull, detail?.TotalDebtFull),
+    status: firstDefined(detail?.status, detail?.Status, detailPayload?.status, detailPayload?.Status),
+    bondInfos: firstDefined(detail?.bondInfos, detail?.BondInfos, detailPayload?.bondInfos, detailPayload?.BondInfos),
+  });
+
+  if (!row.bondCode) return null;
+  return mergeBondRowWithDetail(row, detailPayload);
 };
 
 const enrichBondFilterRowsWithDetails = async (
@@ -531,7 +641,11 @@ export const loadBondsByIndustryFilter = async (
 
 export const loadBondsByIndustryStatus = loadBondsByIndustryFilter;
 
-export const loadBondDetail = async (code: string, forceRefresh = false) => {
+export const loadBondDetail = async (
+  code: string,
+  forceRefresh = false,
+  baseTarget: FireantBaseTarget = 'default',
+) => {
   const normalizedCode = normalizeBondCode(code);
   if (!normalizedCode) return null;
 
@@ -541,30 +655,32 @@ export const loadBondDetail = async (code: string, forceRefresh = false) => {
     if (queryCached) return queryCached;
   }
 
-  const cacheKey = `${BOND_DETAIL_CACHE_PREFIX}${normalizedCode}`;
+  const cacheKey = getBondDetailCacheKey(normalizedCode, baseTarget);
   const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached;
 
-  const inflight = detailPromises.get(normalizedCode);
+  const inflightKey = getBondDetailInflightKey(normalizedCode, baseTarget);
+  const inflight = detailPromises.get(inflightKey);
   if (inflight) return inflight;
 
-  const promise = fireantApi.getBond(normalizedCode)
+  const promise = fireantApi.getBond(normalizedCode, baseTarget)
     .then((detail) => {
       setCache(cacheKey, detail);
       dashboardQueryClient.setQueryData(queryKey, detail);
       return detail;
     })
     .finally(() => {
-      detailPromises.delete(normalizedCode);
+      detailPromises.delete(inflightKey);
     });
 
-  detailPromises.set(normalizedCode, promise);
+  detailPromises.set(inflightKey, promise);
   return promise;
 };
 
 export interface LoadBondDetailsOptions {
   concurrency?: number;
   forceRefresh?: boolean;
+  baseTarget?: FireantBaseTarget;
 }
 
 export const loadBondDetailsByCodes = async (
@@ -578,10 +694,12 @@ export const loadBondDetailsByCodes = async (
 
   const concurrency = Math.max(1, Math.min(Math.floor(options.concurrency ?? 8), 10));
   const forceRefresh = Boolean(options.forceRefresh);
+  const baseTarget = options.baseTarget ?? 'default';
   const batchKey = buildQueryCacheKey('bond_detail_batch_v1_', {
     codes: normalizedCodes.join(','),
     concurrency,
     forceRefresh,
+    baseTarget,
   });
 
   const inflight = detailBatchPromises.get(batchKey);
@@ -593,7 +711,7 @@ export const loadBondDetailsByCodes = async (
 
     normalizedCodes.forEach((code) => {
       if (!forceRefresh) {
-        const cached = getCache(`${BOND_DETAIL_CACHE_PREFIX}${code}`);
+        const cached = getCache(getBondDetailCacheKey(code, baseTarget));
         if (cached) {
           cachedDetails.set(code, cached);
           return;
@@ -604,7 +722,7 @@ export const loadBondDetailsByCodes = async (
     });
 
     const fetchedDetails = getFulfilledValues(
-      await mapWithConcurrency(missingCodes, concurrency, async (code) => loadBondDetail(code, forceRefresh)),
+      await mapWithConcurrency(missingCodes, concurrency, async (code) => loadBondDetail(code, forceRefresh, baseTarget)),
     );
 
     fetchedDetails.forEach((detail: any) => {
@@ -665,3 +783,111 @@ export const loadIssuerProfile = async (symbol: string, forceRefresh = false) =>
   issuerProfilePromises.set(normalizedSymbol, promise);
   return promise;
 };
+
+const loadBetaBondRowsByTypeIds = async (
+  cachePrefix: string,
+  bondTypeIDs: readonly number[],
+  logLabel: string,
+): Promise<BondDataRow[]> => {
+  const cacheKey = buildQueryCacheKey(cachePrefix, {
+    bondTypeIDs: bondTypeIDs.join(','),
+    isListing: 0,
+    baseTarget: GOVERNMENT_BOND_BASE_TARGET,
+  });
+  const cached = getCache(cacheKey);
+  if (cached) return cached as BondDataRow[];
+
+  const inflight = filterPromises.get(cacheKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const listResults = await Promise.allSettled(
+      bondTypeIDs.map((bondTypeID) =>
+        fireantApi.filterBonds(
+          {
+            bondTypeID,
+            isListing: 0,
+          },
+          GOVERNMENT_BOND_BASE_TARGET,
+        )),
+    );
+
+    const seedRows = new Map<string, BondDataRow>();
+
+    listResults.forEach((result, index) => {
+      if (result.status !== 'fulfilled') {
+        console.warn(`[bond-data] Failed to load ${logLabel} bond list for bondTypeID=${bondTypeIDs[index]}`, result.reason);
+        return;
+      }
+
+      extractRows(result.value as ProcedureResult<BondDataRow>)
+        .forEach((item) => {
+          const code = resolveBondCodeFromListItem(item);
+          if (code && !seedRows.has(code)) {
+            seedRows.set(
+              code,
+              normalizeBondRow(
+                typeof item === 'string' || typeof item === 'number'
+                  ? { bondCode: code, code }
+                  : item,
+              ),
+            );
+          }
+        });
+    });
+
+    const codes = Array.from(seedRows.keys());
+    if (codes.length === 0) {
+      setCache(cacheKey, []);
+      return [];
+    }
+
+    let detailMap: Record<string, any> = {};
+    try {
+      detailMap = await loadBondDetailsMapByCodes(codes, {
+        concurrency: 6,
+        forceRefresh: false,
+        baseTarget: GOVERNMENT_BOND_BASE_TARGET,
+      });
+    } catch (error) {
+      console.warn(`[bond-data] Failed to load ${logLabel} bond details from beta API`, error);
+    }
+
+    const rows = codes
+      .map((code) => {
+        const seedRow = seedRows.get(code);
+        const detailPayload = detailMap[code];
+        if (detailPayload) {
+          if (seedRow) {
+            return mergeBondRowWithDetail(seedRow, detailPayload);
+          }
+
+          return normalizeBondDetailPayloadToRow(detailPayload);
+        }
+        return seedRow || null;
+      })
+      .filter((row): row is BondDataRow => Boolean(row));
+
+    setCache(cacheKey, rows);
+    return rows;
+  })().finally(() => {
+    filterPromises.delete(cacheKey);
+  });
+
+  filterPromises.set(cacheKey, promise);
+  return promise;
+};
+
+export const loadGovernmentBondRows = async (): Promise<BondDataRow[]> =>
+  loadBetaBondRowsByTypeIds(
+    GOVERNMENT_BOND_CACHE_PREFIX,
+    GOVERNMENT_BOND_TYPE_IDS,
+    'government',
+  );
+
+export const loadUnlistedEnterpriseBondRows = async (): Promise<BondDataRow[]> =>
+  loadBetaBondRowsByTypeIds(
+    UNLISTED_ENTERPRISE_BOND_CACHE_PREFIX,
+    UNLISTED_ENTERPRISE_BOND_TYPE_IDS,
+    'unlisted enterprise',
+  );

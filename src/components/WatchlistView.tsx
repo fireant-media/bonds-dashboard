@@ -7,7 +7,6 @@ import BondSectionNav from './BondSectionNav';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Card } from './ui/Card';
-import { ExportExcelButton } from './ui/ExportExcelButton';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItem, type WatchlistItem } from '../utils/watchlist';
 import { getCache, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
@@ -403,7 +402,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     <div className="min-w-0 transition-colors duration-300">
       <BondSectionNav activeSection="watchlist" />
 
-      <div className="sticky top-0 z-20 -mx-2 -mt-2 mb-3 flex min-w-0 items-center justify-between border-b border-border-base bg-bg-base/95 px-2 py-3 shadow-sm backdrop-blur md:-mx-4 md:px-4">
+      <div className="mb-3 mt-1 flex min-w-0 items-center justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight break-words text-text-base transition-colors">{t('watchList')}</h1>
         </div>
@@ -488,8 +487,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
               ascendingLabel={t('ascending')}
               descendingLabel={t('descending')}
             />
-
-            <ExportExcelButton loading={exportLoading} disabled={bonds.length === 0} onClick={handleExportExcel} />
           </div>
         </div>
       </div>

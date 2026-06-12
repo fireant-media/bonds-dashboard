@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Activity, AlertCircle, ChevronRight, CheckCircle2, Eye, Zap } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
@@ -16,6 +16,9 @@ type BondSectionKey = 'market' | 'maturity' | 'watchlist';
 interface BondSectionNavProps {
   activeSection: BondSectionKey;
 }
+
+const CARD_GAP_PX = 12;
+const CARD_EDGE_PADDING_PX = 8;
 
 const sectionItems: Array<{
   key: BondSectionKey;
@@ -89,6 +92,8 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const maturityQuery = useMaturingBondsQuery(3650);
+  const cardsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [visibleCardCount, setVisibleCardCount] = useState(1);
 
   const upcomingCards = useMemo(() => {
     const rows = Array.isArray(maturityQuery.data) ? maturityQuery.data : [];
@@ -107,18 +112,54 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
         };
       })
       .filter((item): item is { code: string; interestRate: number; maturityDate: string; daysLeft: number } => Boolean(item?.code))
-      .sort((left, right) => left.daysLeft - right.daysLeft || left.code.localeCompare(right.code))
-      .slice(0, 5);
+      .sort((left, right) => left.daysLeft - right.daysLeft || left.code.localeCompare(right.code));
   }, [maturityQuery.data]);
 
   const handleNavigate = (path: string) => {
     navigate(path);
   };
 
+  useEffect(() => {
+    const container = cardsContainerRef.current;
+    if (!container || typeof window === 'undefined') return;
+
+    const resolveCardWidth = () => {
+      if (window.innerWidth >= 1024) return 288;
+      if (window.innerWidth >= 640) return 256;
+      return 240;
+    };
+
+    const updateVisibleCount = () => {
+      const cardWidth = resolveCardWidth();
+      const availableWidth = Math.max(container.clientWidth - CARD_EDGE_PADDING_PX * 2, cardWidth);
+      const nextCount = Math.max(1, Math.floor((availableWidth + CARD_GAP_PX) / (cardWidth + CARD_GAP_PX)));
+      setVisibleCardCount(nextCount);
+    };
+
+    updateVisibleCount();
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateVisibleCount();
+    });
+    resizeObserver.observe(container);
+    window.addEventListener('resize', updateVisibleCount);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateVisibleCount);
+    };
+  }, []);
+
+  const visibleCards = useMemo(
+    () => upcomingCards.slice(0, visibleCardCount),
+    [upcomingCards, visibleCardCount],
+  );
+
   return (
     <div className="mb-4">
-      <div className="mt-4 grid grid-cols-1 justify-items-center gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {upcomingCards.map((card) => {
+      <div ref={cardsContainerRef} className="mt-4 px-2 py-1">
+        <div className="flex items-stretch justify-center gap-3 overflow-visible">
+          {visibleCards.map((card) => {
             const status = getMaturityStatusMeta(card.daysLeft, t);
             const StatusIcon = status.icon;
 
@@ -150,6 +191,7 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
               </div>
             );
           })}
+        </div>
       </div>
 
       <div className="mt-3 flex justify-end">

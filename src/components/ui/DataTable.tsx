@@ -14,7 +14,7 @@ export interface DataTableColumn<T> {
   header: ReactNode;
   unit?: string;
   accessor?: (row: T) => string | number | Date | null | undefined;
-  cell: (row: T) => ReactNode;
+  cell: (row: T, index: number) => ReactNode;
   sortable?: boolean;
   align?: 'left' | 'right' | 'center';
   className?: string;
@@ -31,6 +31,7 @@ interface DataTableProps<T> {
   } | null;
   emptyState?: ReactNode;
   className?: string;
+  onVisibleRowsChange?: (rows: T[]) => void;
 }
 
 const compareValues = (
@@ -54,6 +55,22 @@ const compareValues = (
   });
 };
 
+const buildPageItems = (currentPage: number, totalPages: number): Array<number | 'ellipsis'> => {
+  if (totalPages <= 4) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  if (currentPage <= 3) {
+    return [1, 2, 3, 'ellipsis', totalPages];
+  }
+
+  if (currentPage >= totalPages - 2) {
+    return [1, 'ellipsis', totalPages - 2, totalPages - 1, totalPages];
+  }
+
+  return [1, 'ellipsis', currentPage, 'ellipsis', totalPages];
+};
+
 export function DataTable<T>({
   rows,
   columns,
@@ -62,6 +79,7 @@ export function DataTable<T>({
   initialSort,
   emptyState,
   className,
+  onVisibleRowsChange,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState(initialSort ?? null);
@@ -86,6 +104,11 @@ export function DataTable<T>({
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const visibleRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageItems = useMemo(() => buildPageItems(safePage, totalPages), [safePage, totalPages]);
+
+  useEffect(() => {
+    onVisibleRowsChange?.(visibleRows);
+  }, [onVisibleRowsChange, visibleRows]);
 
   const handleSort = (column: DataTableColumn<T>) => {
     if (!column.sortable || !column.accessor) return;
@@ -157,7 +180,7 @@ export function DataTable<T>({
                         column.className,
                       )}
                     >
-                      {column.cell(row)}
+                      {column.cell(row, (safePage - 1) * pageSize + index)}
                     </td>
                   ))}
                 </tr>
@@ -174,29 +197,73 @@ export function DataTable<T>({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3 border-t border-border-base bg-surface-container-low/70 px-4 py-3">
-          <p className="text-xs font-semibold text-text-muted">
-            {safePage} / {totalPages}
-          </p>
-          <div className="flex items-center gap-2">
+        <>
+          <div className="flex items-center justify-between gap-3 border-t border-border-base bg-bg-surface px-4 py-3 text-sm lg:hidden">
             <button
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage === 1}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-text-highlight hover:text-text-highlight disabled:opacity-40"
+              className="rounded-lg border border-border-base px-3 py-2 font-bold text-text-muted transition-colors disabled:opacity-40"
             >
-              <ChevronLeft className="h-4 w-4" />
+              Prev
             </button>
+            <span className="font-bold text-text-base">
+              {safePage} / {totalPages}
+            </span>
             <button
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage === totalPages}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-text-highlight hover:text-text-highlight disabled:opacity-40"
+              className="rounded-lg border border-border-base px-3 py-2 font-bold text-text-muted transition-colors disabled:opacity-40"
             >
-              <ChevronRight className="h-4 w-4" />
+              Next
             </button>
           </div>
-        </div>
+
+          <div className="hidden overflow-x-auto border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6 lg:flex lg:items-center lg:justify-end">
+            <div className="flex min-w-max items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={safePage === 1}
+                className="rounded-lg p-2 text-text-muted transition-colors hover:bg-bg-surface disabled:opacity-30"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+
+              <div className="flex items-center gap-1">
+                {pageItems.map((item, index) => (
+                  item === 'ellipsis' ? (
+                    <span key={`ellipsis-${index}`} className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
+                  ) : (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => setPage(item)}
+                      className={cn(
+                        "rounded-lg border px-3 py-1 text-xs font-bold transition-colors",
+                        safePage === item
+                          ? "border-transparent bg-action-accent text-slate-950 shadow-md shadow-cyan-500/20"
+                          : "border-border-base bg-bg-base text-text-base hover:bg-bg-surface",
+                      )}
+                    >
+                      {item}
+                    </button>
+                  )
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={safePage === totalPages}
+                className="rounded-lg p-2 text-text-muted transition-colors hover:bg-bg-surface disabled:opacity-30"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

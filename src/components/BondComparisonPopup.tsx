@@ -11,7 +11,6 @@ import { getCache, setCache } from '../utils/cache';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { buildFireantUrl, fireantApi } from '../api/fireant';
-import { ExportExcelButton } from './ui/ExportExcelButton';
 import { exportRowsToExcel } from '../utils/excel';
 import { upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
@@ -1107,7 +1106,6 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h4 className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-[0.2em] transition-colors">{t('detailedSpecs')}</h4>
-              <ExportExcelButton loading={exportLoading} onClick={handleExportComparison} />
             </div>
             <div className="rounded-2xl border border-border-base bg-bg-surface overflow-hidden shadow-sm transition-colors overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[600px]">
