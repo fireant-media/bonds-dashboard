@@ -13,6 +13,8 @@ export interface AIBondFilterCriteria {
   industry?: string;
   issuer?: string;
   bondType?: string;
+  remainingDaysMin?: number;
+  remainingDaysMax?: number;
   minTenorMonths?: number;
   maxTenorMonths?: number;
   issueDateFrom?: string;
@@ -320,9 +322,25 @@ function inferHeuristicBondFilterCriteria(message: string): AIBondFilterCriteria
 
   const sortPreferences = inferAIBondSortPreferences(message);
   const fallbackPrimarySort = inferAIBondSortByFromText(text);
+  const remainingDaysBetweenMatch = text.match(/(?:tu|trong khoang|khoang)\D*(\d{1,4})\D*(?:den|toi)\D*(\d{1,4})\s*ngay/);
+  const remainingDaysBelowMatch = text.match(/(?:duoi|toi da|khong qua|less than|under)\D*(\d{1,4})\s*ngay/);
+  const remainingDaysAboveMatch = text.match(/(?:tren|tu|toi thieu|more than|over)\D*(\d{1,4})\s*ngay/);
+  const remainingDaysAtMatch = text.match(/(?:con lai|remaining term|days left|ngay con lai)\D*(\d{1,4})\s*ngay/);
 
   return pruneEmptyValues({
     bondRateType: normalizeAIBondRateType(text),
+    remainingDaysMin: remainingDaysBetweenMatch
+      ? normalizeNumber(remainingDaysBetweenMatch[1])
+      : remainingDaysAboveMatch
+        ? normalizeNumber(remainingDaysAboveMatch[1])
+        : undefined,
+    remainingDaysMax: remainingDaysBetweenMatch
+      ? normalizeNumber(remainingDaysBetweenMatch[2])
+      : remainingDaysBelowMatch
+        ? normalizeNumber(remainingDaysBelowMatch[1])
+        : remainingDaysAtMatch
+          ? normalizeNumber(remainingDaysAtMatch[1])
+          : undefined,
     sortBy: sortPreferences.primary ?? fallbackPrimarySort,
     secondarySorts: dedupeSorts(sortPreferences.secondary),
   } as Record<string, unknown>) as AIBondFilterCriteria;
@@ -398,6 +416,8 @@ function normalizeCriteria(value: unknown): AIBondFilterCriteria {
     industry,
     issuer,
     bondType,
+    remainingDaysMin: normalizeNumber(source.remainingDaysMin),
+    remainingDaysMax: normalizeNumber(source.remainingDaysMax),
     minTenorMonths,
     maxTenorMonths,
     issueDateFrom,
@@ -443,6 +463,16 @@ function buildFallbackSummary(criteria: AIBondFilterCriteria) {
 
   if (criteria.bondType) {
     summary.push(`Loai trai phieu: ${criteria.bondType}`);
+  }
+
+  if (criteria.remainingDaysMin !== undefined || criteria.remainingDaysMax !== undefined) {
+    if (criteria.remainingDaysMin !== undefined && criteria.remainingDaysMax !== undefined) {
+      summary.push(`Ky han con lai tu ${formatNumber(criteria.remainingDaysMin, 0)} den ${formatNumber(criteria.remainingDaysMax, 0)} ngay`);
+    } else if (criteria.remainingDaysMin !== undefined) {
+      summary.push(`Ky han con lai tu ${formatNumber(criteria.remainingDaysMin, 0)} ngay tro len`);
+    } else if (criteria.remainingDaysMax !== undefined) {
+      summary.push(`Ky han con lai den ${formatNumber(criteria.remainingDaysMax, 0)} ngay`);
+    }
   }
 
   if (criteria.minTenorMonths !== undefined || criteria.maxTenorMonths !== undefined) {
@@ -538,6 +568,7 @@ export function isBondFilterIntent(message: string) {
 
   const hasFilterVerb = /(loc|filter|tim|liet ke|danh sach|chon|show|xem cac|goi y cac|sap xep|xep theo|order by|sort by)/.test(text);
   const hasFieldKeyword = /(nganh|industry|to chuc phat hanh|issuer|loai trai phieu|bond type|ky han|tenor|dao han|maturity|phat hanh|issue|lai suat|bond rate|ma trai phieu|bond code|khoi luong phat hanh|gia tri phat hanh|khoi luong niem yet|gia tri niem yet|listed volume|listed value|issued volume|issued value)/.test(text);
+  const hasRemainingDaysKeyword = /(ky han con lai|remaining term|days left|ngay con lai|con lai.*ngay)/.test(text);
   const hasSortKeyword = /(sap xep|xep theo|giam dan|tang dan|cao nhat|thap nhat|gan nhat|moi nhat|top)/.test(text);
   const hasTypeKeyword = /(co dinh|fixed|tha noi|floating|variable)/.test(text);
   const hasRangeSignal = /(tu | den | duoi | tren | trong | khoang | sau | truoc | nho hon | lon hon | it nhat | toi da | toi thieu |\d{4}|\d+\s*%|\d+\s*thang)/.test(text);
@@ -545,9 +576,9 @@ export function isBondFilterIntent(message: string) {
 
   if (isRankingQuestion && !hasFilterVerb && !hasFieldKeyword) return false;
   if (hasSortKeyword && hasFieldKeyword) return true;
-  if (hasFilterVerb && (hasFieldKeyword || hasTypeKeyword)) return true;
+  if (hasFilterVerb && (hasFieldKeyword || hasTypeKeyword || hasRemainingDaysKeyword)) return true;
   if (hasTypeKeyword) return true;
-  return hasFieldKeyword && hasRangeSignal;
+  return (hasFieldKeyword || hasRemainingDaysKeyword) && hasRangeSignal;
 }
 
 export async function extractBondFilterCriteria({
@@ -563,7 +594,8 @@ export async function extractBondFilterCriteria({
         'Ban la bo xu ly trich xuat tieu chi loc trai phieu doanh nghiep.',
         'Nhiem vu cua ban la chuyen mo ta tu nhien thanh JSON ngan gon, khong giai thich them.',
         'Ngay hien tai la 2026-06-11. Neu nguoi dung noi hom nay, thang nay, quy nay, nam nay, 12 thang toi, 6 thang toi... thi phai quy doi ra ngay thang cu the.',
-        'Chi ho tro cac truong: industry, issuer, bondType, minTenorMonths, maxTenorMonths, issueDateFrom, issueDateTo, maturityDateFrom, maturityDateTo, minBondRate, maxBondRate, bondRateType, minListedVolume, maxListedVolume, minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion, sortBy, secondarySorts.',
+        'Chi ho tro cac truong: industry, issuer, bondType, remainingDaysMin, remainingDaysMax, minTenorMonths, maxTenorMonths, issueDateFrom, issueDateTo, maturityDateFrom, maturityDateTo, minBondRate, maxBondRate, bondRateType, minListedVolume, maxListedVolume, minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion, sortBy, secondarySorts.',
+        'Neu nguoi dung noi ve ky han con lai / remaining term / days left, hay su dung remainingDaysMin va remainingDaysMax.',
         'industry la nganh nghe; issuer la ten to chuc phat hanh; bondType la loai trai phieu.',
         'bondRateType chi nhan mot trong hai gia tri: "fixed" hoac "floating".',
         'Cac truong gia tri theo ty VND gom: minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion.',
@@ -671,6 +703,7 @@ export function summarizeBondFilterCriteria(criteria: AIBondFilterCriteria, lang
       .replace('Nganh nghe', 'Industry')
       .replace('To chuc phat hanh', 'Issuer')
       .replace('Loai trai phieu', 'Bond type')
+      .replace('Ky han con lai', 'Remaining term')
       .replace('Khoi luong niem yet', 'Listed volume')
       .replace('Gia tri phat hanh', 'Issued value')
       .replace('Gia tri niem yet', 'Listed value')
@@ -786,6 +819,13 @@ export function filterBondRowsByCriteria(rows: BondDataRow[], criteria: AIBondFi
       return false;
     }
 
+    if (criteria.remainingDaysMin !== undefined || criteria.remainingDaysMax !== undefined) {
+      const daysLeft = Number((row as any).daysLeft);
+      if (Number.isFinite(daysLeft) && !matchesMinMaxNumber(daysLeft, criteria.remainingDaysMin, criteria.remainingDaysMax)) {
+        return false;
+      }
+    }
+
     if (!matchesMinMaxNumber(Number(row.tenorPeriod || 0), criteria.minTenorMonths, criteria.maxTenorMonths)) {
       return false;
     }
@@ -876,6 +916,8 @@ export function hasAIBondFilterCriteria(criteria: AIBondFilterCriteria) {
     criteria.industry
     || criteria.issuer
     || criteria.bondType
+    || criteria.remainingDaysMin !== undefined
+    || criteria.remainingDaysMax !== undefined
     || criteria.minTenorMonths !== undefined
     || criteria.maxTenorMonths !== undefined
     || criteria.issueDateFrom

@@ -562,6 +562,57 @@ export const loadMaturingBonds = async (days: number): Promise<BondDataRow[]> =>
   return rows;
 };
 
+const toIsoDateOnly = (value: Date) => value.toISOString().split('T')[0];
+
+const dedupeBondRows = (rows: BondDataRow[]) =>
+  Array.from(
+    new Map(
+      rows
+        .filter((row) => Boolean(row?.bondCode))
+        .map((row) => [row.bondCode, row] as const),
+    ).values(),
+  );
+
+export const loadMaturingBondUniverse = async (days: number): Promise<BondDataRow[]> => {
+  const normalizedDays = Math.max(1, Math.floor(Number(days) || 0));
+  const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
+    endpoint: 'bonds/maturing-universe',
+    days: normalizedDays,
+  });
+  const cached = getCache(cacheKey);
+  if (cached) return cached as BondDataRow[];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const maturityEnd = new Date(today);
+  maturityEnd.setDate(maturityEnd.getDate() + normalizedDays);
+
+  const listedRangeQuery: BondFilterQuery = {
+    StatusID: 1,
+    IsListing: 1,
+    MaturityDateFrom: toIsoDateOnly(today),
+    MaturityDateTo: toIsoDateOnly(maturityEnd),
+    Top: 10000,
+  };
+
+  const [listedRangeRows, maturingSoonRows, governmentRows, unlistedEnterpriseRows] = await Promise.allSettled([
+    loadBondFilterRows(listedRangeQuery),
+    loadMaturingBonds(normalizedDays),
+    loadGovernmentBondRows(),
+    loadUnlistedEnterpriseBondRows(),
+  ]);
+
+  const mergedRows = dedupeBondRows([
+    ...(listedRangeRows.status === 'fulfilled' ? listedRangeRows.value : []),
+    ...(maturingSoonRows.status === 'fulfilled' ? maturingSoonRows.value : []),
+    ...(governmentRows.status === 'fulfilled' ? governmentRows.value : []),
+    ...(unlistedEnterpriseRows.status === 'fulfilled' ? unlistedEnterpriseRows.value : []),
+  ]);
+
+  setCache(cacheKey, mergedRows);
+  return mergedRows;
+};
+
 export const loadIssuerBondsByFilter = async (issuerSymbol: string): Promise<BondDataRow[]> =>
   {
     const normalizedIssuerSymbol = asString(issuerSymbol);

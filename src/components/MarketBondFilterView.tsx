@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ListOrdered } from 'lucide-react';
+import { Columns3, EyeOff, ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
@@ -161,6 +161,11 @@ const getRowSource = (row: BondDataRow): MarketRowSource | undefined => {
     : undefined;
 };
 
+const shouldHideIndustryDisplay = (row: BondDataRow) => {
+  const source = getRowSource(row);
+  return source === 'government-beta' || source === 'unlisted-enterprise-beta';
+};
+
 const withMarketSource = (rows: BondDataRow[], source: MarketRowSource) =>
   rows.map((row) => ({
     ...row,
@@ -216,9 +221,13 @@ export default function MarketBondFilterView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [visibleBondCodes, setVisibleBondCodes] = useState<string[]>([]);
+  const [hiddenColumnIds, setHiddenColumnIds] = useState<string[]>([]);
+  const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<string[]>([]);
+  const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
   const [industrySymbolLookup, setIndustrySymbolLookup] = useState<Map<string, string>>(new Map());
   const initialFetchLimit = useMemo(() => resolveInitialMarketBondFetchLimit(), []);
   const presetSignatureRef = useRef('');
+  const columnVisibilityRef = useRef<HTMLDivElement | null>(null);
   const enterpriseIndustryBySymbol = useMemo(
     () => new Map(
       enterpriseList
@@ -275,20 +284,16 @@ export default function MarketBondFilterView({
   );
 
   const resolveDisplayedIndustry = (row: BondDataRow) => {
-    const source = getRowSource(row);
-
-    if (source === 'government-beta') {
+    if (shouldHideIndustryDisplay(row)) {
       return '';
     }
+
+    const source = getRowSource(row);
 
     const directIndustry = resolveRowIndustry(row);
 
     if (source === 'listed-market') {
       return resolveMappedIndustry(row) || directIndustry;
-    }
-
-    if (source === 'unlisted-enterprise-beta') {
-      return directIndustry;
     }
 
     return directIndustry || resolveMappedIndustry(row);
@@ -455,7 +460,7 @@ export default function MarketBondFilterView({
       const symbolsNeedingProfiles = Array.from(
         new Set(
           candidateRows
-            .filter((row) => row.issuerSymbol && !row.raw?.issuerProfile && !resolveDisplayedIndustry(row))
+            .filter((row) => row.issuerSymbol && !row.raw?.issuerProfile && !shouldHideIndustryDisplay(row) && !resolveDisplayedIndustry(row))
             .map((row) => String(row.issuerSymbol || '').trim())
             .filter(Boolean),
         ),
@@ -555,7 +560,9 @@ export default function MarketBondFilterView({
       id: 'order',
       header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
       align: 'center',
-      className: 'w-14',
+      widthClassName: 'w-14',
+      stickyHeaderClassName: 'sticky left-0 z-40 bg-blue-600',
+      stickyCellClassName: 'sticky left-0 z-30 bg-inherit',
       cell: (_row, index) => index + 1,
     },
     {
@@ -563,6 +570,9 @@ export default function MarketBondFilterView({
       header: t('bondCode'),
       accessor: (row) => row.bondCode,
       sortable: true,
+      widthClassName: 'w-32',
+      stickyHeaderClassName: 'sticky left-14 z-40 bg-blue-600',
+      stickyCellClassName: 'sticky left-14 z-30 bg-inherit',
       cell: (row) => (
         <button
           type="button"
@@ -581,6 +591,7 @@ export default function MarketBondFilterView({
       header: t('issuer'),
       accessor: (row) => row.issuerName || row.issuerSymbol,
       sortable: true,
+      widthClassName: 'w-60',
       cell: (row) => {
         const issuerName = row.issuerName || row.issuerSymbol || t('none');
         const industry = resolveDisplayedIndustry(row);
@@ -603,6 +614,7 @@ export default function MarketBondFilterView({
       header: t('bondTypeLabel'),
       accessor: (row) => row.bondType,
       sortable: true,
+      widthClassName: 'w-36',
       cell: (row) => row.bondType || t('none'),
     },
     {
@@ -612,6 +624,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.tenorPeriod || 0,
       sortable: true,
       align: 'right',
+      widthClassName: 'w-24',
       cell: (row) => formatNumber(row.tenorPeriod || 0, 0),
     },
     {
@@ -620,6 +633,7 @@ export default function MarketBondFilterView({
       accessor: (row) => parseDateToTimestamp(row.issueDate) || 0,
       sortable: true,
       align: 'center',
+      widthClassName: 'w-28',
       cell: (row) => formatDate(row.issueDate),
     },
     {
@@ -628,6 +642,7 @@ export default function MarketBondFilterView({
       accessor: (row) => parseDateToTimestamp(row.maturityDate) || 0,
       sortable: true,
       align: 'center',
+      widthClassName: 'w-28',
       cell: (row) => formatDate(row.maturityDate),
     },
     {
@@ -637,6 +652,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.bondRate || 0,
       sortable: true,
       align: 'right',
+      widthClassName: 'w-24',
       cell: (row) => formatInterestRate(row.bondRate),
     },
     {
@@ -644,6 +660,8 @@ export default function MarketBondFilterView({
       header: t('interestType'),
       accessor: (row) => normalizeBondRateType(row),
       sortable: true,
+      align: 'center',
+      widthClassName: 'w-32',
       cell: (row) => normalizeBondRateType(row) || t('none'),
     },
     {
@@ -652,6 +670,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.currentListedVolume || 0,
       sortable: true,
       align: 'right',
+      widthClassName: 'w-32',
       cell: (row) => formatNumber(row.currentListedVolume || 0, 0),
     },
     {
@@ -661,6 +680,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.totalIssuedValue || 0,
       sortable: true,
       align: 'right',
+      widthClassName: 'w-36',
       cell: (row) => formatNumber((row.totalIssuedValue || 0) / 1000000000, 2),
     },
     {
@@ -670,9 +690,44 @@ export default function MarketBondFilterView({
       accessor: (row) => row.currentListedValue || 0,
       sortable: true,
       align: 'right',
+      widthClassName: 'w-36',
       cell: (row) => formatNumber((row.currentListedValue || 0) / 1000000000, 2),
     },
   ]), [setBondEnterpriseName, setSelectedBond, t]);
+
+  const columnVisibilityOptions = useMemo(
+    () => columns.filter((column) => column.id !== 'order').map((column) => ({
+      id: column.id,
+      label: typeof column.header === 'string' ? column.header : t(column.id as any),
+    })),
+    [columns, t],
+  );
+
+  useEffect(() => {
+    if (!isColumnVisibilityOpen) return undefined;
+
+    setColumnVisibilityDraft(hiddenColumnIds);
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!columnVisibilityRef.current) return;
+      if (columnVisibilityRef.current.contains(event.target as Node)) return;
+      setIsColumnVisibilityOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsColumnVisibilityOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [hiddenColumnIds, isColumnVisibilityOpen]);
 
   return (
     <div className="space-y-4">
@@ -703,6 +758,81 @@ export default function MarketBondFilterView({
         bondTypeOptions={bondTypeOptions}
         industryOptions={industryOptions}
         searchOptions={rows.map((row) => row.bondCode)}
+        marketActionSlot={(
+          <div ref={columnVisibilityRef} className="relative flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsColumnVisibilityOpen((current) => !current)}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              aria-haspopup="dialog"
+              aria-expanded={isColumnVisibilityOpen}
+              aria-label={t('hideColumns')}
+              title={t('hideColumns')}
+            >
+              <EyeOff className="h-4 w-4 text-blue-600" />
+            </button>
+
+            {isColumnVisibilityOpen ? (
+              <div className="absolute right-full top-0 z-30 mr-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+                <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+                  <Columns3 className="h-4 w-4 text-blue-600" />
+                  <span>{t('hideColumns')}</span>
+                </div>
+
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {columnVisibilityOptions.map((column) => {
+                    const checked = columnVisibilityDraft.includes(column.id);
+
+                    return (
+                      <label
+                        key={column.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-base transition-colors hover:bg-surface-container-low"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setColumnVisibilityDraft((current) => (
+                              current.includes(column.id)
+                                ? current.filter((item) => item !== column.id)
+                                : [...current, column.id]
+                            ));
+                          }}
+                          className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-400"
+                        />
+                        <span className="truncate">{column.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHiddenColumnIds(columnVisibilityDraft);
+                      setIsColumnVisibilityOpen(false);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                  >
+                    {t('hideColumns')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHiddenColumnIds([]);
+                      setColumnVisibilityDraft([]);
+                      setIsColumnVisibilityOpen(false);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight"
+                  >
+                    {t('reset')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
       />
 
       {loading ? (
@@ -721,6 +851,8 @@ export default function MarketBondFilterView({
           pageSize={15}
           initialSort={tableInitialSort}
           emptyState={t('noData')}
+          noColumnsState={t('noColumnsSelected')}
+          hiddenColumnIds={hiddenColumnIds}
           onVisibleRowsChange={(nextVisibleRows) => {
             const nextCodes = nextVisibleRows.map((row) => row.bondCode);
             setVisibleBondCodes((currentCodes) => (

@@ -20,6 +20,7 @@ const MaturityListView = lazy(() => import('./components/MaturityListView'));
 const NewsListView = lazy(() => import('./components/NewsListView'));
 const WatchlistView = lazy(() => import('./components/WatchlistView'));
 const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
+const BondComparisonPopup = lazy(() => import('./components/BondComparisonPopup'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
 const HelpView = lazy(() => import('./components/HelpView'));
 const AIChatBot = lazy(() => import('./components/AIChatBot'));
@@ -97,6 +98,7 @@ export default function App() {
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
+  const [showBondComparison, setShowBondComparison] = useState(false);
   
   const setActiveTab = (tab: string) => {
     switch (tab) {
@@ -126,10 +128,12 @@ export default function App() {
   const handleSetSelectedBond = (bond: Bond | null) => {
     if (bond) {
       setSelectedBond(bond);
+      setShowBondComparison(false);
       // Pass the current location as state so we can keep it as background
       navigate(`/${bond.code}`, { state: { backgroundLocation: location } });
     } else {
       setSelectedBond(null);
+      setShowBondComparison(false);
       // If we are currently on a bond page, go back to the background location
       if (location.state?.backgroundLocation) {
         navigate(-1);
@@ -573,6 +577,17 @@ export default function App() {
             bond={selectedBond}
             enterpriseName={bondEnterpriseName}
             onClose={() => handleSetSelectedBond(null)}
+            onCompare={() => setShowBondComparison(true)}
+          />
+        </Suspense>
+      )}
+
+      {selectedBond && showBondComparison && (
+        <Suspense fallback={null}>
+          <BondComparisonPopup
+            primaryBond={selectedBond}
+            onBack={() => setShowBondComparison(false)}
+            onClose={() => setShowBondComparison(false)}
           />
         </Suspense>
       )}

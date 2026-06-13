@@ -21,7 +21,7 @@ export const warmDashboardCoreData = () => {
     await Promise.allSettled([
       loadIssuerStatsSummary(200),
       fireantApi.getHighYieldBonds(10),
-      loadMaturingBonds(30),
+      loadMaturingBonds(365),
       loadMaturingBonds(90),
       loadMaturingBonds(180),
       loadDedupedIndustrySymbols(),

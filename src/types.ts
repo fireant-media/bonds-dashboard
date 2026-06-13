@@ -55,6 +55,7 @@ export interface Bond {
   issueDate: string;
   maturityDate: string;
   interestType: string;
+  bondType?: string;
   status: string;
   cashFlows?: {
     paymentDate: string;

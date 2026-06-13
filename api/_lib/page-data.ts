@@ -907,12 +907,72 @@ async function buildWatchlist(request: PageDataRequest) {
   };
 }
 
+async function loadMaturityUniverseRows(accessToken: string, days: number) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const maturityEnd = new Date(today);
+  maturityEnd.setDate(maturityEnd.getDate() + Math.max(1, days));
+
+  const listedRangeQuery = {
+    statusID: 1,
+    isListing: 1,
+    maturityDateFrom: today.toISOString().split('T')[0],
+    maturityDateTo: maturityEnd.toISOString().split('T')[0],
+    top: 10000,
+  };
+
+  const loadTypeRows = (bondTypeID: number) =>
+    fireantFetch('bonds/filter', {
+      method: 'POST',
+      query: { __base: 'beta' },
+      body: {
+        bondTypeID,
+        isListing: 0,
+      },
+      accessToken,
+    });
+
+  const [listedRangeRows, maturingSoonRows, governmentRows, unlistedEnterpriseRows] = await Promise.allSettled([
+    fireantFetch('bonds/filter', {
+      method: 'POST',
+      body: listedRangeQuery,
+      accessToken,
+    }),
+    fireantFetch('bonds/stats/bonds/maturing-soon', {
+      query: { days },
+      accessToken,
+    }),
+    Promise.allSettled([2, 3, 6].map((bondTypeID) => loadTypeRows(bondTypeID))),
+    Promise.allSettled([3, 4].map((bondTypeID) => loadTypeRows(bondTypeID))),
+  ]);
+
+  const governmentRowsMerged = governmentRows.status === 'fulfilled'
+    ? governmentRows.value.flatMap((result) => (result.status === 'fulfilled' ? getRows<any>(result.value) : []))
+    : [];
+
+  const unlistedEnterpriseRowsMerged = unlistedEnterpriseRows.status === 'fulfilled'
+    ? unlistedEnterpriseRows.value.flatMap((result) => (result.status === 'fulfilled' ? getRows<any>(result.value) : []))
+    : [];
+
+  return Array.from(
+    new Map(
+      [
+        ...(listedRangeRows.status === 'fulfilled' ? getRows<any>(listedRangeRows.value) : []),
+        ...(maturingSoonRows.status === 'fulfilled' ? getRows<any>(maturingSoonRows.value) : []),
+        ...governmentRowsMerged,
+        ...unlistedEnterpriseRowsMerged,
+      ]
+        .map(normalizeBondRow)
+        .filter((bond) => bond.bondCode)
+        .map((bond) => [bond.bondCode, bond] as const),
+    ).values(),
+  );
+}
+
 async function buildMaturity(request: PageDataRequest) {
   const accessToken = getRequestAccessToken(request);
   const days = getQueryNumber(request.query.days, 365);
-  const rows = getRows<any>(await fireantFetch('bonds/stats/bonds/maturing-soon', { query: { days }, accessToken }))
-    .map(normalizeBondRow)
-    .filter((bond) => bond.bondCode);
+  const rows = await loadMaturityUniverseRows(accessToken, days);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const bonds = rows.map((bond) => {

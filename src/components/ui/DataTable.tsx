@@ -18,6 +18,9 @@ export interface DataTableColumn<T> {
   sortable?: boolean;
   align?: 'left' | 'right' | 'center';
   className?: string;
+  widthClassName?: string;
+  stickyHeaderClassName?: string;
+  stickyCellClassName?: string;
 }
 
 interface DataTableProps<T> {
@@ -29,9 +32,12 @@ interface DataTableProps<T> {
     columnId: string;
     direction: SortDirection;
   } | null;
+  hiddenColumnIds?: string[];
   emptyState?: ReactNode;
+  noColumnsState?: ReactNode;
   className?: string;
   onVisibleRowsChange?: (rows: T[]) => void;
+  onRowClick?: (row: T) => void;
 }
 
 const compareValues = (
@@ -77,12 +83,19 @@ export function DataTable<T>({
   getRowKey,
   pageSize = 20,
   initialSort,
+  hiddenColumnIds = [],
   emptyState,
+  noColumnsState,
   className,
   onVisibleRowsChange,
+  onRowClick,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState(initialSort ?? null);
+  const visibleColumns = useMemo(
+    () => columns.filter((column) => !hiddenColumnIds.includes(column.id)),
+    [columns, hiddenColumnIds],
+  );
 
   useEffect(() => {
     setSort(initialSort ?? null);
@@ -129,10 +142,15 @@ export function DataTable<T>({
   return (
     <div className={cn("overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-full text-left">
-          <thead className="border-b border-border-base bg-surface-container-low text-text-muted">
+        <table className="w-max min-w-full table-fixed text-left">
+          <colgroup>
+            {visibleColumns.map((column) => (
+              <col key={column.id} className={column.widthClassName} />
+            ))}
+          </colgroup>
+          <thead className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
             <tr>
-              {columns.map((column) => {
+              {visibleColumns.map((column) => {
                 const isSorted = sort?.columnId === column.id;
                 const SortIcon = !isSorted ? ArrowUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown;
 
@@ -140,9 +158,8 @@ export function DataTable<T>({
                   <th
                     key={column.id}
                     className={cn(
-                      "px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap",
-                      column.align === 'right' && "text-right",
-                      column.align === 'center' && "text-center",
+                      "px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center",
+                      column.stickyHeaderClassName,
                     )}
                   >
                     <button
@@ -150,16 +167,14 @@ export function DataTable<T>({
                       onClick={() => handleSort(column)}
                       disabled={!column.sortable || !column.accessor}
                       className={cn(
-                        "inline-flex items-center gap-2 text-left disabled:cursor-default",
-                        column.align === 'right' && "justify-end",
-                        column.align === 'center' && "justify-center",
+                        "inline-flex w-full items-center justify-center gap-2 text-center disabled:cursor-default",
                       )}
                     >
                       <span>
                         <span className="block">{column.header}</span>
-                        {column.unit && <span className="block text-xs font-semibold uppercase tracking-wider text-text-muted/80">{column.unit}</span>}
+                        {column.unit && <span className="mt-1 block text-xs font-semibold tracking-wider text-white/80">{column.unit}</span>}
                       </span>
-                      {column.sortable && <SortIcon className="h-3.5 w-3.5 shrink-0 text-text-highlight" />}
+                      {column.sortable && <SortIcon className="h-3.5 w-3.5 shrink-0 text-white/90" />}
                     </button>
                   </th>
                 );
@@ -167,10 +182,31 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody className="divide-y divide-border-base">
-            {visibleRows.length > 0 ? (
+            {visibleColumns.length === 0 ? (
+              <tr>
+                <td className="px-4 py-10 text-center text-sm font-medium text-text-muted" colSpan={1}>
+                  {noColumnsState || 'No columns selected'}
+                </td>
+              </tr>
+            ) : visibleRows.length > 0 ? (
               visibleRows.map((row, index) => (
-                <tr key={getRowKey(row, index)} className="transition-colors hover:bg-surface-container-low/70">
-                  {columns.map((column) => (
+                <tr
+                  key={getRowKey(row, index)}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={onRowClick ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onRowClick(row);
+                    }
+                  } : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? 'button' : undefined}
+                  className={cn(
+                    "group transition-colors",
+                    onRowClick && "cursor-pointer hover:bg-surface-container-low/70 focus-visible:outline-none focus-visible:bg-surface-container-low/70",
+                  )}
+                >
+                  {visibleColumns.map((column) => (
                     <td
                       key={column.id}
                       className={cn(
@@ -178,6 +214,7 @@ export function DataTable<T>({
                         column.align === 'right' && "text-right",
                         column.align === 'center' && "text-center",
                         column.className,
+                        column.stickyCellClassName,
                       )}
                     >
                       {column.cell(row, (safePage - 1) * pageSize + index)}
@@ -187,7 +224,7 @@ export function DataTable<T>({
               ))
             ) : (
               <tr>
-                <td className="px-4 py-10 text-center text-sm font-medium text-text-muted" colSpan={columns.length}>
+                <td className="px-4 py-10 text-center text-sm font-medium text-text-muted" colSpan={Math.max(1, visibleColumns.length)}>
                   {emptyState || 'No data'}
                 </td>
               </tr>
@@ -220,7 +257,7 @@ export function DataTable<T>({
             </button>
           </div>
 
-          <div className="hidden overflow-x-auto border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6 lg:flex lg:items-center lg:justify-end">
+          <div className="hidden overflow-x-auto border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6 lg:flex lg:items-center lg:justify-end lg:pr-8 xl:pr-12">
             <div className="flex min-w-max items-center gap-2">
               <button
                 type="button"

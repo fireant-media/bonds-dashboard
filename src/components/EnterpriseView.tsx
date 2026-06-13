@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowUpDown, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown, Hash, BadgeDollarSign, Landmark, Wallet } from 'lucide-react';
+import { ArrowUpDown, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown, Hash, BadgeDollarSign, Landmark, Wallet, Search } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -106,11 +106,13 @@ export default function EnterpriseView({
   const chartTheme = getChartTheme(isDark);
   const cachedData = getCache('enterprise_list');
   const [industryFilter, setIndustryFilter] = useState('All');
+  const [enterpriseSearchTerm, setEnterpriseSearchTerm] = useState('');
   const [enterpriseIssuedValueMin, setEnterpriseIssuedValueMin] = useState('');
   const [enterpriseIssuedValueMax, setEnterpriseIssuedValueMax] = useState('');
   const [enterpriseRemainingDebtMin, setEnterpriseRemainingDebtMin] = useState('');
   const [enterpriseRemainingDebtMax, setEnterpriseRemainingDebtMax] = useState('');
   const [appliedIndustryFilter, setAppliedIndustryFilter] = useState('All');
+  const [appliedEnterpriseSearchTerm, setAppliedEnterpriseSearchTerm] = useState('');
   const [appliedEnterpriseIssuedValueMin, setAppliedEnterpriseIssuedValueMin] = useState('');
   const [appliedEnterpriseIssuedValueMax, setAppliedEnterpriseIssuedValueMax] = useState('');
   const [appliedEnterpriseRemainingDebtMin, setAppliedEnterpriseRemainingDebtMin] = useState('');
@@ -151,6 +153,8 @@ export default function EnterpriseView({
   const [bondOpenMenu, setBondOpenMenu] = useState<'bondTerm' | null>(null);
   const issuerMenuRef = useRef<HTMLDivElement | null>(null);
   const bondMenuRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseSearchRef = useRef<HTMLDivElement | null>(null);
+  const [enterpriseSearchOpen, setEnterpriseSearchOpen] = useState(false);
   const bondsPerPage = 10;
   const enterprisesPerPage = 10;
   const rateTypeOptions = useMemo(() => {
@@ -210,6 +214,12 @@ export default function EnterpriseView({
   };
 
   const chartPalette = CHART_PALETTE;
+  const normalizeEnterpriseSearch = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
 
   const enterpriseIndustryOptions = useMemo(() => {
     return buildEnterpriseIndustryOptions(enterprises).map((item) => ({
@@ -217,6 +227,28 @@ export default function EnterpriseView({
       label: t(item.label as any),
     }));
   }, [enterprises, t]);
+  const enterpriseSearchSuggestions = useMemo(() => {
+    const normalizedTerm = normalizeEnterpriseSearch(enterpriseSearchTerm);
+    if (!normalizedTerm) return [];
+
+    return enterprises
+      .map((enterprise) => {
+        const ticker = String(enterprise.ticker || '').trim();
+        const displayName = String(t(enterprise.name as any, enterprise.ticker) || '').trim();
+        const rawName = String(enterprise.name || '').trim();
+        const englishName = String(enterpriseNamesEN[enterprise.ticker] || '').trim();
+        const haystack = normalizeEnterpriseSearch([ticker, displayName, rawName, englishName].filter(Boolean).join(' '));
+
+        if (!haystack.includes(normalizedTerm)) return null;
+
+        return {
+          ticker,
+          label: displayName || englishName || rawName || ticker,
+        };
+      })
+      .filter((item): item is { ticker: string; label: string } => Boolean(item))
+      .slice(0, 8);
+  }, [enterpriseNamesEN, enterpriseSearchTerm, enterprises, t]);
   const enterpriseAIPromptPlaceholder = language === 'en'
     ? 'Example: Show listed companies in real estate with issued value above 1,000 and remaining debt above 500.'
     : 'Ví dụ: Lọc các doanh nghiệp niêm yết ngành bất động sản có giá trị phát hành trên 1.000 và dư nợ còn lại trên 500.';
@@ -242,6 +274,9 @@ export default function EnterpriseView({
       }
       if (bondMenuRef.current && !bondMenuRef.current.contains(event.target as Node)) {
         setBondOpenMenu(null);
+      }
+      if (enterpriseSearchRef.current && !enterpriseSearchRef.current.contains(event.target as Node)) {
+        setEnterpriseSearchOpen(false);
       }
     };
 
@@ -281,11 +316,14 @@ export default function EnterpriseView({
   };
 
   const handleResetEnterpriseFilters = () => {
+    setEnterpriseSearchTerm('');
+    setEnterpriseSearchOpen(false);
     setEnterpriseIssuedValueMin('');
     setEnterpriseIssuedValueMax('');
     setEnterpriseRemainingDebtMin('');
     setEnterpriseRemainingDebtMax('');
     setIndustryFilter('All');
+    setAppliedEnterpriseSearchTerm('');
     setAppliedEnterpriseIssuedValueMin('');
     setAppliedEnterpriseIssuedValueMax('');
     setAppliedEnterpriseRemainingDebtMin('');
@@ -299,7 +337,34 @@ export default function EnterpriseView({
     setEnterprisePage(1);
   };
 
+  const applyEnterpriseFilterState = (nextState?: {
+    searchTerm?: string;
+    industry?: string;
+    issuedValueMin?: string;
+    issuedValueMax?: string;
+    remainingDebtMin?: string;
+    remainingDebtMax?: string;
+  }) => {
+    const nextSearchTerm = nextState?.searchTerm ?? enterpriseSearchTerm;
+    const nextIndustry = nextState?.industry ?? industryFilter;
+    const nextIssuedValueMin = nextState?.issuedValueMin ?? enterpriseIssuedValueMin;
+    const nextIssuedValueMax = nextState?.issuedValueMax ?? enterpriseIssuedValueMax;
+    const nextRemainingDebtMin = nextState?.remainingDebtMin ?? enterpriseRemainingDebtMin;
+    const nextRemainingDebtMax = nextState?.remainingDebtMax ?? enterpriseRemainingDebtMax;
+
+    setAppliedEnterpriseSearchTerm(nextSearchTerm);
+    setEnterpriseSearchOpen(false);
+    setAppliedEnterpriseIssuedValueMin(nextIssuedValueMin);
+    setAppliedEnterpriseIssuedValueMax(nextIssuedValueMax);
+    setAppliedEnterpriseRemainingDebtMin(nextRemainingDebtMin);
+    setAppliedEnterpriseRemainingDebtMax(nextRemainingDebtMax);
+    setAppliedIndustryFilter(nextIndustry);
+    setEnterprisePage(1);
+  };
+
   const handleApplyEnterpriseFilters = () => {
+    setAppliedEnterpriseSearchTerm(enterpriseSearchTerm);
+    setEnterpriseSearchOpen(false);
     setAppliedEnterpriseIssuedValueMin(enterpriseIssuedValueMin);
     setAppliedEnterpriseIssuedValueMax(enterpriseIssuedValueMax);
     setAppliedEnterpriseRemainingDebtMin(enterpriseRemainingDebtMin);
@@ -370,13 +435,20 @@ export default function EnterpriseView({
       const nextRemainingDebtMin = toOptionalStringNumber(parsed.minRemainingDebtBillion);
       const nextRemainingDebtMax = toOptionalStringNumber(parsed.maxRemainingDebtBillion);
       const nextIndustry = resolvedIndustry || 'All';
+      const nextFilters = {
+        issuedValueMin: nextIssuedValueMin,
+        issuedValueMax: nextIssuedValueMax,
+        remainingDebtMin: nextRemainingDebtMin,
+        remainingDebtMax: nextRemainingDebtMax,
+        industry: nextIndustry,
+      };
 
-      // AI only fills the draft enterprise filters; actual filtering happens on explicit Apply.
       setEnterpriseIssuedValueMin(nextIssuedValueMin);
       setEnterpriseIssuedValueMax(nextIssuedValueMax);
       setEnterpriseRemainingDebtMin(nextRemainingDebtMin);
       setEnterpriseRemainingDebtMax(nextRemainingDebtMax);
       setIndustryFilter(nextIndustry);
+      applyEnterpriseFilterState(nextFilters);
       setEnterpriseAISummary(
         Array.isArray(parsed.summary) ? parsed.summary.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3) : [],
       );
@@ -406,6 +478,7 @@ export default function EnterpriseView({
     field: 'ticker' | 'bondCount' | 'issuedValue' | 'remainingDebt',
     label: string,
     unit?: string,
+    labelClassName = '',
   ) => {
     const isActive = enterpriseAppliedSortField === field;
 
@@ -416,7 +489,7 @@ export default function EnterpriseView({
         className="inline-flex w-full items-center justify-center gap-2 text-center transition-opacity hover:opacity-90"
       >
         <div className="flex flex-col items-center">
-          <span className="whitespace-nowrap leading-none">{label}</span>
+          <span className={`whitespace-nowrap leading-none ${labelClassName}`}>{label}</span>
           {unit ? <span className="mt-1 whitespace-nowrap leading-none">({unit})</span> : null}
         </div>
         <ArrowUpDown className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
@@ -776,6 +849,7 @@ export default function EnterpriseView({
   }, [appliedCriteria, enterpriseProfile?.internationalName, issuerBonds, selectedEnterprise]);
 
   const filteredEnterprises = useMemo(() => {
+    const searchTerm = normalizeEnterpriseSearch(appliedEnterpriseSearchTerm);
     const minIssuedValue = appliedEnterpriseIssuedValueMin.trim() ? Number(appliedEnterpriseIssuedValueMin) : null;
     const maxIssuedValue = appliedEnterpriseIssuedValueMax.trim() ? Number(appliedEnterpriseIssuedValueMax) : null;
     const minRemainingDebt = appliedEnterpriseRemainingDebtMin.trim() ? Number(appliedEnterpriseRemainingDebtMin) : null;
@@ -784,9 +858,20 @@ export default function EnterpriseView({
     return enterprises.filter((enterprise) => {
       const issuedValue = Number(enterprise.issuedValue || 0);
       const remainingDebt = Number(enterprise.remainingDebt || 0);
+      const ticker = normalizeEnterpriseSearch(String(enterprise.ticker || ''));
+      const englishName = normalizeEnterpriseSearch(String(enterpriseNamesEN[enterprise.ticker] || ''));
+      const displayName = normalizeEnterpriseSearch(String(t(enterprise.name as any, enterprise.ticker) || ''));
+      const rawName = normalizeEnterpriseSearch(String(enterprise.name || ''));
 
       if (appliedIndustryFilter !== 'All' && enterprise.industry !== appliedIndustryFilter) {
         return false;
+      }
+
+      if (searchTerm) {
+        const haystack = [ticker, englishName, displayName, rawName].filter(Boolean).join(' ');
+        if (!haystack.includes(searchTerm)) {
+          return false;
+        }
       }
 
       if (minIssuedValue !== null && Number.isFinite(minIssuedValue) && issuedValue < minIssuedValue) {
@@ -807,7 +892,17 @@ export default function EnterpriseView({
 
       return true;
     });
-  }, [appliedEnterpriseIssuedValueMax, appliedEnterpriseIssuedValueMin, appliedEnterpriseRemainingDebtMax, appliedEnterpriseRemainingDebtMin, appliedIndustryFilter, enterprises]);
+  }, [
+    appliedEnterpriseIssuedValueMax,
+    appliedEnterpriseIssuedValueMin,
+    appliedEnterpriseRemainingDebtMax,
+    appliedEnterpriseRemainingDebtMin,
+    appliedEnterpriseSearchTerm,
+    appliedIndustryFilter,
+    enterprises,
+    enterpriseNamesEN,
+    t,
+  ]);
   const enterpriseTableLoading = loading;
   const enterpriseTableError = !loading ? error : null;
 
@@ -2238,56 +2333,98 @@ export default function EnterpriseView({
             ) : null}
           </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">
+              <label ref={enterpriseSearchRef} className="relative space-y-2">
+                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+                  <Search className="h-4 w-4 text-blue-600" />
+                  <span>{t('searchEnterprise')}</span>
+                </span>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-600" />
+                  <input
+                    type="text"
+                    value={enterpriseSearchTerm}
+                    onChange={(e) => {
+                      setEnterpriseSearchTerm(e.target.value);
+                      setEnterpriseSearchOpen(true);
+                    }}
+                    onFocus={() => setEnterpriseSearchOpen(true)}
+                    placeholder={t('searchPlaceholderEnterprises')}
+                    className="h-11 w-full rounded-lg border border-border-base bg-bg-surface pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                {enterpriseSearchOpen && enterpriseSearchSuggestions.length > 0 ? (
+                  <div className="absolute left-0 top-full z-30 mt-2 w-full overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 shadow-xl shadow-blue-950/10">
+                    <div className="max-h-64 overflow-y-auto">
+                      {enterpriseSearchSuggestions.map((item) => (
+                        <button
+                          key={`${item.ticker}-${item.label}`}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setEnterpriseSearchTerm(item.ticker);
+                            setEnterpriseSearchOpen(false);
+                          }}
+                          className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-text-base transition-colors hover:bg-surface-container-low"
+                        >
+                          <span className="truncate">{item.label}</span>
+                          <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{item.ticker}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </label>
+
               <div className="space-y-2">
                 <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
                   <BadgeDollarSign className="h-4 w-4 text-blue-600" />
                   <span>{t('issuedValue')} ({t('unitBillionVND')})</span>
                 </span>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={enterpriseIssuedValueMin}
-                  onChange={(e) => setEnterpriseIssuedValueMin(e.target.value)}
-                  placeholder="Min"
-                  className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                />
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={enterpriseIssuedValueMax}
-                  onChange={(e) => setEnterpriseIssuedValueMax(e.target.value)}
-                  placeholder="Max"
-                  className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={enterpriseIssuedValueMin}
+                    onChange={(e) => setEnterpriseIssuedValueMin(e.target.value)}
+                    placeholder="Min"
+                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={enterpriseIssuedValueMax}
+                    onChange={(e) => setEnterpriseIssuedValueMax(e.target.value)}
+                    placeholder="Max"
+                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
               </div>
-            </div>
 
               <div className="space-y-2">
                 <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
                   <Wallet className="h-4 w-4 text-blue-600" />
                   <span>{t('remainingDebtTitle')} ({t('unitBillionVND')})</span>
                 </span>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={enterpriseRemainingDebtMin}
-                  onChange={(e) => setEnterpriseRemainingDebtMin(e.target.value)}
-                  placeholder="Min"
-                  className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                />
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={enterpriseRemainingDebtMax}
-                  onChange={(e) => setEnterpriseRemainingDebtMax(e.target.value)}
-                  placeholder="Max"
-                  className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={enterpriseRemainingDebtMin}
+                    onChange={(e) => setEnterpriseRemainingDebtMin(e.target.value)}
+                    placeholder="Min"
+                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={enterpriseRemainingDebtMax}
+                    onChange={(e) => setEnterpriseRemainingDebtMax(e.target.value)}
+                    placeholder="Max"
+                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
               </div>
-            </div>
 
             <div className={`relative ${issuerFilterWidthClass}`}>
               <span className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
@@ -2402,7 +2539,7 @@ export default function EnterpriseView({
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-bg-base p-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('bondCodeCount')}</p>
+                    <p className="text-xs font-semibold text-text-muted/80">Số mã trái phiếu</p>
                     <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.bondCount, 0)}</p>
                   </div>
                   <div>
@@ -2428,9 +2565,9 @@ export default function EnterpriseView({
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {renderEnterpriseSortHeader('ticker', t('ticker'))}
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName')}</th>
+                <th className="px-6 py-4 text-xs font-bold tracking-wider text-center whitespace-nowrap normal-case">Doanh nghiệp niêm yết</th>
                 <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  {renderEnterpriseSortHeader('bondCount', t('bondCodeCount'))}
+                  {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
                 </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}

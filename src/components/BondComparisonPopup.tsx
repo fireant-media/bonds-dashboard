@@ -189,6 +189,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 listedValue: b.currentListedValue || b.currentListedVolume || 0,
                 issueDate: b.issueDate?.split('T')[0] || '',
                 maturityDate: b.maturityDate?.split('T')[0] || '',
+                bondType: b.bondType || b.BondType || '',
                 interestType: normalizeInterestType(
                   b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
                   b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
@@ -255,6 +256,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                 listedValue: b.currentListedValue || b.currentListedVolume || 0,
                 issueDate: b.issueDate?.split('T')[0] || '',
                 maturityDate: b.maturityDate?.split('T')[0] || '',
+                bondType: b.bondType || b.BondType || '',
                 interestType: normalizeInterestType(
                   b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
                   b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
@@ -301,6 +303,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               listedValue: 0,
               issueDate: '',
               maturityDate: new Date().toISOString().split('T')[0],
+              bondType: s.bondType || s.bondName || '',
               interestType: '',
               status: t('active')
             }));
@@ -432,6 +435,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           listedValue: Number(listedValue) || 0,
           issueDate: b.issueDate?.split('T')[0] || '',
           maturityDate,
+          bondType: b.bondType || b.BondType || (bond as Bond & { bondType?: string }).bondType || '',
           interestType,
           status: b.status || t('active'),
           issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseId || ''),
@@ -487,6 +491,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       ...bond,
       issuerName: bond.enterpriseId || bond.code,
       ticker: bond.enterpriseId || '',
+      bondType: (bond as Bond & { bondType?: string }).bondType || '',
     }));
 
     const hasHardFailure = results.some((result) => !result.persistedToLocalStorage && !result.usedFallback);

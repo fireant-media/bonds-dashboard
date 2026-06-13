@@ -5,6 +5,7 @@ export interface WatchlistItem extends Bond {
   issuerName: string;
   ticker?: string;
   addedAt: number;
+  bondType?: string;
 }
 
 const STORAGE_KEY = 'sentinel_watchlist_bonds';
@@ -15,6 +16,10 @@ export interface WatchlistSaveResult {
   persistedToLocalStorage: boolean;
   usedFallback: boolean;
   error?: string;
+}
+
+export interface WatchlistUpsertOptions {
+  preserveAddedAt?: boolean;
 }
 
 function buildWatchlistItem(item: Omit<WatchlistItem, 'addedAt'>, addedAt: number): WatchlistItem {
@@ -30,6 +35,7 @@ function buildWatchlistItem(item: Omit<WatchlistItem, 'addedAt'>, addedAt: numbe
     issueDate: String(item.issueDate || ''),
     maturityDate: String(item.maturityDate || ''),
     interestType: String(item.interestType || ''),
+    bondType: String(item.bondType || ''),
     status: String(item.status || ''),
     issuerName: String(item.issuerName || item.enterpriseId || item.code || ''),
     ticker: String(item.ticker || item.enterpriseId || ''),
@@ -107,13 +113,14 @@ export function isBondTracked(code: string): boolean {
   return readStoredWatchlist().some((item) => item.code === code);
 }
 
-export function upsertWatchlistItem(item: Omit<WatchlistItem, 'addedAt'>): WatchlistItem[] {
-  return upsertWatchlistItemWithStatus(item).items;
+export function upsertWatchlistItem(item: Omit<WatchlistItem, 'addedAt'>, options: WatchlistUpsertOptions = {}): WatchlistItem[] {
+  return upsertWatchlistItemWithStatus(item, options).items;
 }
 
-export function upsertWatchlistItemWithStatus(item: Omit<WatchlistItem, 'addedAt'>): WatchlistSaveResult {
+export function upsertWatchlistItemWithStatus(item: Omit<WatchlistItem, 'addedAt'>, options: WatchlistUpsertOptions = {}): WatchlistSaveResult {
   const items = readStoredWatchlist();
-  const nextItem = buildWatchlistItem(item, Date.now());
+  const existing = items.find((entry) => entry.code === item.code);
+  const nextItem = buildWatchlistItem(item, options.preserveAddedAt && existing ? existing.addedAt : Date.now());
 
   const index = items.findIndex((entry) => entry.code === item.code);
   const next = index >= 0

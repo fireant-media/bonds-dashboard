@@ -217,8 +217,8 @@ export const prefetchDashboardRouteData = async (
     }
     case 'maturity-list':
       tasks.push(queryClient.prefetchQuery({
-        queryKey: dashboardQueryKeys.maturingBonds(30),
-        queryFn: () => loadMaturingBonds(30),
+        queryKey: dashboardQueryKeys.maturingBonds(365),
+        queryFn: () => loadMaturingBonds(365),
       }));
       break;
     case 'news-list':
@@ -271,8 +271,8 @@ export const prefetchDashboardCoreData = async (queryClient: QueryClient) => {
       queryFn: () => loadMarketOverviewIndustryData(),
     }),
     queryClient.prefetchQuery({
-      queryKey: dashboardQueryKeys.maturingBonds(30),
-      queryFn: () => loadMaturingBonds(30),
+      queryKey: dashboardQueryKeys.maturingBonds(365),
+      queryFn: () => loadMaturingBonds(365),
     }),
     queryClient.prefetchQuery({
       queryKey: dashboardQueryKeys.maturingBonds(90),

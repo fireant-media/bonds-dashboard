@@ -1,37 +1,41 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ArrowLeftRight, Activity, Bookmark, BookmarkCheck, Briefcase, Calendar, Info, Landmark, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
 import ChartWithToolbar from './ChartWithToolbar';
-import {
-  X,
-  Info,
-  Calendar,
-  TrendingUp,
-  Activity,
-  Briefcase,
-  AlertTriangle,
-  ArrowLeftRight,
-  Gauge,
-  Landmark,
-  ShieldCheck,
-} from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
-import BondComparisonPopup from './BondComparisonPopup';
+import { sendChat } from '../api/ai';
+import { getFireantToken, cleanTokenString } from '../utils/token';
+import { buildFireantUrl } from '../api/fireant';
+import { readJsonResponse } from '../utils/http';
 import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
 import { loadBondIndustryByFilter, loadIndustryBaseBondGroupData, type IndustryBondGroupData } from '../services/industryBondData';
 import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
+import { useAIStore } from '../store/aiStore';
+import { setCache, getCache } from '../utils/cache';
 
 interface BondDetailPopupProps {
   bond: Bond;
   enterpriseName: string;
   onClose: () => void;
+  onCompare?: () => void;
 }
+
+type BondCashFlow = {
+  paymentDate: string;
+  interestAmount: number;
+  principalAmount: number;
+  totalCashflow: number;
+  bondRate: number;
+};
 
 type BondDetailView = Bond & {
   bondRateType?: string;
+  bondType?: string;
   industryId?: string;
   industryName?: string;
   industryCode?: string;
@@ -39,19 +43,110 @@ type BondDetailView = Bond & {
   icbCodeLv2?: string;
   icbNameLv1?: string;
   icbNameLv2?: string;
+  interestPaymentMethod?: string;
+  paymentMethod?: string;
+  totalIssuedVolume?: number;
+  parValue?: number;
+  faceValue?: number;
+  cashFlows?: BondCashFlow[];
 };
 
-export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondDetailPopupProps) {
+const AI_INSIGHT_CACHE_KEY = 'bond_detail_remarks';
+
+const normalizeText = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+
+const normalizeAscii = (value: unknown) =>
+  normalizeText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+const containsVietnameseLetters = (value: unknown) =>
+  /[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụýỳỷỹỵ]/i.test(normalizeText(value));
+
+const stripEnglishSuffixFromName = (value: unknown) => {
+  const text = normalizeText(value);
+  if (!text) return '';
+
+  const parenthesisMatch = text.match(/^(.+?)\s*\(([^)]*)\)\s*$/);
+  if (parenthesisMatch) {
+    const head = normalizeText(parenthesisMatch[1]);
+    const tail = normalizeText(parenthesisMatch[2]);
+    if (head && containsVietnameseLetters(head) && !containsVietnameseLetters(tail)) {
+      return head;
+    }
+  }
+
+  const separators = [' / ', ' | ', ' - ', ' – ', ' — '];
+  for (const separator of separators) {
+    if (!text.includes(separator)) continue;
+    const [head, tail] = text.split(separator);
+    if (head && tail && containsVietnameseLetters(head) && !containsVietnameseLetters(tail)) {
+      return normalizeText(head);
+    }
+  }
+
+  return text;
+};
+
+const resolveIssuerDisplayName = (...candidates: unknown[]) => {
+  const normalizedCandidates = candidates
+    .map(stripEnglishSuffixFromName)
+    .filter(Boolean);
+
+  const vietnameseCandidate = normalizedCandidates.find((value) => containsVietnameseLetters(value));
+  if (vietnameseCandidate) return vietnameseCandidate;
+
+  return normalizedCandidates[0] || '-';
+};
+
+const parseTermMonths = (rawTerm: unknown) => {
+  const match = normalizeText(rawTerm).match(/-?\d+(\.\d+)?/);
+  return match ? Number(match[0]) : undefined;
+};
+
+const getRemainingTermMonths = (maturityDate?: string) => {
+  if (!maturityDate) return null;
+  const maturity = new Date(maturityDate);
+  if (Number.isNaN(maturity.getTime())) return null;
+
+  const today = new Date();
+  const months = (maturity.getFullYear() - today.getFullYear()) * 12 + (maturity.getMonth() - today.getMonth());
+  return maturity.getDate() < today.getDate() ? months - 1 : months;
+};
+
+const getRateTypeKey = (value: unknown) => {
+  const text = normalizeAscii(value);
+  if (!text) return '';
+  if (text.includes('floating') || text.includes('tha noi')) return 'floating';
+  if (text.includes('fixed') || text.includes('co dinh')) return 'fixed';
+  return '';
+};
+
+const percentile = (values: number[], p: number) => {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  if (lower === upper) return sorted[lower];
+  const weight = rank - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+};
+
+const median = (values: number[]) => percentile(values, 50);
+
+export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompare }: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const { configured, baseUrl, defaultModel, defaultSystemPrompt, selectedModel, systemPrompt, isLoadingStatus, statusError, refreshStatus } = useAIStore();
   const isDark = effectiveTheme === 'dark';
   const chartPalette = CHART_PALETTE;
-  const chartTooltip = getChartTooltip(isDark);
+  const aiRequestIdRef = useRef(0);
 
   const [bondDetails, setBondDetails] = useState<BondDetailView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showComparison, setShowComparison] = useState(false);
   const [isTracked, setIsTracked] = useState(false);
   const [watchlistNotice, setWatchlistNotice] = useState<{
     tone: 'success' | 'warning' | 'error';
@@ -59,71 +154,92 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   } | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('month');
   const [issuerProfile, setIssuerProfile] = useState<any>(null);
+  const [issuerFinancial, setIssuerFinancial] = useState<any>(null);
   const [bondIndustryId, setBondIndustryId] = useState<string | null>(null);
   const [industryBondGroup, setIndustryBondGroup] = useState<IndustryBondGroupData | null>(null);
+  const [aiRemark, setAiRemark] = useState<string>('');
+  const [aiRemarkLoading, setAiRemarkLoading] = useState(false);
+  const [aiRemarkError, setAiRemarkError] = useState<string | null>(null);
 
-  const formatTerm = (rawTerm: any) => {
-    if (!rawTerm || rawTerm === 'N/A') return 'N/A';
-    const clean = String(rawTerm)
-      .replace(/(tháng|thang|months?)/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return `${clean} ${t('monthUnit')}`;
+  const formatTerm = (rawTerm: unknown) => {
+    const months = parseTermMonths(rawTerm);
+    if (months === undefined) return normalizeText(rawTerm) || '-';
+    return `${formatNumber(months, 0)} ${t('monthUnit')}`;
   };
 
   useEffect(() => {
-    document.body.style.overflow = 'hidden';
-
     const fetchDetails = async () => {
       try {
-        const data = await loadBondDetail(bond.code);
-        const detail = data.detail || {};
-        const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
-        const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+        const [defaultData, betaData] = await Promise.all([
+          loadBondDetail(bond.code),
+          loadBondDetail(bond.code, false, 'beta').catch(() => null),
+        ]);
+
+        const sourceData = defaultData || betaData;
+        const detail = sourceData?.detail || {};
+        const betaDetail = betaData?.detail || {};
+        const mergedDetail = {
+          ...detail,
+          interestPaymentMethod: betaDetail?.interestPaymentMethod || detail?.interestPaymentMethod,
+          paymentMethod: betaDetail?.paymentMethod || detail?.paymentMethod,
+          totalIssuedVolume: betaDetail?.totalIssuedVolume || detail?.totalIssuedVolume || detail?.TotalIssuedVolume,
+          parValue: betaDetail?.parValue || detail?.parValue || detail?.ParValue,
+          faceValue: betaDetail?.faceValue || detail?.faceValue || detail?.FaceValue,
+        };
+        const historyItem = Array.isArray(sourceData?.history) ? sourceData.history[0] : undefined;
+        const rawCashFlows = Array.isArray(sourceData?.cashFlows) ? sourceData.cashFlows : [];
+        const cashFlowRate = rawCashFlows[0]?.bondRate;
 
         const interestRate =
-          detail.bondRate || detail.interestRate || detail.couponRate || cashFlowRate || bond.interestRate;
+          mergedDetail.bondRate || mergedDetail.interestRate || mergedDetail.couponRate || cashFlowRate || bond.interestRate;
         const rawInterestType =
-          detail.bondRateType ||
-          detail.interestRateType ||
-          detail.couponRateType ||
-          detail.interestType ||
+          mergedDetail.bondRateType ||
+          mergedDetail.interestRateType ||
+          mergedDetail.couponRateType ||
+          mergedDetail.interestType ||
           bond.interestType ||
           '';
-        const paymentMethod = detail.interestPaymentMethod || detail.paymentMethod || detail.bondType || detail.bondName || '';
-        const interestType = normalizeInterestType(rawInterestType, paymentMethod, Array.isArray(data.cashFlows) ? data.cashFlows : []);
-        const listedVolume = detail.currentListedVolume || historyItem?.volume || bond.listedVolume;
-        const issueValue = detail.totalIssuedValue
-          ? detail.totalIssuedValue / 1000000000
+        const paymentMethod = mergedDetail.interestPaymentMethod || mergedDetail.paymentMethod || mergedDetail.bondType || mergedDetail.bondName || '';
+        const interestType = normalizeInterestType(rawInterestType, paymentMethod, rawCashFlows);
+        const listedVolume = mergedDetail.currentListedVolume || historyItem?.volume || bond.listedVolume;
+        const issuedValue = mergedDetail.totalIssuedValue
+          ? mergedDetail.totalIssuedValue / 1000000000
           : historyItem?.value
             ? historyItem.value / 1000000000
             : bond.issuedValue;
-        const listedValue = detail.currentListedValue
-          ? detail.currentListedValue / 1000000000
+        const listedValue = mergedDetail.currentListedValue
+          ? mergedDetail.currentListedValue / 1000000000
           : historyItem?.value
             ? historyItem.value / 1000000000
             : bond.listedValue;
 
         setBondDetails({
           ...bond,
-          term: detail.tenorPeriod ? formatTerm(detail.tenorPeriod) : formatTerm(bond.term),
-          issueDate: detail.issueDate ? detail.issueDate.split('T')[0] : bond.issueDate,
-          maturityDate: detail.maturityDate ? detail.maturityDate.split('T')[0] : bond.maturityDate,
-          industryId: detail.industryId || detail.icbNameLv2 || detail.industryName,
-          industryName: detail.industryName || detail.icbNameLv2,
-          industryCode: detail.industryCode || detail.icbCodeLv2,
-          icbCodeLv1: detail.icbCodeLv1 || detail.ICBCodeLv1,
-          icbCodeLv2: detail.icbCodeLv2 || detail.ICBCodeLv2,
-          icbNameLv1: detail.icbNameLv1 || detail.ICBNameLv1,
-          icbNameLv2: detail.icbNameLv2 || detail.ICBNameLv2,
+          enterpriseId: mergedDetail.issuerSymbol || mergedDetail.issuer || mergedDetail.symbol || bond.enterpriseId,
+          term: mergedDetail.tenorPeriod ? formatTerm(mergedDetail.tenorPeriod) : formatTerm(bond.term),
+          issueDate: mergedDetail.issueDate ? String(mergedDetail.issueDate).split('T')[0] : bond.issueDate,
+          maturityDate: mergedDetail.maturityDate ? String(mergedDetail.maturityDate).split('T')[0] : bond.maturityDate,
+          industryId: mergedDetail.industryId || mergedDetail.icbNameLv2 || mergedDetail.industryName,
+          industryName: mergedDetail.industryName || mergedDetail.icbNameLv2,
+          industryCode: mergedDetail.industryCode || mergedDetail.icbCodeLv2,
+          icbCodeLv1: mergedDetail.icbCodeLv1 || mergedDetail.ICBCodeLv1,
+          icbCodeLv2: mergedDetail.icbCodeLv2 || mergedDetail.ICBCodeLv2,
+          icbNameLv1: mergedDetail.icbNameLv1 || mergedDetail.ICBNameLv1,
+          icbNameLv2: mergedDetail.icbNameLv2 || mergedDetail.ICBNameLv2,
           interestType,
-          bondRateType: detail.bondRateType || detail.interestRateType || detail.couponRateType,
+          bondType: mergedDetail.bondType || mergedDetail.BondType || bond.bondType,
+          bondRateType: mergedDetail.bondRateType || mergedDetail.interestRateType || mergedDetail.couponRateType,
+          interestPaymentMethod: mergedDetail.interestPaymentMethod,
+          paymentMethod: mergedDetail.paymentMethod,
+          totalIssuedVolume: Number(mergedDetail.totalIssuedVolume || historyItem?.volume || 0),
+          parValue: Number(mergedDetail.parValue || 0),
+          faceValue: Number(mergedDetail.faceValue || 0),
           interestRate,
           listedVolume,
-          issuedValue: issueValue,
+          issuedValue,
           listedValue,
-          status: detail.status || bond.status,
-          cashFlows: (data.cashFlows || []).map((cf: any) => ({
+          status: mergedDetail.status || bond.status,
+          cashFlows: rawCashFlows.map((cf: any) => ({
             paymentDate: cf.paymentDate,
             interestAmount: (cf.interestAmount || 0) / 1000000000,
             principalAmount: (cf.principalAmount || 0) / 1000000000,
@@ -131,9 +247,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
             bondRate: cf.bondRate || 0,
           })),
         });
-      } catch (err) {
-        console.error('Error fetching bond details:', err);
-        setError(err instanceof Error ? err.message : t('bondDetailError'));
+      } catch (fetchError) {
+        console.error('Error fetching bond details:', fetchError);
+        setError(fetchError instanceof Error ? fetchError.message : t('bondDetailError'));
       } finally {
         setLoading(false);
       }
@@ -148,7 +264,6 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const unsubscribe = onWatchlistUpdated(refreshTrackedState);
 
     return () => {
-      document.body.style.overflow = 'unset';
       unsubscribe();
     };
   }, [bond, t]);
@@ -170,8 +285,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         if (isActive) {
           setIssuerProfile(profile);
         }
-      } catch (error) {
-        console.error('Error fetching issuer profile for bond assessment:', error);
+      } catch (profileError) {
+        console.error('Error fetching issuer profile for bond detail:', profileError);
         if (isActive) {
           setIssuerProfile(null);
         }
@@ -187,6 +302,100 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
   useEffect(() => {
     let isActive = true;
+    const symbol = String(bondDetails?.enterpriseId || bond.enterpriseId || '').trim();
+
+    if (!symbol) {
+      setIssuerFinancial(null);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const cacheKey = `enterprise_financial_${symbol}`;
+    const cached = getCache(cacheKey);
+    if (cached) {
+      setIssuerFinancial(cached);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const fetchFinancial = async () => {
+      try {
+        const token = getFireantToken();
+        const cleanToken = token ? cleanTokenString(token) : '';
+        if (!cleanToken) {
+          setIssuerFinancial(null);
+          return;
+        }
+
+        const response = await fetch(
+          buildFireantUrl(`symbols/${encodeURIComponent(symbol)}/financial-data`, { type: 'Q', count: 4 }),
+          {
+            cache: 'no-store',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${cleanToken}`,
+            },
+          },
+        );
+
+        if (!response.ok) {
+          setIssuerFinancial(null);
+          return;
+        }
+
+        const quarters = await readJsonResponse<any[]>(response, `Financial data ${symbol}`);
+        if (!Array.isArray(quarters) || quarters.length === 0) {
+          setIssuerFinancial(null);
+          return;
+        }
+
+        const findLatestValue = (field: string) => {
+          for (const q of quarters) {
+            const val = q.financialValues?.[field];
+            if (val !== null && val !== undefined) return val;
+          }
+          return null;
+        };
+
+        const latestQ = quarters[0];
+        const indicators = [
+          'TotalAsset', 'TotalAssets', 'Assets',
+          'TotalStockHolderEquity', 'StockHolderEquity', 'OwnerEquity', 'Equity',
+        ];
+
+        const consolidatedData: any = {
+          __symbol: symbol,
+          __period: `${latestQ.quarter}/${latestQ.year}`,
+          __companyType: latestQ.companyType,
+        };
+
+        indicators.forEach((ind) => {
+          consolidatedData[ind] = findLatestValue(ind);
+        });
+
+        if (isActive) {
+          setIssuerFinancial(consolidatedData);
+          setCache(cacheKey, consolidatedData);
+        }
+      } catch (financialError) {
+        console.error('Error fetching issuer financial data for bond detail:', financialError);
+        if (isActive) {
+          setIssuerFinancial(null);
+        }
+      }
+    };
+
+    void fetchFinancial();
+
+    return () => {
+      isActive = false;
+    };
+  }, [bond.enterpriseId, bondDetails?.enterpriseId]);
+
+  useEffect(() => {
+    let isActive = true;
 
     const fetchBondIndustry = async () => {
       try {
@@ -194,8 +403,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         if (isActive) {
           setBondIndustryId(resolved);
         }
-      } catch (error) {
-        console.error('Error resolving bond industry from filter flow:', error);
+      } catch (industryError) {
+        console.error('Error resolving bond industry from filter flow:', industryError);
         if (isActive) {
           setBondIndustryId(null);
         }
@@ -211,21 +420,34 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
 
   const currentBond = bondDetails || bond;
 
-  const resolvedIndustryId = useMemo(() => resolveIndustryKeyFromCandidates(
-    bondIndustryId,
-    bondDetails?.industryId,
-    bondDetails?.industryName,
-    bondDetails?.industryCode,
-    issuerProfile?.industryId,
-    issuerProfile?.industry,
-    issuerProfile?.industryName,
-    issuerProfile?.icbCodeLv2,
-    issuerProfile?.icbNameLv2,
-    issuerProfile?.icbCodeLv1,
-    issuerProfile?.icbNameLv1,
-    currentBond.enterpriseId,
-    enterpriseName,
-  ), [bondIndustryId, bondDetails, issuerProfile, currentBond.enterpriseId, enterpriseName]);
+  const maturityInfo = useMemo(() => {
+    if (!currentBond.maturityDate) return null;
+    const maturity = new Date(currentBond.maturityDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((maturity.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return { days: Math.max(diffDays, 0), isNear: diffDays >= 0 && diffDays <= 90 };
+  }, [currentBond.maturityDate]);
+
+  const resolvedIndustryId = useMemo(
+    () =>
+      resolveIndustryKeyFromCandidates(
+        bondIndustryId,
+        bondDetails?.industryId,
+        bondDetails?.industryName,
+        bondDetails?.industryCode,
+        issuerProfile?.industryId,
+        issuerProfile?.industry,
+        issuerProfile?.industryName,
+        issuerProfile?.icbCodeLv2,
+        issuerProfile?.icbNameLv2,
+        issuerProfile?.icbCodeLv1,
+        issuerProfile?.icbNameLv1,
+        currentBond.enterpriseId,
+        enterpriseName,
+      ),
+    [bondIndustryId, bondDetails, currentBond.enterpriseId, enterpriseName, issuerProfile],
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -243,8 +465,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         if (isActive) {
           setIndustryBondGroup(data);
         }
-      } catch (error) {
-        console.error('Error fetching industry peer bonds for assessment:', error);
+      } catch (industryPeersError) {
+        console.error('Error fetching industry peer bonds for assessment:', industryPeersError);
         if (isActive) {
           setIndustryBondGroup(null);
         }
@@ -258,63 +480,9 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     };
   }, [resolvedIndustryId]);
 
-  const parseTermMonths = (rawTerm: any) => {
-    if (rawTerm === undefined || rawTerm === null) return undefined;
-    const value = String(rawTerm)
-      .replace(/(tháng|thang|months?)/gi, '')
-      .trim();
-    const match = value.match(/-?\d+(\.\d+)?/);
-    return match ? Number(match[0]) : undefined;
-  };
-
-  const getRemainingTermMonths = (maturityDate?: string) => {
-    if (!maturityDate) return null;
-
-    const maturity = new Date(maturityDate);
-    if (Number.isNaN(maturity.getTime())) return null;
-
-    const today = new Date();
-    const months = (maturity.getFullYear() - today.getFullYear()) * 12 + (maturity.getMonth() - today.getMonth());
-    return maturity.getDate() < today.getDate() ? months - 1 : months;
-  };
-
-  const getRateTypeKey = (value: unknown) => {
-    const text = String(value || '').toLowerCase();
-    if (!text) return '';
-    if (text.includes('float') || text.includes('thả nổi') || text.includes('tha noi')) return 'floating';
-    if (text.includes('fixed') || text.includes('cố định') || text.includes('co dinh')) return 'fixed';
-    return '';
-  };
-
-  const percentile = (values: number[], p: number) => {
-    if (!values.length) return 0;
-    const sorted = [...values].sort((a, b) => a - b);
-    const rank = (p / 100) * (sorted.length - 1);
-    const lower = Math.floor(rank);
-    const upper = Math.ceil(rank);
-    if (lower === upper) return sorted[lower];
-    const weight = rank - lower;
-    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
-  };
-
-  const median = (values: number[]) => percentile(values, 50);
-
-  const maturityInfo = useMemo(() => {
-    if (!currentBond.maturityDate) return null;
-    const maturity = new Date(currentBond.maturityDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((maturity.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return { days: Math.max(diffDays, 0), isNear: diffDays >= 0 && diffDays <= 90 };
-  }, [currentBond.maturityDate]);
-
   const industryInterestRateAssessment = useMemo(() => {
     const rate = Number(currentBond.interestRate || 0);
-    const rateTypeKey = getRateTypeKey(
-      (bondDetails as BondDetailView | null)?.bondRateType ||
-      currentBond.interestType ||
-      '',
-    );
+    const rateTypeKey = getRateTypeKey(bondDetails?.bondRateType || currentBond.interestType || '');
     const remainingTermMonths = getRemainingTermMonths(currentBond.maturityDate) ?? parseTermMonths(currentBond.term) ?? null;
     const industryBonds = Array.isArray(industryBondGroup?.bonds) ? industryBondGroup.bonds : [];
 
@@ -322,13 +490,12 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
       return {
         level: 'unknown' as const,
         confidence: null as 'low' | null,
-        peerCount: 0,
       };
     }
 
     const sameRateTypePeers = industryBonds.filter((bondRow: any) => {
-      const code = String(bondRow?.bondCode || bondRow?.code || '').trim().toUpperCase();
-      if (code && code === String(currentBond.code || '').trim().toUpperCase()) return false;
+      const code = normalizeText(bondRow?.bondCode || bondRow?.code).toUpperCase();
+      if (code && code === normalizeText(currentBond.code).toUpperCase()) return false;
       return getRateTypeKey(bondRow?.bondRateType || bondRow?.interestRateType || bondRow?.couponRateType || bondRow?.interestType) === rateTypeKey;
     });
 
@@ -336,8 +503,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     const withTermGroup = sameRateTypePeers.filter((bondRow: any) => {
       const peerTermMonths = getRemainingTermMonths(bondRow?.maturityDate);
       if (peerTermMonths === null) return false;
-      const peerTermGroup = peerTermMonths < 36 ? 'short_term' : 'long_term';
-      return peerTermGroup === currentTermGroup;
+      return (peerTermMonths < 36 ? 'short_term' : 'long_term') === currentTermGroup;
     });
 
     const termGroupValues = withTermGroup
@@ -351,114 +517,48 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     if (termGroupValues.length >= 5) {
       const p25 = percentile(termGroupValues, 25);
       const p75 = percentile(termGroupValues, 75);
-      const level = rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium';
       return {
-        level,
+        level: rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium',
         confidence: null,
-        peerCount: termGroupValues.length,
       };
     }
 
     if (sameRateValues.length >= 5) {
       const p25 = percentile(sameRateValues, 25);
       const p75 = percentile(sameRateValues, 75);
-      const level = rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium';
       return {
-        level,
+        level: rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium',
         confidence: null,
-        peerCount: sameRateValues.length,
       };
     }
 
-    if (sameRateValues.length >= 2 && sameRateValues.length <= 4) {
+    if (sameRateValues.length >= 2) {
       const medianValue = median(sameRateValues);
       const epsilon = 0.0001;
-      const level = rate < medianValue - epsilon ? 'low' : rate > medianValue + epsilon ? 'high' : 'medium';
       return {
-        level,
+        level: rate < medianValue - epsilon ? 'low' : rate > medianValue + epsilon ? 'high' : 'medium',
         confidence: 'low' as const,
-        peerCount: sameRateValues.length,
       };
     }
 
     return {
       level: 'unknown' as const,
       confidence: null as 'low' | null,
-      peerCount: sameRateValues.length,
     };
-  }, [bondDetails, currentBond.code, currentBond.interestRate, currentBond.interestType, currentBond.maturityDate, industryBondGroup?.bonds, resolvedIndustryId]);
-
-  const details = useMemo(() => {
-    const rawType = String(currentBond.interestType || '').trim();
-    const normalized = rawType.toLowerCase();
-    const interestTypeValue = (() => {
-      if (!normalized) return '-';
-      if (normalized.includes('cố định') || normalized.includes('fixed')) return t('fixed');
-      if (normalized.includes('thả nổi') || normalized.includes('floating')) return t('floating');
-      return rawType;
-    })();
-
-    return [
-      { label: t('bondCode'), value: currentBond.code, icon: Activity },
-      { label: t('bondIssuer'), value: enterpriseName || currentBond.enterpriseId || '-', icon: Briefcase },
-      { label: t('term'), value: formatTerm(currentBond.term), icon: Calendar },
-      { label: t('issueDate'), value: formatDate(currentBond.issueDate), icon: Calendar },
-      { label: t('maturityDate'), value: formatDate(currentBond.maturityDate), icon: Calendar },
-      { label: t('interestRate'), value: `${formatInterestRate(currentBond.interestRate)}%`, icon: TrendingUp },
-      { label: t('interestType'), value: interestTypeValue, icon: Info },
-      { label: t('listedVolume'), value: formatNumber(currentBond.listedVolume || 0, 0), icon: Activity },
-      { label: t('issuedValue'), value: `${formatNumber(currentBond.issuedValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
-      { label: t('listedValueTitle'), value: `${formatNumber(currentBond.listedValue || 0, 2)} ${t('unitBillionShort')}`, icon: Briefcase },
-    ];
-  }, [currentBond, enterpriseName, t]);
+  }, [bondDetails?.bondRateType, currentBond.code, currentBond.interestRate, currentBond.interestType, currentBond.maturityDate, currentBond.term, industryBondGroup?.bonds, resolvedIndustryId]);
 
   const quickAnalysis = useMemo(() => {
-    const getLevelMeta = (
-      level: 'high' | 'medium' | 'low' | 'large' | 'small' | 'unknown',
-      tone: 'dangerHigh' | 'dangerLow' | 'neutral' = 'neutral',
-    ) => {
-      if (level === 'high') {
-        return {
-          label: t('levelHigh'),
-          className: 'text-rose-600 dark:text-rose-400',
-        };
-      }
-      if (level === 'medium') {
-        return {
-          label: t('levelMedium'),
-          className: 'text-amber-600 dark:text-amber-400',
-        };
-      }
-      if (level === 'small') {
-        return {
-          label: t('levelSmall'),
-          className: 'text-orange-400 dark:text-orange-300',
-        };
-      }
-      if (level === 'low') {
-        return {
-          label: t('levelLow'),
-          className: 'text-emerald-600 dark:text-emerald-400',
-        };
-      }
-      if (level === 'large') {
-        return {
-          label: t('levelLarge'),
-          className: 'text-blue-600 dark:text-blue-400',
-        };
-      }
-      return {
-        label: '-',
-        className: 'text-text-muted',
-      };
+    const getLevelMeta = (level: 'high' | 'medium' | 'low' | 'large' | 'small' | 'unknown') => {
+      if (level === 'high') return { label: t('levelHigh'), className: 'text-rose-600 dark:text-rose-400' };
+      if (level === 'medium') return { label: t('levelMedium'), className: 'text-amber-600 dark:text-amber-400' };
+      if (level === 'small') return { label: t('levelSmall'), className: 'text-orange-500 dark:text-orange-300' };
+      if (level === 'low') return { label: t('levelLow'), className: 'text-emerald-600 dark:text-emerald-400' };
+      if (level === 'large') return { label: t('levelLarge'), className: 'text-blue-600 dark:text-blue-400' };
+      return { label: '-', className: 'text-text-muted' };
     };
 
     const daysLeft = maturityInfo?.days;
-    const maturityPressure =
-      daysLeft === undefined ? 'unknown' : daysLeft < 90 ? 'high' : daysLeft <= 180 ? 'medium' : 'low';
-    const interestRate = Number(currentBond.interestRate || 0);
-    const interestRateLevel = industryInterestRateAssessment.level as 'high' | 'medium' | 'low' | 'unknown';
-    const interestRateConfidence = industryInterestRateAssessment.confidence;
+    const maturityPressure = daysLeft === undefined ? 'unknown' : daysLeft < 90 ? 'high' : daysLeft <= 180 ? 'medium' : 'low';
     const issuedValue = Number(currentBond.issuedValue || 0);
     const issueScaleLevel = issuedValue < 300 ? 'small' : issuedValue <= 1000 ? 'medium' : 'large';
 
@@ -467,112 +567,429 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
         label: t('riskLevel'),
         evidence: daysLeft === undefined ? '-' : `${daysLeft} ${t('daysUnit').toLowerCase()}`,
         icon: ShieldCheck,
-        meta: getLevelMeta(maturityPressure, 'dangerHigh'),
+        meta: getLevelMeta(maturityPressure),
+        confidence: null as 'low' | null,
       },
       {
         label: t('interestRateLevel'),
-        evidence: `${formatInterestRate(interestRate)}%`,
+        evidence: `${formatInterestRate(Number(currentBond.interestRate || 0))}%`,
         icon: TrendingUp,
-        meta: getLevelMeta(interestRateLevel),
-        confidence: interestRateConfidence,
+        meta: getLevelMeta(industryInterestRateAssessment.level),
+        confidence: industryInterestRateAssessment.confidence,
       },
       {
         label: t('issueScaleLevel'),
         evidence: `${formatNumber(issuedValue, 2)} ${t('unitBillionShort')}`,
         icon: Landmark,
         meta: getLevelMeta(issueScaleLevel),
+        confidence: null as 'low' | null,
       },
     ];
-  }, [currentBond, industryInterestRateAssessment, maturityInfo?.days, t]);
+  }, [currentBond.interestRate, currentBond.issuedValue, industryInterestRateAssessment.confidence, industryInterestRateAssessment.level, maturityInfo?.days, t]);
+
+  const formatBondValue = (value: unknown) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return '-';
+    const billionValue = Math.abs(numericValue) > 1000000 ? numericValue / 1000000000 : numericValue;
+    return `${formatNumber(billionValue, 2)} ${t('unitBillionVND')}`;
+  };
+
+  const formatFinancialBillionValue = (...values: unknown[]) => {
+    const numericValue = values
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value) && value > 0);
+
+    if (!numericValue) return '-';
+    return `${formatNumber(numericValue / 1_000_000_000, 2)} ${t('unitBillionVND')}`;
+  };
+
+  const parseInterestPaymentDetails = (value: unknown) => {
+    const rawValue = normalizeText(value);
+    if (!rawValue) {
+      return { period: '-', method: '-' };
+    }
+
+    const normalized = normalizeAscii(rawValue);
+    let period = '-';
+
+    const monthMatch = normalized.match(/(\d+)\s*thang/);
+    if (monthMatch) {
+      period = `${monthMatch[1]} ${t('monthUnit')}`;
+    } else if (normalized.includes('hang thang') || normalized.includes('monthly')) {
+      period = `1 ${t('monthUnit')}`;
+    } else if (normalized.includes('hang quy') || normalized.includes('quarterly') || normalized.includes('quy')) {
+      period = `3 ${t('monthUnit')}`;
+    } else if (normalized.includes('semi') || normalized.includes('half-year') || normalized.includes('6 month')) {
+      period = `6 ${t('monthUnit')}`;
+    } else if (normalized.includes('hang nam') || normalized.includes('annually') || normalized.includes('yearly') || normalized.includes('12 month')) {
+      period = `12 ${t('monthUnit')}`;
+    } else if (normalized.includes('dao han') || normalized.includes('maturity') || normalized.includes('cuoi ky')) {
+      period = t('maturityPayment');
+    }
+
+    let method = rawValue;
+    if (normalized.includes('dinh ky') || normalized.includes('periodic')) {
+      method = t('periodicPayment');
+    } else if (normalized.includes('dao han') || normalized.includes('maturity') || normalized.includes('cuoi ky')) {
+      method = t('maturityPayment');
+    } else if (normalized.includes('tra truoc') || normalized.includes('in advance')) {
+      method = t('advancePayment');
+    } else if (normalized.includes('mot lan') || normalized.includes('one-time') || normalized.includes('one time')) {
+      method = t('oneTimePayment');
+    }
+
+    return { period, method };
+  };
+
+  const resolveInterestTypeLabel = (value: unknown) => {
+    const rawValue = normalizeText(value);
+    const normalized = normalizeAscii(rawValue);
+    if (!rawValue) return '-';
+    if (normalized.includes('fixed') || normalized.includes('co dinh')) return t('fixed');
+    if (normalized.includes('floating') || normalized.includes('tha noi')) return t('floating');
+    return rawValue;
+  };
+
+  const issuerDisplayName = useMemo(
+    () =>
+      resolveIssuerDisplayName(
+        issuerProfile?.name,
+        issuerProfile?.companyName,
+        issuerProfile?.shortName,
+        enterpriseName,
+        currentBond.enterpriseId,
+      ),
+    [currentBond.enterpriseId, enterpriseName, issuerProfile],
+  );
+
+  const issuerStockCode = useMemo(
+    () => normalizeText(issuerProfile?.symbol || issuerProfile?.ticker || issuerProfile?.code || currentBond.enterpriseId) || '-',
+    [currentBond.enterpriseId, issuerProfile],
+  );
+
+  const issuerIndustry = useMemo(
+    () =>
+      normalizeText(
+        issuerProfile?.industryName ||
+          issuerProfile?.icbName ||
+          issuerProfile?.icbNameLv2 ||
+          issuerProfile?.icbNameLv1 ||
+          bondDetails?.industryName,
+      ) || '-',
+    [bondDetails?.industryName, issuerProfile],
+  );
+
+  const interestPaymentInfo = useMemo(
+    () => parseInterestPaymentDetails(bondDetails?.interestPaymentMethod || bondDetails?.paymentMethod),
+    [bondDetails?.interestPaymentMethod, bondDetails?.paymentMethod, t],
+  );
+
+  const summaryCards = useMemo(
+    () => [
+      { label: t('interestRate'), value: `${formatInterestRate(Number(currentBond.interestRate || 0))}%`, icon: TrendingUp },
+      { label: t('term'), value: formatTerm(currentBond.term), icon: Calendar },
+      {
+        label: t('maturityDate'),
+        value: formatDate(currentBond.maturityDate),
+        icon: Calendar,
+        accent: maturityInfo?.isNear ? 'text-rose-600 dark:text-rose-400' : 'text-text-base',
+      },
+      { label: t('listedValueTitle'), value: formatBondValue(currentBond.listedValue), icon: Landmark },
+    ],
+    [currentBond.interestRate, currentBond.listedValue, currentBond.maturityDate, currentBond.term, maturityInfo?.isNear, t],
+  );
+
+  const bondInfoRows = useMemo(
+    () => [
+      { label: t('bondCode'), value: currentBond.code || '-' },
+      { label: t('bondTypeLabel'), value: normalizeText(currentBond.bondType) || '-' },
+      { label: t('status'), value: normalizeText(currentBond.status) || '-' },
+      { label: t('issueDate'), value: formatDate(currentBond.issueDate) },
+      { label: t('maturityDate'), value: formatDate(currentBond.maturityDate) },
+    ],
+    [currentBond.bondType, currentBond.code, currentBond.issueDate, currentBond.maturityDate, currentBond.status, t],
+  );
+
+  const issuerInfoRows = useMemo(
+    () => [
+      { label: t('organizationName'), value: issuerDisplayName },
+      { label: t('ticker'), value: issuerStockCode },
+      { label: t('industryLabel'), value: issuerIndustry },
+      { label: t('financialTotalAssets'), value: formatFinancialBillionValue(issuerFinancial?.TotalAsset, issuerFinancial?.TotalAssets, issuerFinancial?.Assets) },
+      { label: t('financialEquity'), value: formatFinancialBillionValue(issuerFinancial?.TotalStockHolderEquity, issuerFinancial?.StockHolderEquity, issuerFinancial?.OwnerEquity, issuerFinancial?.Equity) },
+    ],
+    [issuerDisplayName, issuerFinancial, issuerIndustry, issuerStockCode, t],
+  );
+
+  const bondRateRows = useMemo(
+    () => [
+      { label: t('interestRate'), value: `${formatInterestRate(Number(currentBond.interestRate || 0))}%` },
+      { label: t('interestType'), value: resolveInterestTypeLabel(currentBond.interestType) },
+      { label: t('paymentPeriodLabel'), value: interestPaymentInfo.period },
+      { label: t('paymentMethodLabel'), value: interestPaymentInfo.method },
+    ],
+    [currentBond.interestRate, currentBond.interestType, interestPaymentInfo.method, interestPaymentInfo.period, t],
+  );
+
+  const issueScaleRows = useMemo(
+    () => [
+      {
+        label: t('issuedVolume'),
+        value: formatNumber(Number(bondDetails?.totalIssuedVolume || currentBond.listedVolume || 0), 0),
+      },
+      {
+        label: t('parValueLabel'),
+        value: formatBondValue(bondDetails?.parValue || bondDetails?.faceValue),
+      },
+      { label: t('issuedValue'), value: formatBondValue(currentBond.issuedValue) },
+      { label: t('listedValueTitle'), value: formatBondValue(currentBond.listedValue) },
+    ],
+    [bondDetails?.faceValue, bondDetails?.parValue, bondDetails?.totalIssuedVolume, currentBond.issuedValue, currentBond.listedValue, currentBond.listedVolume, t],
+  );
+
+  const aiRemarkPayload = useMemo(
+    () => ({
+      bondCode: currentBond.code || '-',
+      issuerName: issuerDisplayName,
+      interestRate: formatInterestRate(Number(currentBond.interestRate || 0)),
+      interestType: resolveInterestTypeLabel(currentBond.interestType),
+      term: formatTerm(currentBond.term),
+      maturityDate: formatDate(currentBond.maturityDate),
+      issuedValue: formatBondValue(currentBond.issuedValue),
+      listedValue: formatBondValue(currentBond.listedValue),
+      summarySignals: quickAnalysis.map((item) => ({
+        label: item.label,
+        evidence: item.evidence,
+        assessment: item.meta.label,
+      })),
+    }),
+    [
+      currentBond.code,
+      currentBond.interestRate,
+      currentBond.interestType,
+      currentBond.issuedValue,
+      currentBond.listedValue,
+      currentBond.maturityDate,
+      currentBond.term,
+      issuerDisplayName,
+      quickAnalysis,
+      t,
+    ],
+  );
+
+  const aiRemarkSignature = useMemo(() => JSON.stringify(aiRemarkPayload), [aiRemarkPayload]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!aiRemarkSignature) {
+      setAiRemark('');
+      setAiRemarkError(null);
+      setAiRemarkLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const cachedRemark = readDailyAIInsight(AI_INSIGHT_CACHE_KEY, aiRemarkSignature);
+    if (cachedRemark) {
+      setAiRemark(cachedRemark.text);
+      setAiRemarkError(null);
+      setAiRemarkLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    if (isLoadingStatus) {
+      return () => {
+        isActive = false;
+      };
+    }
+
+    if (!configured && !baseUrl) {
+      setAiRemark('');
+      setAiRemarkError(t('aiNotConfiguredShort'));
+      setAiRemarkLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const generateRemark = async () => {
+      const requestId = aiRequestIdRef.current + 1;
+      aiRequestIdRef.current = requestId;
+      setAiRemarkLoading(true);
+      setAiRemarkError(null);
+
+      try {
+        if (!configured) {
+          if (isActive) {
+            setAiRemark('');
+            setAiRemarkError(t('aiNotConfiguredShort'));
+            setAiRemarkLoading(false);
+          }
+          return;
+        }
+
+        const model = selectedModel || defaultModel;
+        const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
+        const prompt = language === 'en'
+          ? 'You are a professional bond analyst. Use only the provided data. Write 3 to 4 short sentences in a concise, professional tone. Focus on the bond code, interest rate, maturity pressure, issue scale, and the main point to monitor. Do not mention APIs, JSON, code, or internal implementation details.'
+          : 'Ban la chuyen gia phan tich trai phieu. Chi su dung du lieu duoc cung cap. Hay viet 3 den 4 cau ngan, giu giong dieu chuyen nghiep. Tap trung vao ma trai phieu, lai suat, ap luc dao han, quy mo phat hanh va diem can theo doi. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
+
+        const response = await sendChat({
+          model,
+          systemPrompt: `${activeSystemPrompt ? `${activeSystemPrompt}\n\n` : ''}${prompt}`,
+          userMessage: language === 'en'
+            ? `Write a short AI remark for bond "${aiRemarkPayload.bondCode}" using only the provided data.`
+            : `Hay viet nhan xet AI ngan cho trai phieu "${aiRemarkPayload.bondCode}" chi dua tren du lieu duoc cung cap.`,
+          pageContext: JSON.stringify(aiRemarkPayload),
+        });
+
+        if (!isActive || aiRequestIdRef.current !== requestId) return;
+
+        const nextRemark = sanitizeAIInsightText(String(response.text || ''));
+        setAiRemark(nextRemark);
+        setAiRemarkLoading(false);
+        setAiRemarkError(null);
+        writeDailyAIInsight(AI_INSIGHT_CACHE_KEY, {
+          signature: aiRemarkSignature,
+          text: nextRemark,
+          model: response.model || model,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (remarkError) {
+        if (!isActive || aiRequestIdRef.current !== requestId) return;
+        console.error('Error generating bond detail AI remark:', remarkError);
+        setAiRemark('');
+        setAiRemarkLoading(false);
+        setAiRemarkError(t('aiError'));
+      }
+    };
+
+    void generateRemark();
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    aiRemarkPayload,
+    aiRemarkSignature,
+    baseUrl,
+    configured,
+    defaultModel,
+    defaultSystemPrompt,
+    isLoadingStatus,
+    language,
+    selectedModel,
+    systemPrompt,
+    t,
+  ]);
 
   const cashFlowOptions = useMemo(() => {
-    if (!bondDetails?.cashFlows) return null;
+    if (!bondDetails?.cashFlows || bondDetails.cashFlows.length === 0) return null;
 
-    const sortedCashFlows = [...bondDetails.cashFlows].sort(
-      (a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime(),
-    );
+    const groupedCashFlows = new Map<string, { label: string; sortValue: number; principalAmount: number; interestAmount: number }>();
 
-    const groupedCashFlows = new Map<
-      string,
-      {
-        label: string;
-        sortValue: number;
-        principalAmount: number;
-        interestAmount: number;
-      }
-    >();
+    [...bondDetails.cashFlows]
+      .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
+      .forEach((cashFlow) => {
+        const date = new Date(cashFlow.paymentDate);
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const key = cashFlowPeriod === 'month' ? `${year}-${String(month + 1).padStart(2, '0')}` : String(year);
+        const label = cashFlowPeriod === 'month' ? `T${month + 1}/${year}` : String(year);
+        const sortValue = cashFlowPeriod === 'month' ? year * 100 + month : year;
+        const existing = groupedCashFlows.get(key);
 
-    sortedCashFlows.forEach((cf) => {
-      const date = new Date(cf.paymentDate);
-      const year = date.getFullYear();
-      const month = date.getMonth();
-      const key = cashFlowPeriod === 'month' ? `${year}-${String(month + 1).padStart(2, '0')}` : String(year);
-      const label = cashFlowPeriod === 'month' ? `T${month + 1}/${year}` : String(year);
-      const sortValue = cashFlowPeriod === 'month' ? year * 100 + month : year;
-      const existing = groupedCashFlows.get(key);
+        if (existing) {
+          existing.principalAmount += cashFlow.principalAmount || 0;
+          existing.interestAmount += cashFlow.interestAmount || 0;
+          return;
+        }
 
-      if (existing) {
-        existing.principalAmount += cf.principalAmount || 0;
-        existing.interestAmount += cf.interestAmount || 0;
-        return;
-      }
-
-      groupedCashFlows.set(key, {
-        label,
-        sortValue,
-        principalAmount: cf.principalAmount || 0,
-        interestAmount: cf.interestAmount || 0,
+        groupedCashFlows.set(key, {
+          label,
+          sortValue,
+          principalAmount: cashFlow.principalAmount || 0,
+          interestAmount: cashFlow.interestAmount || 0,
+        });
       });
-    });
 
-    const cashFlowData = Array.from(groupedCashFlows.values()).sort((a, b) => a.sortValue - b.sortValue);
-    const dates = cashFlowData.map((cf) => cf.label);
-    const chartTooltip = getChartTooltip(isDark);
-    const baseLineSeries = {
-      type: 'line',
-      stack: 'total',
-      symbol: 'circle',
-      symbolSize: 5,
-      smooth: true,
-      lineStyle: {
-        width: 2,
-      },
-    };
+    const chartData = Array.from(groupedCashFlows.values()).sort((left, right) => left.sortValue - right.sortValue);
+    const tooltip = getChartTooltip(isDark);
+    const useBarDefault = chartData.length === 1;
+    const barWidth = useBarDefault ? '18%' : undefined;
+    const barMaxWidth = useBarDefault ? 24 : undefined;
 
     return {
       color: chartPalette,
       tooltip: {
-        ...chartTooltip,
+        ...tooltip,
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
         formatter: (params: any) => {
-          let res = `${params[0].name}<br/>`;
-          params.forEach((p: any) => {
-            res += `${p.marker} ${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value || 0, 2), ` ${t('unitBillionShort')}`)}<br/>`;
+          let content = `${params[0].name}<br/>`;
+          params.forEach((param: any) => {
+            content += `${param.marker} ${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value || 0, 2), ` ${t('unitBillionShort')}`)}<br/>`;
           });
-          const total = params.reduce((sum: number, p: any) => sum + (p.value || 0), 0);
-          res += `<strong>${t('total')}: ${highlightChartTooltipValue(formatNumber(total || 0, 2), ` ${t('unitBillionShort')}`)}</strong>`;
-          return res;
+          const total = params.reduce((sum: number, param: any) => sum + (param.value || 0), 0);
+          content += `<strong>${t('total')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionShort')}`)}</strong>`;
+          return content;
         },
       },
-      legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 10 } },
+      legend: {
+        bottom: 0,
+        itemWidth: 10,
+        itemHeight: 10,
+        textStyle: { fontSize: 11 },
+      },
       grid: { left: '3%', right: '4%', bottom: '16%', containLabel: true },
-      xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, rotate: 45 } },
+      xAxis: {
+        type: 'category',
+        data: chartData.map((item) => item.label),
+        axisLabel: { fontSize: 11, rotate: 30 },
+      },
       yAxis: {
         name: t('unitBillionVND'),
         type: 'value',
-        axisLabel: { fontSize: 10, formatter: (value: number) => formatNumber(value, 0) },
+        axisLabel: {
+          fontSize: 11,
+          formatter: (value: number) => formatNumber(value, 0),
+        },
       },
       series: [
-        { ...baseLineSeries, name: t('principal'), data: cashFlowData.map((cf) => cf.principalAmount) },
-        { ...baseLineSeries, name: t('interest'), data: cashFlowData.map((cf) => cf.interestAmount) },
+        {
+          type: useBarDefault ? 'bar' : 'line',
+          name: t('principal'),
+          data: chartData.map((item) => item.principalAmount),
+          smooth: !useBarDefault,
+          symbol: useBarDefault ? undefined : 'circle',
+          symbolSize: useBarDefault ? 0 : 6,
+          lineStyle: useBarDefault ? undefined : { width: 2 },
+          barWidth,
+          barMaxWidth,
+          barGap: useBarDefault ? '30%' : undefined,
+        },
+        {
+          type: useBarDefault ? 'bar' : 'line',
+          name: t('interest'),
+          data: chartData.map((item) => item.interestAmount),
+          smooth: !useBarDefault,
+          symbol: useBarDefault ? undefined : 'circle',
+          symbolSize: useBarDefault ? 0 : 6,
+          lineStyle: useBarDefault ? undefined : { width: 2 },
+          barWidth,
+          barMaxWidth,
+          barGap: useBarDefault ? '30%' : undefined,
+        },
       ],
     };
-  }, [bondDetails?.cashFlows, cashFlowPeriod, isDark, t]);
+  }, [bondDetails?.cashFlows, cashFlowPeriod, chartPalette, isDark, t]);
 
   useEffect(() => {
     if (!watchlistNotice) return;
-
     const timeout = window.setTimeout(() => setWatchlistNotice(null), 2500);
     return () => window.clearTimeout(timeout);
   }, [watchlistNotice]);
@@ -580,29 +997,20 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
   const handleTrackBond = () => {
     const result = upsertWatchlistItemWithStatus({
       ...currentBond,
-      issuerName: enterpriseName || currentBond.enterpriseId || currentBond.code,
+      issuerName: issuerDisplayName,
       ticker: currentBond.enterpriseId || '',
+      bondType: currentBond.bondType || '',
     });
 
     if (!result.persistedToLocalStorage && !result.usedFallback) {
-      setWatchlistNotice({
-        tone: 'error',
-        text: t('watchlistSaveFailed'),
-      });
+      setWatchlistNotice({ tone: 'error', text: t('watchlistSaveFailed') });
       return;
     }
 
-    if (!result.persistedToLocalStorage && result.usedFallback) {
-      setWatchlistNotice({
-        tone: 'warning',
-        text: t('watchlistSavedTemporary'),
-      });
-    } else {
-      setWatchlistNotice({
-        tone: 'success',
-        text: t('addToWatchlistSuccess'),
-      });
-    }
+    setWatchlistNotice({
+      tone: !result.persistedToLocalStorage && result.usedFallback ? 'warning' : 'success',
+      text: !result.persistedToLocalStorage && result.usedFallback ? t('watchlistSavedTemporary') : t('addToWatchlistSuccess'),
+    });
 
     setIsTracked(result.items.some((item) => item.code === currentBond.code));
   };
@@ -612,210 +1020,243 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose }: BondD
     setIsTracked(false);
   };
 
+  const handleCompareBond = () => {
+    onCompare?.();
+  };
+
+  const renderInfoRows = (rows: Array<{ label: string; value: string }>) => (
+    <div className="space-y-3">
+      {rows.map((row) => (
+        <div key={row.label} className="grid grid-cols-[minmax(0,11rem)_1fr] gap-3 border-b border-border-base/70 pb-3 last:border-b-0 last:pb-0">
+          <p className="text-sm font-medium text-text-muted">{row.label}</p>
+          <p className="text-sm font-semibold text-text-base">{row.value || '-'}</p>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 backdrop-blur-sm md:p-4 animate-in fade-in duration-300"
+      className="fixed inset-x-0 top-16 bottom-0 z-50 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
       onClick={onClose}
     >
       <div
-        className="relative flex max-h-screen w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-bg-surface shadow-2xl transition-colors animate-in zoom-in-95 duration-300"
-        onClick={(e) => e.stopPropagation()}
+        className="relative flex h-full w-screen flex-col overflow-hidden border-l border-border-base bg-bg-base shadow-2xl animate-in slide-in-from-right duration-300"
+        onClick={(event) => event.stopPropagation()}
       >
-        {watchlistNotice && (
+        {watchlistNotice ? (
           <div
             className={
               watchlistNotice.tone === 'success'
-                ? 'absolute right-6 top-6 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg'
+                ? 'absolute right-6 top-20 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg'
                 : watchlistNotice.tone === 'warning'
-                  ? 'absolute right-6 top-6 z-40 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg'
-                  : 'absolute right-6 top-6 z-40 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-lg'
+                  ? 'absolute right-6 top-20 z-40 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg'
+                  : 'absolute right-6 top-20 z-40 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-lg'
             }
           >
             {watchlistNotice.text}
           </div>
-        )}
-        <div className="flex items-center justify-between gap-3 border-b border-border-base bg-bg-base/50 p-4 transition-colors md:p-6">
-          <div className="flex min-w-0 items-center gap-3 md:gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 md:h-12 md:w-12">
-              <Activity className="h-6 w-6" />
+        ) : null}
+
+        <div className="sticky top-0 z-30 border-b border-border-base bg-bg-surface/95 backdrop-blur">
+          <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-between gap-4 px-4 py-4 md:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>{t('back')}</span>
+              </button>
+              <h1 className="truncate text-lg font-bold text-text-base md:text-xl">
+                {t('bondDetailTitle')}
+                {currentBond.code ? <span className="ml-2 text-text-muted">[{currentBond.code}]</span> : null}
+              </h1>
             </div>
-            <div className="min-w-0">
-              <h3 className="truncate text-base font-bold tracking-tight text-text-base md:text-xl">{t('bondDetailTitle')}</h3>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCompareBond}
+                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+              >
+                <ArrowLeftRight className="h-4 w-4" />
+                <span>{t('compareBond')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={isTracked ? handleUntrackBond : handleTrackBond}
+                className={
+                  isTracked
+                    ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-emerald-600 transition-colors'
+                    : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700'
+                }
+              >
+                {isTracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
+                <span>{isTracked ? t('followed') : t('follow')}</span>
+              </button>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="hidden items-center gap-2 rounded-xl bg-text-highlight/10 px-4 py-2 text-xs font-bold text-text-highlight transition-all hover:bg-text-highlight/20 disabled:cursor-not-allowed disabled:opacity-50 sm:flex"
-              onClick={() => setShowComparison(true)}
-              disabled={loading || !bondDetails}
-            >
-              <ArrowLeftRight className="h-4 w-4" />
-              <span>{t('compareBond')}</span>
-            </button>
-            <button onClick={onClose} className="rounded-full p-2 text-text-muted transition-colors hover:bg-bg-base hover:text-text-base">
-              <X className="h-6 w-6" />
-            </button>
           </div>
         </div>
 
-        {showComparison && (
-          <BondComparisonPopup
-            primaryBond={currentBond}
-            onClose={() => setShowComparison(false)}
-            onBack={() => setShowComparison(false)}
-          />
-        )}
-
-        <div className="grid min-h-0 flex-1 grid-cols-12 overflow-hidden">
-          <div className="col-span-12 border-border-base bg-bg-surface p-4 transition-colors lg:col-span-5 lg:border-r md:p-5">
-            <div className="space-y-4">
-              {details.map((detail) => {
-                const isMaturityNear = detail.label === t('maturityDate') && maturityInfo?.isNear;
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+          <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-6 px-4 py-4 md:px-6 lg:py-6">
+            <section className="grid gap-4 lg:grid-cols-4">
+              {summaryCards.map((item) => {
+                const Icon = item.icon;
                 return (
-                  <div key={detail.label} className="flex items-start gap-3">
-                    <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-bg-base text-text-muted">
-                      <detail.icon className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-text-muted/80">{detail.label}</p>
-                      <div className="mt-1 flex items-center gap-2">
-                        <p className={`text-sm font-bold leading-tight ${isMaturityNear ? 'text-rose-600 dark:text-rose-400' : 'text-text-base'}`}>
-                          {detail.value}
-                        </p>
-                        {isMaturityNear && (
-                          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-100 bg-rose-50 px-2 py-0.5 text-rose-600 dark:border-rose-400/30 dark:bg-rose-900/20 dark:text-rose-400">
-                            <AlertTriangle className="h-3 w-3 shrink-0" />
-                            <span className="text-[10px] font-bold uppercase tracking-tight shrink-0">
-                              {t('statusNear')} ({maturityInfo?.days} {t('daysUnit').toLowerCase()})
-                            </span>
-                          </div>
-                        )}
+                  <div key={item.label} className="flex min-h-28 flex-col gap-4 rounded-2xl border border-border-base bg-bg-surface p-4 text-center shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                        <Icon className="h-5 w-5" />
                       </div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-text-muted/80">{item.label}</p>
                     </div>
+                    <p className={`w-full text-center text-lg font-bold md:text-xl ${item.accent || 'text-text-base'}`}>{item.value}</p>
                   </div>
                 );
               })}
-            </div>
-          </div>
+            </section>
 
-          <div className="col-span-12 flex min-h-0 flex-col bg-bg-base/30 p-4 transition-colors lg:col-span-7 md:p-5">
-            <div className="flex h-80 items-center justify-center transition-colors">
-              {loading ? (
-                <div className="flex flex-col items-center gap-3">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-text-highlight border-t-transparent" />
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-muted">{t('loadingCashFlow')}</p>
+            <section className="grid gap-6 xl:grid-cols-2">
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                    <Info className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-base font-bold text-text-base">{t('bondInfoSection')}</h2>
                 </div>
-              ) : error ? (
-                <div className="flex flex-col items-center gap-3 p-4 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">{error}</p>
-                  {error.includes('401') && (
-                    <p className="text-[10px] font-medium italic text-text-muted">{t('tokenUpdateMessage')}</p>
-                  )}
+                {renderInfoRows(bondInfoRows)}
+              </div>
+
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                    <Briefcase className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-base font-bold text-text-base">{t('issuerInfoSection')}</h2>
                 </div>
-              ) : cashFlowOptions ? (
-                <ChartWithToolbar
-                  option={cashFlowOptions}
-                  style={{ height: '100%', width: '100%' }}
-                  allowMagicType
-                  title={cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
-                  titleAlign="left"
-                  actionsPlacement="inline"
-                  actions={(
-                    <div className="inline-flex shrink-0 rounded-xl border border-border-base bg-bg-surface p-1">
-                      {(['month', 'year'] as const).map((period) => (
-                        <button
-                          key={period}
-                          type="button"
-                          onClick={() => setCashFlowPeriod(period)}
-                          className={
-                            cashFlowPeriod === period
-                              ? 'rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors'
-                              : 'rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-bg-base hover:text-text-base'
-                          }
-                        >
-                          {period === 'month' ? t('month') : t('year')}
-                        </button>
-                      ))}
+                {renderInfoRows(issuerInfoRows)}
+              </div>
+
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-base font-bold text-text-base">{t('bondRateSection')}</h2>
+                </div>
+                {renderInfoRows(bondRateRows)}
+              </div>
+
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                    <Landmark className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-base font-bold text-text-base">{t('issueScaleSection')}</h2>
+                </div>
+                {renderInfoRows(issueScaleRows)}
+              </div>
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-2">
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                {loading ? (
+                  <div className="flex h-96 items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="h-8 w-8 animate-spin rounded-full border-4 border-text-highlight border-t-transparent" />
+                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t('loadingCashFlow')}</p>
                     </div>
-                  )}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm font-medium text-text-muted transition-colors">
-                  {t('noData')}
+                  </div>
+                ) : error ? (
+                  <div className="flex h-96 items-center justify-center p-4 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-red-500">{error}</p>
+                      {error.includes('401') ? (
+                        <p className="text-sm text-text-muted">{t('tokenUpdateMessage')}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : cashFlowOptions ? (
+                  <ChartWithToolbar
+                    option={cashFlowOptions}
+                    style={{ height: '100%', width: '100%' }}
+                    allowMagicType
+                    showToolbar
+                    title={cashFlowPeriod === 'month' ? t('expectedCashFlowByMonth') : t('expectedCashFlowByYear')}
+                    titleIcon={Activity}
+                    actions={
+                      <div className="inline-flex w-fit shrink-0 rounded-xl border border-border-base bg-bg-base p-1">
+                        {(['month', 'year'] as const).map((period) => (
+                          <button
+                            key={period}
+                            type="button"
+                            onClick={() => setCashFlowPeriod(period)}
+                            className={
+                              cashFlowPeriod === period
+                                ? 'rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors'
+                                : 'rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-bg-surface hover:text-text-base'
+                            }
+                          >
+                            {period === 'month' ? t('month') : t('year')}
+                          </button>
+                        ))}
+                      </div>
+                    }
+                    actionsPlacement="below"
+                  />
+                ) : (
+                  <div className="flex h-96 items-center justify-center text-sm font-medium text-text-muted">
+                    {t('noData')}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-base font-bold text-text-base">{t('remarksTitle')}</h2>
                 </div>
-              )}
-            </div>
 
-            <div className="mt-3 rounded-xl border border-border-base/60 bg-bg-surface/80 p-3 transition-colors">
-              <div className="mb-2 flex items-center gap-2">
-                <Activity className="h-3 w-3 text-blue-600" />
-                <p className="text-xs font-semibold uppercase tracking-widest text-text-base">
-                  {t('quickAnalysisTitle')}
-                </p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  {quickAnalysis.map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-border-base bg-bg-base/50 p-4">
+                      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-bg-surface text-blue-600">
+                        <item.icon className="h-4 w-4" />
+                      </div>
+                      <p className="text-sm font-semibold text-text-base">{item.label}</p>
+                      <p className="mt-2 text-sm font-medium text-text-muted">{item.evidence}</p>
+                      <p className={`mt-3 text-sm font-bold ${item.meta.className}`}>{item.meta.label}</p>
+                      {item.confidence ? (
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted/80">{t('confidenceLow')}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 shadow-sm dark:border-blue-900/40 dark:bg-blue-950/20">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-blue-600" />
+                      <p className="text-sm font-bold text-text-base">{t('aiInsightTitle')}</p>
+                    </div>
+                    {aiRemarkLoading ? (
+                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t('aiAnalyzing')}</p>
+                    ) : aiRemarkError ? (
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">{aiRemarkError}</p>
+                    ) : null}
+                  </div>
+
+                  <p className="text-sm leading-6 text-text-base">
+                    {aiRemark || t('insightPlaceholder')}
+                  </p>
+                </div>
               </div>
-
-              <div className="overflow-hidden rounded-lg border border-border-base/60 bg-bg-surface/60">
-                <table className="w-full table-fixed text-left">
-                  <tbody>
-                    {quickAnalysis.map((item) => (
-                      <tr key={item.label} className="border-b border-border-base/60 last:border-b-0">
-                        <td className="w-2/3 px-3 py-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-bg-base/70 text-text-muted">
-                              <item.icon className="h-3 w-3" />
-                            </div>
-                            <span className="truncate text-xs font-semibold text-text-base">
-                              {item.label}
-                            </span>
-                          </div>
-                        </td>
-
-                        <td className={`w-1/3 px-3 py-2 text-center text-xs font-semibold ${item.meta.className}`}>
-                          <span className="block">{item.meta.label}</span>
-                          {item.confidence ? (
-                            <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-widest text-text-muted/80">
-                              {t('confidenceLow')}
-                            </span>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col-reverse gap-3 border-t border-border-base bg-bg-base/40 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={isTracked ? handleUntrackBond : handleTrackBond}
-              className={
-                isTracked
-                  ? 'inline-flex rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold uppercase tracking-widest text-emerald-600 transition-colors'
-                  : 'inline-flex rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-blue-700'
-              }
-            >
-              {isTracked ? t('followed') : t('follow')}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex items-center justify-center rounded-xl border border-border-base bg-bg-surface px-4 py-2 text-xs font-bold uppercase tracking-widest text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
-            >
-              {t('cancel')}
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white shadow-lg shadow-blue-600/20 transition-colors hover:bg-blue-700"
-            >
-              {t('trade')}
-            </button>
+            </section>
           </div>
         </div>
       </div>

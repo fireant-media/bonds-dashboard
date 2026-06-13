@@ -20,6 +20,8 @@ const AI_SECONDARY_SORT_LIMIT = 2;
 export interface BondFilterState {
   searchTerm: string;
   industry: string;
+  remainingDaysMin: string;
+  remainingDaysMax: string;
   tenorMin: string;
   tenorMax: string;
   issueDateFrom: string;
@@ -37,6 +39,8 @@ export interface BondFilterState {
   issuedValueMax: string;
   listedValueMin: string;
   listedValueMax: string;
+  maturityWindowDays: string;
+  maturityStatus: string;
   sortBy?: AIBondSortBy;
   secondarySorts?: AIBondSortBy[];
 }
@@ -44,6 +48,8 @@ export interface BondFilterState {
 export const DEFAULT_BOND_FILTERS: BondFilterState = {
   searchTerm: '',
   industry: '',
+  remainingDaysMin: '',
+  remainingDaysMax: '',
   tenorMin: '',
   tenorMax: '',
   issueDateFrom: '',
@@ -61,6 +67,8 @@ export const DEFAULT_BOND_FILTERS: BondFilterState = {
   issuedValueMax: '',
   listedValueMin: '',
   listedValueMax: '',
+  maturityWindowDays: '365',
+  maturityStatus: '',
   sortBy: undefined,
   secondarySorts: [],
 };
@@ -90,10 +98,15 @@ const matchFilterOption = (value: string | undefined, options: string[]) => {
   }) || value || '';
 };
 
+const getDisplayOptionLabel = (t: (key: any, ticker?: string) => string, value: string) =>
+  t(value as any) || value;
+
 export const toCriteriaFromBondFilterState = (filters: BondFilterState): AIBondFilterCriteria => ({
   industry: filters.industry || undefined,
   issuer: filters.issuer || undefined,
   bondType: filters.bondType || undefined,
+  remainingDaysMin: toOptionalNumber(filters.remainingDaysMin) ?? undefined,
+  remainingDaysMax: toOptionalNumber(filters.remainingDaysMax) ?? undefined,
   minTenorMonths: toOptionalNumber(filters.tenorMin) ?? undefined,
   maxTenorMonths: toOptionalNumber(filters.tenorMax) ?? undefined,
   issueDateFrom: filters.issueDateFrom || undefined,
@@ -116,6 +129,8 @@ export const toCriteriaFromBondFilterState = (filters: BondFilterState): AIBondF
 const toBondFilterStateFromCriteria = (criteria: AIBondFilterCriteria): BondFilterState => ({
   ...DEFAULT_BOND_FILTERS,
   industry: criteria.industry || '',
+  remainingDaysMin: criteria.remainingDaysMin !== undefined ? String(criteria.remainingDaysMin) : '',
+  remainingDaysMax: criteria.remainingDaysMax !== undefined ? String(criteria.remainingDaysMax) : '',
   tenorMin: criteria.minTenorMonths !== undefined ? String(criteria.minTenorMonths) : '',
   tenorMax: criteria.maxTenorMonths !== undefined ? String(criteria.maxTenorMonths) : '',
   issueDateFrom: criteria.issueDateFrom || '',
@@ -359,11 +374,12 @@ interface BondFilterPanelProps {
   onApply: () => void;
   onReset: () => void;
   onApplyAI: () => Promise<void> | void;
-  variant?: 'default' | 'market';
+  variant?: 'default' | 'market' | 'maturity';
   issuerOptions?: string[];
   bondTypeOptions?: string[];
   industryOptions?: string[];
   searchOptions?: string[];
+  marketActionSlot?: ReactNode;
 }
 
 export function BondFilterPanel({
@@ -391,15 +407,17 @@ export function BondFilterPanel({
   bondTypeOptions = [],
   industryOptions = [],
   searchOptions = [],
+  marketActionSlot,
 }: BondFilterPanelProps) {
   const { t } = useLanguage();
   const isMarketVariant = variant === 'market';
+  const isMaturityVariant = variant === 'maturity';
 
   return (
     <section className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          {isMarketVariant ? null : (
+          {isMarketVariant || isMaturityVariant ? null : (
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
                 <ListFilter className="h-4 w-4 text-blue-600" />
@@ -411,7 +429,7 @@ export function BondFilterPanel({
               </p>
             </div>
           )}
-          <div className={`flex flex-col gap-2 sm:flex-row ${isMarketVariant ? 'hidden' : ''}`}>
+          <div className={`flex flex-col gap-2 sm:flex-row ${isMarketVariant || isMaturityVariant ? 'hidden' : ''}`}>
             <button
               type="button"
               onClick={onApply}
@@ -526,6 +544,21 @@ export function BondFilterPanel({
             totalCount={totalCount}
             onApply={onApply}
             onReset={onReset}
+            marketActionSlot={marketActionSlot}
+          />
+        ) : isMaturityVariant ? (
+          <MaturityFilterToolbar
+            draftFilters={draftFilters}
+            setDraftFilters={setDraftFilters}
+            rateTypeOptions={rateTypeOptions}
+            issuerOptions={issuerOptions}
+            bondTypeOptions={bondTypeOptions}
+            industryOptions={industryOptions}
+            resultCount={resultCount}
+            totalCount={totalCount}
+            onApply={onApply}
+            onReset={onReset}
+            marketActionSlot={marketActionSlot}
           />
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -579,6 +612,329 @@ export function BondFilterPanel({
   );
 }
 
+interface MaturityFilterToolbarProps {
+  draftFilters: BondFilterState;
+  setDraftFilters: Dispatch<SetStateAction<BondFilterState>>;
+  rateTypeOptions: string[];
+  issuerOptions: string[];
+  bondTypeOptions: string[];
+  industryOptions: string[];
+  searchOptions: string[];
+  resultCount: number;
+  totalCount: number;
+  onApply: () => void;
+  onReset: () => void;
+  marketActionSlot?: ReactNode;
+}
+
+function MaturityFilterToolbar({
+  draftFilters,
+  setDraftFilters,
+  rateTypeOptions,
+  issuerOptions,
+  bondTypeOptions,
+  industryOptions,
+  searchOptions,
+  resultCount,
+  totalCount,
+  onApply,
+  onReset,
+  marketActionSlot,
+}: MaturityFilterToolbarProps) {
+  const { t } = useLanguage();
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (menuRef.current.contains(event.target as Node)) return;
+      setOpenMenu(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
+
+  return (
+    <div ref={menuRef} className="space-y-3">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-end">
+        <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
+          <SearchFilterField
+            value={draftFilters.searchTerm}
+            onChange={(value) => setDraftFilters((current) => ({ ...current, searchTerm: value }))}
+            suggestions={searchOptions}
+          />
+          <SelectFilterChip
+            icon={ListFilter}
+            label={t('industryLabel')}
+            value={draftFilters.industry}
+            options={industryOptions}
+            open={openMenu === 'industry'}
+            onToggle={() => setOpenMenu((current) => (current === 'industry' ? null : 'industry'))}
+            onChange={(value) => setDraftFilters((current) => ({ ...current, industry: value }))}
+            onClose={() => setOpenMenu(null)}
+            fullWidth
+          />
+          <SelectFilterChip
+            icon={Building2}
+            label={t('issuer')}
+            value={draftFilters.issuer}
+            options={issuerOptions}
+            open={openMenu === 'issuer'}
+            onToggle={() => setOpenMenu((current) => (current === 'issuer' ? null : 'issuer'))}
+            onChange={(value) => setDraftFilters((current) => ({ ...current, issuer: value }))}
+            onClose={() => setOpenMenu(null)}
+            fullWidth
+          />
+          <SelectFilterChip
+            icon={BadgePercent}
+            label={t('interestType')}
+            value={draftFilters.bondRateType}
+            options={rateTypeOptions}
+            open={openMenu === 'bondRateType'}
+            onToggle={() => setOpenMenu((current) => (current === 'bondRateType' ? null : 'bondRateType'))}
+            onChange={(value) => setDraftFilters((current) => ({ ...current, bondRateType: value }))}
+            onClose={() => setOpenMenu(null)}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={BadgePercent}
+            label={t('interestRate')}
+            minValue={draftFilters.bondRateMin}
+            maxValue={draftFilters.bondRateMax}
+            unit={t('unitPercentLabel')}
+            open={openMenu === 'bondRate'}
+            onToggle={() => setOpenMenu((current) => (current === 'bondRate' ? null : 'bondRate'))}
+            onClose={() => setOpenMenu(null)}
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMin: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMax: value }))}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={ListFilter}
+            label={t('term')}
+            minValue={draftFilters.tenorMin}
+            maxValue={draftFilters.tenorMax}
+            unit={t('monthUnit')}
+            open={openMenu === 'tenorPeriod'}
+            onToggle={() => setOpenMenu((current) => (current === 'tenorPeriod' ? null : 'tenorPeriod'))}
+            onClose={() => setOpenMenu(null)}
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, tenorMin: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, tenorMax: value }))}
+            fullWidth
+          />
+        </div>
+
+        <div className="flex w-full justify-end xl:w-36 xl:flex-none">
+          <ActionFilterButton
+            icon={RefreshCcw}
+            label={t('resetFilters')}
+            onClick={onReset}
+            variant="secondary"
+            className="w-36"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-end">
+        <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
+          <RangeFilterChip
+            icon={CalendarRange}
+            label={t('issueDate')}
+            minValue={draftFilters.issueDateFrom}
+            maxValue={draftFilters.issueDateTo}
+            open={openMenu === 'issueDate'}
+            onToggle={() => setOpenMenu((current) => (current === 'issueDate' ? null : 'issueDate'))}
+            onClose={() => setOpenMenu(null)}
+            inputType="date"
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, issueDateFrom: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issueDateTo: value }))}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={CalendarRange}
+            label={t('maturityDate')}
+            minValue={draftFilters.maturityDateFrom}
+            maxValue={draftFilters.maturityDateTo}
+            open={openMenu === 'maturityDate'}
+            onToggle={() => setOpenMenu((current) => (current === 'maturityDate' ? null : 'maturityDate'))}
+            onClose={() => setOpenMenu(null)}
+            inputType="date"
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateFrom: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateTo: value }))}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={CalendarRange}
+            label={t('remainingTermLabel')}
+            minValue={draftFilters.remainingDaysMin}
+            maxValue={draftFilters.remainingDaysMax}
+            unit={t('daysUnit')}
+            open={openMenu === 'remainingDays'}
+            onToggle={() => setOpenMenu((current) => (current === 'remainingDays' ? null : 'remainingDays'))}
+            onClose={() => setOpenMenu(null)}
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, remainingDaysMin: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, remainingDaysMax: value }))}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={CalendarRange}
+            label={t('listedVolume')}
+            minValue={draftFilters.listedVolumeMin}
+            maxValue={draftFilters.listedVolumeMax}
+            open={openMenu === 'listedVolume'}
+            onToggle={() => setOpenMenu((current) => (current === 'listedVolume' ? null : 'listedVolume'))}
+            onClose={() => setOpenMenu(null)}
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, listedVolumeMin: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, listedVolumeMax: value }))}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={Landmark}
+            label={t('issuedValue')}
+            unit={t('unitBillionVND')}
+            minValue={draftFilters.issuedValueMin}
+            maxValue={draftFilters.issuedValueMax}
+            open={openMenu === 'issuedValue'}
+            onToggle={() => setOpenMenu((current) => (current === 'issuedValue' ? null : 'issuedValue'))}
+            onClose={() => setOpenMenu(null)}
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, issuedValueMin: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issuedValueMax: value }))}
+            fullWidth
+          />
+          <RangeFilterChip
+            icon={Landmark}
+            label={t('listedValue')}
+            unit={t('unitBillionVND')}
+            minValue={draftFilters.listedValueMin}
+            maxValue={draftFilters.listedValueMax}
+            open={openMenu === 'listedValue'}
+            onToggle={() => setOpenMenu((current) => (current === 'listedValue' ? null : 'listedValue'))}
+            onClose={() => setOpenMenu(null)}
+            onMinChange={(value) => setDraftFilters((current) => ({ ...current, listedValueMin: value }))}
+            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, listedValueMax: value }))}
+            fullWidth
+          />
+        </div>
+
+        <div className="flex w-full justify-end xl:w-36 xl:flex-none">
+          <ActionFilterButton
+            icon={Search}
+            label={t('applyFilters')}
+            onClick={onApply}
+            variant="primary"
+            className="w-36"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+          {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
+        </div>
+
+        <div className="flex w-full justify-end xl:w-auto">
+          {marketActionSlot}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface OptionFilterChipProps {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  open: boolean;
+  onToggle: () => void;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  fullWidth?: boolean;
+}
+
+function OptionFilterChip({
+  icon,
+  label,
+  value,
+  options,
+  open,
+  onToggle,
+  onChange,
+  onClose,
+  fullWidth = false,
+}: OptionFilterChipProps) {
+  const { t } = useLanguage();
+  const activeOption = options.find((option) => option.value === value);
+
+  return (
+    <FilterPopoverShell
+      open={open}
+      widthClass="w-64"
+      onClose={onClose}
+      button={(
+        <FilterChipButton
+          icon={icon}
+          label={label}
+          active={Boolean(value)}
+          open={open}
+          valueText={activeOption ? `${label}: ${activeOption.label}` : label}
+          onClick={onToggle}
+          fullWidth={fullWidth}
+        />
+      )}
+    >
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => {
+            onChange('');
+            onClose();
+          }}
+          className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors ${
+            !value
+              ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+              : 'text-text-base hover:bg-surface-container-low'
+          }`}
+        >
+          {t('all')}
+        </button>
+        <div className="max-h-64 overflow-y-auto">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                onClose();
+              }}
+              className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors ${
+                value === option.value
+                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+                  : 'text-text-base hover:bg-surface-container-low'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </FilterPopoverShell>
+  );
+}
+
 interface MarketFilterToolbarProps {
   draftFilters: BondFilterState;
   setDraftFilters: Dispatch<SetStateAction<BondFilterState>>;
@@ -591,6 +947,7 @@ interface MarketFilterToolbarProps {
   totalCount: number;
   onApply: () => void;
   onReset: () => void;
+  marketActionSlot?: ReactNode;
 }
 
 function MarketFilterToolbar({
@@ -605,6 +962,7 @@ function MarketFilterToolbar({
   totalCount,
   onApply,
   onReset,
+  marketActionSlot,
 }: MarketFilterToolbarProps) {
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -709,11 +1067,11 @@ function MarketFilterToolbar({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-start">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-end">
         <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
           <RangeFilterChip
             icon={ListFilter}
-            label={t('termMonths')}
+            label={t('term')}
             minValue={draftFilters.tenorMin}
             maxValue={draftFilters.tenorMax}
             unit={t('monthUnit')}
@@ -789,7 +1147,8 @@ function MarketFilterToolbar({
             fullWidth
           />
         </div>
-        <div className="xl:ml-auto xl:flex xl:w-36 xl:flex-none xl:justify-end">
+
+        <div className="flex w-full flex-col gap-2 xl:w-36 xl:flex-none xl:justify-end">
           <ActionFilterButton
             icon={Search}
             label={t('applyFilters')}
@@ -799,8 +1158,14 @@ function MarketFilterToolbar({
         </div>
       </div>
 
-      <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
-        {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+          {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
+        </div>
+
+        <div className="flex w-full justify-end xl:w-36 xl:flex-none">
+          {marketActionSlot}
+        </div>
       </div>
     </div>
   );
@@ -865,17 +1230,19 @@ function ActionFilterButton({
   label,
   onClick,
   variant,
+  className = '',
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
   variant: 'primary' | 'secondary';
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+      className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${className} ${
         variant === 'primary'
           ? 'bg-blue-600 text-white hover:bg-blue-500'
           : 'border border-border-base bg-bg-base text-text-base hover:border-blue-200 hover:text-text-highlight'
@@ -982,7 +1349,7 @@ function SelectFilterChip({ icon, label, value, options, open, onToggle, onChang
           label={label}
           active={active}
           open={open}
-          valueText={active ? `${label}: ${value}` : undefined}
+          valueText={active ? `${label}: ${getDisplayOptionLabel(t, value)}` : undefined}
           onClick={onToggle}
           fullWidth={fullWidth}
         />
@@ -1018,7 +1385,7 @@ function SelectFilterChip({ icon, label, value, options, open, onToggle, onChang
                   : 'text-text-base hover:bg-surface-container-low'
               }`}
             >
-              {option}
+              {getDisplayOptionLabel(t, option)}
             </button>
           ))}
         </div>
@@ -1241,7 +1608,7 @@ function FilterSelect({ icon: Icon, label, value, options, onChange }: FilterSel
         <option value="">{t('all')}</option>
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {getDisplayOptionLabel(t, option)}
           </option>
         ))}
       </select>
