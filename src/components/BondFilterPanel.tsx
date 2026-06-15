@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { BadgePercent, Building2, CalendarRange, ChevronDown, Landmark, ListFilter, Loader2, RefreshCcw, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { BadgePercent, Building2, CalendarRange, CheckCircle2, ChevronDown, Landmark, ListFilter, Loader2, RefreshCcw, Search, Sparkles, type LucideIcon } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
 import { useAIStore } from '../store/aiStore';
 import {
@@ -831,7 +831,7 @@ function MaturityFilterToolbar({
 
         <div className="flex w-full justify-end xl:w-36 xl:flex-none">
           <ActionFilterButton
-            icon={Search}
+            icon={CheckCircle2}
             label={t('applyFilters')}
             onClick={onApply}
             variant="primary"
@@ -1150,7 +1150,7 @@ function MarketFilterToolbar({
 
         <div className="flex w-full flex-col gap-2 xl:w-36 xl:flex-none xl:justify-end">
           <ActionFilterButton
-            icon={Search}
+            icon={CheckCircle2}
             label={t('applyFilters')}
             onClick={onApply}
             variant="primary"

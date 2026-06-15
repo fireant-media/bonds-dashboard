@@ -571,7 +571,7 @@ export default function App() {
         <AIChatBot />
       </Suspense>
 
-      {selectedBond && (
+      {selectedBond && !showBondComparison && (
         <Suspense fallback={null}>
           <BondDetailPopup 
             bond={selectedBond}
@@ -586,8 +586,9 @@ export default function App() {
         <Suspense fallback={null}>
           <BondComparisonPopup
             primaryBond={selectedBond}
+            primaryEnterpriseName={bondEnterpriseName}
             onBack={() => setShowBondComparison(false)}
-            onClose={() => setShowBondComparison(false)}
+            onClose={() => handleSetSelectedBond(null)}
           />
         </Suspense>
       )}

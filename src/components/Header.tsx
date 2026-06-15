@@ -12,7 +12,6 @@ import {
   LayoutDashboard,
   Building2,
   SlidersHorizontal,
-  CalendarClock,
   Bookmark,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
@@ -370,7 +369,6 @@ export default function Header({
   const navItems = [
     { id: 'dashboard', label: t('dashboardMenu'), icon: LayoutDashboard, menu: 'dashboard' as const, isActive: isDashboardActive },
     { id: 'bond', label: t('bondNavigationMenu'), icon: SlidersHorizontal, isActive: activeTab === 'filter' && activeFilterSubTab === 'bonds' },
-    { id: 'maturity-list', label: t('upcomingBonds'), icon: CalendarClock, isActive: activeTab === 'maturity-list' },
     { id: 'watchlist', label: t('watchList'), icon: Bookmark, isActive: activeTab === 'watchlist' },
   ];
 
@@ -418,7 +416,7 @@ export default function Header({
         key={item.id}
         type="button"
         onMouseEnter={() => {
-          if (item.id === 'dashboard' || item.id === 'bond' || item.id === 'maturity-list') {
+          if (item.id === 'dashboard' || item.id === 'bond') {
             warmDashboardCoreDataInBackground();
           }
           if (!compact && item.menu) {
@@ -442,10 +440,6 @@ export default function Header({
           }
           if (item.id === 'bond') {
             openFilter('bonds');
-            return;
-          }
-          if (item.id === 'maturity-list') {
-            openTopLevel('maturity-list');
             return;
           }
         }}

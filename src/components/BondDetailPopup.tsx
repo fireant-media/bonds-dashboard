@@ -17,6 +17,7 @@ import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { useAIStore } from '../store/aiStore';
 import { setCache, getCache } from '../utils/cache';
+import { Card } from './ui/Card';
 
 interface BondDetailPopupProps {
   bond: Bond;
@@ -219,9 +220,33 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
           term: mergedDetail.tenorPeriod ? formatTerm(mergedDetail.tenorPeriod) : formatTerm(bond.term),
           issueDate: mergedDetail.issueDate ? String(mergedDetail.issueDate).split('T')[0] : bond.issueDate,
           maturityDate: mergedDetail.maturityDate ? String(mergedDetail.maturityDate).split('T')[0] : bond.maturityDate,
-          industryId: mergedDetail.industryId || mergedDetail.icbNameLv2 || mergedDetail.industryName,
-          industryName: mergedDetail.industryName || mergedDetail.icbNameLv2,
-          industryCode: mergedDetail.industryCode || mergedDetail.icbCodeLv2,
+          industryId:
+            mergedDetail.industryId ||
+            mergedDetail.industryID ||
+            mergedDetail.industryCode ||
+            mergedDetail.IndustryCode ||
+            mergedDetail.icbCodeLv2 ||
+            mergedDetail.ICBCodeLv2 ||
+            mergedDetail.icbNameLv2 ||
+            mergedDetail.ICBNameLv2 ||
+            mergedDetail.industryName ||
+            mergedDetail.IndustryName,
+          industryName:
+            mergedDetail.industryName ||
+            mergedDetail.IndustryName ||
+            mergedDetail.icbName ||
+            mergedDetail.ICBName ||
+            mergedDetail.icbNameLv2 ||
+            mergedDetail.ICBNameLv2 ||
+            mergedDetail.icbNameLv1 ||
+            mergedDetail.ICBNameLv1,
+          industryCode:
+            mergedDetail.industryCode ||
+            mergedDetail.IndustryCode ||
+            mergedDetail.icbCodeLv2 ||
+            mergedDetail.ICBCodeLv2 ||
+            mergedDetail.icbCodeLv1 ||
+            mergedDetail.ICBCodeLv1,
           icbCodeLv1: mergedDetail.icbCodeLv1 || mergedDetail.ICBCodeLv1,
           icbCodeLv2: mergedDetail.icbCodeLv2 || mergedDetail.ICBCodeLv2,
           icbNameLv1: mergedDetail.icbNameLv1 || mergedDetail.ICBNameLv1,
@@ -594,6 +619,25 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
     return `${formatNumber(billionValue, 2)} ${t('unitBillionVND')}`;
   };
 
+  const formatIssueScaleParValue = (value: unknown) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return '-';
+
+    if (numericValue >= 1_000_000_000) {
+      return `${formatNumber(numericValue / 1_000_000_000, 2)} Tỷ VNĐ`;
+    }
+
+    if (numericValue >= 1_000_000) {
+      return `${formatNumber(numericValue / 1_000_000, 2)} Triệu VNĐ`;
+    }
+
+    if (numericValue >= 1_000) {
+      return `${formatNumber(numericValue / 1_000, 2)} Nghìn VNĐ`;
+    }
+
+    return `${formatNumber(numericValue, 0)} VNĐ`;
+  };
+
   const formatFinancialBillionValue = (...values: unknown[]) => {
     const numericValue = values
       .map((value) => Number(value))
@@ -668,15 +712,50 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
   );
 
   const issuerIndustry = useMemo(
-    () =>
-      normalizeText(
+    () => {
+      const resolvedLabelKey = resolveIndustryKeyFromCandidates(
+        resolvedIndustryId,
+        issuerProfile?.industryId,
+        issuerProfile?.industryName,
+        issuerProfile?.IndustryName,
+        issuerProfile?.industry,
+        issuerProfile?.Industry,
+        issuerProfile?.icbName,
+        issuerProfile?.ICBName,
+        issuerProfile?.icbNameLv2,
+        issuerProfile?.ICBNameLv2,
+        issuerProfile?.icbNameLv1,
+        issuerProfile?.ICBNameLv1,
+        issuerProfile?.icbCode,
+        issuerProfile?.ICBCode,
+        issuerProfile?.icbCodeLv2,
+        issuerProfile?.ICBCodeLv2,
+        issuerProfile?.icbCodeLv1,
+        issuerProfile?.ICBCodeLv1,
+        bondDetails?.industryId,
+        bondDetails?.industryName,
+        bondDetails?.industryCode,
+      );
+
+      if (resolvedLabelKey) {
+        return normalizeText(t(resolvedLabelKey as any) || resolvedLabelKey) || '-';
+      }
+
+      return normalizeText(
         issuerProfile?.industryName ||
+          issuerProfile?.IndustryName ||
+          issuerProfile?.industry ||
+          issuerProfile?.Industry ||
           issuerProfile?.icbName ||
+          issuerProfile?.ICBName ||
           issuerProfile?.icbNameLv2 ||
+          issuerProfile?.ICBNameLv2 ||
           issuerProfile?.icbNameLv1 ||
+          issuerProfile?.ICBNameLv1 ||
           bondDetails?.industryName,
-      ) || '-',
-    [bondDetails?.industryName, issuerProfile],
+      ) || '-';
+    },
+    [bondDetails?.industryCode, bondDetails?.industryId, bondDetails?.industryName, issuerProfile, resolvedIndustryId, t],
   );
 
   const interestPaymentInfo = useMemo(
@@ -739,7 +818,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
       },
       {
         label: t('parValueLabel'),
-        value: formatBondValue(bondDetails?.parValue || bondDetails?.faceValue),
+        value: formatIssueScaleParValue(bondDetails?.parValue || bondDetails?.faceValue),
       },
       { label: t('issuedValue'), value: formatBondValue(currentBond.issuedValue) },
       { label: t('listedValueTitle'), value: formatBondValue(currentBond.listedValue) },
@@ -949,7 +1028,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
       xAxis: {
         type: 'category',
         data: chartData.map((item) => item.label),
-        axisLabel: { fontSize: 11, rotate: 30 },
+        axisLabel: { fontSize: 11, rotate: 0, hideOverlap: false },
       },
       yAxis: {
         name: t('unitBillionVND'),
@@ -1071,7 +1150,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
               </button>
               <h1 className="truncate text-lg font-bold text-text-base md:text-xl">
                 {t('bondDetailTitle')}
-                {currentBond.code ? <span className="ml-2 text-text-muted">[{currentBond.code}]</span> : null}
+                {currentBond.code ? <span className="ml-2 font-semibold text-blue-600">{currentBond.code}</span> : null}
               </h1>
             </div>
 
@@ -1106,15 +1185,26 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
               {summaryCards.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <div key={item.label} className="flex min-h-28 flex-col gap-4 rounded-2xl border border-border-base bg-bg-surface p-4 text-center shadow-sm">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
-                        <Icon className="h-5 w-5" />
+                  <Card key={item.label} className="group relative p-3 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/25 hover:shadow-lg hover:shadow-blue-500/10">
+                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600" />
+                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-100/80 via-blue-50/50 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:from-blue-500/15 dark:via-blue-500/5" />
+                    <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-blue-200/30 blur-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:bg-blue-500/10" />
+                    <div className="relative flex min-h-28 flex-col gap-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:bg-blue-500/15 group-hover:text-blue-700">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <p className="min-w-0 flex-1 break-words text-left text-xs font-semibold uppercase leading-snug tracking-wider text-text-muted/80 transition-colors group-hover:text-text-muted">
+                          {item.label}
+                        </p>
                       </div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-text-muted/80">{item.label}</p>
+                      <div className="flex flex-1 items-center justify-center">
+                        <p className={`break-words text-center text-2xl font-bold leading-tight transition-all duration-200 group-hover:scale-105 md:text-3xl ${item.accent || 'text-text-base'}`}>
+                          {item.value}
+                        </p>
+                      </div>
                     </div>
-                    <p className={`w-full text-center text-lg font-bold md:text-xl ${item.accent || 'text-text-base'}`}>{item.value}</p>
-                  </div>
+                  </Card>
                 );
               })}
             </section>

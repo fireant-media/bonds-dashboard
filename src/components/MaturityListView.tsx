@@ -163,6 +163,44 @@ const toBondModel = (row: MaturityRow): Bond => ({
   status: row.status || '',
 });
 
+const getMaturitySituationMeta = (
+  daysLeft: number,
+  t: (key: any) => string,
+) => {
+  if (daysLeft < 30) {
+    return {
+      label: t('statusVeryNear'),
+      className: 'border border-red-100 bg-red-50 text-red-600',
+    };
+  }
+
+  if (daysLeft <= 90) {
+    return {
+      label: t('statusNear'),
+      className: 'border border-orange-100 bg-orange-50 text-orange-600',
+    };
+  }
+
+  if (daysLeft <= 180) {
+    return {
+      label: t('statusMonitor'),
+      className: 'border border-yellow-100 bg-yellow-50 text-yellow-700',
+    };
+  }
+
+  if (daysLeft <= 270) {
+    return {
+      label: t('statusMediumTerm'),
+      className: 'border border-blue-100 bg-blue-50 text-blue-600',
+    };
+  }
+
+  return {
+    label: t('statusLongTerm'),
+    className: 'border border-green-100 bg-green-50 text-green-600',
+  };
+};
+
 const resolveTableSort = (
   sortBy?: number,
   secondarySorts: number[] = [],
@@ -527,8 +565,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
       align: 'center',
       widthClassName: 'w-14',
-      stickyHeaderClassName: 'sticky left-0 z-40 bg-blue-600',
-      stickyCellClassName: 'sticky left-0 z-30 bg-inherit',
       cell: (_row, index) => index + 1,
     },
     {
@@ -537,8 +573,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       accessor: (row) => row.bondCode,
       sortable: true,
       widthClassName: 'w-32',
-      stickyHeaderClassName: 'sticky left-14 z-40 bg-blue-600',
-      stickyCellClassName: 'sticky left-14 z-30 bg-inherit',
       cell: (row) => (
         <button
           type="button"
@@ -667,6 +701,23 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       align: 'right',
       widthClassName: 'w-36',
       cell: (row) => formatNumber((row.currentListedValue || 0) / 1000000000, 2),
+    },
+    {
+      id: 'situation',
+      header: t('situation'),
+      accessor: (row) => row.daysLeft || 0,
+      sortable: true,
+      align: 'center',
+      widthClassName: 'w-40',
+      cell: (row) => {
+        const situation = getMaturitySituationMeta(row.daysLeft, t);
+
+        return (
+          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${situation.className}`}>
+            {situation.label}
+          </span>
+        );
+      },
     },
   ]), [setBondEnterpriseName, setSelectedBond, t]);
 

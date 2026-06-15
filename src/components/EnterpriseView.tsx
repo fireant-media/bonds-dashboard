@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowUpDown, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown, Hash, BadgeDollarSign, Landmark, Wallet, Search } from 'lucide-react';
+import { ArrowUpDown, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown, Hash, BadgeDollarSign, Landmark, Wallet, Search, CheckCircle2, RotateCcw } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
 import ChartWithToolbar from './ChartWithToolbar';
 import AIInsightPanel from './AIInsightPanel';
-import { formatInterestRate, formatNumber, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
+import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -29,10 +29,9 @@ import { sendChat } from '../api/ai';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { MetricCard } from './ui/Card';
-import { SortControl } from './ui/SortControl';
+import RelatedNewsPanel from './RelatedNewsPanel';
 import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
-import { filterBondRowsByCriteria } from '../services/aiBondFilter';
 import {
   buildEnterpriseIndustryOptions,
   buildIndustrySymbolLookup,
@@ -42,7 +41,6 @@ import {
 } from '../constants/industries';
 import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, type BondDataRow } from '../services/bondData';
-import { BondFilterPanel, useBondFilterController } from './BondFilterPanel';
 import { useAIStore } from '../store/aiStore';
 
 function cn(...inputs: ClassValue[]) {
@@ -52,6 +50,24 @@ function cn(...inputs: ClassValue[]) {
 const roundMetric = (value: number, digits = 2) => {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(digits));
+};
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeTermBase = (value: unknown, monthUnit: string) => {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const normalizedMonthUnit = String(monthUnit || '').trim();
+  if (!normalizedMonthUnit) return raw;
+
+  const monthUnitPattern = escapeRegExp(normalizedMonthUnit);
+  return raw.replace(new RegExp(`(?:\\s*${monthUnitPattern})+$`, 'i'), '').trim();
+};
+
+const formatTermWithMonthUnit = (value: unknown, monthUnit: string) => {
+  const base = normalizeTermBase(value, monthUnit);
+  if (!base) return '';
+  return `${base} ${monthUnit}`.trim();
 };
 
 const ENTERPRISE_AI_FALLBACK_MODEL = 'gpt-5.4-mini';
@@ -91,6 +107,109 @@ const toEnterpriseBondRow = (bond: Bond, issuerName = '', issuerSymbol = ''): Bo
   bondInfos: {},
   raw: bond,
 });
+
+const toBondValueBillion = (value: unknown) => {
+  const numericValue = Number(value || 0);
+  return numericValue > 0 ? numericValue / 1_000_000_000 : 0;
+};
+
+const mapIssuerBondRowToBond = (row: BondDataRow, enterpriseId: string): Bond => ({
+  id: row.bondCode,
+  code: row.bondCode,
+  enterpriseId,
+  term: row.tenorPeriod ? String(row.tenorPeriod) : 'N/A',
+  interestRate: Number(row.bondRate || 0),
+  listedVolume: Number(row.currentListedVolume || 0),
+  issuedValue: toBondValueBillion(row.totalIssuedValue),
+  listedValue: toBondValueBillion(row.currentListedValue || row.totalRemainingDebt || row.totalIssuedValue),
+  issueDate: row.issueDate?.split('T')[0] || '',
+  maturityDate: row.maturityDate?.split('T')[0] || '',
+  interestType: normalizeInterestType(
+    row.bondRateType || '',
+    row.bondInfos?.interestPaymentMethod || row.bondInfos?.paymentMethod || row.bondType || '',
+    [],
+  ) || 'N/A',
+  bondType: row.bondType || '',
+  status: row.status || '',
+});
+
+const enrichIssuerBondWithDetail = (bond: Bond, detailData: any): Bond => {
+  const detail = detailData?.detail || detailData || {};
+  const historyItem = Array.isArray(detailData?.history) ? detailData.history[0] : undefined;
+  const rawCashFlows = Array.isArray(detailData?.cashFlows) ? detailData.cashFlows : [];
+  const rawInterestType =
+    detail?.bondRateType ||
+    detail?.BondRateType ||
+    detail?.interestRateType ||
+    detail?.InterestRateType ||
+    detail?.couponRateType ||
+    detail?.CouponRateType ||
+    detail?.interestType ||
+    bond.interestType ||
+    '';
+  const paymentMethod =
+    detail?.interestPaymentMethod ||
+    detail?.paymentMethod ||
+    detail?.bondType ||
+    detail?.BondType ||
+    detail?.bondName ||
+    bond.bondType ||
+    '';
+  const listedVolume = Number(
+    detail?.currentListedVolume ||
+    detail?.CurrentListedVolume ||
+    historyItem?.volume ||
+    bond.listedVolume ||
+    0,
+  );
+  const issuedValueRaw = Number(
+    detail?.totalIssuedValue ||
+    detail?.TotalIssuedValue ||
+    historyItem?.value ||
+    0,
+  );
+  const listedValueRaw = Number(
+    detail?.currentListedValue ||
+    detail?.CurrentListedValue ||
+    detail?.totalRemainingDebt ||
+    detail?.TotalRemainingDebt ||
+    historyItem?.value ||
+    issuedValueRaw ||
+    0,
+  );
+
+  return {
+    ...bond,
+    enterpriseId: detail?.issuerSymbol || detail?.IssuerSymbol || bond.enterpriseId,
+    term: detail?.tenorPeriod ? String(detail.tenorPeriod) : detail?.TenorPeriod ? String(detail.TenorPeriod) : bond.term,
+    interestRate: Number(
+      detail?.bondRate ||
+      detail?.BondRate ||
+      detail?.interestRate ||
+      detail?.InterestRate ||
+      detail?.couponRate ||
+      detail?.CouponRate ||
+      rawCashFlows[0]?.bondRate ||
+      bond.interestRate ||
+      0,
+    ),
+    listedVolume,
+    issuedValue: issuedValueRaw > 0 ? issuedValueRaw / 1_000_000_000 : bond.issuedValue,
+    listedValue: listedValueRaw > 0 ? listedValueRaw / 1_000_000_000 : bond.listedValue,
+    issueDate: detail?.issueDate ? String(detail.issueDate).split('T')[0] : detail?.IssueDate ? String(detail.IssueDate).split('T')[0] : bond.issueDate,
+    maturityDate: detail?.maturityDate ? String(detail.maturityDate).split('T')[0] : detail?.MaturityDate ? String(detail.MaturityDate).split('T')[0] : bond.maturityDate,
+    interestType: normalizeInterestType(rawInterestType, paymentMethod, rawCashFlows) || bond.interestType,
+    bondType: detail?.bondType || detail?.BondType || bond.bondType,
+    status: detail?.status || detail?.Status || bond.status,
+    cashFlows: rawCashFlows.map((cf: any) => ({
+      paymentDate: cf.paymentDate,
+      interestAmount: (cf.interestAmount || 0) / 1_000_000_000,
+      principalAmount: (cf.principalAmount || 0) / 1_000_000_000,
+      totalCashflow: (cf.totalCashflow || 0) / 1_000_000_000,
+      bondRate: cf.bondRate || 0,
+    })),
+  };
+};
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
@@ -137,12 +256,7 @@ export default function EnterpriseView({
   const [error, setError] = useState<string | null>(null);
   const [loadingBonds, setLoadingBonds] = useState(false);
   const [bondError, setBondError] = useState<string | null>(null);
-  const [bondPage, setBondPage] = useState(1);
   const [enterprisePage, setEnterprisePage] = useState(1);
-  const [bondTermFilter, setBondTermFilter] = useState('All');
-  const [bondSortField, setBondSortField] = useState<'issueDate' | 'maturityDate' | 'interestRate' | 'listedVolume' | 'issuedValue' | 'listedValue' | null>(null);
-  const [bondAppliedSortField, setBondAppliedSortField] = useState<'issueDate' | 'maturityDate' | 'interestRate' | 'listedVolume' | 'issuedValue' | 'listedValue' | null>(null);
-  const [bondAppliedSortDirection, setBondAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [financialData, setFinancialData] = useState<any>(null);
@@ -150,44 +264,10 @@ export default function EnterpriseView({
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [issuerOpenMenu, setIssuerOpenMenu] = useState<'industry' | null>(null);
-  const [bondOpenMenu, setBondOpenMenu] = useState<'bondTerm' | null>(null);
   const issuerMenuRef = useRef<HTMLDivElement | null>(null);
-  const bondMenuRef = useRef<HTMLDivElement | null>(null);
   const enterpriseSearchRef = useRef<HTMLDivElement | null>(null);
   const [enterpriseSearchOpen, setEnterpriseSearchOpen] = useState(false);
-  const bondsPerPage = 10;
   const enterprisesPerPage = 10;
-  const rateTypeOptions = useMemo(() => {
-    const options = new Set<string>();
-
-    issuerBonds.forEach((bond) => {
-      const value = String(bond.interestType || '').trim();
-      if (value) options.add(value);
-    });
-
-    options.add(t('fixed'));
-    options.add(t('floating'));
-
-    return Array.from(options).filter(Boolean).sort((left, right) => left.localeCompare(right));
-  }, [issuerBonds, t]);
-  const {
-    appliedCriteria,
-    aiPrompt,
-    setAiPrompt,
-    aiSummary,
-    setAiSummary,
-    aiError,
-    setAiError,
-    isApplyingAIFilter,
-    isLoadingStatus,
-    aiPromptSuggestions,
-    showPromptSuggestions,
-    resetFilters,
-    applyAIFilter,
-    draftFilters,
-    setDraftFilters,
-    applyDraftFilters,
-  } = useBondFilterController(rateTypeOptions);
 
   const chartColors = CHART_PALETTE;
 
@@ -272,9 +352,6 @@ export default function EnterpriseView({
       if (issuerMenuRef.current && !issuerMenuRef.current.contains(event.target as Node)) {
         setIssuerOpenMenu(null);
       }
-      if (bondMenuRef.current && !bondMenuRef.current.contains(event.target as Node)) {
-        setBondOpenMenu(null);
-      }
       if (enterpriseSearchRef.current && !enterpriseSearchRef.current.contains(event.target as Node)) {
         setEnterpriseSearchOpen(false);
       }
@@ -289,10 +366,6 @@ export default function EnterpriseView({
     return enterpriseIndustryOptions.find((industry) => industry.value === industryFilter)?.label || t('allIndustries');
   }, [enterpriseIndustryOptions, industryFilter, t]);
 
-  const selectedBondTermLabel = useMemo(() => {
-    return bondTermFilter === 'All' ? t('term') : bondTermFilter;
-  }, [bondTermFilter, t]);
-
   const bondSortOptions = useMemo(() => ([
     { value: '__default__', label: t('sortBy'), isDefault: true },
     { value: 'issueDate', label: t('issueDate') },
@@ -304,15 +377,8 @@ export default function EnterpriseView({
   ]), [t]);
 
   const issuerFilterWidthClass = 'w-76';
-  const bondTermWidthClass = 'w-32';
-  const bondSortWidthClass = 'w-84';
-
   const handleIndustryButtonClick = () => {
     setIssuerOpenMenu((current) => (current === 'industry' ? null : 'industry'));
-  };
-
-  const handleBondTermButtonClick = () => {
-    setBondOpenMenu((current) => (current === 'bondTerm' ? null : 'bondTerm'));
   };
 
   const handleResetEnterpriseFilters = () => {
@@ -505,80 +571,29 @@ export default function EnterpriseView({
     const fetchBonds = async () => {
       if (!selectedEnterprise) {
         setIssuerBonds([]);
-        setBondPage(1);
         setLoadingCashFlows(false);
         return;
       }
 
       setLoadingBonds(true);
       setBondError(null);
-      setBondPage(1);
-      setBondTermFilter('All');
-      setBondSortField(null);
-      setBondAppliedSortField(null);
-      setBondAppliedSortDirection(null);
       setCashFlowPeriod('year');
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-
-        const headers: Record<string, string> = {
-          'Accept': 'application/json'
-        };
-        
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
         const data = await loadIssuerBondsByFilter(selectedEnterprise.ticker);
 
         if (Array.isArray(data)) {
-          const mappedBonds: Bond[] = data.map((b: any) => ({
-            id: b.bondCode,
-            code: b.bondCode,
-            enterpriseId: selectedEnterprise.id,
-            term: String(b.tenorPeriod || 'N/A'),
-            interestRate: b.bondRate,
-            listedVolume: b.currentListedVolume,
-            issuedValue: b.currentListedVolume, // Assuming face value 1B
-            listedValue: b.currentListedVolume, // Assuming face value 1B
-            issueDate: b.issueDate?.split('T')[0] || '',
-            maturityDate: b.maturityDate?.split('T')[0] || '',
-            interestType: normalizeInterestType(
-              b.bondRateType || b.interestRateType || b.interestType || '',
-              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-              []
-            ) || 'N/A',
-            status: b.status
-          }));
+          const mappedBonds: Bond[] = data.map((bondRow) => mapIssuerBondRowToBond(bondRow, selectedEnterprise.id));
           setIssuerBonds(mappedBonds);
           setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, mappedBonds);
 
-          if (!cleanToken || mappedBonds.length === 0) return;
+          if (mappedBonds.length === 0) return;
 
           setLoadingCashFlows(true);
 
           const fetchBondCashFlows = async (bond: Bond): Promise<Bond> => {
-            const cacheKey = `bond_cash_flows_${bond.code}`;
-            const cachedCashFlows = getCache(cacheKey);
-            if (cachedCashFlows) {
-              return { ...bond, cashFlows: cachedCashFlows };
-            }
-
             const detailData = await loadBondDetail(bond.code);
             if (!detailData) return bond;
-            const cashFlows = Array.isArray(detailData.cashFlows)
-              ? detailData.cashFlows.map((cf: any) => ({
-                  paymentDate: cf.paymentDate,
-                  interestAmount: (cf.interestAmount || 0) / 1000000000,
-                  principalAmount: (cf.principalAmount || 0) / 1000000000,
-                  totalCashflow: (cf.totalCashflow || 0) / 1000000000,
-                  bondRate: cf.bondRate || 0
-                }))
-              : [];
-
-            setCache(cacheKey, cashFlows);
-            return { ...bond, cashFlows };
+            return enrichIssuerBondWithDetail(bond, detailData);
           };
 
           const results = await mapWithConcurrency(mappedBonds, 8, fetchBondCashFlows);
@@ -833,20 +848,8 @@ export default function EnterpriseView({
   }, [appliedIndustryFilter, appliedEnterpriseIssuedValueMin, appliedEnterpriseIssuedValueMax, appliedEnterpriseRemainingDebtMin, appliedEnterpriseRemainingDebtMax, enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
 
   useEffect(() => {
-    setBondPage(1);
-  }, [bondTermFilter, bondAppliedSortField, bondAppliedSortDirection, appliedCriteria]);
-
-  useEffect(() => {
     setEnterprisePage(1);
   }, [enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
-
-  const criteriaFilteredEnterpriseBonds = useMemo(() => {
-    const issuerName = selectedEnterprise?.name || enterpriseProfile?.internationalName || '';
-    const issuerSymbol = selectedEnterprise?.ticker || selectedEnterprise?.id || '';
-    const bondRows = issuerBonds.map((bond) => toEnterpriseBondRow(bond, issuerName, issuerSymbol));
-    const matchedCodes = new Set(filterBondRowsByCriteria(bondRows, appliedCriteria).map((row) => row.bondCode));
-    return issuerBonds.filter((bond) => matchedCodes.has(bond.code));
-  }, [appliedCriteria, enterpriseProfile?.internationalName, issuerBonds, selectedEnterprise]);
 
   const filteredEnterprises = useMemo(() => {
     const searchTerm = normalizeEnterpriseSearch(appliedEnterpriseSearchTerm);
@@ -936,56 +939,21 @@ export default function EnterpriseView({
     ? (issuerBonds.length > 0 ? issuerBonds : [])
     : [];
 
-  const filteredSortedBonds = useMemo(() => {
-    return [...criteriaFilteredEnterpriseBonds]
-      .filter((bond) => bondTermFilter === 'All' || bond.term === bondTermFilter)
-      .sort((a, b) => {
-        if (!bondAppliedSortField || !bondAppliedSortDirection) return 0;
-        const direction = bondAppliedSortDirection === 'asc' ? 1 : -1;
-        if (bondAppliedSortField === 'issueDate') {
-          return ((parseDateToTimestamp(a.issueDate) || 0) - (parseDateToTimestamp(b.issueDate) || 0)) * direction;
-        }
-        if (bondAppliedSortField === 'maturityDate') {
-          return ((parseDateToTimestamp(a.maturityDate) || 0) - (parseDateToTimestamp(b.maturityDate) || 0)) * direction;
-        }
-        if (bondAppliedSortField === 'interestRate') {
-          return ((Number(a.interestRate || 0)) - (Number(b.interestRate || 0))) * direction;
-        }
-        if (bondAppliedSortField === 'listedVolume') {
-          return ((Number(a.listedVolume || 0)) - (Number(b.listedVolume || 0))) * direction;
-        }
-        if (bondAppliedSortField === 'issuedValue') {
-          return ((Number(a.issuedValue || 0)) - (Number(b.issuedValue || 0))) * direction;
-        }
-        if (bondAppliedSortField === 'listedValue') {
-          return ((Number(a.listedValue || 0)) - (Number(b.listedValue || 0))) * direction;
-        }
-        return 0;
-      });
-  }, [bondAppliedSortDirection, bondAppliedSortField, bondTermFilter, criteriaFilteredEnterpriseBonds]);
-
-  const totalBondPages = useMemo(() => Math.ceil(filteredSortedBonds.length / bondsPerPage), [filteredSortedBonds.length]);
-  const paginatedBonds = useMemo(
-    () => filteredSortedBonds.slice((bondPage - 1) * bondsPerPage, bondPage * bondsPerPage),
-    [bondPage, filteredSortedBonds]
-  );
-
-  const uniqueTerms = useMemo(() => {
-    return Array.from(new Set(criteriaFilteredEnterpriseBonds.map((b) => b.term))).sort((a, b) => {
-      const valA = parseInt(a as string) || 0;
-      const valB = parseInt(b as string) || 0;
-      return valA - valB;
-    });
-  }, [criteriaFilteredEnterpriseBonds]);
-
   const pieData = useMemo(() => {
+    const monthUnit = t('monthUnit');
     const termData = enterpriseBonds.reduce((acc: any, bond) => {
-      acc[bond.term] = (acc[bond.term] || 0) + 1;
+      const normalizedTerm = normalizeTermBase(bond.term, monthUnit);
+      if (!normalizedTerm) return acc;
+      acc[normalizedTerm] = (acc[normalizedTerm] || 0) + 1;
       return acc;
     }, {});
 
     return Object.entries(termData)
-      .map(([name, value]) => ({ name: `${name} ${t('monthUnit')}`, value, term: name }))
+      .map(([name, value]) => ({
+        name: formatTermWithMonthUnit(name, monthUnit),
+        value,
+        term: name,
+      }))
       .sort((a, b) => {
         const valA = parseInt(a.term || a.name) || 0;
         const valB = parseInt(b.term || b.name) || 0;
@@ -993,38 +961,73 @@ export default function EnterpriseView({
       });
   }, [enterpriseBonds, t]);
   const pieLegendRows = splitLegendItems(pieData.map((item) => item.name), 5, 2);
+  const hasMultiColumnPieLegend = pieLegendRows.length > 1;
   const pieLegendBase = {
-    orient: 'horizontal' as const,
+    orient: 'vertical' as const,
     itemWidth: 16,
     itemHeight: 10,
     itemGap: 12,
     textStyle: {
       ...legendStyle,
-      width: 84,
+      width: 88,
       overflow: 'truncate' as const,
       align: 'left' as const,
       padding: [0, 0, 0, 6] as [number, number, number, number],
     },
   };
-  const pieLegendConfig = pieLegendRows.length > 1
+  const pieLegendConfig = hasMultiColumnPieLegend
       ? [
         {
           ...pieLegendBase,
-          bottom: 24,
-          left: 'center' as const,
+          right: 136,
+          top: 'middle' as const,
           data: pieLegendRows[0],
         },
         {
           ...pieLegendBase,
-          bottom: 0,
-          left: 'center' as const,
+          right: 24,
+          top: 'middle' as const,
           data: pieLegendRows[1],
         },
       ]
     : {
         ...pieLegendBase,
-        bottom: 0,
-        left: 'center' as const,
+        right: 24,
+        top: 'middle' as const,
+        data: pieLegendRows[0],
+      };
+  const pieZoomLegendBase = {
+    orient: 'vertical' as const,
+    itemWidth: 16,
+    itemHeight: 10,
+    itemGap: 12,
+    textStyle: {
+      ...legendStyle,
+      width: 110,
+      overflow: 'truncate' as const,
+      align: 'left' as const,
+      padding: [0, 0, 0, 6] as [number, number, number, number],
+    },
+  };
+  const pieZoomLegendConfig = hasMultiColumnPieLegend
+    ? [
+        {
+          ...pieZoomLegendBase,
+          right: 24,
+          top: 'middle' as const,
+          data: pieLegendRows[1],
+        },
+        {
+          ...pieZoomLegendBase,
+          right: 168,
+          top: 'middle' as const,
+          data: pieLegendRows[0],
+        },
+      ]
+    : {
+        ...pieZoomLegendBase,
+        right: 24,
+        top: 'middle' as const,
         data: pieLegendRows[0],
       };
 
@@ -1246,50 +1249,6 @@ export default function EnterpriseView({
       setExportLoading(false);
     }
   };
-
-  const handleExportBonds = async () => {
-    if (!selectedEnterprise) return;
-
-    setExportLoading(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      exportRowsToExcel({
-        fileNameBase: `Bond_List_${selectedEnterprise.ticker}`,
-        sheetName: t('bondList'),
-        rows: filteredSortedBonds,
-        columns: [
-          { header: t('bondCode'), value: (bond) => bond.code },
-          { header: `${t('term')} (${t('monthUnit')})`, value: (bond) => bond.term },
-          { header: t('issueDate'), value: (bond) => formatDate(bond.issueDate) },
-          { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
-          { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => `${formatInterestRate(bond.interestRate)}%` },
-          {
-            header: t('interestType'),
-            value: (bond) => (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed'))
-              ? t('fixed')
-              : (bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating'))
-                ? t('floating')
-                : bond.interestType,
-          },
-          { header: t('listedVolume'), value: (bond) => formatNumber(bond.listedVolume || 0, 0) },
-          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
-          { header: `${t('listedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue || 0, 2) },
-          {
-            header: t('status'),
-            value: (bond) => (bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active'))
-              ? t('active')
-              : (bond.status?.toLowerCase().includes('hết hiệu lực') || bond.status?.toLowerCase().includes('inactive'))
-                ? t('inactive')
-                : bond.status,
-          },
-        ],
-      });
-    } finally {
-      setExportLoading(false);
-    }
-  };
-
   const pieOptions = {
     color: chartPalette,
     tooltip: { 
@@ -1297,17 +1256,26 @@ export default function EnterpriseView({
       trigger: 'item',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
+      formatter: (params: any) => {
+        return `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`;
+      }
     },
     legend: pieLegendConfig,
     series: [{
       type: 'pie',
       radius: ['30%', '60%'],
-      center: ['50%', '36%'],
+      center: hasMultiColumnPieLegend ? ['28%', '50%'] : ['36%', '50%'],
       avoidLabelOverlap: false,
       itemStyle: { borderRadius: 8 },
       label: { show: false },
-      emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
+      emphasis: {
+        label: {
+          show: true,
+          fontSize: '12',
+          fontWeight: 'bold',
+          formatter: (params: any) => params.name,
+        },
+      },
       data: pieData
     }]
   };
@@ -1348,7 +1316,7 @@ export default function EnterpriseView({
       left: 'center',
       textStyle: legendStyle
     },
-    grid: { top: '15%', bottom: '20%', left: '15%', right: '10%' },
+    grid: { top: '15%', bottom: '20%', left: '8%', right: '10%' },
     xAxis: { 
       name: `${t('term')} (${t('monthUnit')})`, 
       nameTextStyle: chartTitleStyle, 
@@ -1376,7 +1344,7 @@ export default function EnterpriseView({
       textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 2), ` ${t('unitBillionVND')}`)}`
     },
-    grid: { top: '15%', bottom: '15%', left: '15%', right: '5%' },
+    grid: { top: '15%', bottom: '15%', left: '10%', right: '5%' },
     xAxis: { type: 'category', data: sortedYears, axisLabel: axisLabelStyle },
     yAxis: { 
       name: t('unitBillion'), 
@@ -1665,52 +1633,45 @@ export default function EnterpriseView({
         </div>
 
         {loadingBonds ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm font-bold text-text-muted uppercase tracking-widest">{t('loadingBondsMessage')}</p>
+          <div className="flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            <span>{t('loadingBondsMessage')}</span>
           </div>
-        ) : bondError ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
-            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
-              <Info className="h-8 w-8 text-red-500" />
-            </div>
-            <p className="text-sm font-bold text-text-muted uppercase tracking-widest">{bondError}</p>
-            <button 
-              onClick={() => setSelectedEnterprise(selectedEnterprise)}
-              className="text-xs font-bold text-text-highlight hover:underline transition-colors"
-            >
-              {t('tryAgain')}
-            </button>
+        ) : null}
+
+        {bondError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+            {bondError}
           </div>
-        ) : (
-          <>
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <MetricCard
-                label={t('bondCodeCount')}
-                value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
-                unit={t('unitBondCode')}
-                icon={Hash}
-              />
-              <MetricCard
-                label={t('totalIssuedValueTitle')}
-                value={formatNumber(selectedEnterprise.issuedValue, 2)}
-                unit={t('unitBillionVND')}
-                icon={BadgeDollarSign}
-              />
-              <MetricCard
-                label={t('initialDebtFull')}
-                value={formatNumber(selectedEnterprise.initialDebt, 2)}
-                unit={t('unitBillionVND')}
-                icon={Landmark}
-              />
-              <MetricCard
-                label={t('remainingDebtTitle')}
-                value={formatNumber(selectedEnterprise.remainingDebt, 2)}
-                unit={t('unitBillionVND')}
-                icon={Wallet}
-              />
-            </div>
+        ) : null}
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <MetricCard
+            label={t('bondCodeCount')}
+            value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
+            unit={t('unitBondCode')}
+            icon={Hash}
+          />
+          <MetricCard
+            label={t('totalIssuedValueTitle')}
+            value={formatNumber(selectedEnterprise.issuedValue, 2)}
+            unit={t('unitBillionVND')}
+            icon={BadgeDollarSign}
+          />
+          <MetricCard
+            label={t('initialDebtFull')}
+            value={formatNumber(selectedEnterprise.initialDebt, 2)}
+            unit={t('unitBillionVND')}
+            icon={Landmark}
+          />
+          <MetricCard
+            label={t('remainingDebtTitle')}
+            value={formatNumber(selectedEnterprise.remainingDebt, 2)}
+            unit={t('unitBillionVND')}
+            icon={Wallet}
+          />
+        </div>
 
         <AIInsightPanel
           cacheKey={`enterprise-insight-${selectedEnterprise.ticker}`}
@@ -1734,60 +1695,10 @@ export default function EnterpriseView({
                 shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                 chartStyle: { height: '100%', width: '100%' },
                 option: {
-                  legend: pieLegendRows.length > 1
-                    ? [
-                        {
-                          bottom: 24,
-                          left: 'center',
-                          orient: 'horizontal',
-                          itemWidth: 16,
-                          itemHeight: 10,
-                          itemGap: 12,
-                          textStyle: {
-                            ...legendStyle,
-                            width: 84,
-                            overflow: 'truncate',
-                            align: 'left',
-                            padding: [0, 0, 0, 6],
-                          },
-                          data: pieLegendRows[0],
-                        },
-                        {
-                          bottom: 0,
-                          left: 'center',
-                          orient: 'horizontal',
-                          itemWidth: 16,
-                          itemHeight: 10,
-                          itemGap: 12,
-                          textStyle: {
-                            ...legendStyle,
-                            width: 84,
-                            overflow: 'truncate',
-                            align: 'left',
-                            padding: [0, 0, 0, 6],
-                          },
-                          data: pieLegendRows[1],
-                        }
-                      ]
-                    : {
-                      bottom: 0,
-                      left: 'center',
-                      orient: 'horizontal',
-                      itemWidth: 16,
-                      itemHeight: 10,
-                        itemGap: 12,
-                        textStyle: {
-                          ...legendStyle,
-                          width: 84,
-                          overflow: 'truncate',
-                          align: 'left',
-                          padding: [0, 0, 0, 6],
-                        },
-                        data: pieLegendRows[0],
-                      },
+                  legend: pieZoomLegendConfig,
                   series: [
                     {
-                      center: ['35%', '50%'],
+                      center: hasMultiColumnPieLegend ? ['34%', '50%'] : ['38%', '50%'],
                       radius: ['34%', '63%'],
                       label: {
                         show: true,
@@ -1964,294 +1875,15 @@ export default function EnterpriseView({
           )}
         </div>
 
-        <BondFilterPanel
-          title={t('bondList')}
-          resultCount={filteredSortedBonds.length}
-          totalCount={enterpriseBonds.length}
-          draftFilters={draftFilters}
-          setDraftFilters={setDraftFilters}
-          rateTypeOptions={rateTypeOptions}
-          aiPrompt={aiPrompt}
-          setAiPrompt={setAiPrompt}
-          aiSummary={aiSummary}
-          setAiSummary={setAiSummary}
-          aiError={aiError}
-          setAiError={setAiError}
-          isApplyingAIFilter={isApplyingAIFilter}
-          isLoadingStatus={isLoadingStatus}
-          aiPromptSuggestions={aiPromptSuggestions}
-          showPromptSuggestions={showPromptSuggestions}
-          onApply={applyDraftFilters}
-          onReset={resetFilters}
-          onApplyAI={applyAIFilter}
+        <RelatedNewsPanel
+          className="col-span-12"
+          symbol={selectedEnterprise.ticker}
+          title={t('relatedNews')}
+          description={language === 'en'
+            ? 'Latest articles related to this listed enterprise and its bond activity.'
+            : 'Tin tức mới nhất liên quan đến doanh nghiệp niêm yết này và hoạt động trái phiếu của doanh nghiệp.'}
         />
-
-        {/* Bond List Table */}
-        <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-          <div className="p-4 border-b border-border-base flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <h3 className="text-sm font-bold text-text-base uppercase tracking-wider transition-colors">{t('bondList')}</h3>
-            <div ref={bondMenuRef} className="flex flex-col gap-3 w-full lg:w-auto lg:flex-row lg:items-center">
-              <div className={`relative ${bondTermWidthClass}`}>
-                <button
-                  type="button"
-                  onClick={handleBondTermButtonClick}
-                  className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-                  aria-haspopup="menu"
-                  aria-expanded={bondOpenMenu === 'bondTerm'}
-                >
-                  <span className="inline-flex min-w-0 items-center gap-2">
-                    <Filter className="h-4 w-4 shrink-0 text-blue-600" />
-                    <span className="truncate">{selectedBondTermLabel}</span>
-                  </span>
-                  <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-                </button>
-                {bondOpenMenu === 'bondTerm' && (
-                  <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBondTermFilter('All');
-                        setBondPage(1);
-                        setBondOpenMenu(null);
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                        bondTermFilter === 'All'
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                          : 'text-text-base hover:bg-surface-container-low'
-                      )}
-                    >
-                      <span>{t('term')}</span>
-                    </button>
-                    {uniqueTerms.map((term) => (
-                      <button
-                        key={term}
-                        type="button"
-                        onClick={() => {
-                          setBondTermFilter(term);
-                          setBondPage(1);
-                          setBondOpenMenu(null);
-                        }}
-                        className={cn(
-                          'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                          bondTermFilter === term
-                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                            : 'text-text-base hover:bg-surface-container-low'
-                        )}
-                      >
-                        <span className="truncate">{term}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <SortControl
-                className={bondSortWidthClass}
-                label={t('sortBy')}
-                options={bondSortOptions}
-                value={bondSortField}
-                appliedValue={bondAppliedSortField}
-                appliedDirection={bondAppliedSortDirection}
-                onChange={(value) => {
-                  setBondSortField(value as typeof bondSortField);
-                  setBondAppliedSortField(null);
-                  setBondAppliedSortDirection(null);
-                }}
-                onDirectionChange={(direction) => {
-                  if (!direction || !bondSortField) return;
-                  setBondAppliedSortField(bondSortField);
-                  setBondAppliedSortDirection(direction);
-                }}
-                ascendingLabel={t('ascending')}
-                descendingLabel={t('descending')}
-              />
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-full text-left border-collapse">
-              <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode')}</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap leading-none">{t('term')}</span>
-                      <span className="whitespace-nowrap mt-1 leading-none">({t('monthUnit')})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate')}</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate')}</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap leading-none">{t('interestRate')}</span>
-                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitPercentLabel')})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType')}</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume')}</th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap leading-none">{t('issuedValue')}</span>
-                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap leading-none">{t('listedValueTitle')}</span>
-                      <span className="whitespace-nowrap mt-1 leading-none">({t('unitBillionVND')})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-base">
-                {paginatedBonds.map((bond, idx) => (
-                  <tr 
-                    key={bond.id} 
-                    onClick={() => {
-                      setBondEnterpriseName(language === 'en' && enterpriseProfile?.internationalName ? enterpriseProfile.internationalName : selectedEnterprise.name);
-                      setSelectedBond(bond);
-                    }}
-                    className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className="text-sm font-bold text-text-highlight group-hover:underline">{bond.code}</span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <span className="px-2 py-1 rounded-lg text-sm font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.issueDate)}</td>
-                    <td className="px-6 py-4 text-sm text-text-muted font-bold whitespace-nowrap text-center transition-colors">{formatDate(bond.maturityDate)}</td>
-                    <td className="px-6 py-4 text-sm font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
-                    <td className={`px-6 py-4 text-sm font-bold whitespace-nowrap text-center transition-colors ${
-                      bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed') ? 'text-blue-600' : 'text-orange-600'
-                    }`}>
-                      {(bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
-                       ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : bond.interestType)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
-                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 text-sm text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className={`px-2 py-1 rounded-full text-sm font-bold uppercase ${
-                        bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {(bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active')) ? t('active') : 
-                         ((bond.status?.toLowerCase().includes('hết hiệu lực') || bond.status?.toLowerCase().includes('inactive')) ? t('inactive') : bond.status)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Pagination Controls */}
-          {totalBondPages > 1 && (
-            <div className="p-4 border-t border-border-base flex items-center justify-end bg-bg-surface transition-colors">
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => setBondPage(prev => Math.max(1, prev - 1))}
-                  disabled={bondPage === 1}
-                  className="p-2 text-xs font-bold text-text-base bg-bg-base rounded-lg hover:bg-bg-surface border border-border-base disabled:opacity-50 transition-colors"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                
-                {totalBondPages <= 4 ? (
-                  [...Array(totalBondPages)].map((_, i) => (
-                    <button
-                      key={i + 1}
-                      onClick={() => setBondPage(i + 1)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === i + 1 
-                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                      }`}
-                    >
-                      {i + 1}
-                    </button>
-                  ))
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setBondPage(1)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === 1 
-                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                      }`}
-                    >
-                      1
-                    </button>
-                    <button
-                      onClick={() => setBondPage(2)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === 2 
-                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                      }`}
-                    >
-                      2
-                    </button>
-                    
-                    {bondPage <= 3 ? (
-                      <>
-                        <button
-                          onClick={() => setBondPage(3)}
-                          className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                            bondPage === 3 
-                              ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
-                              : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                          }`}
-                        >
-                          3
-                        </button>
-                        <span className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
-                        {bondPage < totalBondPages && (
-                          <>
-                            <button
-                              className="px-3 py-1 text-xs font-bold rounded-lg bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
-                            >
-                              {bondPage}
-                            </button>
-                            <span className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
-                          </>
-                        )}
-                      </>
-                    )}
-
-                    <button
-                      onClick={() => setBondPage(totalBondPages)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === totalBondPages 
-                          ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                      }`}
-                    >
-                      {totalBondPages}
-                    </button>
-                  </>
-                )}
-
-                <button 
-                  onClick={() => setBondPage(prev => Math.min(totalBondPages, prev + 1))}
-                  disabled={bondPage === totalBondPages}
-                  className="p-2 text-xs font-bold text-text-base bg-bg-base rounded-lg hover:bg-bg-surface border border-border-base disabled:opacity-50 transition-colors"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Bond Detail Popup removed from here, now handled in App.tsx */}
-          </>
-        )}
       </div>
     );
   }
@@ -2339,20 +1971,17 @@ export default function EnterpriseView({
                   <Search className="h-4 w-4 text-blue-600" />
                   <span>{t('searchEnterprise')}</span>
                 </span>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-600" />
-                  <input
-                    type="text"
-                    value={enterpriseSearchTerm}
-                    onChange={(e) => {
-                      setEnterpriseSearchTerm(e.target.value);
-                      setEnterpriseSearchOpen(true);
-                    }}
-                    onFocus={() => setEnterpriseSearchOpen(true)}
-                    placeholder={t('searchPlaceholderEnterprises')}
-                    className="h-11 w-full rounded-lg border border-border-base bg-bg-surface pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
+                <input
+                  type="text"
+                  value={enterpriseSearchTerm}
+                  onChange={(e) => {
+                    setEnterpriseSearchTerm(e.target.value);
+                    setEnterpriseSearchOpen(true);
+                  }}
+                  onFocus={() => setEnterpriseSearchOpen(true)}
+                  placeholder={t('searchPlaceholderEnterprises')}
+                  className="h-11 w-full rounded-lg border border-border-base bg-bg-surface px-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
+                />
                 {enterpriseSearchOpen && enterpriseSearchSuggestions.length > 0 ? (
                   <div className="absolute left-0 top-full z-30 mt-2 w-full overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 shadow-xl shadow-blue-950/10">
                     <div className="max-h-64 overflow-y-auto">
@@ -2491,6 +2120,7 @@ export default function EnterpriseView({
                   onClick={handleApplyEnterpriseFilters}
                   className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 lg:w-auto"
                 >
+                  <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" />
                   {t('applyFilters')}
                 </button>
                 <button
@@ -2498,6 +2128,7 @@ export default function EnterpriseView({
                   onClick={handleResetEnterpriseFilters}
                   className="inline-flex w-full items-center justify-center rounded-lg border border-border-base bg-bg-base px-4 py-2.5 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight lg:w-auto"
                 >
+                  <RotateCcw className="mr-2 h-4 w-4 shrink-0" />
                   {t('resetFilters')}
                 </button>
               </div>
@@ -2732,8 +2363,12 @@ export default function EnterpriseView({
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
 }
+
+
+
 

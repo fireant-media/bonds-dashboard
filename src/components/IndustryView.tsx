@@ -16,6 +16,7 @@ import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getCh
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
+import RelatedNewsPanel from './RelatedNewsPanel';
 import { useIndustryBaseDashboardQuery, useIndustryFullDashboardQuery } from '../query/dashboardQueries';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
 
@@ -1120,6 +1121,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             </div>
           )}
         </div>
+
+        <RelatedNewsPanel className="col-span-12" />
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ interface TopInterestBond {
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
+import RelatedNewsPanel from './RelatedNewsPanel';
 import { CHART_PALETTE, applyChartTheme, downloadChartImage, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
@@ -1311,6 +1312,8 @@ export default function MarketOverview() {
           payload={marketFlowInsightPayload}
           className="col-span-12"
         />
+
+        <RelatedNewsPanel className="col-span-12" />
       </div>
 
       <ChartDataViewModal
