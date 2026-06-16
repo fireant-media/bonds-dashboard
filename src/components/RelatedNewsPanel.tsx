@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { AlertCircle, ChevronRight, Newspaper, RefreshCw } from 'lucide-react';
+import { AlertCircle, ChevronRight, Newspaper, RotateCcw } from 'lucide-react';
 import { useNewsQuery } from '../query/dashboardQueries';
 import { useLanguage } from '../LanguageContext';
 import { formatDate } from '../utils/format';
@@ -32,7 +32,7 @@ export default function RelatedNewsPanel({
   description,
   symbol,
   className,
-  limit = 30,
+  limit = 50,
 }: RelatedNewsPanelProps) {
   const { t } = useLanguage();
   const newsQuery = useNewsQuery(symbol);
@@ -56,6 +56,11 @@ export default function RelatedNewsPanel({
 
   const handleImageError = (id: string) => {
     setImageErrors((previous) => ({ ...previous, [id]: true }));
+  };
+
+  const handleResetSearch = () => {
+    setImageErrors({});
+    void newsQuery.refetch();
   };
 
   const stopDragging = () => {
@@ -103,14 +108,13 @@ export default function RelatedNewsPanel({
         </div>
         <button
           type="button"
-          onClick={() => void newsQuery.refetch()}
+          onClick={handleResetSearch}
           disabled={newsQuery.isFetching && visibleNews.length === 0}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-          title={t('refresh')}
-          aria-label={t('refresh')}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+          title={t('reset')}
+          aria-label={t('reset')}
         >
-          <RefreshCw className={`h-4 w-4 ${newsQuery.isFetching ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">{t('refresh')}</span>
+          <RotateCcw className={`h-4 w-4 ${newsQuery.isFetching ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
@@ -153,9 +157,6 @@ export default function RelatedNewsPanel({
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">
-            {visibleNews.length} / {limit} {t('relatedNews')}
-          </p>
           <div
             ref={scrollContainerRef}
             className="flex gap-4 overflow-x-auto pb-2 cursor-grab select-none active:cursor-grabbing"

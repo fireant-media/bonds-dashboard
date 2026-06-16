@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Columns3, EyeOff, ListOrdered } from 'lucide-react';
+import { Columns3, Eye, FilterX, ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
@@ -21,7 +21,8 @@ import {
 } from '../services/aiBondFilter';
 import { MARKET_OVERVIEW_CACHE_KEY, type MarketOverviewPayload } from '../services/marketOverviewData';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
-import { getCache } from '../utils/cache';
+import { getCache, getCacheEntryAllowExpired, setCache } from '../utils/cache';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import BondSectionNav from './BondSectionNav';
 import {
   buildIndustrySymbolLookup,
@@ -36,6 +37,8 @@ import { DataTable, DataTableColumn } from './ui/DataTable';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 
 const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
+const MARKET_BOND_VIEW_CACHE_PREFIX = 'market_bond_list_v2_';
+const MARKET_BOND_BACKGROUND_REFRESH_MS = 5 * 60 * 1000;
 type MarketRowSource = 'listed-market' | 'government-beta' | 'unlisted-enterprise-beta';
 
 interface MarketBondFilterViewProps {
@@ -63,6 +66,13 @@ const resolveInitialMarketBondFetchLimit = () => {
   return MARKET_BOND_FETCH_FALLBACK_LIMIT;
 };
 
+const buildViewCacheKey = (prefix: string, query: Record<string, unknown>) => {
+  const entries = Object.entries(query)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `${prefix}${JSON.stringify(entries)}`;
+};
+
 const toBondModel = (row: BondDataRow): Bond => ({
   id: row.bondCode,
   code: row.bondCode,
@@ -80,9 +90,19 @@ const toBondModel = (row: BondDataRow): Bond => ({
 
 const mergeRowWithBondDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
   const detail = detailPayload?.detail || detailPayload || {};
+  const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
   const issuerName = String(detail?.issuerName || detail?.IssuerName || row.issuerName || row.issuerSymbol || '').trim();
   const issuerSymbol = String(detail?.issuerSymbol || detail?.IssuerSymbol || row.issuerSymbol || '').trim();
   const bondType = String(detail?.bondType || detail?.BondType || row.bondType || '').trim();
+  const currentListedVolume = row.currentListedVolume > 0
+    ? row.currentListedVolume
+    : Number(detail?.currentListedVolume || detail?.CurrentListedVolume || historyItem?.volume || 0);
+  const currentListedValue = row.currentListedValue > 0
+    ? row.currentListedValue
+    : Number(detail?.currentListedValue || detail?.CurrentListedValue || historyItem?.value || 0);
+  const totalIssuedValue = row.totalIssuedValue > 0
+    ? row.totalIssuedValue
+    : Number(detail?.totalIssuedValue || detail?.TotalIssuedValue || historyItem?.value || 0);
   const industry = resolveEnterpriseIndustryFromCandidates(
     detail?.icbNameLv2,
     detail?.ICBNameLv2,
@@ -104,6 +124,9 @@ const mergeRowWithBondDetail = (row: BondDataRow, detailPayload: any): BondDataR
     issuerName,
     bondType,
     industry,
+    currentListedVolume,
+    currentListedValue,
+    totalIssuedValue,
     raw: {
       ...row.raw,
       issuerName,
@@ -224,6 +247,7 @@ export default function MarketBondFilterView({
   const [hiddenColumnIds, setHiddenColumnIds] = useState<string[]>([]);
   const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<string[]>([]);
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(true);
   const [industrySymbolLookup, setIndustrySymbolLookup] = useState<Map<string, string>>(new Map());
   const initialFetchLimit = useMemo(() => resolveInitialMarketBondFetchLimit(), []);
   const presetSignatureRef = useRef('');
@@ -348,6 +372,18 @@ export default function MarketBondFilterView({
     bondTypeOptions,
     industryOptions,
   });
+  const marketBondQuery = useMemo(
+    () => buildBondFilterQueryFromCriteria(appliedCriteria, {
+      statusID: 1,
+      isListing: 1,
+      top: initialFetchLimit,
+    }),
+    [appliedCriteria, initialFetchLimit],
+  );
+  const marketBondCacheKey = useMemo(
+    () => buildViewCacheKey(MARKET_BOND_VIEW_CACHE_PREFIX, marketBondQuery as Record<string, unknown>),
+    [marketBondQuery],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -375,20 +411,30 @@ export default function MarketBondFilterView({
     let cancelled = false;
 
     const loadRows = async () => {
-      setLoading(true);
+      const cachedEntry = getCacheEntryAllowExpired<BondDataRow[]>(marketBondCacheKey);
+      const cachedRows = Array.isArray(cachedEntry?.data) ? cachedEntry.data : [];
+      const hasCachedRows = cachedRows.length > 0;
+      const shouldRefresh = !cachedEntry || Date.now() - cachedEntry.timestamp > MARKET_BOND_BACKGROUND_REFRESH_MS;
+
+      if (hasCachedRows) {
+        setRows(cachedRows);
+      }
+
+      setLoading(!hasCachedRows);
       setError(null);
+
+      if (!shouldRefresh) {
+        return;
+      }
 
       try {
         const [marketRows, governmentRows, unlistedEnterpriseRows] = await Promise.all([
-          loadBondFilterRows(
-            buildBondFilterQueryFromCriteria(appliedCriteria, {
-              statusID: 1,
-              isListing: 1,
-              top: initialFetchLimit,
-            }),
-          ),
-          loadGovernmentBondRows(),
-          loadUnlistedEnterpriseBondRows(),
+          loadBondFilterRows(marketBondQuery, {
+            enrichWithDetails: false,
+            forceRefresh: hasCachedRows,
+          }),
+          loadGovernmentBondRows({ forceRefresh: hasCachedRows }),
+          loadUnlistedEnterpriseBondRows({ forceRefresh: hasCachedRows }),
         ]);
 
         if (!cancelled) {
@@ -399,18 +445,21 @@ export default function MarketBondFilterView({
                 ...withMarketSource(governmentRows, 'government-beta'),
                 ...withMarketSource(unlistedEnterpriseRows, 'unlisted-enterprise-beta'),
               ].map((row) => [row.bondCode, row]),
-            ).values(),
+          ).values(),
           ).map((row) => ({
             ...row,
             industry: resolveDisplayedIndustry(row),
           }));
           setRows(mergedRows);
+          setCache(marketBondCacheKey, mergedRows);
         }
       } catch (requestError) {
         if (!cancelled) {
           console.error('Failed to load market bond filter data', requestError);
-          setRows([]);
-          setError(requestError instanceof Error ? requestError.message : t('error'));
+          if (!hasCachedRows) {
+            setRows([]);
+            setError(requestError instanceof Error ? requestError.message : t('error'));
+          }
         }
       } finally {
         if (!cancelled) {
@@ -424,7 +473,7 @@ export default function MarketBondFilterView({
     return () => {
       cancelled = true;
     };
-  }, [appliedCriteria, enterpriseIndustryBySymbol, industrySymbolLookup, initialFetchLimit, t]);
+  }, [enterpriseIndustryBySymbol, industrySymbolLookup, marketBondCacheKey, marketBondQuery, t]);
 
   useEffect(() => {
     const preset = (
@@ -477,35 +526,37 @@ export default function MarketBondFilterView({
               })
             : Promise.resolve({} as Record<string, any>),
           symbolsNeedingProfiles.length > 0
-            ? Promise.all(
-                symbolsNeedingProfiles.map(async (symbol) => [symbol, await loadIssuerProfile(symbol)] as const),
-              )
-            : Promise.resolve([] as ReadonlyArray<readonly [string, any]>),
+            ? mapWithConcurrency(symbolsNeedingProfiles, 5, async (symbol) => [symbol, await loadIssuerProfile(symbol)] as const)
+            : Promise.resolve([] as PromiseSettledResult<readonly [string, any]>[]),
         ]);
 
         if (cancelled) return;
 
         const profileMap = new Map<string, any>(
-          profileEntries.filter((entry): entry is readonly [string, any] => Boolean(entry[1])),
+          getFulfilledValues(profileEntries).filter((entry): entry is readonly [string, any] => Boolean(entry[1])),
         );
 
-        setRows((currentRows) => currentRows.map((row) => {
-          let mergedRow = row;
-          const detailPayload = detailMap[row.bondCode];
-          if (detailPayload) {
-            mergedRow = mergeRowWithBondDetail(mergedRow, detailPayload);
-          }
+        setRows((currentRows) => {
+          const nextRows = currentRows.map((row) => {
+            let mergedRow = row;
+            const detailPayload = detailMap[row.bondCode];
+            if (detailPayload) {
+              mergedRow = mergeRowWithBondDetail(mergedRow, detailPayload);
+            }
 
-          const issuerProfile = profileMap.get(String(mergedRow.issuerSymbol || '').trim());
-          if (issuerProfile) {
-            mergedRow = mergeRowWithIssuerProfile(mergedRow, issuerProfile);
-          }
+            const issuerProfile = profileMap.get(String(mergedRow.issuerSymbol || '').trim());
+            if (issuerProfile) {
+              mergedRow = mergeRowWithIssuerProfile(mergedRow, issuerProfile);
+            }
 
-          return {
-            ...mergedRow,
-            industry: resolveDisplayedIndustry(mergedRow),
-          };
-        }));
+            return {
+              ...mergedRow,
+              industry: resolveDisplayedIndustry(mergedRow),
+            };
+          });
+          setCache(marketBondCacheKey, nextRows);
+          return nextRows;
+        });
       } catch (detailError) {
         if (!cancelled) {
           console.warn('Failed to hydrate visible market bond rows', detailError);
@@ -518,7 +569,7 @@ export default function MarketBondFilterView({
     return () => {
       cancelled = true;
     };
-  }, [rows, visibleBondCodes]);
+  }, [marketBondCacheKey, rows, visibleBondCodes]);
 
   const filteredRows = useMemo(() => {
     const manuallyFilteredRows = filterBondRowsByCriteria(rows, appliedCriteria).filter((row) => {
@@ -726,7 +777,7 @@ export default function MarketBondFilterView({
   }, [hiddenColumnIds, isColumnVisibilityOpen]);
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 transition-colors duration-300">
       <BondSectionNav activeSection="market" />
 
       <BondFilterPanel
@@ -754,22 +805,34 @@ export default function MarketBondFilterView({
         bondTypeOptions={bondTypeOptions}
         industryOptions={industryOptions}
         searchOptions={rows.map((row) => row.bondCode)}
+        showFilterControls={isFilterControlsVisible}
         marketActionSlot={(
-          <div ref={columnVisibilityRef} className="relative flex justify-end">
+          <div ref={columnVisibilityRef} className="relative flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIsFilterControlsVisible((current) => !current)}
+              className="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+              title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+            >
+              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Eye className="h-4 w-4 text-blue-600" />}
+              <span>{t('filterTab')}</span>
+            </button>
             <button
               type="button"
               onClick={() => setIsColumnVisibilityOpen((current) => !current)}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
               aria-haspopup="dialog"
               aria-expanded={isColumnVisibilityOpen}
               aria-label={t('hideColumns')}
               title={t('hideColumns')}
             >
-              <EyeOff className="h-4 w-4 text-blue-600" />
+              <Columns3 className="h-4 w-4 text-blue-600" />
+              <span>{t('hideColumns')}</span>
             </button>
 
             {isColumnVisibilityOpen ? (
-              <div className="absolute right-full top-0 z-30 mr-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+              <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
                 <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
                   <Columns3 className="h-4 w-4 text-blue-600" />
                   <span>{t('hideColumns')}</span>

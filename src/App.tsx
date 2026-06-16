@@ -6,7 +6,7 @@ import LoginView from './components/LoginView';
 import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
-import { SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
+import { POST_LOGIN_REDIRECT_KEY, SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
 import { fireantApi } from './api/fireant';
 import { buildAppApiUrl } from './api/config';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
@@ -316,6 +316,17 @@ export default function App() {
     };
   }, [user]);
 
+  useEffect(() => {
+    if (authLoading || !user || typeof window === 'undefined') return;
+
+    const redirectTarget = window.sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+    if (redirectTarget !== 'dashboard') return;
+
+    if (location.pathname === '/') {
+      window.sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    }
+  }, [authLoading, location.pathname, user]);
+
   const handleLogout = async () => {
     try {
       await signOut();
@@ -436,6 +447,17 @@ export default function App() {
 
   if (location.pathname === '/silent-renew-callback') {
     return <SilentRenewCallback />;
+  }
+
+  const shouldForceDashboardAfterLogin =
+    !authLoading &&
+    Boolean(user) &&
+    typeof window !== 'undefined' &&
+    window.sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY) === 'dashboard' &&
+    location.pathname !== '/';
+
+  if (shouldForceDashboardAfterLogin) {
+    return <Navigate to="/" replace />;
   }
 
   if (authLoading) {
@@ -571,7 +593,7 @@ export default function App() {
         <AIChatBot />
       </Suspense>
 
-      {selectedBond && !showBondComparison && (
+      {selectedBond && (
         <Suspense fallback={null}>
           <BondDetailPopup 
             bond={selectedBond}

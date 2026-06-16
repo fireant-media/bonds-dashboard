@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ChartWithToolbar from './ChartWithToolbar';
 import AIInsightPanel from './AIInsightPanel';
 import { IndustryType } from '../types';
@@ -85,6 +86,7 @@ const roundMetric = (value: number, digits = 2) => {
 };
 
 export default function IndustryView({ industry }: IndustryViewProps) {
+  const navigate = useNavigate();
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -622,6 +624,11 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   });
 
   const issuedValueTreemapOptions = getIssuedValueTreemapOptions();
+  const handleIndustryDataViewCategoryClick = (ticker: string) => {
+    const normalizedTicker = String(ticker || '').trim();
+    if (!normalizedTicker) return;
+    navigate(`/filter/issuer/${encodeURIComponent(normalizedTicker)}`);
+  };
 
   const getCombinedOptions = () => {
     const displayData = deferredRankingData;
@@ -897,7 +904,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div className="mb-3 mt-1">
-        <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+          <p className="max-w-2xl text-sm font-medium leading-snug text-text-muted">
+            {language === 'vi'
+              ? `${t('marketTitleSubtitle')} ${getIndustryLabel(industry)}`
+              : `Issuance scale, bond debt, and cash flow for the ${getIndustryLabel(industry)} industry`}
+          </p>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -930,6 +944,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                 style={{ height: '100%', width: '100%' }}
                 notMerge
                 title={t('marketShare')}
+                onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
                 zoomConfig={{
                   shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                   chartStyle: { height: '100%', width: '100%' },
@@ -989,6 +1004,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                 option={issuedValueTreemapOptions}
                 style={{ height: '100%', width: '100%' }}
                 title={industryIssuedValueTreemapLabel}
+                onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
                 zoomConfig={{
                   scale: 1.1,
                   shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
@@ -1049,6 +1065,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
               style={{ height: '100%', width: '100%' }}
               allowMagicType
               title={combinedChartTitle}
+              onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
             />
           </div>
         </div>

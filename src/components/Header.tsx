@@ -8,13 +8,15 @@ import {
   Languages,
   X,
   Menu,
+  ChevronDown,
   ChevronRight,
   LayoutDashboard,
   Building2,
   SlidersHorizontal,
   Bookmark,
+  Clock3,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { useAuthUser } from '../auth/authStore';
@@ -78,6 +80,10 @@ export default function Header({
   const [activeMenu, setActiveMenu] = useState<HeaderMenu>(null);
   const [activeDashboardSubmenu, setActiveDashboardSubmenu] = useState<'industry' | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileDashboardOpen, setMobileDashboardOpen] = useState(false);
+  const [mobileIndustryOpen, setMobileIndustryOpen] = useState(false);
+  const [mobileBondListOpen, setMobileBondListOpen] = useState(false);
+  const [mobileAccountOpen, setMobileAccountOpen] = useState(false);
   const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
     () => getCache('sidebar_industry_issued_values_v2')
   );
@@ -87,6 +93,7 @@ export default function Header({
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const dashboardMenuCloseTimerRef = useRef<number | null>(null);
   const authUser = useAuthUser();
   const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
 
@@ -121,31 +128,36 @@ export default function Header({
 
   useEffect(() => {
     if (!mobileNavOpen) return;
-    if (activeTab === 'overview' || activeTab === 'industry' || (activeTab === 'filter' && activeFilterSubTab === 'issuer')) {
-      setActiveMenu('dashboard');
-      if (activeTab === 'industry') {
-        setActiveDashboardSubmenu('industry');
-      }
-      return;
-    }
-    if (activeTab === 'maturity-list' || (activeTab === 'filter' && activeFilterSubTab === 'bonds')) {
-      setActiveMenu('bond');
-      return;
-    }
-    setActiveMenu(null);
-    setActiveDashboardSubmenu(null);
+    setMobileDashboardOpen(true);
+    setMobileBondListOpen(true);
+    setMobileAccountOpen(true);
+    setMobileIndustryOpen(activeTab === 'industry');
   }, [activeTab, activeFilterSubTab, mobileNavOpen]);
+
+  useEffect(() => {
+    if (!mobileNavOpen || typeof document === 'undefined') return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileNavOpen]);
 
   useEffect(() => {
     if (activeMenu !== 'dashboard') {
       setActiveDashboardSubmenu(null);
       return;
     }
-
-    if (activeTab === 'industry') {
-      setActiveDashboardSubmenu('industry');
-    }
   }, [activeMenu, activeTab]);
+
+  useEffect(() => () => {
+    if (dashboardMenuCloseTimerRef.current != null) {
+      window.clearTimeout(dashboardMenuCloseTimerRef.current);
+      dashboardMenuCloseTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
       const loadSearchCaches = async () => {
@@ -361,6 +373,11 @@ export default function Header({
     { id: 'issuer', label: t('filterByIssuer'), icon: UserCircle },
   ];
 
+  const mobileBondItems = [
+    { id: 'market-bonds', label: t('marketBondList'), icon: SlidersHorizontal, isActive: activeTab === 'filter' && activeFilterSubTab === 'bonds', onClick: () => openFilter('bonds') },
+    { id: 'maturity-list', label: t('maturityList'), icon: Clock3, isActive: activeTab === 'maturity-list', onClick: () => openTopLevel('maturity-list') },
+  ];
+
   const isDashboardActive =
     activeTab === 'overview' ||
     activeTab === 'industry' ||
@@ -378,6 +395,10 @@ export default function Header({
     }
     setActiveTab(tab);
     setActiveMenu(null);
+    setMobileDashboardOpen(false);
+    setMobileIndustryOpen(false);
+    setMobileBondListOpen(false);
+    setMobileAccountOpen(false);
     setMobileNavOpen(false);
   };
 
@@ -385,6 +406,7 @@ export default function Header({
     void warmIndustryData(industry);
     setActiveIndustry(industry);
     setActiveMenu(null);
+    setMobileIndustryOpen(true);
     setMobileNavOpen(false);
   };
 
@@ -392,6 +414,10 @@ export default function Header({
     warmDashboardCoreDataInBackground();
     setActiveFilterSubTab(subTab);
     setActiveMenu(null);
+    setMobileDashboardOpen(subTab === 'issuer');
+    setMobileBondListOpen(subTab === 'bonds');
+    setMobileIndustryOpen(false);
+    setMobileAccountOpen(false);
     setMobileNavOpen(false);
   };
 
@@ -399,13 +425,20 @@ export default function Header({
     setActiveDashboardSubmenu((current) => (current === submenu ? null : submenu));
   };
 
-  const handleMenuRegionLeave = (event: ReactMouseEvent<HTMLElement>) => {
-    const nextTarget = event.relatedTarget as Node | null;
-    if (nextTarget && event.currentTarget.contains(nextTarget)) {
-      return;
+  const clearDashboardMenuCloseTimer = () => {
+    if (dashboardMenuCloseTimerRef.current != null) {
+      window.clearTimeout(dashboardMenuCloseTimerRef.current);
+      dashboardMenuCloseTimerRef.current = null;
     }
-    setActiveMenu(null);
-    setActiveDashboardSubmenu(null);
+  };
+
+  const scheduleDashboardMenuClose = () => {
+    clearDashboardMenuCloseTimer();
+    dashboardMenuCloseTimerRef.current = window.setTimeout(() => {
+      setActiveMenu(null);
+      setActiveDashboardSubmenu(null);
+      dashboardMenuCloseTimerRef.current = null;
+    }, 140);
   };
 
   const renderNavButton = (item: typeof navItems[number], compact = false) => {
@@ -421,9 +454,7 @@ export default function Header({
           }
           if (!compact && item.menu) {
             setActiveMenu(item.menu);
-            if (activeTab === 'industry') {
-              setActiveDashboardSubmenu('industry');
-            }
+            setActiveDashboardSubmenu(null);
           }
         }}
         onClick={() => {
@@ -431,7 +462,6 @@ export default function Header({
             openTopLevel('overview');
             setActiveMenu(null);
             setActiveDashboardSubmenu(null);
-            setMobileNavOpen(false);
             return;
           }
           if (item.id === 'watchlist') {
@@ -445,7 +475,7 @@ export default function Header({
         }}
         className={cn(
           'flex items-center gap-2 rounded-lg font-semibold transition-colors duration-200 cursor-pointer',
-          compact ? 'w-full justify-between px-3 py-3 text-sm' : 'px-3 py-2 text-xs',
+          compact ? 'w-full justify-between px-3 py-3 text-sm' : 'px-3 py-2.5 text-sm',
           isActive
             ? 'text-blue-600'
             : 'text-text-muted hover:text-blue-600'
@@ -461,13 +491,27 @@ export default function Header({
     );
   };
 
+  const mobileSectionButtonClassName = (active: boolean) => cn(
+    'flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left text-sm transition-colors cursor-pointer',
+    active
+      ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
+      : 'text-text-base hover:bg-surface-container-low'
+  );
+
+  const mobileSectionItemClassName = (active: boolean) => cn(
+    'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
+    active
+      ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
+      : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
+  );
+
   return (
-    <header className="relative sticky top-0 z-50 flex min-h-16 shrink-0 flex-wrap items-center gap-2 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:flex-nowrap sm:gap-3 md:h-16 md:px-6 md:py-0">
-      <div className="flex shrink-0 items-center gap-2">
+    <header className="relative sticky top-0 z-50 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
+      <div className="flex min-w-0 shrink-0 items-center gap-2 lg:min-w-72 lg:pr-3">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
-          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:text-blue-600 active:scale-95 xl:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
           aria-label="Open navigation"
           title="Open navigation"
         >
@@ -475,7 +519,7 @@ export default function Header({
         </button>
         <button
           type="button"
-          className="flex shrink-0 items-center gap-3 select-none"
+          className="flex min-w-0 shrink-0 items-center gap-3 select-none"
           onClick={onLogoClick}
           aria-label="FireAnt"
         >
@@ -485,99 +529,126 @@ export default function Header({
 
       <nav
         ref={navMenuRef}
-        className="relative hidden min-w-0 flex-1 items-center gap-1 xl:flex"
+        className="relative hidden min-w-0 flex-1 items-center gap-1 lg:ml-0 lg:mt-1 lg:flex"
       >
-        {navItems.map((item) => renderNavButton(item))}
+        {navItems.map((item) => {
+          if (item.menu === 'dashboard') {
+            return (
+              <div
+                key={item.id}
+                className="relative"
+                onMouseEnter={() => {
+                  clearDashboardMenuCloseTimer();
+                  setActiveMenu('dashboard');
+                  setActiveDashboardSubmenu(null);
+                }}
+                onMouseLeave={() => {
+                  scheduleDashboardMenuClose();
+                }}
+              >
+                {renderNavButton(item)}
 
-        {activeMenu === 'dashboard' && (
-          <div
-            className="absolute left-0 top-full z-50 mt-2 w-64 rounded-lg border border-border-base bg-surface-bright p-2"
-            onMouseLeave={handleMenuRegionLeave}
-          >
-            {dashboardItems.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                item.id === 'overview'
-                  ? activeTab === 'overview'
-                  : item.id === 'industry'
-                    ? activeTab === 'industry'
-                    : activeTab === 'filter' && activeFilterSubTab === 'issuer';
-              const isSubmenuOpen = item.submenu === 'industry' && activeDashboardSubmenu === 'industry';
-
-              return (
-                <div key={item.id} className="relative">
-                  <button
-                    type="button"
+                {activeMenu === 'dashboard' && (
+                  <div
+                    className="absolute left-0 top-full z-50 mt-2 w-64 rounded-lg border border-border-base bg-surface-bright p-2"
                     onMouseEnter={() => {
-                      if (item.submenu === 'industry') {
-                        setActiveDashboardSubmenu('industry');
-                      } else {
-                        setActiveDashboardSubmenu(null);
-                      }
+                      clearDashboardMenuCloseTimer();
+                      setActiveMenu('dashboard');
                     }}
-                    onClick={() => {
-                      if (item.id === 'overview') {
-                        openTopLevel('overview');
-                        return;
-                      }
-                      if (item.id === 'industry') {
-                        toggleDashboardSubmenu('industry');
-                        return;
-                      }
-                      openFilter('issuer');
+                    onMouseLeave={() => {
+                      scheduleDashboardMenuClose();
                     }}
-                    className={cn(
-                      'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
-                      isActive || isSubmenuOpen
-                        ? 'font-semibold text-blue-600'
-                        : 'font-medium text-text-muted hover:text-blue-600'
-                    )}
-                    aria-haspopup={item.submenu ? 'menu' : undefined}
-                    aria-expanded={item.submenu ? isSubmenuOpen : undefined}
                   >
-                    <span className="flex min-w-0 items-center gap-3">
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="truncate">{item.label}</span>
-                    </span>
-                    {item.submenu === 'industry' && isSubmenuOpen ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                  </button>
+                    {dashboardItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive =
+                        item.id === 'overview'
+                          ? activeTab === 'overview'
+                          : item.id === 'industry'
+                            ? activeTab === 'industry'
+                            : activeTab === 'filter' && activeFilterSubTab === 'issuer';
+                      const isSubmenuOpen = item.submenu === 'industry' && activeDashboardSubmenu === 'industry';
 
-                  {item.submenu === 'industry' && isSubmenuOpen && (
-                    <div className="absolute left-full top-0 ml-2 w-80 rounded-lg border border-border-base bg-surface-bright p-2">
-                      {subIndustries.map((sub) => {
-                        const isIndustryActive = activeTab === 'industry' && activeIndustry === sub.id;
-
-                        return (
+                      return (
+                        <div key={item.id} className="relative">
                           <button
-                            key={sub.id}
                             type="button"
                             onMouseEnter={() => {
-                              void warmIndustryData(sub.id);
+                              if (item.submenu === 'industry') {
+                                setActiveDashboardSubmenu('industry');
+                              } else {
+                                setActiveDashboardSubmenu(null);
+                              }
                             }}
-                            onClick={() => openIndustry(sub.id)}
+                            onClick={() => {
+                              if (item.id === 'overview') {
+                                openTopLevel('overview');
+                                return;
+                              }
+                              if (item.id === 'industry') {
+                                toggleDashboardSubmenu('industry');
+                                return;
+                              }
+                              openFilter('issuer');
+                            }}
                             className={cn(
                               'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
-                              isIndustryActive
+                              isActive || isSubmenuOpen
                                 ? 'font-semibold text-blue-600'
                                 : 'font-medium text-text-muted hover:text-blue-600'
                             )}
+                            aria-haspopup={item.submenu ? 'menu' : undefined}
+                            aria-expanded={item.submenu ? isSubmenuOpen : undefined}
                           >
-                            <span className="min-w-0 truncate">{sub.label}</span>
-                            {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0" />}
+                            <span className="flex min-w-0 items-center gap-3">
+                              <Icon className="h-4 w-4 shrink-0" />
+                              <span className="truncate">{item.label}</span>
+                            </span>
+                            {item.submenu === 'industry' && isSubmenuOpen ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
                           </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+
+                          {item.submenu === 'industry' && isSubmenuOpen && (
+                            <div className="absolute left-full top-0 ml-2 w-80 rounded-lg border border-border-base bg-surface-bright p-2">
+                              {subIndustries.map((sub) => {
+                                const isIndustryActive = activeTab === 'industry' && activeIndustry === sub.id;
+
+                                return (
+                                  <button
+                                    key={sub.id}
+                                    type="button"
+                                    onMouseEnter={() => {
+                                      void warmIndustryData(sub.id);
+                                    }}
+                                    onClick={() => openIndustry(sub.id)}
+                                    className={cn(
+                                      'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
+                                      isIndustryActive
+                                        ? 'font-semibold text-blue-600'
+                                        : 'font-medium text-text-muted hover:text-blue-600'
+                                    )}
+                                  >
+                                    <span className="min-w-0 truncate">{sub.label}</span>
+                                    {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          return renderNavButton(item);
+        })}
 
       </nav>
 
-      <div className="ml-auto flex basis-full items-center justify-end gap-1 pt-2 sm:min-w-0 sm:basis-auto sm:flex-none sm:pt-0 sm:gap-2">
+      <div className="ml-auto flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={() => {
@@ -585,14 +656,14 @@ export default function Header({
             setShowDropdown(true);
             window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
           }}
-          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-600 hover:text-blue-600 active:scale-95 md:hidden"
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
           aria-label={t('searchPlaceholder')}
           title={t('searchPlaceholder')}
         >
           <Search className="h-5 w-5" />
         </button>
 
-        <div ref={containerRef} className="relative hidden w-72 min-w-0 max-w-xs md:block">
+        <div ref={containerRef} className="relative hidden w-72 min-w-0 max-w-xs lg:block">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-text-muted" />
           </div>
@@ -632,7 +703,7 @@ export default function Header({
         </div>
 
         {mobileSearchOpen && (
-          <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-xl shadow-blue-950/10 md:hidden">
+          <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-xl shadow-blue-950/10 lg:hidden">
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-4 w-4 text-text-muted" />
@@ -686,28 +757,30 @@ export default function Header({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={toggleTheme}
-          className="shrink-0 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
-          title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-          aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-        >
-          {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-        </button>
+        <div className="hidden items-center gap-1 lg:flex">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="shrink-0 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
+            title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+            aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+          >
+            {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
 
-        <button
-          type="button"
-          onClick={toggleLanguage}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
-          title={t('uiLanguage')}
-          aria-label={t('uiLanguage')}
-        >
-          <Languages className="h-5 w-5" />
-          <span className="hidden text-xs font-bold uppercase sm:inline">{language}</span>
-        </button>
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
+            title={t('uiLanguage')}
+            aria-label={t('uiLanguage')}
+          >
+            <Languages className="h-5 w-5" />
+            <span className="text-xs font-bold uppercase">{language}</span>
+          </button>
+        </div>
 
-        <div ref={userMenuRef} className="relative">
+        <div ref={userMenuRef} className="relative hidden lg:block">
           <button 
             type="button"
             onClick={() => setShowUserMenu(!showUserMenu)}
@@ -758,14 +831,13 @@ export default function Header({
       </div>
 
       {mobileNavOpen && (
-        <div className="fixed inset-0 z-50 xl:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/30"
+        <div className="fixed inset-0 z-[70] lg:hidden">
+          <div
+            className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
             onClick={() => setMobileNavOpen(false)}
-            aria-label="Close navigation"
+            aria-hidden="true"
           />
-          <div className="relative flex h-full w-80 max-w-full flex-col border-r border-border-base bg-surface-bright">
+          <aside className="relative flex h-full w-[22rem] max-w-[88vw] flex-col border-r border-border-base bg-surface-bright shadow-2xl shadow-blue-950/20 transition-transform duration-300 ease-out">
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-border-base px-4">
               <button
                 type="button"
@@ -788,86 +860,277 @@ export default function Header({
               </button>
             </div>
 
-            <nav className="min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="space-y-1">
-                {navItems.map((item) => (
-                  <div key={item.id}>
-                    {renderNavButton(item, true)}
-                    {item.id === 'dashboard' && activeMenu === 'dashboard' && (
-                      <div className="mt-1 space-y-1 pl-5">
-                        {dashboardItems.map((sub) => {
-                          const Icon = sub.icon;
-                          const isActive =
-                            sub.id === 'overview'
-                              ? activeTab === 'overview'
-                              : sub.id === 'industry'
-                                ? activeTab === 'industry'
-                                : activeTab === 'filter' && activeFilterSubTab === 'issuer';
-                          const isSubmenuOpen = sub.submenu === 'industry' && activeDashboardSubmenu === 'industry';
-
-                          return (
-                            <div key={sub.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (sub.id === 'overview') {
-                                    openTopLevel('overview');
-                                    return;
-                                  }
-                                  if (sub.id === 'industry') {
-                                    toggleDashboardSubmenu('industry');
-                                    return;
-                                  }
-                                  openFilter('issuer');
-                                }}
-                                className={cn(
-                                  'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
-                                  isActive || isSubmenuOpen
-                                    ? 'font-semibold text-blue-600'
-                                    : 'font-medium text-text-muted hover:text-blue-600'
-                                )}
-                              >
-                                <span className="flex min-w-0 items-center gap-3">
-                                  <Icon className="h-4 w-4 shrink-0" />
-                                  <span className="truncate">{sub.label}</span>
-                                </span>
-                                {sub.submenu === 'industry' && isSubmenuOpen ? <ChevronRight className="h-4 w-4 shrink-0" /> : isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                              </button>
-
-                              {sub.submenu === 'industry' && isSubmenuOpen && (
-                                <div className="mt-1 space-y-1 pl-5">
-                                  {subIndustries.map((industry) => {
-                                    const isIndustryActive = activeTab === 'industry' && activeIndustry === industry.id;
-
-                                    return (
-                                      <button
-                                        key={industry.id}
-                                        type="button"
-                                        onClick={() => openIndustry(industry.id)}
-                                        className={cn(
-                                          'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
-                                          isIndustryActive
-                                            ? 'font-semibold text-blue-600'
-                                            : 'font-medium text-text-muted hover:text-blue-600'
-                                        )}
-                                      >
-                                        <span className="min-w-0 truncate">{industry.label}</span>
-                                        {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0" />}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+            <div className="border-b border-border-base px-4 py-4">
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('profileUser')}</p>
+                <div className="mt-3 flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-action-accent font-bold text-slate-950 shadow-md shadow-cyan-500/20">
+                    {getInitials(authUser?.profile?.name || '')}
                   </div>
-                ))}
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-text-base">{authUser?.profile?.name || 'Admin User'}</p>
+                    <p className="truncate text-xs font-medium text-text-muted">{authUser?.identityData?.email || ''}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <nav className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <div className="space-y-5">
+                <section className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setMobileDashboardOpen((current) => !current)}
+                    className={mobileSectionButtonClassName(isDashboardActive || mobileDashboardOpen)}
+                    aria-expanded={mobileDashboardOpen}
+                  >
+                    <span className="flex items-center gap-3">
+                      <LayoutDashboard className="h-4 w-4 shrink-0" />
+                      <span className="font-semibold">{t('dashboardMenu')}</span>
+                    </span>
+                    {mobileDashboardOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                  </button>
+
+                  {mobileDashboardOpen ? (
+                    <div className="space-y-1 pl-3">
+                      {dashboardItems.map((item) => {
+                        const Icon = item.icon;
+                        const isActive =
+                          item.id === 'overview'
+                            ? activeTab === 'overview'
+                            : item.id === 'industry'
+                              ? activeTab === 'industry'
+                              : activeTab === 'filter' && activeFilterSubTab === 'issuer';
+
+                        return (
+                          <div key={item.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (item.id === 'overview') {
+                                  openTopLevel('overview');
+                                  return;
+                                }
+                                if (item.id === 'industry') {
+                                  setMobileIndustryOpen((current) => !current);
+                                  return;
+                                }
+                                openFilter('issuer');
+                              }}
+                              className={mobileSectionItemClassName(isActive || (item.id === 'industry' && mobileIndustryOpen))}
+                              aria-expanded={item.id === 'industry' ? mobileIndustryOpen : undefined}
+                            >
+                              <span className="flex min-w-0 items-center gap-3">
+                                <Icon className="h-4 w-4 shrink-0" />
+                                <span className="truncate font-medium">{item.label}</span>
+                              </span>
+                              {item.id === 'industry' ? (
+                                mobileIndustryOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />
+                              ) : isActive ? (
+                                <ChevronRight className="h-4 w-4 shrink-0" />
+                              ) : null}
+                            </button>
+
+                            {item.id === 'industry' && mobileIndustryOpen ? (
+                              <div className="mt-1 space-y-1 pl-4">
+                                {subIndustries.map((industry) => {
+                                  const isIndustryActive = activeTab === 'industry' && activeIndustry === industry.id;
+
+                                  return (
+                                    <button
+                                      key={industry.id}
+                                      type="button"
+                                      onClick={() => openIndustry(industry.id)}
+                                      className={mobileSectionItemClassName(isIndustryActive)}
+                                    >
+                                      <span className="min-w-0 truncate font-medium">{industry.label}</span>
+                                      {isIndustryActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </section>
+
+                <section className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setMobileBondListOpen((current) => !current)}
+                    className={mobileSectionButtonClassName(mobileBondListOpen || activeTab === 'maturity-list' || (activeTab === 'filter' && activeFilterSubTab === 'bonds'))}
+                    aria-expanded={mobileBondListOpen}
+                  >
+                    <span className="flex items-center gap-3">
+                      <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                      <span className="font-semibold">{t('bondNavigationMenu')}</span>
+                    </span>
+                    {mobileBondListOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                  </button>
+
+                  {mobileBondListOpen ? (
+                    <div className="space-y-1 pl-3">
+                      {mobileBondItems.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={item.onClick}
+                            className={mobileSectionItemClassName(item.isActive)}
+                          >
+                            <span className="flex min-w-0 items-center gap-3">
+                              <Icon className="h-4 w-4 shrink-0" />
+                              <span className="truncate font-medium">{item.label}</span>
+                            </span>
+                            {item.isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </section>
+
+                <section className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => openTopLevel('watchlist')}
+                    className={mobileSectionButtonClassName(activeTab === 'watchlist')}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Bookmark className="h-4 w-4 shrink-0" />
+                      <span className="font-semibold">{t('watchList')}</span>
+                    </span>
+                    {activeTab === 'watchlist' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                  </button>
+                </section>
+
+                <section className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setMobileAccountOpen((current) => !current)}
+                    className={mobileSectionButtonClassName(mobileAccountOpen || activeTab === 'profile' || activeTab === 'help')}
+                    aria-expanded={mobileAccountOpen}
+                  >
+                    <span className="flex items-center gap-3">
+                      <UserCircle className="h-4 w-4 shrink-0" />
+                      <span className="font-semibold">{t('profileUser')}</span>
+                    </span>
+                    {mobileAccountOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                  </button>
+
+                  {mobileAccountOpen ? (
+                    <div className="space-y-1 pl-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onProfileClick();
+                          setMobileNavOpen(false);
+                        }}
+                        className={mobileSectionItemClassName(activeTab === 'profile')}
+                      >
+                        <span className="flex items-center gap-3">
+                          <UserCircle className="h-4 w-4 shrink-0" />
+                          <span className="font-medium">{t('profile')}</span>
+                        </span>
+                        {activeTab === 'profile' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onHelpClick();
+                          setMobileNavOpen(false);
+                        }}
+                        className={mobileSectionItemClassName(activeTab === 'help')}
+                      >
+                        <span className="flex items-center gap-3">
+                          <HelpCircle className="h-4 w-4 shrink-0" />
+                          <span className="font-medium">{t('help')}</span>
+                        </span>
+                        {activeTab === 'help' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileNavOpen(false);
+                          onLogout();
+                        }}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                      >
+                        <LogOut className="h-4 w-4 shrink-0" />
+                        <span>{t('logout')}</span>
+                      </button>
+                    </div>
+                  ) : null}
+                </section>
+
+                <section className="space-y-2">
+                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('uiLanguage')}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLanguage('en')}
+                      className={cn(
+                        'rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
+                        language === 'en'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
+                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
+                      )}
+                    >
+                      EN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLanguage('vi')}
+                      className={cn(
+                        'rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
+                        language === 'vi'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
+                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
+                      )}
+                    >
+                      VN
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('themeMode')}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTheme('light')}
+                      className={cn(
+                        'flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
+                        effectiveTheme === 'light'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
+                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
+                      )}
+                    >
+                      <Sun className="h-4 w-4" />
+                      <span>{t('light')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTheme('dark')}
+                      className={cn(
+                        'flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
+                        effectiveTheme === 'dark'
+                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
+                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
+                      )}
+                    >
+                      <Moon className="h-4 w-4" />
+                      <span>{t('dark')}</span>
+                    </button>
+                  </div>
+                </section>
               </div>
             </nav>
-          </div>
+          </aside>
         </div>
       )}
     </header>

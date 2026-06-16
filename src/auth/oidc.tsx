@@ -49,6 +49,8 @@ const AUTH_STORAGE_PRESSURE_PREFIXES = [
   'ai_chat_history',
 ];
 
+export const POST_LOGIN_REDIRECT_KEY = 'sentinel_post_login_redirect';
+
 const isQuotaExceededError = (error: unknown): boolean => {
   if (!(error instanceof DOMException)) {
     const message = error instanceof Error ? error.message : String(error);
@@ -216,6 +218,7 @@ export const useOidcAuth = () => {
       throw new Error('Missing VITE_OIDC_CLIENT_ID');
     }
     try {
+      window.sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, 'dashboard');
       pruneAuthStoragePressure();
       await authManager.removeUser().catch((error) => {
         console.warn('Failed to clear local OIDC user before sign-in', error);
@@ -228,6 +231,7 @@ export const useOidcAuth = () => {
         max_age: 0,
       });
     } catch (error) {
+      window.sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
       console.error('Sign-in popup failed', error);
       throw error;
     }

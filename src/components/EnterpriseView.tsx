@@ -939,6 +939,10 @@ export default function EnterpriseView({
     ? (issuerBonds.length > 0 ? issuerBonds : [])
     : [];
 
+  const toPercentValue = (value: number, total: number) => (
+    total > 0 ? roundMetric((value / total) * 100, 2) : 0
+  );
+
   const pieData = useMemo(() => {
     const monthUnit = t('monthUnit');
     const termData = enterpriseBonds.reduce((acc: any, bond) => {
@@ -960,6 +964,18 @@ export default function EnterpriseView({
         return valA - valB;
       });
   }, [enterpriseBonds, t]);
+  const pieDataTotal = useMemo(
+    () => pieData.reduce((sum, item) => sum + Number(item.value || 0), 0),
+    [pieData],
+  );
+  const pieDataViewRows = useMemo(
+    () => pieData.map((item) => [
+      item.name,
+      Number(item.value || 0),
+      toPercentValue(Number(item.value || 0), pieDataTotal),
+    ]),
+    [pieData, pieDataTotal],
+  );
   const pieLegendRows = splitLegendItems(pieData.map((item) => item.name), 5, 2);
   const hasMultiColumnPieLegend = pieLegendRows.length > 1;
   const pieLegendBase = {
@@ -1046,6 +1062,18 @@ export default function EnterpriseView({
       name, 
       value
     }));
+  const interestTypePieDataTotal = useMemo(
+    () => interestTypePieData.reduce((sum, item) => sum + Number(item.value || 0), 0),
+    [interestTypePieData],
+  );
+  const interestTypePieDataViewRows = useMemo(
+    () => interestTypePieData.map((item) => [
+      item.name,
+      Number(item.value || 0),
+      toPercentValue(Number(item.value || 0), interestTypePieDataTotal),
+    ]),
+    [interestTypePieData, interestTypePieDataTotal],
+  );
   const interestTypePieLegendGroups = splitLegendItems(interestTypePieData.map((item) => item.name), 5, 2);
   const interestTypePieLegendBase = {
     textStyle: legendStyle,
@@ -1081,6 +1109,16 @@ export default function EnterpriseView({
     acc[type].push([termMonths, bond.interestRate, bond.listedVolume, bond.code]);
     return acc;
   }, {});
+
+  const bubbleDataViewRows = useMemo(
+    () => enterpriseBonds.map((bond) => ([
+      bond.code,
+      parseFloat(bond.term) || 0,
+      roundMetric(Number(bond.interestRate || 0), 2),
+      roundMetric(Number(bond.listedVolume || 0), 0),
+    ])),
+    [enterpriseBonds],
+  );
 
   const maxVolume = Math.max(...enterpriseBonds.map(b => b.listedVolume), 1);
 
@@ -1172,6 +1210,17 @@ export default function EnterpriseView({
   const enterpriseInsightTitle = language === 'vi'
     ? 'Nhận định tổ chức phát hành'
     : 'Issuer insight';
+  const handleEnterpriseBondDataViewCategoryClick = (bondCode: string) => {
+    const normalizedBondCode = String(bondCode || '').trim().toUpperCase();
+    if (!normalizedBondCode) return;
+
+    const matchedBond = enterpriseBonds.find((bond) => String(bond.code || '').trim().toUpperCase() === normalizedBondCode);
+    if (!matchedBond) return;
+
+    setBondEnterpriseName(enterpriseDisplayName || selectedEnterprise?.ticker || '');
+    setSelectedBond(matchedBond);
+  };
+
   const enterpriseInsightPayload = useMemo(() => {
     if (!selectedEnterprise) return null;
 
@@ -1251,6 +1300,14 @@ export default function EnterpriseView({
   };
   const pieOptions = {
     color: chartPalette,
+    __dataView: {
+      columns: [
+        { label: t('term'), align: 'left', kind: 'text' },
+        { label: 'Số mã trái phiếu', align: 'right', kind: 'number' },
+        { label: t('percent'), unit: '%', align: 'right', kind: 'number' },
+      ],
+      rows: pieDataViewRows,
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'item',
@@ -1282,6 +1339,14 @@ export default function EnterpriseView({
 
   const interestTypePieOptions = {
     color: chartPalette,
+    __dataView: {
+      columns: [
+        { label: t('interestType'), align: 'left', kind: 'text' },
+        { label: 'Số mã trái phiếu', align: 'right', kind: 'number' },
+        { label: t('percent'), unit: '%', align: 'right', kind: 'number' },
+      ],
+      rows: interestTypePieDataViewRows,
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'item',
@@ -1304,6 +1369,15 @@ export default function EnterpriseView({
 
   const bubbleOptions = {
     color: chartPalette,
+    __dataView: {
+      columns: [
+        { label: t('bondCode'), align: 'left', kind: 'text' },
+        { label: t('termMonths'), align: 'center', kind: 'number' },
+        { label: `${t('interestRate')} (%)`, align: 'right', kind: 'number' },
+        { label: t('listedVolume'), align: 'right', kind: 'number' },
+      ],
+      rows: bubbleDataViewRows,
+    },
     tooltip: {
       ...chartTooltip,
       trigger: 'item',
@@ -1337,6 +1411,13 @@ export default function EnterpriseView({
 
   const columnOptions = {
     color: chartPalette,
+    __dataView: {
+      columns: [
+        { label: t('year'), align: 'center', kind: 'text' },
+        { label: t('listedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+      ],
+      rows: sortedYears.map((year, index) => [year, columnData[index] || 0]),
+    },
     tooltip: { 
       ...chartTooltip,
       trigger: 'axis',
@@ -1478,16 +1559,16 @@ export default function EnterpriseView({
 
   if (selectedEnterprise) {
     return (
-      <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+      <div className="mt-2 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
         <div className="flex items-center gap-2 text-xs font-bold text-text-muted uppercase tracking-widest">
           <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">
-            {(breadcrumbTitle || listTitle || t('enterprise')).toUpperCase()}
+            {(breadcrumbTitle || listTitle || t('filterByIssuer')).toUpperCase()}
           </button>
           <ChevronRight className="h-3 w-3" />
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-      <div className="mb-3 mt-1 flex items-start justify-between">
+      <div className="mb-3 mt-2 flex items-start justify-between">
           <div className="space-y-2">
             <h2 className="text-2xl font-bold text-text-base tracking-tight md:text-4xl">
               {language === 'en' && enterpriseProfile?.internationalName 
@@ -1791,7 +1872,12 @@ export default function EnterpriseView({
           <div 
             className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
           >
-            <ChartWithToolbar option={bubbleOptions} style={{ height: '300px' }} title={t('interestRateVsTerm')} />
+            <ChartWithToolbar
+              option={bubbleOptions}
+              style={{ height: '300px' }}
+              title={t('interestRateVsTerm')}
+              onDataViewCategoryClick={handleEnterpriseBondDataViewCategoryClick}
+            />
           </div>
           <div 
             className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
@@ -1891,8 +1977,11 @@ export default function EnterpriseView({
   return (
     <div className="min-w-0 space-y-3 transition-colors duration-300">
       <div className="mb-3 mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-text-base text-center transition-colors">{listTitle || t('enterprise')}</h2>
+        <div className="space-y-1">
+          <h2 className="text-left text-2xl font-bold text-text-base transition-colors">{listTitle || t('filterByIssuer')}</h2>
+          <p className="max-w-2xl text-left text-sm font-medium leading-snug text-text-muted">
+            {t('enterpriseListSubtitle')}
+          </p>
         </div>
       </div>
 
@@ -2196,7 +2285,7 @@ export default function EnterpriseView({
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {renderEnterpriseSortHeader('ticker', t('ticker'))}
                 </th>
-                <th className="px-6 py-4 text-xs font-bold tracking-wider text-center whitespace-nowrap normal-case">Doanh nghiệp niêm yết</th>
+                <th className="px-6 py-4 text-xs font-bold tracking-wider text-center whitespace-nowrap normal-case">{t('filterByIssuer')}</th>
                 <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
                   {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
                 </th>

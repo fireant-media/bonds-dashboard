@@ -70,7 +70,7 @@ export default function Sidebar({
   ];
 
   return (
-    <aside className="hidden h-full min-h-0 w-72 shrink-0 border-r border-border-base bg-surface-bright/95 md:flex">
+    <aside className="hidden h-full min-h-0 w-72 shrink-0 border-r border-border-base bg-surface-bright/95 lg:flex">
       <div className="min-h-0 flex-1 overflow-hidden p-3 lg:p-4">
         <nav className="space-y-1">
           {dashboardItems.map((item) => {
@@ -92,26 +92,27 @@ export default function Sidebar({
                       return;
                     }
                     if (item.id === 'industry') {
-                      setActiveTab('industry');
                       setIsIndustryOpen((current) => !current);
                       return;
                     }
                     setActiveFilterSubTab('issuer');
                   }}
                   className={cn(
-                    'w-full flex items-center rounded-lg px-3 py-2.5 transition-colors',
-                    isActive ? 'text-blue-600' : 'text-text-muted hover:text-blue-600'
+                    'group flex w-full items-center rounded-lg px-3 py-2.5 transition-colors',
+                    isActive
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
+                      : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
                   )}
                 >
                   <span className="flex min-w-0 flex-1 items-center gap-3">
-                    <Icon className="h-5 w-5 shrink-0" />
+                    <Icon className={cn('h-5 w-5 shrink-0 transition-colors', isActive ? 'text-blue-600' : 'text-current')} />
                     <span className="truncate text-sm font-semibold">{item.label}</span>
                   </span>
                   {item.hasSubmenu ? (
                     isIndustryOpen ? (
-                      <ChevronDown className="h-4 w-4 shrink-0" />
+                      <ChevronDown className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-blue-600' : 'text-current')} />
                     ) : (
-                      <ChevronRight className="h-4 w-4 shrink-0" />
+                      <ChevronRight className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-blue-600' : 'text-current')} />
                     )
                   ) : null}
                 </button>
@@ -136,12 +137,12 @@ export default function Sidebar({
                           className={cn(
                             'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
                             isIndustryActive
-                              ? 'text-blue-600'
-                              : 'text-text-muted hover:text-blue-600'
+                              ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
+                              : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
                           )}
                         >
-                          <span className="min-w-0 truncate">{sub.label}</span>
-                          {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0" />}
+                          <span className="min-w-0 truncate font-medium">{sub.label}</span>
+                          {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0 text-blue-600" />}
                         </button>
                       );
                     })}

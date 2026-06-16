@@ -2,6 +2,7 @@ import ChartWithToolbar from './ChartWithToolbar';
 import AIInsightPanel from './AIInsightPanel';
 import ReactECharts from 'echarts-for-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
 import { BadgeDollarSign, BarChart3, Boxes, Download, Hash, Landmark, LineChart, Maximize2, RotateCcw, TableProperties, Wallet, X } from 'lucide-react';
@@ -49,6 +50,7 @@ const roundMetric = (value: number, digits = 2) => {
 };
 
 export default function MarketOverview() {
+  const navigate = useNavigate();
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -599,6 +601,19 @@ export default function MarketOverview() {
     { label: t('totalIssuedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
   ]), [t]);
 
+  const handleTopIssuerCategoryClick = (ticker: string) => {
+    const normalizedTicker = String(ticker || '').trim();
+    if (!normalizedTicker) return;
+    setShowTopIssuerDataView(false);
+    navigate(`/filter/issuer/${encodeURIComponent(normalizedTicker)}`);
+  };
+
+  const handleTopInterestCategoryClick = (bondCode: string) => {
+    const normalizedBondCode = String(bondCode || '').trim();
+    if (!normalizedBondCode) return;
+    navigate(`/${encodeURIComponent(normalizedBondCode)}`);
+  };
+
   const topIssuerOptions = useMemo(() => {
     const labels = topIssuerDisplayData.length > 0
       ? topIssuerDisplayData.map((d) => d.issuerSymbol || getTopIssuerDisplayName(d))
@@ -1031,8 +1046,11 @@ export default function MarketOverview() {
   return (
     <div className="min-w-0 transition-colors duration-300">
       <div className="mb-3 mt-1 flex min-w-0 items-center justify-between">
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
+          <p className="max-w-2xl text-sm font-medium leading-snug text-text-muted">
+            {t('marketOverviewSubtitle')}
+          </p>
         </div>
       </div>
 
@@ -1163,6 +1181,7 @@ export default function MarketOverview() {
                   style={{ height: '100%', width: '100%' }}
                   allowMagicType
                   title={topInterestChartTitle}
+                  onDataViewCategoryClick={handleTopInterestCategoryClick}
                   actions={(
                     <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
                       <button
@@ -1326,6 +1345,7 @@ export default function MarketOverview() {
         showBackButton={showTopIssuerDataViewBackButton}
         fileNameBase={`top-issuer-${topIssuerMetric}`}
         sheetName={topIssuerMetricTitle}
+        onCategoryClick={handleTopIssuerCategoryClick}
       />
 
       {showTopIssuerZoom && (

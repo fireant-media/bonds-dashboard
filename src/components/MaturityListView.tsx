@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Columns3, EyeOff, ListOrdered } from 'lucide-react';
+import { AlertCircle, Columns3, Eye, FilterX, ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
   BondDataRow,
   loadBondDetailsMapByCodes,
-  loadBondDetail,
   loadMaturingBondUniverse,
   loadIssuerProfile,
 } from '../services/bondData';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
-import { getCache, setCache } from '../utils/cache';
+import { getCache, getCacheEntryAllowExpired, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import {
@@ -36,6 +35,7 @@ interface MaturityListViewProps {
 }
 
 const MATURITY_WINDOW_DAYS = 365;
+const MATURITY_LIST_BACKGROUND_REFRESH_MS = 5 * 60 * 1000;
 
 const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
   resolveIndustryKeyFromCandidates(
@@ -231,7 +231,7 @@ const resolveTableSort = (
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
   const { t, language } = useLanguage();
   const cacheKey = `maturity_list_${MATURITY_WINDOW_DAYS}`;
-  const cachedData = getCache(cacheKey);
+  const cachedData = getCacheEntryAllowExpired<MaturityRow[]>(cacheKey)?.data;
   const [rows, setRows] = useState<MaturityRow[]>(() =>
     Array.isArray(cachedData) ? cachedData : [],
   );
@@ -240,12 +240,25 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   const [hiddenColumnIds, setHiddenColumnIds] = useState<string[]>([]);
   const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<string[]>([]);
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(true);
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(() => {
     return getCache('enterprise_names_en') || {};
   });
   const enterpriseNamesENRef = useRef<Record<string, string>>(enterpriseNamesEN);
   const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string }>;
   const columnVisibilityRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseIndustryBySymbol = useMemo(
+    () => new Map(
+      enterpriseList
+        .map((item) => {
+          const ticker = String(item?.ticker || '').trim();
+          const industry = String(item?.industry || '').trim();
+          return ticker && industry ? [ticker, industry] as const : null;
+        })
+        .filter((item): item is readonly [string, string] => Boolean(item)),
+    ),
+    [enterpriseList],
+  );
 
   useEffect(() => {
     enterpriseNamesENRef.current = enterpriseNamesEN;
@@ -296,11 +309,26 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     let isMounted = true;
 
     const hydrateBonds = async () => {
-      setLoading(true);
+      const cachedEntry = getCacheEntryAllowExpired<MaturityRow[]>(cacheKey);
+      const cachedRows = Array.isArray(cachedEntry?.data) ? cachedEntry.data : [];
+      const hasCachedRows = cachedRows.length > 0;
+      const shouldRefresh = !cachedEntry || Date.now() - cachedEntry.timestamp > MATURITY_LIST_BACKGROUND_REFRESH_MS;
+
+      if (hasCachedRows) {
+        setRows(cachedRows);
+      }
+
+      setLoading(!hasCachedRows);
       setError(null);
 
+      if (!shouldRefresh) {
+        return;
+      }
+
       try {
-        const data = await loadMaturingBondUniverse(MATURITY_WINDOW_DAYS);
+        const data = await loadMaturingBondUniverse(MATURITY_WINDOW_DAYS, {
+          forceRefresh: hasCachedRows,
+        });
         if (!isMounted) return;
 
         if (!Array.isArray(data) || data.length === 0) {
@@ -313,10 +341,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         if (!isMounted) return;
 
         const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
+        const fallbackTickerByCode = new Map<string, string>();
         const detailMap = await loadBondDetailsMapByCodes(
           data.map((row: any) => row.bondCode),
           {
-            concurrency: 6,
+            concurrency: 8,
             forceRefresh: false,
           },
         );
@@ -326,10 +355,21 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
         const mapped: MaturityRow[] = data
           .map((row: any) => {
-            const enterpriseIndustry = enterpriseList.find((item) => item.ticker === row.issuerSymbol)?.industry;
-            const mergedRow = detailMap[row.bondCode]
+            const detailPayload = detailMap[row.bondCode];
+            const mergedRow = detailPayload
               ? mergeRowWithBondDetail(row, detailMap[row.bondCode])
               : row;
+            const resolvedTicker = String(
+              mergedRow.issuerSymbol
+              || detailPayload?.detail?.issuerSymbol
+              || detailPayload?.issuerSymbol
+              || row.issuerSymbol
+              || '',
+            ).trim();
+            if (resolvedTicker) {
+              fallbackTickerByCode.set(mergedRow.bondCode, resolvedTicker);
+            }
+            const enterpriseIndustry = enterpriseIndustryBySymbol.get(resolvedTicker);
             const maturity = new Date(mergedRow.maturityDate);
             maturity.setHours(0, 0, 0, 0);
             const diffTime = maturity.getTime() - today.getTime();
@@ -348,7 +388,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
                 [],
               ) || mergedRow.bondRateType || 'N/A',
               industry: resolveIndustryKeyFromSymbolGroups(
-                mergedRow.issuerSymbol,
+                resolvedTicker,
                 symbolToIndustryKey,
                 getMaturityIndustryKey(mergedRow, enterpriseIndustry),
               ),
@@ -360,118 +400,91 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         setRows(mapped);
         setCache(cacheKey, mapped);
 
-        const refreshIndustries = async () => {
-          const rowsToRefresh = mapped.filter((row) => !row.industry);
-          if (rowsToRefresh.length === 0) return;
+        const tickersToFetch = Array.from(new Set(
+          mapped.flatMap((row) => {
+            const ticker = String(row.issuerSymbol || fallbackTickerByCode.get(row.bondCode) || '').trim();
+            if (!ticker) return [];
 
-          const updates = new Map<string, string>();
-          const results = await mapWithConcurrency(rowsToRefresh, 6, async (row) => {
-            let ticker = row.issuerSymbol;
+            const needsIndustry = !row.industry;
+            const needsEnglishName = language === 'en' && !enterpriseNamesENRef.current[ticker];
+            return needsIndustry || needsEnglishName ? [ticker] : [];
+          }),
+        ));
 
-            if (!ticker) {
-              const bondDetail = await loadBondDetail(row.bondCode);
-              ticker = bondDetail?.detail?.issuerSymbol;
-            }
+        if (tickersToFetch.length > 0) {
+          const profileResults = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => (
+            [ticker, await loadIssuerProfile(ticker)] as const
+          ));
 
-            if (!ticker) return null;
+          if (!isMounted) return;
 
-            const profile = await loadIssuerProfile(ticker);
-            const enterpriseIndustry = (getCache('enterprise_list') || [])
-              .find((item: any) => item.ticker === ticker)?.industry;
+          const profileMap = new Map<string, any>(
+            getFulfilledValues(profileResults).filter((entry): entry is readonly [string, any] => Boolean(entry[1])),
+          );
 
-            const industry = resolveIndustryKeyFromSymbolGroups(
-              ticker,
-              symbolToIndustryKey,
-              getMaturityIndustryKey(profile || row, enterpriseIndustry),
-            );
+          if (profileMap.size > 0) {
+            const currentENNames = { ...enterpriseNamesENRef.current };
+            let hasNameUpdates = false;
 
-            return {
-              code: row.bondCode,
-              industry,
-            };
-          });
-
-          getFulfilledValues(results).forEach((result) => {
-            if (result?.code && result.industry) {
-              updates.set(result.code, result.industry);
-            }
-          });
-
-          if (!isMounted || updates.size === 0) return;
-
-          setRows((prev) => {
-            const next = prev.map((row) => {
-              const industry = updates.get(row.bondCode);
-              return industry && industry !== row.industry ? { ...row, industry } : row;
-            });
-            setCache(cacheKey, next);
-            return next;
-          });
-        };
-
-        refreshIndustries().catch((resolveError) => {
-          console.error('Failed to resolve maturity industries', resolveError);
-        });
-
-        if (language === 'en') {
-          const rowsToFetch = mapped.filter((row) => !enterpriseNamesENRef.current[row.issuerSymbol || ''] || !row.issuerSymbol);
-
-          if (rowsToFetch.length > 0) {
-            const fetchNames = async () => {
-              const currentENNames = { ...enterpriseNamesENRef.current };
-              const results = await mapWithConcurrency(rowsToFetch, 5, async (row) => {
-                let ticker = row.issuerSymbol;
-
-                if (!ticker) {
-                  const bondDetail = await loadBondDetail(row.bondCode);
-                  ticker = bondDetail?.detail?.issuerSymbol;
-                }
-
-                if (ticker) {
-                  const profile = await loadIssuerProfile(ticker);
-                  return { code: row.bondCode, ticker, name: profile?.internationalName || '' };
-                }
-                return null;
-              });
-
-              if (!isMounted) return;
-
-              const validResults = getFulfilledValues(results).filter(Boolean);
-              let hasUpdates = false;
-              validResults.forEach((res) => {
-                if (res && res.name && res.ticker) {
-                  currentENNames[res.ticker] = res.name;
-                  hasUpdates = true;
+            if (language === 'en') {
+              profileMap.forEach((profile, ticker) => {
+                const nextName = String(profile?.internationalName || '').trim();
+                if (nextName && currentENNames[ticker] !== nextName) {
+                  currentENNames[ticker] = nextName;
+                  hasNameUpdates = true;
                 }
               });
+            }
 
-              if (hasUpdates && isMounted) {
-                setEnterpriseNamesEN({ ...currentENNames });
-                setCache('enterprise_names_en', { ...currentENNames });
+            if (hasNameUpdates) {
+              setEnterpriseNamesEN({ ...currentENNames });
+              setCache('enterprise_names_en', { ...currentENNames });
+            }
 
-                setRows((prev) => prev.map((row) => {
-                  const res = validResults.find((item) => item?.code === row.bondCode);
-                  if (res && res.name) {
-                    return { ...row, issuerSymbol: res.ticker, issuerName: res.name };
-                  }
-                  if (row.issuerSymbol && currentENNames[row.issuerSymbol]) {
-                    return { ...row, issuerName: currentENNames[row.issuerSymbol] };
-                  }
+            setRows((prev) => {
+              const next = prev.map((row) => {
+                const ticker = String(row.issuerSymbol || fallbackTickerByCode.get(row.bondCode) || '').trim();
+                const profile = profileMap.get(ticker);
+                const industry = row.industry || !profile
+                  ? row.industry
+                  : resolveIndustryKeyFromSymbolGroups(
+                      ticker,
+                      symbolToIndustryKey,
+                      getMaturityIndustryKey(profile, enterpriseIndustryBySymbol.get(ticker)),
+                    );
+                const issuerName = language === 'en' && ticker && currentENNames[ticker]
+                  ? currentENNames[ticker]
+                  : row.issuerName;
+
+                if (
+                  ticker === row.issuerSymbol
+                  && issuerName === row.issuerName
+                  && industry === row.industry
+                ) {
                   return row;
-                }));
-              }
-            };
+                }
 
-            void fetchNames();
+                return {
+                  ...row,
+                  issuerSymbol: ticker || row.issuerSymbol,
+                  issuerName,
+                  industry,
+                };
+              });
+              setCache(cacheKey, next);
+              return next;
+            });
           }
         }
       } catch (fetchError) {
         if (!isMounted) return;
         console.error('Error fetching maturity bonds:', fetchError);
-        if (fetchError instanceof Error && fetchError.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(fetchError instanceof Error ? fetchError.message : t('dataError'));
+        if (!hasCachedRows) {
+          if (fetchError instanceof Error && fetchError.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(fetchError instanceof Error ? fetchError.message : t('dataError'));
+          }
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -482,7 +495,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     return () => {
       isMounted = false;
     };
-  }, [cacheKey, enterpriseList, language, t]);
+  }, [cacheKey, enterpriseIndustryBySymbol, language, t]);
 
   useEffect(() => {
     if (!isColumnVisibilityOpen) return undefined;
@@ -779,19 +792,31 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         bondTypeOptions={bondTypeOptions}
         industryOptions={industryOptions}
         searchOptions={rows.map((row) => row.bondCode)}
+        showFilterControls={isFilterControlsVisible}
         marketActionSlot={(
-          <div ref={columnVisibilityRef} className="relative flex justify-end">
-          <button
-            type="button"
-            onClick={() => setIsColumnVisibilityOpen((current) => !current)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
-            aria-haspopup="dialog"
-            aria-expanded={isColumnVisibilityOpen}
-            aria-label={t('hideColumns')}
-            title={t('hideColumns')}
-          >
-            <EyeOff className="h-4 w-4 text-blue-600" />
-          </button>
+          <div ref={columnVisibilityRef} className="relative flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIsFilterControlsVisible((current) => !current)}
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+              title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+            >
+              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Eye className="h-4 w-4 text-blue-600" />}
+              <span>{t('filterTab')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsColumnVisibilityOpen((current) => !current)}
+              className="inline-flex h-11 items-center gap-2 rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              aria-haspopup="dialog"
+              aria-expanded={isColumnVisibilityOpen}
+              aria-label={t('hideColumns')}
+              title={t('hideColumns')}
+            >
+              <Columns3 className="h-4 w-4 text-blue-600" />
+              <span>{t('hideColumns')}</span>
+            </button>
 
           {isColumnVisibilityOpen ? (
             <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">

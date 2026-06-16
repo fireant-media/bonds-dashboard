@@ -814,7 +814,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
     () => [
       {
         label: t('issuedVolume'),
-        value: formatNumber(Number(bondDetails?.totalIssuedVolume || currentBond.listedVolume || 0), 0),
+        value: formatNumber(Number(bondDetails?.totalIssuedVolume || 0), 0),
       },
       {
         label: t('parValueLabel'),

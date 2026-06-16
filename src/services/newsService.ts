@@ -5,8 +5,8 @@ import { dashboardQueryClient } from '../query/client';
 import { newsQueryKeys } from '../query/keys';
 
 const NEWS_API_URL = buildAppApiUrl('/api/news');
-const CACHE_KEY = 'fireant_news_cache_v14';
-const CACHE_TIME_KEY = 'fireant_news_last_update_v14';
+const CACHE_KEY = 'fireant_news_cache_v15';
+const CACHE_TIME_KEY = 'fireant_news_last_update_v15';
 const FIREANT_WEB_URL = 'https://fireant.vn';
 const STATIC_FIREANT_URL = 'https://static.fireant.vn';
 

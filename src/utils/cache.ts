@@ -7,6 +7,29 @@ const DEFAULT_TTL = 30 * 60 * 1000; // Increase to 30 minutes for better persist
 const CACHE_PREFIX = 'sentinel_cache_';
 const MAX_PERSISTED_CACHE_ITEM_LENGTH = 450_000;
 
+export interface CacheEntry<T = any> {
+  data: T;
+  timestamp: number;
+}
+
+const readCacheEntry = <T = any>(key: string): CacheEntry<T> | null => {
+  let item = MEMORY_CACHE[key] as CacheEntry<T> | undefined;
+
+  if (!item) {
+    try {
+      const stored = localStorage.getItem(`${CACHE_PREFIX}${key}`);
+      if (stored) {
+        item = JSON.parse(stored) as CacheEntry<T>;
+        MEMORY_CACHE[key] = item;
+      }
+    } catch (e) {
+      console.warn('Failed to read cache from localStorage', e);
+    }
+  }
+
+  return item || null;
+};
+
 export const setCache = (key: string, data: any): boolean => {
   const item = { data, timestamp: Date.now() };
   
@@ -22,23 +45,7 @@ export const setCache = (key: string, data: any): boolean => {
 };
 
 export const getCache = (key: string, ttl = DEFAULT_TTL) => {
-  // Try memory first (fastest)
-  let item = MEMORY_CACHE[key];
-  
-  // Try localStorage if not in memory
-  if (!item) {
-    try {
-      const stored = localStorage.getItem(`${CACHE_PREFIX}${key}`);
-      if (stored) {
-        item = JSON.parse(stored);
-        // Hydrate memory cache
-        MEMORY_CACHE[key] = item;
-      }
-    } catch (e) {
-      console.warn('Failed to read cache from localStorage', e);
-    }
-  }
-
+  const item = readCacheEntry(key);
   if (!item) return null;
   
   const isExpired = Date.now() - item.timestamp > ttl;
@@ -49,6 +56,20 @@ export const getCache = (key: string, ttl = DEFAULT_TTL) => {
   
   return item.data;
 };
+
+export const getCacheEntry = <T = any>(key: string, ttl = DEFAULT_TTL): CacheEntry<T> | null => {
+  const item = readCacheEntry<T>(key);
+  if (!item) return null;
+
+  if (Date.now() - item.timestamp > ttl) {
+    return null;
+  }
+
+  return item;
+};
+
+export const getCacheEntryAllowExpired = <T = any>(key: string): CacheEntry<T> | null =>
+  readCacheEntry<T>(key);
 
 export const clearCache = (prefix?: string) => {
   // Clear memory

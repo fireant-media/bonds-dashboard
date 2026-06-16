@@ -9,6 +9,7 @@ import {
 type FireantPost = Record<string, any>;
 
 const isValidSymbol = (value: string) => /^[a-zA-Z0-9._-]{2,16}$/.test(value);
+const NEWS_LIMIT = 50;
 
 function getRequestToken(req: VercelRequest): string | null {
   const headerToken = req.headers.authorization;
@@ -307,9 +308,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const urls: string[] = [];
     if (symbol && isValidSymbol(symbol)) {
-      pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?symbol=${encodeURIComponent(symbol)}&type=1`);
+      pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?symbol=${encodeURIComponent(symbol)}&type=1&offset=0&limit=${NEWS_LIMIT}`);
     }
-    pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?type=1`);
+    pushUniqueUrl(urls, `${FIREANT_BASE_URL}/posts?type=1&offset=0&limit=${NEWS_LIMIT}`);
 
     let lastStatus = 502;
     let lastBodyType = 'empty';

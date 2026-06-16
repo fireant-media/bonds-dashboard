@@ -30,6 +30,7 @@ interface ChartDataViewModalProps {
   showBackButton?: boolean;
   fileNameBase: string;
   sheetName: string;
+  onCategoryClick?: (categoryValue: string, row: Array<string | number | null | undefined>) => void;
 }
 
 interface SortState {
@@ -87,6 +88,7 @@ export function ChartDataViewModal({
   showBackButton = false,
   fileNameBase,
   sheetName,
+  onCategoryClick,
 }: ChartDataViewModalProps) {
   const { t } = useLanguage();
   const [searchText, setSearchText] = useState('');
@@ -334,14 +336,11 @@ export function ChartDataViewModal({
                   {columns.map((column, index) => (
                     <th
                       key={`${column.label}-${column.unit || ''}-${index}`}
-                      className={cn(
-                        'px-6 py-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap',
-                        column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'
-                      )}
+                      className="px-6 py-4 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap"
                     >
                       <span className="block leading-none">{column.label}</span>
                       {column.unit ? (
-                        <span className={cn('mt-1 block text-xs font-semibold uppercase tracking-wider leading-none', column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left')}>
+                        <span className="mt-1 block text-center text-xs font-semibold uppercase tracking-wider leading-none">
                           ({column.unit})
                         </span>
                       ) : null}
@@ -366,7 +365,17 @@ export function ChartDataViewModal({
                               : 'text-left'
                         }`}
                       >
-                        {row[columnIndex] ?? '-'}
+                        {columnIndex === 0 && onCategoryClick && String(row[columnIndex] ?? '').trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => onCategoryClick(String(row[columnIndex] ?? '').trim(), row)}
+                            className="inline-flex max-w-full items-center justify-start text-left font-semibold text-blue-600 transition-colors hover:text-blue-500 hover:underline"
+                          >
+                            <span className="truncate">{row[columnIndex] ?? '-'}</span>
+                          </button>
+                        ) : (
+                          row[columnIndex] ?? '-'
+                        )}
                       </td>
                     ))}
                   </tr>

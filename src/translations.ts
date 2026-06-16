@@ -65,9 +65,12 @@ export const translations = {
     listedValueShort: 'Giá trị niêm yết',
     relatedNews: 'Tin tức liên quan',
     newsDescription: 'Cập nhật những thông tin mới nhất từ thị trường tài chính',
+    newsSearch: 'Tìm kiếm',
+    newsSearchPlaceholder: 'Tìm kiếm bài viết, nguồn, nội dung...',
     refresh: 'Làm mới',
     newsFetchError: 'Không thể tải dữ liệu bài viết. Vui lòng thử lại.',
     noNewsAvailable: 'Hiện chưa có bài viết phù hợp.',
+    noNewsSearchResults: 'Không tìm thấy bài viết phù hợp với từ khóa tìm kiếm.',
     readMore: 'Xem thêm',
     ttsNotSupported: 'Trình duyệt của bạn không hỗ trợ tính năng đọc văn bản (Text-to-Speech).',
     newsSpeechPreparation: 'Đang chuẩn bị nội dung đọc...',
@@ -133,7 +136,7 @@ export const translations = {
     overview: 'Tổng quan thị trường',
     industry: 'Ngành',
     enterprise: 'Tổ chức phát hành',
-    filterByIssuer: 'Doanh nghiệp niêm yết',
+    filterByIssuer: 'Tổ chức phát hành',
     filterByBond: 'Danh sách trái phiếu',
     maturityList: 'Danh sách đáo hạn',
     news: 'Tin tức',
@@ -154,6 +157,7 @@ export const translations = {
     
     // Market Overview
     marketOverview: 'Tổng quan thị trường',
+    marketOverviewSubtitle: 'Bức tranh tổng thể về thị trường trái phiếu doanh nghiệp',
     marketCap: 'Vốn hóa thị trường',
     tradingVolume: 'Khối lượng giao dịch',
     bondCount: 'Số lượng trái phiếu',
@@ -439,6 +443,7 @@ export const translations = {
     
     // Industry View Specific
     marketTitle: 'Ngành',
+    marketTitleSubtitle: 'Quy mô phát hành, dư nợ trái phiếu và dòng tiền của ngành',
     initialDebtFull: 'Tổng dư nợ ban đầu',
     unitMillionShares: 'Triệu trái phiếu',
     debtRanking: 'Xếp hạng dư nợ trái phiếu trong ngành',
@@ -640,6 +645,8 @@ export const translations = {
     
     // Enterprise View Specific
     enterpriseDetail: 'Chi tiết tổ chức phát hành',
+    listedIssuerTitle: 'Tổ chức phát hành niêm yết',
+    enterpriseListSubtitle: 'Danh sách tổ chức phát hành trái phiếu đang niêm yết',
     bondCodeCount: 'Số lượng mã trái phiếu',
     unitBondCode: 'Mã',
     bondStructureByTerm: 'Cơ cấu mã trái phiếu theo kỳ hạn',
@@ -667,6 +674,8 @@ export const translations = {
     searchPlaceholderEnterprises: 'Tìm kiếm tên doanh nghiệp hoặc mã chứng khoán',
     applyFilters: 'Áp dụng lọc',
     applyAIFilter: 'Lọc với AI',
+    hideFilters: 'Ẩn bộ lọc',
+    showFilters: 'Hiện bộ lọc',
     hideColumns: 'Ẩn cột',
     noColumnsSelected: 'Chưa có cột nào được hiển thị',
     aiFilterPlaceholder: 'Ví dụ: Lọc trái phiếu ngành ngân hàng, lãi suất cố định, tổ chức phát hành BIDV, kỳ hạn dưới 24 tháng và giá trị niêm yết từ 500 tỷ VNĐ trở lên',
@@ -958,9 +967,12 @@ export const translations = {
     listedValueShort: 'Listed Value',
     relatedNews: 'Related News',
     newsDescription: 'Get the latest information from the financial market',
+    newsSearch: 'Search',
+    newsSearchPlaceholder: 'Search articles, sources, or content...',
     refresh: 'Refresh',
     newsFetchError: 'Unable to load news data. Please try again.',
     noNewsAvailable: 'No relevant articles available at the moment.',
+    noNewsSearchResults: 'No articles matched your search term.',
     readMore: 'Read more',
     ttsNotSupported: 'Your browser does not support Text-to-Speech.',
     newsSpeechPreparation: 'Preparing content to read...',
@@ -1026,7 +1038,7 @@ export const translations = {
     overview: 'Market Overview',
     industry: 'Industry',
     enterprise: 'Issuers',
-    filterByIssuer: 'Listed Company',
+    filterByIssuer: 'Issuer',
     filterByBond: 'Bond List',
     maturityList: 'Maturity List',
     news: 'News',
@@ -1047,6 +1059,7 @@ export const translations = {
     
     // Market Overview
     marketOverview: 'Market Overview',
+    marketOverviewSubtitle: 'A complete picture of the corporate bond market',
     marketCap: 'Market Cap',
     tradingVolume: 'Trading Volume',
     bondCount: 'Bond Count',
@@ -1332,6 +1345,7 @@ export const translations = {
 
     // Industry View Specific
     marketTitle: 'Industry',
+    marketTitleSubtitle: 'Summarize issuance scale, bond debt, and cash flow for each industry',
     initialDebtFull: 'Initial Total Debt',
     unitMillionShares: 'Million Bonds',
     debtRanking: 'Industry Bond Debt Ranking',
@@ -1532,6 +1546,8 @@ export const translations = {
 
     // Enterprise View Specific
     enterpriseDetail: 'Issuer Detail',
+    listedIssuerTitle: 'Listed Issuers',
+    enterpriseListSubtitle: 'List of bond issuers currently listed',
     bondCodeCount: 'Number of Bond Codes',
     unitBondCode: 'Codes',
     bondStructureByTerm: 'Bond Structure by Term',
@@ -1559,6 +1575,8 @@ export const translations = {
     searchPlaceholderEnterprises: 'Search enterprise name or ticker',
     applyFilters: 'Apply filters',
     applyAIFilter: 'Filter with AI',
+    hideFilters: 'Hide filters',
+    showFilters: 'Show filters',
     hideColumns: 'Hide columns',
     noColumnsSelected: 'No columns are currently visible',
     aiFilterPlaceholder: 'Example: Find banking bonds with fixed coupons, issuer BIDV, tenor below 24 months, and listed value from 500 billion VND upward',

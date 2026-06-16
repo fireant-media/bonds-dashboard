@@ -186,8 +186,8 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
                 term: String(b.tenorPeriod || 'N/A'),
                 interestRate: b.bondRate || 0,
                 listedVolume: b.currentListedVolume || 0,
-                issuedValue: b.totalIssuedValue || b.currentListedVolume || 0,
-                listedValue: b.currentListedValue || b.currentListedVolume || 0,
+                issuedValue: b.totalIssuedValue || 0,
+                listedValue: b.currentListedValue || 0,
                 issueDate: b.issueDate?.split('T')[0] || '',
                 maturityDate: b.maturityDate?.split('T')[0] || '',
                 bondType: b.bondType || b.BondType || '',
@@ -253,8 +253,8 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
                 term: String(b.tenorPeriod || 'N/A'),
                 interestRate: b.bondRate || 0,
                 listedVolume: b.currentListedVolume || 0,
-                issuedValue: b.totalIssuedValue || b.currentListedVolume || 0,
-                listedValue: b.currentListedValue || b.currentListedVolume || 0,
+                issuedValue: b.totalIssuedValue || 0,
+                listedValue: b.currentListedValue || 0,
                 issueDate: b.issueDate?.split('T')[0] || '',
                 maturityDate: b.maturityDate?.split('T')[0] || '',
                 bondType: b.bondType || b.BondType || '',
@@ -408,14 +408,10 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
 
         const issueValue = b.totalIssuedValue
           ? b.totalIssuedValue / 1000000000
-          : historyItem?.value
-            ? historyItem.value / 1000000000
-            : 0;
+          : Number(bond.issuedValue || 0);
         const listedValue = b.currentListedValue
           ? b.currentListedValue / 1000000000
-          : historyItem?.value
-            ? historyItem.value / 1000000000
-            : issueValue;
+          : Number(bond.listedValue || 0);
         const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
         const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
         const interestType = deriveInterestType(b, data.cashFlows);
@@ -790,7 +786,7 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
     }
     
     const labels = {
-      volume: t('issuedVolume'),
+      volume: t('listedVolume'),
       value: t('issuedValue'),
       listed: t('listedValue')
     };

@@ -74,6 +74,15 @@ export interface BondDataRow {
   raw: any;
 }
 
+export interface LoadBondFilterRowsOptions {
+  enrichWithDetails?: boolean;
+  forceRefresh?: boolean;
+}
+
+export interface LoadSimpleBondRowsOptions {
+  forceRefresh?: boolean;
+}
+
 const BOND_CATEGORY_CACHE_PREFIX = 'bond_category_v1_';
 const BOND_FILTER_CACHE_PREFIX = 'bond_filter_v1_';
 const BOND_DETAIL_CACHE_PREFIX = 'bond_detail_';
@@ -503,9 +512,17 @@ const fallbackFilterBonds = async (query: BondFilterQuery) => {
   return [];
 };
 
-export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDataRow[]> => {
-  const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, query as Record<string, unknown>);
-  const cached = getCache(cacheKey);
+export const loadBondFilterRows = async (
+  query: BondFilterQuery,
+  options: LoadBondFilterRowsOptions = {},
+): Promise<BondDataRow[]> => {
+  const enrichWithDetails = options.enrichWithDetails !== false;
+  const forceRefresh = Boolean(options.forceRefresh);
+  const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
+    ...(query as Record<string, unknown>),
+    enrichWithDetails: enrichWithDetails ? 1 : 0,
+  });
+  const cached = forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as BondDataRow[];
 
   const inflight = filterPromises.get(cacheKey);
@@ -536,7 +553,9 @@ export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDa
     }
 
     const normalizedRows = extractRows(payload).map(normalizeBondRow).filter((item) => Boolean(item.bondCode));
-    const rows = await enrichBondFilterRowsWithDetails(normalizedRows);
+    const rows = enrichWithDetails
+      ? await enrichBondFilterRowsWithDetails(normalizedRows)
+      : normalizedRows;
     setCache(cacheKey, rows);
     return rows;
   })().finally(() => {
@@ -547,19 +566,32 @@ export const loadBondFilterRows = async (query: BondFilterQuery): Promise<BondDa
   return promise;
 };
 
-export const loadMaturingBonds = async (days: number): Promise<BondDataRow[]> => {
+export const loadMaturingBonds = async (
+  days: number,
+  options: LoadSimpleBondRowsOptions = {},
+): Promise<BondDataRow[]> => {
   const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
     endpoint: 'bonds/stats/bonds/maturing-soon',
     days,
   });
-  const cached = getCache(cacheKey);
+  const cached = options.forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as BondDataRow[];
 
-  const rows = (await fireantApi.getMaturingSoon(days))
-    .map(normalizeBondRow)
-    .filter((item) => Boolean(item.bondCode));
-  setCache(cacheKey, rows);
-  return rows;
+  const inflight = filterPromises.get(cacheKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const rows = (await fireantApi.getMaturingSoon(days))
+      .map(normalizeBondRow)
+      .filter((item) => Boolean(item.bondCode));
+    setCache(cacheKey, rows);
+    return rows;
+  })().finally(() => {
+    filterPromises.delete(cacheKey);
+  });
+
+  filterPromises.set(cacheKey, promise);
+  return promise;
 };
 
 const toIsoDateOnly = (value: Date) => value.toISOString().split('T')[0];
@@ -573,47 +605,66 @@ const dedupeBondRows = (rows: BondDataRow[]) =>
     ).values(),
   );
 
-export const loadMaturingBondUniverse = async (days: number): Promise<BondDataRow[]> => {
+export const loadMaturingBondUniverse = async (
+  days: number,
+  options: LoadSimpleBondRowsOptions = {},
+): Promise<BondDataRow[]> => {
   const normalizedDays = Math.max(1, Math.floor(Number(days) || 0));
   const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
     endpoint: 'bonds/maturing-universe',
     days: normalizedDays,
   });
-  const cached = getCache(cacheKey);
+  const cached = options.forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as BondDataRow[];
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const maturityEnd = new Date(today);
-  maturityEnd.setDate(maturityEnd.getDate() + normalizedDays);
+  const inflight = filterPromises.get(cacheKey);
+  if (inflight) return inflight;
 
-  const listedRangeQuery: BondFilterQuery = {
-    StatusID: 1,
-    IsListing: 1,
-    MaturityDateFrom: toIsoDateOnly(today),
-    MaturityDateTo: toIsoDateOnly(maturityEnd),
-    Top: 10000,
-  };
+  const promise = (async () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const maturityEnd = new Date(today);
+    maturityEnd.setDate(maturityEnd.getDate() + normalizedDays);
 
-  const [listedRangeRows, maturingSoonRows, governmentRows, unlistedEnterpriseRows] = await Promise.allSettled([
-    loadBondFilterRows(listedRangeQuery),
-    loadMaturingBonds(normalizedDays),
-    loadGovernmentBondRows(),
-    loadUnlistedEnterpriseBondRows(),
-  ]);
+    const listedRangeQuery: BondFilterQuery = {
+      StatusID: 1,
+      IsListing: 1,
+      MaturityDateFrom: toIsoDateOnly(today),
+      MaturityDateTo: toIsoDateOnly(maturityEnd),
+      Top: 10000,
+    };
 
-  const mergedRows = dedupeBondRows([
-    ...(listedRangeRows.status === 'fulfilled' ? listedRangeRows.value : []),
-    ...(maturingSoonRows.status === 'fulfilled' ? maturingSoonRows.value : []),
-    ...(governmentRows.status === 'fulfilled' ? governmentRows.value : []),
-    ...(unlistedEnterpriseRows.status === 'fulfilled' ? unlistedEnterpriseRows.value : []),
-  ]);
+    const [listedRangeRows, maturingSoonRows, governmentRows, unlistedEnterpriseRows] = await Promise.allSettled([
+      loadBondFilterRows(listedRangeQuery, {
+        enrichWithDetails: false,
+        forceRefresh: options.forceRefresh,
+      }),
+      loadMaturingBonds(normalizedDays, { forceRefresh: options.forceRefresh }),
+      loadGovernmentBondRows(options),
+      loadUnlistedEnterpriseBondRows(options),
+    ]);
 
-  setCache(cacheKey, mergedRows);
-  return mergedRows;
+    const mergedRows = dedupeBondRows([
+      ...(listedRangeRows.status === 'fulfilled' ? listedRangeRows.value : []),
+      ...(maturingSoonRows.status === 'fulfilled' ? maturingSoonRows.value : []),
+      ...(governmentRows.status === 'fulfilled' ? governmentRows.value : []),
+      ...(unlistedEnterpriseRows.status === 'fulfilled' ? unlistedEnterpriseRows.value : []),
+    ]);
+
+    setCache(cacheKey, mergedRows);
+    return mergedRows;
+  })().finally(() => {
+    filterPromises.delete(cacheKey);
+  });
+
+  filterPromises.set(cacheKey, promise);
+  return promise;
 };
 
-export const loadIssuerBondsByFilter = async (issuerSymbol: string): Promise<BondDataRow[]> =>
+export const loadIssuerBondsByFilter = async (
+  issuerSymbol: string,
+  options: LoadSimpleBondRowsOptions = {},
+): Promise<BondDataRow[]> =>
   {
     const normalizedIssuerSymbol = asString(issuerSymbol);
     const cacheKey = buildQueryCacheKey(BOND_FILTER_CACHE_PREFIX, {
@@ -622,14 +673,24 @@ export const loadIssuerBondsByFilter = async (issuerSymbol: string): Promise<Bon
       statusID: 1,
       isListing: 1,
     });
-    const cached = getCache(cacheKey);
+    const cached = options.forceRefresh ? null : getCache(cacheKey);
     if (cached) return cached as BondDataRow[];
 
-    const rows = (await fireantApi.getIssuerBonds(normalizedIssuerSymbol))
-      .map(normalizeBondRow)
-      .filter((item) => Boolean(item.bondCode));
-    setCache(cacheKey, rows);
-    return rows;
+    const inflight = filterPromises.get(cacheKey);
+    if (inflight) return inflight;
+
+    const promise = (async () => {
+      const rows = (await fireantApi.getIssuerBonds(normalizedIssuerSymbol))
+        .map(normalizeBondRow)
+        .filter((item) => Boolean(item.bondCode));
+      setCache(cacheKey, rows);
+      return rows;
+    })().finally(() => {
+      filterPromises.delete(cacheKey);
+    });
+
+    filterPromises.set(cacheKey, promise);
+    return promise;
   };
 
 export const loadBondsByIndustryFilter = async (
@@ -839,13 +900,14 @@ const loadBetaBondRowsByTypeIds = async (
   cachePrefix: string,
   bondTypeIDs: readonly number[],
   logLabel: string,
+  options: LoadSimpleBondRowsOptions = {},
 ): Promise<BondDataRow[]> => {
   const cacheKey = buildQueryCacheKey(cachePrefix, {
     bondTypeIDs: bondTypeIDs.join(','),
     isListing: 0,
     baseTarget: GOVERNMENT_BOND_BASE_TARGET,
   });
-  const cached = getCache(cacheKey);
+  const cached = options.forceRefresh ? null : getCache(cacheKey);
   if (cached) return cached as BondDataRow[];
 
   const inflight = filterPromises.get(cacheKey);
@@ -929,16 +991,22 @@ const loadBetaBondRowsByTypeIds = async (
   return promise;
 };
 
-export const loadGovernmentBondRows = async (): Promise<BondDataRow[]> =>
+export const loadGovernmentBondRows = async (
+  options: LoadSimpleBondRowsOptions = {},
+): Promise<BondDataRow[]> =>
   loadBetaBondRowsByTypeIds(
     GOVERNMENT_BOND_CACHE_PREFIX,
     GOVERNMENT_BOND_TYPE_IDS,
     'government',
+    options,
   );
 
-export const loadUnlistedEnterpriseBondRows = async (): Promise<BondDataRow[]> =>
+export const loadUnlistedEnterpriseBondRows = async (
+  options: LoadSimpleBondRowsOptions = {},
+): Promise<BondDataRow[]> =>
   loadBetaBondRowsByTypeIds(
     UNLISTED_ENTERPRISE_BOND_CACHE_PREFIX,
     UNLISTED_ENTERPRISE_BOND_TYPE_IDS,
     'unlisted enterprise',
+    options,
   );

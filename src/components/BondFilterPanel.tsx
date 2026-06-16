@@ -380,6 +380,7 @@ interface BondFilterPanelProps {
   industryOptions?: string[];
   searchOptions?: string[];
   marketActionSlot?: ReactNode;
+  showFilterControls?: boolean;
 }
 
 export function BondFilterPanel({
@@ -408,10 +409,12 @@ export function BondFilterPanel({
   industryOptions = [],
   searchOptions = [],
   marketActionSlot,
+  showFilterControls = true,
 }: BondFilterPanelProps) {
   const { t } = useLanguage();
   const isMarketVariant = variant === 'market';
   const isMaturityVariant = variant === 'maturity';
+  const showStandardToolbar = showFilterControls;
 
   return (
     <section className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
@@ -429,7 +432,7 @@ export function BondFilterPanel({
               </p>
             </div>
           )}
-          <div className={`flex flex-col gap-2 sm:flex-row ${isMarketVariant || isMaturityVariant ? 'hidden' : ''}`}>
+          <div className={`flex flex-col gap-2 sm:flex-row ${isMarketVariant || isMaturityVariant || !showStandardToolbar ? 'hidden' : ''}`}>
             <button
               type="button"
               onClick={onApply}
@@ -545,6 +548,7 @@ export function BondFilterPanel({
             onApply={onApply}
             onReset={onReset}
             marketActionSlot={marketActionSlot}
+            showFilterControls={showFilterControls}
           />
         ) : isMaturityVariant ? (
           <MaturityFilterToolbar
@@ -559,8 +563,9 @@ export function BondFilterPanel({
             onApply={onApply}
             onReset={onReset}
             marketActionSlot={marketActionSlot}
+            showFilterControls={showFilterControls}
           />
-        ) : (
+        ) : !isMarketVariant && !isMaturityVariant && showStandardToolbar ? (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <RangeField
               icon={ListFilter}
@@ -606,7 +611,7 @@ export function BondFilterPanel({
               inputType="date"
             />
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );
@@ -625,6 +630,7 @@ interface MaturityFilterToolbarProps {
   onApply: () => void;
   onReset: () => void;
   marketActionSlot?: ReactNode;
+  showFilterControls?: boolean;
 }
 
 function MaturityFilterToolbar({
@@ -640,6 +646,7 @@ function MaturityFilterToolbar({
   onApply,
   onReset,
   marketActionSlot,
+  showFilterControls = true,
 }: MaturityFilterToolbarProps) {
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -669,6 +676,8 @@ function MaturityFilterToolbar({
 
   return (
     <div ref={menuRef} className="space-y-3">
+      {showFilterControls ? (
+        <>
       <div className="flex flex-col gap-2 xl:flex-row xl:items-end">
         <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
           <SearchFilterField
@@ -839,6 +848,8 @@ function MaturityFilterToolbar({
           />
         </div>
       </div>
+        </>
+      ) : null}
 
       <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
@@ -948,6 +959,7 @@ interface MarketFilterToolbarProps {
   onApply: () => void;
   onReset: () => void;
   marketActionSlot?: ReactNode;
+  showFilterControls?: boolean;
 }
 
 function MarketFilterToolbar({
@@ -963,6 +975,7 @@ function MarketFilterToolbar({
   onApply,
   onReset,
   marketActionSlot,
+  showFilterControls = true,
 }: MarketFilterToolbarProps) {
   const { t } = useLanguage();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -992,6 +1005,8 @@ function MarketFilterToolbar({
 
   return (
     <div ref={menuRef} className="space-y-3">
+      {showFilterControls ? (
+        <>
       <div className="flex flex-col gap-2 xl:flex-row xl:items-start">
         <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
           <SearchFilterField
@@ -1157,6 +1172,8 @@ function MarketFilterToolbar({
           />
         </div>
       </div>
+        </>
+      ) : null}
 
       <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">

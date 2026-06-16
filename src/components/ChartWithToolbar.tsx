@@ -43,6 +43,7 @@ interface ChartWithToolbarProps {
   titleAlign?: 'left' | 'center' | 'right';
   actions?: ReactNode;
   actionsPlacement?: 'inline' | 'below';
+  onDataViewCategoryClick?: (categoryValue: string, row: Array<string | number | null | undefined>) => void;
   zoomConfig?: {
     shellClassName?: string;
     chartStyle?: CSSProperties;
@@ -387,6 +388,7 @@ export default function ChartWithToolbar({
   titleAlign = 'left',
   actions,
   actionsPlacement = 'below',
+  onDataViewCategoryClick,
   zoomConfig,
 }: ChartWithToolbarProps) {
   const { effectiveTheme } = useTheme();
@@ -781,6 +783,10 @@ export default function ChartWithToolbar({
         showBackButton={showDataViewBackButton}
         fileNameBase={dataViewFileName}
         sheetName={dataViewFileName}
+        onCategoryClick={onDataViewCategoryClick ? (categoryValue, row) => {
+          closeDataView();
+          onDataViewCategoryClick(categoryValue, row);
+        } : undefined}
       />
 
       {showZoom && (
