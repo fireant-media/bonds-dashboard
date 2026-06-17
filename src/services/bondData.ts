@@ -475,7 +475,6 @@ export const loadBondCategoryList = async (
       },
       async () => {
         if (option === 5) return fireantApi.getIndustries(1000, icbLevel || 1) as unknown as ProcedureResult<BondCategoryItem>;
-        if (option === 0) return fireantApi.getTopDebtIssuers(200) as unknown as ProcedureResult<BondCategoryItem>;
         return [];
       },
     );

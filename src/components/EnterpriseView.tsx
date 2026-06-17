@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowUpDown, Filter, ChevronRight, ChevronLeft, Download, Share2, Info, ChevronDown, Hash, BadgeDollarSign, Landmark, Wallet, Search, CheckCircle2, RotateCcw } from 'lucide-react';
+import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Share2, Info, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -34,14 +34,23 @@ import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
 import {
   buildEnterpriseIndustryOptions,
-  buildIndustrySymbolLookup,
   resolveIndustryKeyFromCandidates,
   resolveIndustryKeyFromCandidates as resolveIndustryFromShared,
-  resolveIndustryKeyFromSymbolGroups,
 } from '../constants/industries';
-import { loadDedupedIndustrySymbols, loadIssuerStatsSummary } from '../services/industryBondData';
+import { ENTERPRISE_LIST_DATA_CACHE_KEY, loadEnterpriseListByIssuerSymbol } from '../services/enterpriseListData';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, type BondDataRow } from '../services/bondData';
 import { useAIStore } from '../store/aiStore';
+import {
+  ActionFilterButton,
+  RangeFilterChip,
+  SearchFilterField,
+  SelectFilterChip,
+} from './BondFilterPanel';
+
+const readEnterpriseCache = (primaryKey: string) => {
+  const primary = getCache(primaryKey);
+  return Array.isArray(primary) && primary.length > 0 ? primary : null;
+};
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -221,9 +230,10 @@ export default function EnterpriseView({
 }: EnterpriseViewProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
+  const { isLoadingStatus } = useAIStore();
   const isDark = effectiveTheme === 'dark';
   const chartTheme = getChartTheme(isDark);
-  const cachedData = getCache('enterprise_list');
+  const cachedData = readEnterpriseCache(ENTERPRISE_LIST_DATA_CACHE_KEY);
   const [industryFilter, setIndustryFilter] = useState('All');
   const [enterpriseSearchTerm, setEnterpriseSearchTerm] = useState('');
   const [enterpriseIssuedValueMin, setEnterpriseIssuedValueMin] = useState('');
@@ -240,6 +250,7 @@ export default function EnterpriseView({
   const [enterpriseAISummary, setEnterpriseAISummary] = useState<string[]>([]);
   const [enterpriseAIError, setEnterpriseAIError] = useState<string | null>(null);
   const [isApplyingEnterpriseAIFilter, setIsApplyingEnterpriseAIFilter] = useState(false);
+  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
   const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'ticker' | 'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
   const [enterpriseAppliedSortDirection, setEnterpriseAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [enterprises, setEnterprises] = useState<Enterprise[]>(
@@ -263,10 +274,7 @@ export default function EnterpriseView({
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
-  const [issuerOpenMenu, setIssuerOpenMenu] = useState<'industry' | null>(null);
-  const issuerMenuRef = useRef<HTMLDivElement | null>(null);
-  const enterpriseSearchRef = useRef<HTMLDivElement | null>(null);
-  const [enterpriseSearchOpen, setEnterpriseSearchOpen] = useState(false);
+  const [enterpriseFilterMenu, setEnterpriseFilterMenu] = useState<string | null>(null);
   const enterprisesPerPage = 10;
 
   const chartColors = CHART_PALETTE;
@@ -330,13 +338,13 @@ export default function EnterpriseView({
       .slice(0, 8);
   }, [enterpriseNamesEN, enterpriseSearchTerm, enterprises, t]);
   const enterpriseAIPromptPlaceholder = language === 'en'
-    ? 'Example: Show listed companies in real estate with issued value above 1,000 and remaining debt above 500.'
+    ? 'Example: Show listed companies in real estate with issued value above 1.000 and remaining debt above 500.'
     : 'Ví dụ: Lọc các doanh nghiệp niêm yết ngành bất động sản có giá trị phát hành trên 1.000 và dư nợ còn lại trên 500.';
   const enterpriseAISuggestions = useMemo(() => (
     language === 'en'
       ? [
           'Find listed companies in banking with the highest remaining debt.',
-          'Show real estate issuers with issued value above 1,000.',
+          'Show real estate issuers with issued value above 1.000.',
           'Filter industrial companies with remaining debt below 500.',
         ]
       : [
@@ -346,25 +354,10 @@ export default function EnterpriseView({
         ]
   ), [language]);
   const showEnterpriseAISuggestions = enterpriseAISummary.length === 0 && !enterpriseAIError && !enterpriseAIPrompt.trim();
-
-  useEffect(() => {
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (issuerMenuRef.current && !issuerMenuRef.current.contains(event.target as Node)) {
-        setIssuerOpenMenu(null);
-      }
-      if (enterpriseSearchRef.current && !enterpriseSearchRef.current.contains(event.target as Node)) {
-        setEnterpriseSearchOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, []);
-
-  const selectedIndustryLabel = useMemo(() => {
-    if (industryFilter === 'All') return t('allIndustries');
-    return enterpriseIndustryOptions.find((industry) => industry.value === industryFilter)?.label || t('allIndustries');
-  }, [enterpriseIndustryOptions, industryFilter, t]);
+  const safeEnterpriseSearchSuggestions = useMemo(
+    () => enterpriseSearchSuggestions.filter((item) => Boolean(item?.label && item?.ticker)),
+    [enterpriseSearchSuggestions],
+  );
 
   const bondSortOptions = useMemo(() => ([
     { value: '__default__', label: t('sortBy'), isDefault: true },
@@ -376,14 +369,8 @@ export default function EnterpriseView({
     { value: 'listedValue', label: t('listedValueTitle') },
   ]), [t]);
 
-  const issuerFilterWidthClass = 'w-76';
-  const handleIndustryButtonClick = () => {
-    setIssuerOpenMenu((current) => (current === 'industry' ? null : 'industry'));
-  };
-
   const handleResetEnterpriseFilters = () => {
     setEnterpriseSearchTerm('');
-    setEnterpriseSearchOpen(false);
     setEnterpriseIssuedValueMin('');
     setEnterpriseIssuedValueMax('');
     setEnterpriseRemainingDebtMin('');
@@ -395,6 +382,7 @@ export default function EnterpriseView({
     setAppliedEnterpriseRemainingDebtMin('');
     setAppliedEnterpriseRemainingDebtMax('');
     setAppliedIndustryFilter('All');
+    setEnterpriseFilterMenu(null);
     setEnterpriseAIPrompt('');
     setEnterpriseAISummary([]);
     setEnterpriseAIError(null);
@@ -419,29 +407,32 @@ export default function EnterpriseView({
     const nextRemainingDebtMax = nextState?.remainingDebtMax ?? enterpriseRemainingDebtMax;
 
     setAppliedEnterpriseSearchTerm(nextSearchTerm);
-    setEnterpriseSearchOpen(false);
     setAppliedEnterpriseIssuedValueMin(nextIssuedValueMin);
     setAppliedEnterpriseIssuedValueMax(nextIssuedValueMax);
     setAppliedEnterpriseRemainingDebtMin(nextRemainingDebtMin);
     setAppliedEnterpriseRemainingDebtMax(nextRemainingDebtMax);
     setAppliedIndustryFilter(nextIndustry);
+    setEnterpriseFilterMenu(null);
     setEnterprisePage(1);
   };
 
   const handleApplyEnterpriseFilters = () => {
     setAppliedEnterpriseSearchTerm(enterpriseSearchTerm);
-    setEnterpriseSearchOpen(false);
     setAppliedEnterpriseIssuedValueMin(enterpriseIssuedValueMin);
     setAppliedEnterpriseIssuedValueMax(enterpriseIssuedValueMax);
     setAppliedEnterpriseRemainingDebtMin(enterpriseRemainingDebtMin);
     setAppliedEnterpriseRemainingDebtMax(enterpriseRemainingDebtMax);
     setAppliedIndustryFilter(industryFilter);
+    setEnterpriseFilterMenu(null);
     setEnterprisePage(1);
   };
 
   const handleApplyEnterpriseAIFilter = async () => {
-    if (!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter) return;
+    const promptToApply = String(enterpriseAIPrompt).trim();
+    if (!promptToApply || isApplyingEnterpriseAIFilter) return;
 
+    setEnterpriseAIPrompt(promptToApply);
+    setEnterpriseAISummary([]);
     setEnterpriseAIError(null);
     setIsApplyingEnterpriseAIFilter(true);
 
@@ -457,11 +448,13 @@ export default function EnterpriseView({
       }
 
       const response = await sendChat({
-        userMessage: enterpriseAIPrompt.trim(),
+        userMessage: promptToApply,
         model: aiState.selectedModel || aiState.defaultModel || ENTERPRISE_AI_FALLBACK_MODEL,
         systemPrompt: [
           'You convert enterprise filter requests into compact JSON.',
           'Return JSON only, with no markdown fence.',
+          'Number formatting rule: "." is the thousands separator and "," is the decimal separator.',
+          'Examples: 1.000 ty = 1000 ty = 1 thousand billion VND. 1000 ty = 1 thousand billion VND. 1,000 = 1 billion VND.',
           'Supported keys:',
           '{"industry":"","minIssuedValueBillion":null,"maxIssuedValueBillion":null,"minRemainingDebtBillion":null,"maxRemainingDebtBillion":null,"summary":[]}',
           'industry should be a Vietnamese or English industry name if present, otherwise empty string.',
@@ -480,7 +473,20 @@ export default function EnterpriseView({
 
       const toOptionalStringNumber = (value: unknown) => {
         if (value === null || value === undefined || value === '') return '';
-        const parsedNumber = Number(value);
+        if (typeof value === 'number') {
+          return Number.isFinite(value) ? String(value) : '';
+        }
+
+        const normalizedText = String(value)
+          .trim()
+          .replace(/\s+/g, '')
+          .replace(/[^\d,.-]/g, '')
+          .replace(/\./g, '')
+          .replace(/,/g, '.');
+
+        if (!normalizedText) return '';
+
+        const parsedNumber = Number(normalizedText);
         return Number.isFinite(parsedNumber) ? String(parsedNumber) : '';
       };
 
@@ -528,6 +534,12 @@ export default function EnterpriseView({
     } finally {
       setIsApplyingEnterpriseAIFilter(false);
     }
+  };
+
+  const handleEnterpriseSuggestionClick = (suggestion: string) => {
+    setEnterpriseAIPrompt(suggestion);
+    setEnterpriseAISummary([]);
+    setEnterpriseAIError(null);
   };
 
   const handleEnterpriseTableSort = (field: 'ticker' | 'bondCount' | 'issuedValue' | 'remainingDebt') => {
@@ -737,55 +749,11 @@ export default function EnterpriseView({
       }
       setError(null);
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        
-        const headers: Record<string, string> = {
-          'Accept': 'application/json'
-        };
-
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        const issuers = await loadIssuerStatsSummary(200);
-        setCache('top_debt_200', issuers);
+        const mappedEnterprises = await loadEnterpriseListByIssuerSymbol();
 
         if (!isMounted) return;
 
-        if (issuers) {
-          const symbolGroups = await loadDedupedIndustrySymbols();
-          const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
-
-          const mappedEnterprises: Enterprise[] = issuers.map((issuer: any) => {
-            const currentEnt = enterprises.find(e => e.ticker === issuer.issuerSymbol);
-            return {
-              id: issuer.issuerSymbol,
-              ticker: issuer.issuerSymbol,
-              name: issuer.issuerName,
-              industry: resolveIndustryKeyFromSymbolGroups(
-                issuer.issuerSymbol,
-                symbolToIndustryKey,
-                issuer?.infoObj?.icbNameLv2,
-                issuer?.infoObj?.icbNameLv1,
-                issuer?.infoObj?.icbCodeLv2,
-                issuer?.infoObj?.icbCodeLv1,
-                issuer?.icbNameLv2,
-                issuer?.icbNameLv1,
-                issuer?.icbCodeLv2,
-                issuer?.icbCodeLv1,
-                issuer?.industryName,
-                issuer?.industryCode,
-                issuer?.industry,
-                currentEnt?.industry
-              ),
-              bondCount: issuer.bondCount,
-              issuedValue: issuer.totalIssuedValue / 1000000000,
-              initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue) / 1000000000,
-              remainingDebt: issuer.totalRemainingDebt / 1000000000
-            };
-          });
-
+        if (mappedEnterprises) {
           setEnterprises(mappedEnterprises);
           if (isMounted) setLoading(false); 
 
@@ -1986,14 +1954,14 @@ export default function EnterpriseView({
       </div>
 
       <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
-        <div ref={issuerMenuRef} className="flex flex-col gap-3">
-          <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-              <label className="flex-1 space-y-2">
-                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
-                  <BadgeDollarSign className="h-4 w-4" />
-                  <span>{t('applyAIFilter')}</span>
-                </span>
+        <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
+              <BadgeDollarSign className="h-4 w-4" />
+              <span>{t('applyAIFilter')}</span>
+            </span>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+              <div className="min-w-0 flex-1">
                 <textarea
                   rows={2}
                   value={enterpriseAIPrompt}
@@ -2005,7 +1973,7 @@ export default function EnterpriseView({
                   placeholder={enterpriseAIPromptPlaceholder}
                   className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
                 />
-              </label>
+              </div>
               <button
                 type="button"
                 onClick={() => void handleApplyEnterpriseAIFilter()}
@@ -2016,223 +1984,143 @@ export default function EnterpriseView({
                 <span>{t('applyAIFilter')}</span>
               </button>
             </div>
-
-            {showEnterpriseAISuggestions ? (
-              <div className="flex flex-wrap gap-2">
-                {enterpriseAISuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => {
-                      setEnterpriseAIPrompt(suggestion);
-                      setEnterpriseAISummary([]);
-                      setEnterpriseAIError(null);
-                    }}
-                    className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {enterpriseAISummary.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {enterpriseAISummary.map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700"
-                  >
-                    {item}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
-            {enterpriseAIError ? (
-              <p className="text-sm font-medium text-red-600">{enterpriseAIError}</p>
-            ) : null}
           </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">
-              <label ref={enterpriseSearchRef} className="relative space-y-2">
-                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                  <Search className="h-4 w-4 text-blue-600" />
-                  <span>{t('searchEnterprise')}</span>
-                </span>
-                <input
-                  type="text"
-                  value={enterpriseSearchTerm}
-                  onChange={(e) => {
-                    setEnterpriseSearchTerm(e.target.value);
-                    setEnterpriseSearchOpen(true);
+          {showEnterpriseAISuggestions ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {enterpriseAISuggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                   }}
-                  onFocus={() => setEnterpriseSearchOpen(true)}
-                  placeholder={t('searchPlaceholderEnterprises')}
-                  className="h-11 w-full rounded-lg border border-border-base bg-bg-surface px-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                />
-                {enterpriseSearchOpen && enterpriseSearchSuggestions.length > 0 ? (
-                  <div className="absolute left-0 top-full z-30 mt-2 w-full overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 shadow-xl shadow-blue-950/10">
-                    <div className="max-h-64 overflow-y-auto">
-                      {enterpriseSearchSuggestions.map((item) => (
-                        <button
-                          key={`${item.ticker}-${item.label}`}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            setEnterpriseSearchTerm(item.ticker);
-                            setEnterpriseSearchOpen(false);
-                          }}
-                          className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm font-semibold text-text-base transition-colors hover:bg-surface-container-low"
-                        >
-                          <span className="truncate">{item.label}</span>
-                          <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{item.ticker}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </label>
-
-              <div className="space-y-2">
-                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                  <BadgeDollarSign className="h-4 w-4 text-blue-600" />
-                  <span>{t('issuedValue')} ({t('unitBillionVND')})</span>
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={enterpriseIssuedValueMin}
-                    onChange={(e) => setEnterpriseIssuedValueMin(e.target.value)}
-                    placeholder="Min"
-                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={enterpriseIssuedValueMax}
-                    onChange={(e) => setEnterpriseIssuedValueMax(e.target.value)}
-                    placeholder="Max"
-                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                  <Wallet className="h-4 w-4 text-blue-600" />
-                  <span>{t('remainingDebtTitle')} ({t('unitBillionVND')})</span>
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={enterpriseRemainingDebtMin}
-                    onChange={(e) => setEnterpriseRemainingDebtMin(e.target.value)}
-                    placeholder="Min"
-                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={enterpriseRemainingDebtMax}
-                    onChange={(e) => setEnterpriseRemainingDebtMax(e.target.value)}
-                    placeholder="Max"
-                    className="w-full rounded-lg border border-border-base bg-bg-surface px-3 py-2.5 text-sm font-semibold text-text-base outline-none transition-colors focus:border-blue-200 focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
-              </div>
-
-            <div className={`relative ${issuerFilterWidthClass}`}>
-              <span className="mb-2 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                <Filter className="h-4 w-4 text-blue-600" />
-                <span>{t('industry')}</span>
-              </span>
-              <button
-                type="button"
-                onClick={handleIndustryButtonClick}
-                className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-border-base bg-bg-surface px-4 py-2.5 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:bg-surface-container-low"
-                aria-haspopup="menu"
-                aria-expanded={issuerOpenMenu === 'industry'}
-              >
-                <span className="inline-flex min-w-0 items-center gap-2">
-                  <Filter className="h-4 w-4 shrink-0 text-blue-600" />
-                  <span className="truncate">{selectedIndustryLabel}</span>
-                </span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
-              </button>
-
-              {issuerOpenMenu === 'industry' && (
-                <div className="absolute left-0 top-full z-20 mt-2 w-full min-w-0 overflow-hidden rounded-lg border border-border-base bg-bg-surface p-2 text-left shadow-xl shadow-blue-950/10">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIndustryFilter('All');
-                      setIssuerOpenMenu(null);
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                      industryFilter === 'All'
-                        ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                        : 'text-text-base hover:bg-surface-container-low'
-                    )}
-                  >
-                    <span>{t('allIndustries')}</span>
-                  </button>
-                  {enterpriseIndustryOptions.map((industry) => (
-                    <button
-                      key={industry.value}
-                      type="button"
-                      onClick={() => {
-                        setIndustryFilter(industry.value);
-                        setIssuerOpenMenu(null);
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold transition-colors',
-                        industryFilter === industry.value
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-600/10 dark:text-blue-400'
-                          : 'text-text-base hover:bg-surface-container-low'
-                      )}
-                    >
-                      <span className="truncate">{industry.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleEnterpriseSuggestionClick(suggestion);
+                  }}
+                  className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+                >
+                  {suggestion}
+                </button>
+              ))}
             </div>
+          ) : null}
 
-            <div className="flex items-end justify-start lg:justify-end">
-              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
-                <button
-                  type="button"
+          {enterpriseAISummary.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {enterpriseAISummary.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {enterpriseAIError ? (
+            <p className="mt-3 text-sm font-medium text-red-600">{enterpriseAIError}</p>
+          ) : null}
+        </div>
+
+        {isFilterControlsVisible ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-stretch xl:gap-3">
+              <div className="min-w-0 flex-1">
+                <SearchFilterField
+                  value={enterpriseSearchTerm}
+                  onChange={setEnterpriseSearchTerm}
+                  suggestions={safeEnterpriseSearchSuggestions.map((item) => item.label)}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <SelectFilterChip
+                  icon={ListFilter}
+                  label={t('industryLabel')}
+                  value={industryFilter === 'All' ? '' : industryFilter}
+                  options={enterpriseIndustryOptions.map((item) => item.value)}
+                  open={enterpriseFilterMenu === 'industry'}
+                  onToggle={() => setEnterpriseFilterMenu((current) => (current === 'industry' ? null : 'industry'))}
+                  onChange={(value) => setIndustryFilter(value || 'All')}
+                  onClose={() => setEnterpriseFilterMenu(null)}
+                  fullWidth
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <RangeFilterChip
+                  icon={BadgeDollarSign}
+                  label={t('issuedValue')}
+                  unit={t('unitBillionVND')}
+                  minValue={enterpriseIssuedValueMin}
+                  maxValue={enterpriseIssuedValueMax}
+                  open={enterpriseFilterMenu === 'issuedValue'}
+                  onToggle={() => setEnterpriseFilterMenu((current) => (current === 'issuedValue' ? null : 'issuedValue'))}
+                  onClose={() => setEnterpriseFilterMenu(null)}
+                  onMinChange={setEnterpriseIssuedValueMin}
+                  onMaxChange={setEnterpriseIssuedValueMax}
+                  fullWidth
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <RangeFilterChip
+                  icon={Wallet}
+                  label={t('remainingDebtTitle')}
+                  unit={t('unitBillionVND')}
+                  minValue={enterpriseRemainingDebtMin}
+                  maxValue={enterpriseRemainingDebtMax}
+                  open={enterpriseFilterMenu === 'remainingDebt'}
+                  onToggle={() => setEnterpriseFilterMenu((current) => (current === 'remainingDebt' ? null : 'remainingDebt'))}
+                  onClose={() => setEnterpriseFilterMenu(null)}
+                  onMinChange={setEnterpriseRemainingDebtMin}
+                  onMaxChange={setEnterpriseRemainingDebtMax}
+                  fullWidth
+                />
+              </div>
+              <div className="w-full xl:w-36 xl:flex-none">
+                <ActionFilterButton
+                  icon={CheckCircle2}
+                  label={t('applyFilters')}
                   onClick={handleApplyEnterpriseFilters}
-                  className="inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 lg:w-auto"
-                >
-                  <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" />
-                  {t('applyFilters')}
-                </button>
-                <button
-                  type="button"
+                  variant="primary"
+                />
+              </div>
+              <div className="w-full xl:w-36 xl:flex-none">
+                <ActionFilterButton
+                  icon={RotateCcw}
+                  label={t('resetFilters')}
                   onClick={handleResetEnterpriseFilters}
-                  className="inline-flex w-full items-center justify-center rounded-lg border border-border-base bg-bg-base px-4 py-2.5 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight lg:w-auto"
-                >
-                  <RotateCcw className="mr-2 h-4 w-4 shrink-0" />
-                  {t('resetFilters')}
-                </button>
+                  variant="secondary"
+                />
               </div>
             </div>
           </div>
+        ) : null}
 
-          <p className="text-sm font-medium text-text-muted">
+        <div className="flex items-center justify-between gap-2">
+          <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
             {t('filterResults')}: {formatNumber(sortedEnterprises.length, 0)} / {formatNumber(enterprises.length, 0)}
-          </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsFilterControlsVisible((current) => !current)}
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+            aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+            title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+          >
+            {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
+            <span className="hidden sm:inline">{t('filterTab')}</span>
+          </button>
         </div>
       </div>
 
       {/* Enterprise Table */}
       <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-        <div className="divide-y divide-border-base lg:hidden">
+        <div className="hidden divide-y divide-border-base">
           {enterpriseTableLoading ? (
             <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</div>
           ) : enterpriseTableError ? (
@@ -2278,7 +2166,7 @@ export default function EnterpriseView({
           )}
         </div>
 
-        <div className="hidden overflow-x-auto lg:block">
+        <div className="overflow-x-auto">
           <table className="w-full min-w-max text-left">
             <thead>
               <tr className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">

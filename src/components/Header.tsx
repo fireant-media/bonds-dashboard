@@ -17,6 +17,7 @@ import {
   Clock3,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useLanguage } from '../LanguageContext';
 import { getCache, setCache } from '../utils/cache';
 import { useAuthUser } from '../auth/authStore';
@@ -26,11 +27,16 @@ import { Language } from '../translations';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
-import { loadIssuerStatsSummary } from '../services/industryBondData';
+import { ENTERPRISE_LIST_DATA_CACHE_KEY, loadEnterpriseListByIssuerSymbol } from '../services/enterpriseListData';
 import { loadBondDetail, loadMaturingBonds } from '../services/bondData';
 import { fireantApi } from '../api/fireant';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+
+const readEnterpriseCache = (primaryKey: string) => {
+  const primary = getCache(primaryKey);
+  return Array.isArray(primary) && primary.length > 0 ? primary : null;
+};
 
 export type SearchSuggestion = {
   id: string;
@@ -80,20 +86,20 @@ export default function Header({
   const [activeMenu, setActiveMenu] = useState<HeaderMenu>(null);
   const [activeDashboardSubmenu, setActiveDashboardSubmenu] = useState<'industry' | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [mobileDashboardOpen, setMobileDashboardOpen] = useState(false);
   const [mobileIndustryOpen, setMobileIndustryOpen] = useState(false);
   const [mobileBondListOpen, setMobileBondListOpen] = useState(false);
-  const [mobileAccountOpen, setMobileAccountOpen] = useState(false);
   const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
     () => getCache('sidebar_industry_issued_values_v2')
   );
   const { t, language, setLanguage } = useLanguage();
   const { setTheme, effectiveTheme } = useTheme();
+  const headerRef = useRef<HTMLElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const dashboardMenuCloseTimerRef = useRef<number | null>(null);
+  const [mobileNavOffset, setMobileNavOffset] = useState(0);
   const authUser = useAuthUser();
   const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
 
@@ -128,22 +134,49 @@ export default function Header({
 
   useEffect(() => {
     if (!mobileNavOpen) return;
-    setMobileDashboardOpen(true);
     setMobileBondListOpen(true);
-    setMobileAccountOpen(true);
     setMobileIndustryOpen(activeTab === 'industry');
   }, [activeTab, activeFilterSubTab, mobileNavOpen]);
 
   useEffect(() => {
     if (!mobileNavOpen || typeof document === 'undefined') return;
 
+    const updateMobileNavOffset = () => {
+      const nextOffset = headerRef.current?.getBoundingClientRect().bottom ?? 0;
+      setMobileNavOffset(nextOffset);
+    };
+
     const previousOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    updateMobileNavOffset();
     document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    window.addEventListener('resize', updateMobileNavOffset);
 
     return () => {
       document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener('resize', updateMobileNavOffset);
     };
   }, [mobileNavOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const handleBreakpointChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setMobileNavOpen(false);
+      }
+    };
+
+    if (mediaQuery.matches) {
+      setMobileNavOpen(false);
+    }
+
+    mediaQuery.addEventListener('change', handleBreakpointChange);
+    return () => mediaQuery.removeEventListener('change', handleBreakpointChange);
+  }, []);
 
   useEffect(() => {
     if (activeMenu !== 'dashboard') {
@@ -161,24 +194,14 @@ export default function Header({
 
   useEffect(() => {
       const loadSearchCaches = async () => {
-      const enterpriseCache = getCache('enterprise_list');
+      const enterpriseCache = readEnterpriseCache(ENTERPRISE_LIST_DATA_CACHE_KEY);
       const bondCache = getCache('comparison_pool_bonds');
 
       if (!enterpriseCache) {
         try {
-            const issuers = await loadIssuerStatsSummary(200);
-            if (Array.isArray(issuers)) {
-              const mappedEnterprises = issuers.map((issuer: any) => ({
-                id: issuer.issuerSymbol,
-                ticker: issuer.issuerSymbol,
-                name: issuer.issuerName,
-                industry: 'N/A',
-                bondCount: issuer.bondCount || 0,
-                  issuedValue: (issuer.totalIssuedValue || 0) / 1000000000,
-                initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue || 0) / 1000000000,
-                remainingDebt: (issuer.totalRemainingDebt || 0) / 1000000000
-              }));
-                setCache('enterprise_list', mappedEnterprises);
+            const mappedEnterprises = await loadEnterpriseListByIssuerSymbol();
+            if (Array.isArray(mappedEnterprises)) {
+              setCache('enterprise_list', mappedEnterprises);
             }
         } catch (error) {
           console.warn('Header failed to preload enterprise list', error);
@@ -389,12 +412,7 @@ export default function Header({
     { id: 'watchlist', label: t('watchList'), icon: Bookmark, isActive: activeTab === 'watchlist' },
   ];
 
-  const openTopLevel = (tab: string) => {
-    if (tab === 'overview' || tab === 'watchlist' || tab === 'filter' || tab === 'maturity-list') {
-      warmDashboardCoreDataInBackground();
-    }
-    setActiveTab(tab);
-    setActiveMenu(null);
+  const closeMobileNav = () => {
     setMobileDashboardOpen(false);
     setMobileIndustryOpen(false);
     setMobileBondListOpen(false);
@@ -402,23 +420,27 @@ export default function Header({
     setMobileNavOpen(false);
   };
 
+  const openTopLevel = (tab: string) => {
+    if (tab === 'overview' || tab === 'watchlist' || tab === 'filter' || tab === 'maturity-list') {
+      warmDashboardCoreDataInBackground();
+    }
+    setActiveTab(tab);
+    setActiveMenu(null);
+    closeMobileNav();
+  };
+
   const openIndustry = (industry: string) => {
     void warmIndustryData(industry);
     setActiveIndustry(industry);
     setActiveMenu(null);
-    setMobileIndustryOpen(true);
-    setMobileNavOpen(false);
+    closeMobileNav();
   };
 
   const openFilter = (subTab: 'issuer' | 'bonds') => {
     warmDashboardCoreDataInBackground();
     setActiveFilterSubTab(subTab);
     setActiveMenu(null);
-    setMobileDashboardOpen(subTab === 'issuer');
-    setMobileBondListOpen(subTab === 'bonds');
-    setMobileIndustryOpen(false);
-    setMobileAccountOpen(false);
-    setMobileNavOpen(false);
+    closeMobileNav();
   };
 
   const toggleDashboardSubmenu = (submenu: 'industry') => {
@@ -505,17 +527,283 @@ export default function Header({
       : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
   );
 
+  const mobileNav = mobileNavOpen && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          className="fixed inset-x-0 bottom-0 z-50 overflow-hidden lg:hidden"
+          style={{ top: mobileNavOffset }}
+        >
+          <div
+            className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm"
+            onClick={() => setMobileNavOpen(false)}
+            aria-hidden="true"
+          />
+          <aside className="relative flex h-full w-full max-w-sm flex-col overflow-hidden border-r border-border-base bg-surface-bright shadow-2xl shadow-blue-950/20">
+            <div className="border-b border-border-base px-4 py-4">
+              <div className="rounded-2xl border border-border-base bg-bg-surface p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-action-accent font-bold text-slate-950 shadow-md shadow-cyan-500/20">
+                    {getInitials(authUser?.profile?.name || '')}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-text-base">{authUser?.profile?.name || 'Admin User'}</p>
+                    <p className="truncate text-xs font-medium text-text-muted">{authUser?.identityData?.email || ''}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+              <div className="space-y-5">
+                <section className="space-y-2">
+                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('dashboardMenu')}</div>
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => openTopLevel('overview')}
+                      className={mobileSectionItemClassName(activeTab === 'overview')}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <LayoutDashboard className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('overview')}</span>
+                      </span>
+                      {activeTab === 'overview' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMobileIndustryOpen((current) => !current)}
+                      className={mobileSectionItemClassName(activeTab === 'industry' || mobileIndustryOpen)}
+                      aria-expanded={mobileIndustryOpen}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <Building2 className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('industry')}</span>
+                      </span>
+                      {mobileIndustryOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                    </button>
+
+                    {mobileIndustryOpen ? (
+                      <div className="space-y-1 pl-4">
+                        {subIndustries.map((industry) => {
+                          const isIndustryActive = activeTab === 'industry' && activeIndustry === industry.id;
+
+                          return (
+                            <button
+                              key={industry.id}
+                              type="button"
+                              onClick={() => openIndustry(industry.id)}
+                              className={mobileSectionItemClassName(isIndustryActive)}
+                            >
+                              <span className="min-w-0 truncate font-medium">{industry.label}</span>
+                              {isIndustryActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => openFilter('issuer')}
+                      className={mobileSectionItemClassName(activeTab === 'filter' && activeFilterSubTab === 'issuer')}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <UserCircle className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('filterByIssuer')}</span>
+                      </span>
+                      {activeTab === 'filter' && activeFilterSubTab === 'issuer' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('bondNavigationMenu')}</div>
+                  <div className="space-y-1">
+                    {mobileBondItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={item.onClick}
+                          className={mobileSectionItemClassName(item.isActive)}
+                        >
+                          <span className="flex min-w-0 items-center gap-3">
+                            <Icon className="h-4 w-4 shrink-0" />
+                            <span className="truncate font-medium">{item.label}</span>
+                          </span>
+                          {item.isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => openTopLevel('watchlist')}
+                      className={mobileSectionItemClassName(activeTab === 'watchlist')}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <Bookmark className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('watchList')}</span>
+                      </span>
+                      {activeTab === 'watchlist' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('account')}</div>
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onProfileClick();
+                        setMobileNavOpen(false);
+                      }}
+                      className={mobileSectionItemClassName(activeTab === 'profile')}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <UserCircle className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('personalProfile')}</span>
+                      </span>
+                      {activeTab === 'profile' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                    </button>
+
+                    <div className="rounded-lg px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-3 text-sm font-medium text-text-muted">
+                          <Languages className="h-4 w-4 shrink-0" />
+                          <span>{t('language')}</span>
+                        </span>
+                        <div className="flex items-center gap-1 rounded-full border border-border-base bg-bg-surface p-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLanguage('en');
+                              setMobileNavOpen(false);
+                            }}
+                            className={cn(
+                              'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                              language === 'en'
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                                : 'text-text-muted hover:text-blue-600'
+                            )}
+                          >
+                            {t('english')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLanguage('vi');
+                              setMobileNavOpen(false);
+                            }}
+                            className={cn(
+                              'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                              language === 'vi'
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                                : 'text-text-muted hover:text-blue-600'
+                            )}
+                          >
+                            {t('vietnamese')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-3 text-sm font-medium text-text-muted">
+                          <Sun className="h-4 w-4 shrink-0" />
+                          <span>{t('themeMode')}</span>
+                        </span>
+                        <div className="flex items-center gap-1 rounded-full border border-border-base bg-bg-surface p-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTheme('light');
+                              setMobileNavOpen(false);
+                            }}
+                            className={cn(
+                              'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                              effectiveTheme === 'light'
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                                : 'text-text-muted hover:text-blue-600'
+                            )}
+                          >
+                            {t('light')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTheme('dark');
+                              setMobileNavOpen(false);
+                            }}
+                            className={cn(
+                              'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                              effectiveTheme === 'dark'
+                                ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                                : 'text-text-muted hover:text-blue-600'
+                            )}
+                          >
+                            {t('dark')}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onHelpClick();
+                        setMobileNavOpen(false);
+                      }}
+                      className={mobileSectionItemClassName(activeTab === 'help')}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <HelpCircle className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('help')}</span>
+                      </span>
+                      {activeTab === 'help' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileNavOpen(false);
+                        onLogout();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span>{t('logout')}</span>
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </nav>
+          </aside>
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
-    <header className="relative sticky top-0 z-50 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
+    <>
+      <header ref={headerRef} className="relative sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
       <div className="flex min-w-0 shrink-0 items-center gap-2 lg:min-w-72 lg:pr-3">
         <button
           type="button"
-          onClick={() => setMobileNavOpen(true)}
+          onClick={() => {
+            setMobileSearchOpen(false);
+            setShowDropdown(false);
+            setMobileNavOpen((current) => !current);
+          }}
           className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
-          aria-label="Open navigation"
-          title="Open navigation"
+          aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+          title={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={mobileNavOpen}
         >
-          <Menu className="h-5 w-5" />
+          {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
         <button
           type="button"
@@ -830,310 +1118,9 @@ export default function Header({
         </div>
       </div>
 
-      {mobileNavOpen && (
-        <div className="fixed inset-0 z-[70] lg:hidden">
-          <div
-            className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-            onClick={() => setMobileNavOpen(false)}
-            aria-hidden="true"
-          />
-          <aside className="relative flex h-full w-[22rem] max-w-[88vw] flex-col border-r border-border-base bg-surface-bright shadow-2xl shadow-blue-950/20 transition-transform duration-300 ease-out">
-            <div className="flex h-16 shrink-0 items-center justify-between border-b border-border-base px-4">
-              <button
-                type="button"
-                className="flex shrink-0 items-center"
-                onClick={() => {
-                  onLogoClick();
-                  setMobileNavOpen(false);
-                }}
-                aria-label="FireAnt"
-              >
-                <Logo />
-              </button>
-              <button
-                type="button"
-                onClick={() => setMobileNavOpen(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-lg text-text-muted transition-colors hover:text-blue-600"
-                aria-label="Close navigation"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="border-b border-border-base px-4 py-4">
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-4">
-                <p className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('profileUser')}</p>
-                <div className="mt-3 flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-action-accent font-bold text-slate-950 shadow-md shadow-cyan-500/20">
-                    {getInitials(authUser?.profile?.name || '')}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-text-base">{authUser?.profile?.name || 'Admin User'}</p>
-                    <p className="truncate text-xs font-medium text-text-muted">{authUser?.identityData?.email || ''}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <nav className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-              <div className="space-y-5">
-                <section className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setMobileDashboardOpen((current) => !current)}
-                    className={mobileSectionButtonClassName(isDashboardActive || mobileDashboardOpen)}
-                    aria-expanded={mobileDashboardOpen}
-                  >
-                    <span className="flex items-center gap-3">
-                      <LayoutDashboard className="h-4 w-4 shrink-0" />
-                      <span className="font-semibold">{t('dashboardMenu')}</span>
-                    </span>
-                    {mobileDashboardOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                  </button>
-
-                  {mobileDashboardOpen ? (
-                    <div className="space-y-1 pl-3">
-                      {dashboardItems.map((item) => {
-                        const Icon = item.icon;
-                        const isActive =
-                          item.id === 'overview'
-                            ? activeTab === 'overview'
-                            : item.id === 'industry'
-                              ? activeTab === 'industry'
-                              : activeTab === 'filter' && activeFilterSubTab === 'issuer';
-
-                        return (
-                          <div key={item.id}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (item.id === 'overview') {
-                                  openTopLevel('overview');
-                                  return;
-                                }
-                                if (item.id === 'industry') {
-                                  setMobileIndustryOpen((current) => !current);
-                                  return;
-                                }
-                                openFilter('issuer');
-                              }}
-                              className={mobileSectionItemClassName(isActive || (item.id === 'industry' && mobileIndustryOpen))}
-                              aria-expanded={item.id === 'industry' ? mobileIndustryOpen : undefined}
-                            >
-                              <span className="flex min-w-0 items-center gap-3">
-                                <Icon className="h-4 w-4 shrink-0" />
-                                <span className="truncate font-medium">{item.label}</span>
-                              </span>
-                              {item.id === 'industry' ? (
-                                mobileIndustryOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />
-                              ) : isActive ? (
-                                <ChevronRight className="h-4 w-4 shrink-0" />
-                              ) : null}
-                            </button>
-
-                            {item.id === 'industry' && mobileIndustryOpen ? (
-                              <div className="mt-1 space-y-1 pl-4">
-                                {subIndustries.map((industry) => {
-                                  const isIndustryActive = activeTab === 'industry' && activeIndustry === industry.id;
-
-                                  return (
-                                    <button
-                                      key={industry.id}
-                                      type="button"
-                                      onClick={() => openIndustry(industry.id)}
-                                      className={mobileSectionItemClassName(isIndustryActive)}
-                                    >
-                                      <span className="min-w-0 truncate font-medium">{industry.label}</span>
-                                      {isIndustryActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </section>
-
-                <section className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setMobileBondListOpen((current) => !current)}
-                    className={mobileSectionButtonClassName(mobileBondListOpen || activeTab === 'maturity-list' || (activeTab === 'filter' && activeFilterSubTab === 'bonds'))}
-                    aria-expanded={mobileBondListOpen}
-                  >
-                    <span className="flex items-center gap-3">
-                      <SlidersHorizontal className="h-4 w-4 shrink-0" />
-                      <span className="font-semibold">{t('bondNavigationMenu')}</span>
-                    </span>
-                    {mobileBondListOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                  </button>
-
-                  {mobileBondListOpen ? (
-                    <div className="space-y-1 pl-3">
-                      {mobileBondItems.map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={item.onClick}
-                            className={mobileSectionItemClassName(item.isActive)}
-                          >
-                            <span className="flex min-w-0 items-center gap-3">
-                              <Icon className="h-4 w-4 shrink-0" />
-                              <span className="truncate font-medium">{item.label}</span>
-                            </span>
-                            {item.isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </section>
-
-                <section className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => openTopLevel('watchlist')}
-                    className={mobileSectionButtonClassName(activeTab === 'watchlist')}
-                  >
-                    <span className="flex items-center gap-3">
-                      <Bookmark className="h-4 w-4 shrink-0" />
-                      <span className="font-semibold">{t('watchList')}</span>
-                    </span>
-                    {activeTab === 'watchlist' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                  </button>
-                </section>
-
-                <section className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setMobileAccountOpen((current) => !current)}
-                    className={mobileSectionButtonClassName(mobileAccountOpen || activeTab === 'profile' || activeTab === 'help')}
-                    aria-expanded={mobileAccountOpen}
-                  >
-                    <span className="flex items-center gap-3">
-                      <UserCircle className="h-4 w-4 shrink-0" />
-                      <span className="font-semibold">{t('profileUser')}</span>
-                    </span>
-                    {mobileAccountOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                  </button>
-
-                  {mobileAccountOpen ? (
-                    <div className="space-y-1 pl-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onProfileClick();
-                          setMobileNavOpen(false);
-                        }}
-                        className={mobileSectionItemClassName(activeTab === 'profile')}
-                      >
-                        <span className="flex items-center gap-3">
-                          <UserCircle className="h-4 w-4 shrink-0" />
-                          <span className="font-medium">{t('profile')}</span>
-                        </span>
-                        {activeTab === 'profile' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onHelpClick();
-                          setMobileNavOpen(false);
-                        }}
-                        className={mobileSectionItemClassName(activeTab === 'help')}
-                      >
-                        <span className="flex items-center gap-3">
-                          <HelpCircle className="h-4 w-4 shrink-0" />
-                          <span className="font-medium">{t('help')}</span>
-                        </span>
-                        {activeTab === 'help' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMobileNavOpen(false);
-                          onLogout();
-                        }}
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
-                      >
-                        <LogOut className="h-4 w-4 shrink-0" />
-                        <span>{t('logout')}</span>
-                      </button>
-                    </div>
-                  ) : null}
-                </section>
-
-                <section className="space-y-2">
-                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('uiLanguage')}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLanguage('en')}
-                      className={cn(
-                        'rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
-                        language === 'en'
-                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
-                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
-                      )}
-                    >
-                      EN
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLanguage('vi')}
-                      className={cn(
-                        'rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
-                        language === 'vi'
-                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
-                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
-                      )}
-                    >
-                      VN
-                    </button>
-                  </div>
-                </section>
-
-                <section className="space-y-2">
-                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('themeMode')}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setTheme('light')}
-                      className={cn(
-                        'flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
-                        effectiveTheme === 'light'
-                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
-                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
-                      )}
-                    >
-                      <Sun className="h-4 w-4" />
-                      <span>{t('light')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTheme('dark')}
-                      className={cn(
-                        'flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition-colors',
-                        effectiveTheme === 'dark'
-                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/30 dark:bg-blue-600/10 dark:text-blue-300'
-                          : 'border-border-base bg-bg-surface text-text-muted hover:text-blue-600'
-                      )}
-                    >
-                      <Moon className="h-4 w-4" />
-                      <span>{t('dark')}</span>
-                    </button>
-                  </div>
-                </section>
-              </div>
-            </nav>
-          </aside>
-        </div>
-      )}
-    </header>
+      </header>
+      {mobileNav}
+    </>
   );
 }
 

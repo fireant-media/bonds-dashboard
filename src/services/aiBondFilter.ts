@@ -81,7 +81,20 @@ const stripMarkdownCodeFence = (value: string) =>
 
 const normalizeNumber = (value: unknown) => {
   if (value === null || value === undefined || value === '') return undefined;
-  const parsed = Number(value);
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  const normalizedText = String(value)
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\./g, '')
+    .replace(/,/g, '.');
+
+  if (!normalizedText) return undefined;
+
+  const parsed = Number(normalizedText);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
@@ -597,6 +610,8 @@ export async function extractBondFilterCriteria({
         'Chi ho tro cac truong: industry, issuer, bondType, remainingDaysMin, remainingDaysMax, minTenorMonths, maxTenorMonths, issueDateFrom, issueDateTo, maturityDateFrom, maturityDateTo, minBondRate, maxBondRate, bondRateType, minListedVolume, maxListedVolume, minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion, sortBy, secondarySorts.',
         'Neu nguoi dung noi ve ky han con lai / remaining term / days left, hay su dung remainingDaysMin va remainingDaysMax.',
         'industry la nganh nghe; issuer la ten to chuc phat hanh; bondType la loai trai phieu.',
+        'Quy uoc doc so: dau "." la phan ngan cach hang nghin; dau "," la phan thap phan.',
+        'Vi du: 1.000 ty = 1000 ty = 1 nghin ty. 1000 ty = 1 nghin ty. 1,000 = 1 ty.',
         'bondRateType chi nhan mot trong hai gia tri: "fixed" hoac "floating".',
         'Cac truong gia tri theo ty VND gom: minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion.',
         'Chi dien industry, issuer, bondType neu nguoi dung neu ro tieu chi nay. Khong dua ma trai phieu vao issuer.',

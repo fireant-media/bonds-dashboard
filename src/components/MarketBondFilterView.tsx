@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Columns3, Eye, FilterX, ListOrdered } from 'lucide-react';
+import { EyeOff, Filter, FilterX, ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
@@ -247,7 +247,7 @@ export default function MarketBondFilterView({
   const [hiddenColumnIds, setHiddenColumnIds] = useState<string[]>([]);
   const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<string[]>([]);
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
-  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(true);
+  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
   const [industrySymbolLookup, setIndustrySymbolLookup] = useState<Map<string, string>>(new Map());
   const initialFetchLimit = useMemo(() => resolveInitialMarketBondFetchLimit(), []);
   const presetSignatureRef = useRef('');
@@ -811,30 +811,30 @@ export default function MarketBondFilterView({
             <button
               type="button"
               onClick={() => setIsFilterControlsVisible((current) => !current)}
-              className="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
               aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
             >
-              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Eye className="h-4 w-4 text-blue-600" />}
-              <span>{t('filterTab')}</span>
+              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
+              <span className="hidden sm:inline">{t('filterTab')}</span>
             </button>
             <button
               type="button"
               onClick={() => setIsColumnVisibilityOpen((current) => !current)}
-              className="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
               aria-haspopup="dialog"
               aria-expanded={isColumnVisibilityOpen}
               aria-label={t('hideColumns')}
               title={t('hideColumns')}
             >
-              <Columns3 className="h-4 w-4 text-blue-600" />
-              <span>{t('hideColumns')}</span>
+              <EyeOff className="h-4 w-4 text-blue-600" />
+              <span className="hidden sm:inline">{t('hideColumns')}</span>
             </button>
 
             {isColumnVisibilityOpen ? (
               <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
                 <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                  <Columns3 className="h-4 w-4 text-blue-600" />
+                  <EyeOff className="h-4 w-4 text-blue-600" />
                   <span>{t('hideColumns')}</span>
                 </div>
 

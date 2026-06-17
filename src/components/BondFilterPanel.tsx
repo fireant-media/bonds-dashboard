@@ -454,40 +454,42 @@ export function BondFilterPanel({
 
         <div className="py-2">
           <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-              <label className="flex-1 space-y-2">
-                <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
-                  <Sparkles className="h-4 w-4" />
-                  <span>{t('applyAIFilter')}</span>
-                </span>
-                <textarea
-                  rows={2}
-                  value={aiPrompt}
-                  onChange={(event) => {
-                    const nextPrompt = event.target.value;
-                    setAiPrompt(nextPrompt);
-
-                    if (aiSummary.length > 0) {
-                      setAiSummary([]);
-                    }
-
-                    if (aiError) {
-                      setAiError(null);
-                    }
-                  }}
-                  placeholder={t('aiFilterPlaceholder')}
-                  className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => void onApplyAI()}
-                disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
+                <Sparkles className="h-4 w-4" />
                 <span>{t('applyAIFilter')}</span>
-              </button>
+              </span>
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+                <div className="min-w-0 flex-1">
+                  <textarea
+                    rows={2}
+                    value={aiPrompt}
+                    onChange={(event) => {
+                      const nextPrompt = event.target.value;
+                      setAiPrompt(nextPrompt);
+
+                      if (aiSummary.length > 0) {
+                        setAiSummary([]);
+                      }
+
+                      if (aiError) {
+                        setAiError(null);
+                      }
+                    }}
+                    placeholder={t('aiFilterPlaceholder')}
+                    className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void onApplyAI()}
+                  disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  <span>{t('applyAIFilter')}</span>
+                </button>
+              </div>
             </div>
 
             {showPromptSuggestions && (
@@ -1175,12 +1177,12 @@ function MarketFilterToolbar({
         </>
       ) : null}
 
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+      <div className="flex items-center justify-between gap-2">
+        <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </div>
 
-        <div className="flex w-full justify-end xl:w-36 xl:flex-none">
+        <div className="flex shrink-0 items-center gap-2">
           {marketActionSlot}
         </div>
       </div>
@@ -1188,7 +1190,7 @@ function MarketFilterToolbar({
   );
 }
 
-function SearchFilterField({
+export function SearchFilterField({
   value,
   onChange,
   suggestions,
@@ -1201,7 +1203,10 @@ function SearchFilterField({
   const [isFocused, setIsFocused] = useState(false);
   const normalizedValue = value.trim().toLowerCase();
   const visibleSuggestions = normalizedValue
-    ? suggestions.filter((option) => option.toLowerCase().includes(normalizedValue)).slice(0, 8)
+    ? suggestions
+        .filter((option): option is string => typeof option === 'string' && option.trim().length > 0)
+        .filter((option) => option.toLowerCase().includes(normalizedValue))
+        .slice(0, 8)
     : [];
 
   return (
@@ -1242,7 +1247,7 @@ function SearchFilterField({
   );
 }
 
-function ActionFilterButton({
+export function ActionFilterButton({
   icon: Icon,
   label,
   onClick,
@@ -1259,7 +1264,7 @@ function ActionFilterButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${className} ${
+      className={`inline-flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${className} ${
         variant === 'primary'
           ? 'bg-blue-600 text-white hover:bg-blue-500'
           : 'border border-border-base bg-bg-base text-text-base hover:border-blue-200 hover:text-text-highlight'
@@ -1281,7 +1286,7 @@ interface FilterChipButtonProps {
   fullWidth?: boolean;
 }
 
-function FilterChipButton({ icon: Icon, label, active, open, valueText, onClick, fullWidth = false }: FilterChipButtonProps) {
+export function FilterChipButton({ icon: Icon, label, active, open, valueText, onClick, fullWidth = false }: FilterChipButtonProps) {
   return (
     <button
       type="button"
@@ -1309,7 +1314,7 @@ interface FilterPopoverShellProps {
   onClose?: () => void;
 }
 
-function FilterPopoverShell({ button, open, children, widthClass = 'w-72', onClose }: FilterPopoverShellProps) {
+export function FilterPopoverShell({ button, open, children, widthClass = 'w-72', onClose }: FilterPopoverShellProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -1351,7 +1356,7 @@ interface SelectFilterChipProps {
   fullWidth?: boolean;
 }
 
-function SelectFilterChip({ icon, label, value, options, open, onToggle, onChange, onClose, fullWidth = false }: SelectFilterChipProps) {
+export function SelectFilterChip({ icon, label, value, options, open, onToggle, onChange, onClose, fullWidth = false }: SelectFilterChipProps) {
   const { t } = useLanguage();
   const active = Boolean(value);
 
@@ -1388,7 +1393,9 @@ function SelectFilterChip({ icon, label, value, options, open, onToggle, onChang
           {t('all')}
         </button>
         <div className="max-h-64 overflow-y-auto">
-          {options.map((option) => (
+          {options
+            .filter((option): option is string => typeof option === 'string' && option.trim().length > 0)
+            .map((option) => (
             <button
               key={option}
               type="button"
@@ -1426,7 +1433,7 @@ interface RangeFilterChipProps {
   fullWidth?: boolean;
 }
 
-function RangeFilterChip({
+export function RangeFilterChip({
   icon,
   label,
   minValue,

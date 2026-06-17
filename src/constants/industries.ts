@@ -51,6 +51,57 @@ export const INDUSTRY_LABEL_KEYS = INDUSTRY_NAV_ITEMS.reduce<Record<string, stri
 export const normalizeIndustryName = (value: unknown) =>
   String(value || '').trim().toLowerCase();
 
+const PROFILE_ICB_PREFIX_TO_LABEL_KEY: Array<{ prefix: string; labelKey: string }> = [
+  { prefix: '953', labelKey: 'technologyIndustry' },
+  { prefix: '95', labelKey: 'technologyIndustry' },
+  { prefix: '878', labelKey: 'Securities' },
+  { prefix: '87', labelKey: 'Securities' },
+  { prefix: '835', labelKey: 'Banking' },
+  { prefix: '83', labelKey: 'Banking' },
+  { prefix: '857', labelKey: 'financialsOtherIndustry' },
+  { prefix: '85', labelKey: 'financialsOtherIndustry' },
+  { prefix: '863', labelKey: 'RealEstate' },
+  { prefix: '86', labelKey: 'RealEstate' },
+  { prefix: '757', labelKey: 'energyIndustry' },
+  { prefix: '753', labelKey: 'infrastructureServicesIndustry' },
+  { prefix: '75', labelKey: 'infrastructureServicesIndustry' },
+  { prefix: '653', labelKey: 'telecommunicationsIndustry' },
+  { prefix: '65', labelKey: 'telecommunicationsIndustry' },
+  { prefix: '537', labelKey: 'consumerDiscretionaryIndustry' },
+  { prefix: '53', labelKey: 'consumerDiscretionaryIndustry' },
+  { prefix: '376', labelKey: 'consumerDiscretionaryIndustry' },
+  { prefix: '37', labelKey: 'consumerDiscretionaryIndustry' },
+  { prefix: '357', labelKey: 'consumerStaplesIndustry' },
+  { prefix: '35', labelKey: 'consumerStaplesIndustry' },
+  { prefix: '457', labelKey: 'healthcareIndustry' },
+  { prefix: '45', labelKey: 'healthcareIndustry' },
+  { prefix: '277', labelKey: 'industrialsIndustry' },
+  { prefix: '27', labelKey: 'industrialsIndustry' },
+  { prefix: '235', labelKey: 'industrialsIndustry' },
+  { prefix: '23', labelKey: 'industrialsIndustry' },
+  { prefix: '175', labelKey: 'basicMaterialsIndustry' },
+  { prefix: '17', labelKey: 'basicMaterialsIndustry' },
+];
+
+const resolveIndustryItemByCode = (value: string) => {
+  const normalizedCode = String(value || '').trim();
+  if (!normalizedCode || !/^\d+$/.test(normalizedCode)) return null;
+
+  const directIndustry = [...INDUSTRY_NAV_ITEMS]
+    .sort((left, right) => (right.icbCode || right.code).length - (left.icbCode || left.code).length)
+    .find((item) => {
+      const itemCode = String(item.icbCode || item.code || '').trim();
+      return itemCode && normalizedCode.startsWith(itemCode);
+    });
+
+  if (directIndustry) return directIndustry;
+
+  const profileMapped = PROFILE_ICB_PREFIX_TO_LABEL_KEY.find((entry) => normalizedCode.startsWith(entry.prefix));
+  if (!profileMapped) return null;
+
+  return INDUSTRY_NAV_ITEMS.find((item) => item.labelKey === profileMapped.labelKey) || null;
+};
+
 const BANKING_LABEL_KEY = 'Banking';
 const SECURITIES_LABEL_KEY = 'Securities';
 const FINANCIALS_OTHER_LABEL_KEY = 'financialsOtherIndustry';
@@ -166,7 +217,7 @@ export const resolveIndustryLabelKey = (...candidates: Array<unknown>) => {
 
     const normalized = normalizeIndustryName(value);
     if (/^\d+$/.test(value)) {
-      const byCode = INDUSTRY_NAV_ITEMS.find((item) => item.code === value || item.icbCode === value);
+      const byCode = resolveIndustryItemByCode(value);
       if (byCode) return byCode.labelKey;
     }
 
@@ -185,7 +236,7 @@ export const resolveIndustryKeyFromCandidates = (...candidates: Array<unknown>) 
     if (!value || value.toLowerCase() === 'n/a') continue;
 
     if (/^\d+$/.test(value)) {
-      const byCode = INDUSTRY_NAV_ITEMS.find((item) => item.code === value || item.icbCode === value);
+      const byCode = resolveIndustryItemByCode(value);
       if (byCode) {
         resolvedKeys.push(byCode.labelKey);
         continue;
@@ -219,7 +270,7 @@ export const buildIndustrySymbolLookup = (symbolGroups: Record<string, string[]>
 
   INDUSTRY_NAV_ITEMS.forEach((item) => {
     (symbolGroups[item.id] || []).forEach((symbol) => {
-      const key = String(symbol || '').trim();
+      const key = String(symbol || '').trim().toUpperCase();
       if (key) {
         lookup.set(key, item.labelKey);
       }
@@ -234,7 +285,7 @@ export const resolveIndustryKeyFromSymbolGroups = (
   symbolLookup: Map<string, string>,
   ...candidates: Array<unknown>
 ) => {
-  const normalizedSymbol = String(symbol || '').trim();
+  const normalizedSymbol = String(symbol || '').trim().toUpperCase();
   if (normalizedSymbol) {
     const resolved = symbolLookup.get(normalizedSymbol);
     if (resolved) return resolved;

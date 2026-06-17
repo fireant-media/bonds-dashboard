@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Activity, AlertCircle, ChevronRight, CheckCircle2, Eye, Zap } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
 import { useMaturingBondsQuery } from '../query/dashboardQueries';
@@ -17,8 +17,8 @@ interface BondSectionNavProps {
   activeSection: BondSectionKey;
 }
 
-const CARD_GAP_PX = 12;
-const CARD_EDGE_PADDING_PX = 8;
+const CARD_GAP_PX = 8;
+const CARD_EDGE_PADDING_PX = 0;
 
 const sectionItems: Array<{
   key: BondSectionKey;
@@ -90,9 +90,11 @@ const getBondDaysLeft = (maturityDate: string) => {
 
 export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useLanguage();
   const maturityQuery = useMaturingBondsQuery(3650);
   const cardsContainerRef = useRef<HTMLDivElement | null>(null);
+  const sectionButtonRefs = useRef<Partial<Record<BondSectionKey, HTMLButtonElement | null>>>({});
   const [visibleCardCount, setVisibleCardCount] = useState(1);
 
   const upcomingCards = useMemo(() => {
@@ -120,13 +122,24 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
   };
 
   useEffect(() => {
+    if (typeof window === 'undefined' || window.innerWidth >= 640) return;
+
+    const button = sectionButtonRefs.current[activeSection];
+    button?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    });
+  }, [activeSection]);
+
+  useEffect(() => {
     const container = cardsContainerRef.current;
     if (!container || typeof window === 'undefined') return;
 
     const resolveCardWidth = () => {
-      if (window.innerWidth >= 1024) return 288;
-      if (window.innerWidth >= 640) return 256;
-      return 240;
+      if (window.innerWidth >= 1024) return 224;
+      if (window.innerWidth >= 640) return 208;
+      return 192;
     };
 
     const updateVisibleCount = () => {
@@ -155,10 +168,17 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
     [upcomingCards, visibleCardCount],
   );
 
+  const handleOpenBondDetail = (code: string) => {
+    const normalizedCode = String(code || '').trim();
+    if (!normalizedCode) return;
+
+    navigate(`/${normalizedCode}`, { state: { backgroundLocation: location } });
+  };
+
   return (
     <div className="mb-4">
-      <div ref={cardsContainerRef} className="mt-4 px-2 py-1">
-        <div className="flex items-stretch justify-center gap-3 overflow-visible">
+      <div ref={cardsContainerRef} className="mt-4">
+        <div className="flex w-full items-stretch gap-2 overflow-visible sm:gap-3 lg:gap-4">
           {visibleCards.map((card) => {
             const status = getMaturityStatusMeta(card.daysLeft, t);
             const StatusIcon = status.icon;
@@ -166,11 +186,21 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
             return (
               <div
                 key={card.code}
-                className="min-w-0 w-60 sm:w-64 lg:w-72 rounded-lg border border-border-base bg-white p-4 shadow-sm transition-colors hover:border-blue-200"
+                className="group relative flex min-w-0 flex-1 basis-48 flex-col overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-sm shadow-slate-900/5 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/25 hover:shadow-lg hover:shadow-blue-500/10 dark:shadow-black/20 sm:basis-52 lg:basis-56"
               >
-                <p className="truncate text-sm font-bold text-text-base">{card.code}</p>
+                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600" />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-100/80 via-blue-50/50 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:from-blue-500/15 dark:via-blue-500/5" />
+                <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-blue-200/30 blur-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:bg-blue-500/10" />
+                <button
+                  type="button"
+                  onClick={() => handleOpenBondDetail(card.code)}
+                  className="relative truncate text-left text-sm font-bold text-text-base transition-colors hover:text-blue-600"
+                  title={card.code}
+                >
+                  {card.code}
+                </button>
 
-                <div className="mt-3 space-y-2 text-sm">
+                <div className="relative mt-3 space-y-2 text-sm">
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0 whitespace-nowrap text-text-muted">Lãi suất</span>
                     <span className="shrink-0 whitespace-nowrap font-semibold text-text-base">{formatInterestRate(card.interestRate)}%</span>
@@ -182,7 +212,7 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center gap-2 whitespace-nowrap">
+                <div className="relative mt-3 flex items-center justify-center gap-2 whitespace-nowrap text-center">
                   <StatusIcon className={cn('h-4 w-4 shrink-0', status.iconClassName)} />
                   <span className={cn('inline-flex min-w-0 rounded-full border px-2.5 py-1 text-xs font-semibold uppercase', status.badgeClassName)}>
                     <span className="truncate">{status.label}</span>
@@ -206,13 +236,16 @@ export default function BondSectionNav({ activeSection }: BondSectionNavProps) {
       </div>
 
       <div className="mt-1">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-smooth">
           <div className="flex min-w-max items-stretch gap-1 px-0">
             {sectionItems.map((item) => {
               const isActive = activeSection === item.key;
               return (
                 <button
                   key={item.key}
+                  ref={(node) => {
+                    sectionButtonRefs.current[item.key] = node;
+                  }}
                   type="button"
                   onClick={() => handleNavigate(item.path)}
                   className={cn(

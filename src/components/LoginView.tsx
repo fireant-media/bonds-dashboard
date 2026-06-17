@@ -507,7 +507,6 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
               aria-label="FireAnt Bond Dashboard"
             >
               <Logo />
-              <span className="whitespace-nowrap border-l border-border-base pl-3 text-sm font-semibold text-blue-400">Bond Dashboard</span>
             </button>
           </div>
 

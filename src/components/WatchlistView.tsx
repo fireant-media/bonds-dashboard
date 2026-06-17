@@ -159,8 +159,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
       align: 'center',
       widthClassName: 'w-14',
-      stickyHeaderClassName: 'sticky left-0 z-40 bg-blue-600',
-      stickyCellClassName: 'sticky left-0 z-30 bg-inherit',
       cell: (_row, index) => index + 1,
     },
     {
@@ -169,8 +167,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       accessor: (row) => row.code,
       sortable: true,
       widthClassName: 'w-32',
-      stickyHeaderClassName: 'sticky left-14 z-40 bg-blue-600',
-      stickyCellClassName: 'sticky left-14 z-30 bg-inherit',
       cell: (row) => (
         <span className="font-bold text-text-highlight transition-colors hover:text-blue-600">
           {row.code}
