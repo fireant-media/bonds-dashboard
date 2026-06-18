@@ -230,6 +230,7 @@ export const translations = {
     
     // Right Panel
     watchList: 'Danh sách theo dõi',
+    watchListSubtitle: 'Các mã trái phiếu bạn đã lưu để mở lại và theo dõi nhanh.',
     upcomingMaturity: 'Sắp đáo hạn',
     seeMore: 'Xem thêm',
     
@@ -673,12 +674,15 @@ export const translations = {
     lowest: 'Thấp nhất',
     bondList: 'Danh sách mã trái phiếu',
     marketBondList: 'Danh sách trái phiếu toàn thị trường',
+    marketBondListSubtitle: 'Tổng hợp toàn bộ thị trường để lọc, so sánh và theo dõi nhanh.',
     loadingBondsMessage: 'Đang tải dữ liệu trái phiếu...',
     enterpriseList: 'Danh sách tổ chức phát hành',
     loadingEnterprisesMessage: 'Đang tải dữ liệu doanh nghiệp...',
     searchPlaceholderEnterprises: 'Tìm kiếm tên doanh nghiệp hoặc mã chứng khoán',
     applyFilters: 'Áp dụng lọc',
     applyAIFilter: 'Lọc với AI',
+    trackBond: 'Theo dõi',
+    trackedBond: 'Đã theo dõi',
     hideFilters: 'Ẩn bộ lọc',
     showFilters: 'Hiện bộ lọc',
     hideColumns: 'Ẩn cột',
@@ -697,6 +701,7 @@ export const translations = {
 
     // Maturity List Specific
     maturityTitle: 'Danh sách mã trái phiếu sắp đáo hạn',
+    maturityTitleSubtitle: 'Theo dõi các mã sắp đến hạn để ưu tiên giám sát kịp thời.',
     hideSidebar: 'Ẩn thanh bên',
     showSidebar: 'Hiện thanh bên',
     range1Month: '1 tháng tới',
@@ -768,7 +773,7 @@ export const translations = {
     principal: 'Gốc',
     interest: 'Lãi',
     summary: 'Nhận xét',
-    quickAnalysisTitle: 'Đánh giá',
+    quickAnalysisTitle: 'Đánh giá nhanh',
     riskLevel: 'Áp lực đáo hạn',
     liquidityLevel: 'Thanh khoản',
     interestRateLevel: 'Mức lãi suất so với ngành',
@@ -1137,6 +1142,7 @@ export const translations = {
     
     // Right Panel
     watchList: 'Watchlist',
+    watchListSubtitle: 'Bonds you saved for quick reopening and monitoring.',
     upcomingMaturity: 'Upcoming Maturity',
     seeMore: 'See More',
     
@@ -1579,12 +1585,15 @@ export const translations = {
     lowest: 'Lowest',
     bondList: 'Bond List',
     marketBondList: 'Full Market Bond List',
+    marketBondListSubtitle: 'Aggregate the full market for fast filtering, comparison, and monitoring.',
     loadingBondsMessage: 'Loading bond data...',
     enterpriseList: 'Issuer List',
     loadingEnterprisesMessage: 'Loading enterprise data...',
     searchPlaceholderEnterprises: 'Search enterprise name or ticker',
     applyFilters: 'Apply filters',
     applyAIFilter: 'Filter with AI',
+    trackBond: 'Track',
+    trackedBond: 'Tracked',
     hideFilters: 'Hide filters',
     showFilters: 'Show filters',
     hideColumns: 'Hide columns',
@@ -1603,6 +1612,7 @@ export const translations = {
 
     // Maturity List Specific
     maturityTitle: 'Upcoming Bond Maturity List',
+    maturityTitleSubtitle: 'Track bonds nearing maturity so you can prioritize monitoring.',
     hideSidebar: 'Hide sidebar',
     showSidebar: 'Show sidebar',
     range1Month: 'Next 1 month',

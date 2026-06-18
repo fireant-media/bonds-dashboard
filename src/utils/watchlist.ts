@@ -22,6 +22,24 @@ export interface WatchlistUpsertOptions {
   preserveAddedAt?: boolean;
 }
 
+export interface WatchlistBondSource {
+  code: string;
+  id?: string;
+  enterpriseId?: string;
+  ticker?: string;
+  issuerName?: string;
+  term?: string | number;
+  interestRate?: number;
+  listedVolume?: number;
+  issuedValue?: number;
+  listedValue?: number;
+  issueDate?: string;
+  maturityDate?: string;
+  interestType?: string;
+  bondType?: string;
+  status?: string;
+}
+
 function buildWatchlistItem(item: Omit<WatchlistItem, 'addedAt'>, addedAt: number): WatchlistItem {
   return {
     id: String(item.id || item.code),
@@ -40,6 +58,26 @@ function buildWatchlistItem(item: Omit<WatchlistItem, 'addedAt'>, addedAt: numbe
     issuerName: String(item.issuerName || item.enterpriseId || item.code || ''),
     ticker: String(item.ticker || item.enterpriseId || ''),
     addedAt,
+  };
+}
+
+export function createWatchlistItemFromBond(source: WatchlistBondSource): Omit<WatchlistItem, 'addedAt'> {
+  return {
+    id: String(source.id || source.code || ''),
+    code: String(source.code || '').trim(),
+    enterpriseId: String(source.enterpriseId || source.ticker || '').trim(),
+    term: String(source.term || ''),
+    interestRate: Number(source.interestRate || 0),
+    listedVolume: Number(source.listedVolume || 0),
+    issuedValue: Number(source.issuedValue || 0),
+    listedValue: Number(source.listedValue || 0),
+    issueDate: String(source.issueDate || ''),
+    maturityDate: String(source.maturityDate || ''),
+    interestType: String(source.interestType || ''),
+    bondType: String(source.bondType || ''),
+    status: String(source.status || ''),
+    issuerName: String(source.issuerName || source.enterpriseId || source.ticker || source.code || ''),
+    ticker: String(source.ticker || source.enterpriseId || ''),
   };
 }
 

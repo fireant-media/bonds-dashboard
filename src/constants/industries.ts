@@ -40,6 +40,7 @@ export const INDUSTRY_FILTER_CODE_GROUPS: Record<string, { include: string[]; ex
 
 export const INDUSTRY_NAV_ITEM_BY_ID = INDUSTRY_NAV_ITEMS.reduce<Record<string, IndustryNavItem>>((acc, item) => {
   acc[item.id] = item;
+  acc[item.labelKey] = item;
   return acc;
 }, {});
 

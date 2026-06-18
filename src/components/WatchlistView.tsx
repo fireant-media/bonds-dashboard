@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ListOrdered, Plus } from 'lucide-react';
+import { BookmarkCheck, ListOrdered, Plus, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
 import BondSectionNav from './BondSectionNav';
-import { getWatchlistItems, onWatchlistUpdated, upsertWatchlistItem, type WatchlistItem } from '../utils/watchlist';
+import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItem, type WatchlistItem } from '../utils/watchlist';
 import { loadBondDetail } from '../services/bondData';
 import { DataTable, type DataTableColumn } from './ui/DataTable';
 
@@ -168,9 +168,12 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       sortable: true,
       widthClassName: 'w-32',
       cell: (row) => (
-        <span className="font-bold text-text-highlight transition-colors hover:text-blue-600">
-          {row.code}
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <BookmarkCheck className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+          <span className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600">
+            {row.code}
+          </span>
+        </div>
       ),
     },
     {
@@ -277,6 +280,27 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       widthClassName: 'w-36',
       cell: (row) => formatNumber(row.listedValue || 0, 2),
     },
+    {
+      id: 'action',
+      header: t('action'),
+      align: 'center',
+      widthClassName: 'w-24',
+      cell: (row) => (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            removeWatchlistItemWithStatus(row.code);
+          }}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border-base bg-bg-base text-text-muted transition-colors hover:border-red-200 hover:text-red-600"
+          aria-label={`${t('delete')} ${row.code}`}
+          title={`${t('delete')} ${row.code}`}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ),
+    },
   ]), [t]);
 
   const emptyState = (
@@ -297,6 +321,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     <div className="min-w-0 transition-colors duration-300">
       <BondSectionNav activeSection="watchlist" />
 
+      <div className="mb-4 space-y-2">
+        <h2 className="text-xl font-bold text-text-base">{t('watchList')}</h2>
+        <p className="max-w-3xl text-sm font-medium text-text-muted">{t('watchListSubtitle')}</p>
+      </div>
+
       <DataTable
         rows={bonds}
         columns={columns}
@@ -305,6 +334,21 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
         emptyState={emptyState}
         onRowClick={handleOpenBond}
       />
+
+      {bonds.length > 0 ? (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() => navigate('/filter/bonds')}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+          >
+            <Plus className="h-4 w-4" />
+            <span>{t('addBond')}</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
+
+

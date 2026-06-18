@@ -10,7 +10,7 @@ import { getFireantToken, cleanTokenString } from '../utils/token';
 import { buildFireantUrl } from '../api/fireant';
 import { readJsonResponse } from '../utils/http';
 import { loadBondDetail, loadIssuerProfile } from '../services/bondData';
-import { loadBondIndustryByFilter, loadIndustryBaseBondGroupData, type IndustryBondGroupData } from '../services/industryBondData';
+import { loadBondIndustryByFilter, loadIndustryBondGroupData, type IndustryBondGroupData } from '../services/industryBondData';
 import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
@@ -124,6 +124,23 @@ const getRateTypeKey = (value: unknown) => {
   return '';
 };
 
+const getBondRateTypeKey = (bondLike: any) => {
+  const rawRateType =
+    bondLike?.bondRateType
+    || bondLike?.interestRateType
+    || bondLike?.couponRateType
+    || bondLike?.interestType
+    || '';
+  const paymentMethod =
+    bondLike?.interestPaymentMethod
+    || bondLike?.paymentMethod
+    || bondLike?.bondType
+    || bondLike?.bondName
+    || '';
+  const normalizedType = normalizeInterestType(rawRateType, paymentMethod, Array.isArray(bondLike?.cashFlows) ? bondLike.cashFlows : []);
+  return getRateTypeKey(normalizedType || rawRateType);
+};
+
 const percentile = (values: number[], p: number) => {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -225,6 +242,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
             mergedDetail.industryID ||
             mergedDetail.industryCode ||
             mergedDetail.IndustryCode ||
+            mergedDetail.issuerICBCode ||
+            mergedDetail.IssuerICBCode ||
             mergedDetail.icbCodeLv2 ||
             mergedDetail.ICBCodeLv2 ||
             mergedDetail.icbNameLv2 ||
@@ -243,6 +262,8 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
           industryCode:
             mergedDetail.industryCode ||
             mergedDetail.IndustryCode ||
+            mergedDetail.issuerICBCode ||
+            mergedDetail.IssuerICBCode ||
             mergedDetail.icbCodeLv2 ||
             mergedDetail.ICBCodeLv2 ||
             mergedDetail.icbCodeLv1 ||
@@ -486,7 +507,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
 
     const fetchIndustryPeers = async () => {
       try {
-        const data = await loadIndustryBaseBondGroupData(resolvedIndustryId);
+        const data = await loadIndustryBondGroupData(resolvedIndustryId);
         if (isActive) {
           setIndustryBondGroup(data);
         }
@@ -507,7 +528,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
 
   const industryInterestRateAssessment = useMemo(() => {
     const rate = Number(currentBond.interestRate || 0);
-    const rateTypeKey = getRateTypeKey(bondDetails?.bondRateType || currentBond.interestType || '');
+    const rateTypeKey = getBondRateTypeKey(currentBond);
     const remainingTermMonths = getRemainingTermMonths(currentBond.maturityDate) ?? parseTermMonths(currentBond.term) ?? null;
     const industryBonds = Array.isArray(industryBondGroup?.bonds) ? industryBondGroup.bonds : [];
 
@@ -521,7 +542,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
     const sameRateTypePeers = industryBonds.filter((bondRow: any) => {
       const code = normalizeText(bondRow?.bondCode || bondRow?.code).toUpperCase();
       if (code && code === normalizeText(currentBond.code).toUpperCase()) return false;
-      return getRateTypeKey(bondRow?.bondRateType || bondRow?.interestRateType || bondRow?.couponRateType || bondRow?.interestType) === rateTypeKey;
+      return getBondRateTypeKey(bondRow) === rateTypeKey;
     });
 
     const currentTermGroup = remainingTermMonths < 36 ? 'short_term' : 'long_term';
@@ -531,40 +552,50 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
       return (peerTermMonths < 36 ? 'short_term' : 'long_term') === currentTermGroup;
     });
 
-    const termGroupValues = withTermGroup
-      .map((bondRow: any) => Number(bondRow?.bondRate || bondRow?.couponRate || 0))
-      .filter((value) => value > 0);
+    const industryPeers = industryBonds.filter((bondRow: any) => {
+      const code = normalizeText(bondRow?.bondCode || bondRow?.code).toUpperCase();
+      return !code || code !== normalizeText(currentBond.code).toUpperCase();
+    });
 
-    const sameRateValues = sameRateTypePeers
-      .map((bondRow: any) => Number(bondRow?.bondRate || bondRow?.couponRate || 0))
-      .filter((value) => value > 0);
+    const industryWithTermGroup = industryPeers.filter((bondRow: any) => {
+      const peerTermMonths = getRemainingTermMonths(bondRow?.maturityDate);
+      if (peerTermMonths === null) return false;
+      return (peerTermMonths < 36 ? 'short_term' : 'long_term') === currentTermGroup;
+    });
 
-    if (termGroupValues.length >= 5) {
-      const p25 = percentile(termGroupValues, 25);
-      const p75 = percentile(termGroupValues, 75);
+    const extractPeerRates = (rows: any[]) =>
+      rows
+        .map((bondRow: any) => Number(bondRow?.bondRate || bondRow?.couponRate || 0))
+        .filter((value) => value > 0);
+
+    const termGroupValues = extractPeerRates(withTermGroup);
+    const sameRateValues = extractPeerRates(sameRateTypePeers);
+    const industryTermGroupValues = extractPeerRates(industryWithTermGroup);
+    const industryValues = extractPeerRates(industryPeers);
+
+    const evaluateWithPercentiles = (values: number[]) => {
+      const p25 = percentile(values, 25);
+      const p75 = percentile(values, 75);
       return {
         level: rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium',
-        confidence: null,
+        confidence: null as 'low' | null,
       };
-    }
+    };
 
-    if (sameRateValues.length >= 5) {
-      const p25 = percentile(sameRateValues, 25);
-      const p75 = percentile(sameRateValues, 75);
-      return {
-        level: rate < p25 ? 'low' : rate > p75 ? 'high' : 'medium',
-        confidence: null,
-      };
-    }
-
-    if (sameRateValues.length >= 2) {
-      const medianValue = median(sameRateValues);
+    const evaluateWithMedian = (values: number[]) => {
+      const medianValue = median(values);
       const epsilon = 0.0001;
       return {
         level: rate < medianValue - epsilon ? 'low' : rate > medianValue + epsilon ? 'high' : 'medium',
         confidence: 'low' as const,
       };
-    }
+    };
+
+    if (termGroupValues.length >= 5) return evaluateWithPercentiles(termGroupValues);
+    if (sameRateValues.length >= 5) return evaluateWithPercentiles(sameRateValues);
+    if (industryTermGroupValues.length >= 5) return evaluateWithPercentiles(industryTermGroupValues);
+    if (industryValues.length >= 5) return evaluateWithPercentiles(industryValues);
+    if (industryValues.length >= 2) return evaluateWithMedian(industryValues);
 
     return {
       level: 'unknown' as const,
@@ -1309,21 +1340,27 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
                     <ShieldCheck className="h-5 w-5" />
                   </div>
-                  <h2 className="text-base font-bold text-text-base">{t('remarksTitle')}</h2>
+                  <h2 className="text-base font-bold text-text-base">{t('quickAnalysisTitle')}</h2>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-3">
                   {quickAnalysis.map((item) => (
                     <div key={item.label} className="rounded-2xl border border-border-base bg-bg-base/50 p-4">
-                      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-bg-surface text-blue-600">
-                        <item.icon className="h-4 w-4" />
+                      <div className="mb-3 flex items-center gap-2">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600">
+                          <item.icon className="h-4 w-4" />
+                        </div>
+                        <p className="min-w-0 flex-1 text-sm font-semibold text-text-base">
+                          {item.label}
+                        </p>
                       </div>
-                      <p className="text-sm font-semibold text-text-base">{item.label}</p>
-                      <p className="mt-2 text-sm font-medium text-text-muted">{item.evidence}</p>
-                      <p className={`mt-3 text-sm font-bold ${item.meta.className}`}>{item.meta.label}</p>
-                      {item.confidence ? (
-                        <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted/80">{t('confidenceLow')}</p>
-                      ) : null}
+                      <div className="flex flex-col items-center text-center">
+                        <p className="mt-2 text-sm font-medium text-text-muted">{item.evidence}</p>
+                        <p className={`mt-3 text-sm font-bold ${item.meta.className}`}>{item.meta.label}</p>
+                        {item.confidence ? (
+                          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted/80">{t('confidenceLow')}</p>
+                        ) : null}
+                      </div>
                     </div>
                   ))}
                 </div>

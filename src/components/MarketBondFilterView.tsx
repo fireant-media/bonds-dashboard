@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { EyeOff, Filter, FilterX, ListOrdered } from 'lucide-react';
+import { Bookmark, BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
@@ -35,6 +35,7 @@ import {
 } from './BondFilterPanel';
 import { DataTable, DataTableColumn } from './ui/DataTable';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+import { createWatchlistItemFromBond, isBondTracked, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 
 const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
 const MARKET_BOND_VIEW_CACHE_PREFIX = 'market_bond_list_v2_';
@@ -249,6 +250,7 @@ export default function MarketBondFilterView({
   const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
   const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
   const [industrySymbolLookup, setIndustrySymbolLookup] = useState<Map<string, string>>(new Map());
+  const [watchlistVersion, setWatchlistVersion] = useState(0);
   const initialFetchLimit = useMemo(() => resolveInitialMarketBondFetchLimit(), []);
   const presetSignatureRef = useRef('');
   const columnVisibilityRef = useRef<HTMLDivElement | null>(null);
@@ -621,16 +623,58 @@ export default function MarketBondFilterView({
       sortable: true,
       widthClassName: 'w-32',
       cell: (row) => (
-        <button
-          type="button"
-          onClick={() => {
-            setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
-            setSelectedBond(toBondModel(row));
-          }}
-          className="font-bold text-text-highlight transition-colors hover:text-blue-600"
-        >
-          {row.bondCode}
-        </button>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (isBondTracked(row.bondCode)) {
+                removeWatchlistItemWithStatus(row.bondCode);
+                return;
+              }
+
+              upsertWatchlistItemWithStatus(
+                createWatchlistItemFromBond({
+                  code: row.bondCode,
+                  enterpriseId: row.issuerSymbol,
+                  ticker: row.issuerSymbol,
+                  issuerName: row.issuerName || row.issuerSymbol || row.bondCode,
+                  term: row.tenorPeriod,
+                  interestRate: row.bondRate,
+                  listedVolume: row.currentListedVolume,
+                  issuedValue: row.totalIssuedValue,
+                  listedValue: row.currentListedValue,
+                  issueDate: row.issueDate,
+                  maturityDate: row.maturityDate,
+                  interestType: normalizeBondRateType(row),
+                  bondType: row.bondType,
+                  status: row.status,
+                }),
+                { preserveAddedAt: true },
+              );
+            }}
+            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center transition-colors ${
+              isBondTracked(row.bondCode)
+                ? 'text-amber-500'
+                : 'text-text-muted hover:text-blue-600'
+            }`}
+            aria-label={`${isBondTracked(row.bondCode) ? t('trackedBond') : t('trackBond')} ${row.bondCode}`}
+            title={`${isBondTracked(row.bondCode) ? t('trackedBond') : t('trackBond')} ${row.bondCode}`}
+          >
+            {isBondTracked(row.bondCode) ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
+              setSelectedBond(toBondModel(row));
+            }}
+            className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600"
+          >
+            {row.bondCode}
+          </button>
+        </div>
       ),
     },
     {
@@ -740,7 +784,7 @@ export default function MarketBondFilterView({
       widthClassName: 'w-36',
       cell: (row) => formatNumber((row.currentListedValue || 0) / 1000000000, 2),
     },
-  ]), [setBondEnterpriseName, setSelectedBond, t]);
+  ]), [setBondEnterpriseName, setSelectedBond, t, watchlistVersion]);
 
   const columnVisibilityOptions = useMemo(
     () => columns.filter((column) => column.id !== 'order').map((column) => ({
@@ -776,9 +820,18 @@ export default function MarketBondFilterView({
     };
   }, [hiddenColumnIds, isColumnVisibilityOpen]);
 
+  useEffect(() => onWatchlistUpdated(() => {
+    setWatchlistVersion((value) => value + 1);
+  }), []);
+
   return (
     <div className="min-w-0 space-y-4 transition-colors duration-300">
       <BondSectionNav activeSection="market" />
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-bold text-text-base">{t('marketBondList')}</h2>
+        <p className="max-w-3xl text-sm font-medium text-text-muted">{t('marketBondListSubtitle')}</p>
+      </div>
 
       <BondFilterPanel
         title={t('marketBondList')}
