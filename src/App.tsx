@@ -99,6 +99,7 @@ export default function App() {
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   const [showBondComparison, setShowBondComparison] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   
   const setActiveTab = (tab: string) => {
     switch (tab) {
@@ -513,6 +514,8 @@ export default function App() {
                 setActiveIndustry={setActiveIndustry}
                 activeFilterSubTab={filterSubTab || 'issuer'}
                 setActiveFilterSubTab={setActiveFilterSubTab}
+                isCollapsed={isSidebarCollapsed}
+                onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
               />
             )}
             <main className="flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">

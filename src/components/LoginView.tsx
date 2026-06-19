@@ -497,48 +497,46 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
 
   return (
     <div className="min-h-dvh overflow-x-hidden overflow-y-auto bg-bg-base text-text-base">
-      <header className="sticky top-0 z-30 border-b border-border-base bg-surface-bright/95 py-3 shadow-md shadow-blue-950/5 backdrop-blur-xl dark:shadow-black/20">
-        <div className="mx-auto flex max-w-7xl flex-col items-stretch gap-3 px-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 lg:px-6 xl:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => scrollToSection('overview')}
-              className="flex shrink-0 items-center gap-3"
-              aria-label="FireAnt Bond Dashboard"
-            >
-              <Logo />
-            </button>
-          </div>
+      <header className="relative sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
+        <div className="flex min-w-0 shrink-0 items-center gap-2 lg:min-w-72 lg:pr-3">
+          <button
+            type="button"
+            onClick={() => scrollToSection('overview')}
+            className="flex min-w-0 shrink-0 items-center gap-3 select-none"
+            aria-label="FireAnt Bond Dashboard"
+          >
+            <Logo />
+          </button>
+        </div>
 
-          <div className="flex shrink-0 items-center justify-end gap-1 sm:gap-2">
-            <button
-              type="button"
-              onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
-              title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-              aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-            >
-              {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-transparent px-2 text-text-muted transition-all hover:border-border-base hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
-              title={`${t('uiLanguage')}: ${t('languageName')}`}
-              aria-label={`${t('uiLanguage')}: ${t('languageName')}`}
-            >
-              <Languages className="h-5 w-5" />
-              <span className="hidden text-xs font-bold uppercase sm:inline">{currentLanguageLabel}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleLogin()}
-              disabled={isSigningIn}
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-action-accent px-3 text-xs font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
-            >
-              {loginCopy.signInButton}
-            </button>
-          </div>
+        <div className="ml-auto flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
+            className="shrink-0 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
+            title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+            aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+          >
+            {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
+            title={t('uiLanguage')}
+            aria-label={t('uiLanguage')}
+          >
+            <Languages className="h-5 w-5" />
+            <span className="text-xs font-bold uppercase">{currentLanguageLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleLogin()}
+            disabled={isSigningIn}
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-action-accent px-3 text-xs font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
+          >
+            {loginCopy.signInButton}
+          </button>
         </div>
       </header>
 

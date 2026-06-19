@@ -1,3 +1,19 @@
+import type { LucideIcon } from 'lucide-react';
+import {
+  BadgeDollarSign,
+  Building2,
+  Cpu,
+  Factory,
+  Flame,
+  Home,
+  Landmark,
+  Mountain,
+  Package,
+  ShoppingBag,
+  ChartColumnIncreasing,
+  Wrench,
+} from 'lucide-react';
+
 export interface IndustryNavItem {
   id: string;
   labelKey: string;
@@ -22,6 +38,20 @@ export const INDUSTRY_NAV_ITEMS: IndustryNavItem[] = [
   { id: 'Energy', labelKey: 'energyIndustry', code: '60', statsTop: 1000, statsLevel: 1, targetNames: ['Năng lượng'], priority: 120, icbCode: '60' },
   { id: 'InfrastructureServices', labelKey: 'infrastructureServicesIndustry', code: '65', statsTop: 1000, statsLevel: 1, targetNames: ['Các dịch vụ hạ tầng'], priority: 130, icbCode: '65' },
 ];
+
+export const INDUSTRY_NAV_ITEM_ICON_BY_ID: Record<string, LucideIcon> = {
+  Technology: Cpu,
+  Financials: Landmark,
+  Banking: Landmark,
+  Securities: ChartColumnIncreasing,
+  RealEstate: Home,
+  ConsumerDiscretionary: ShoppingBag,
+  ConsumerStaples: Package,
+  Industrials: Factory,
+  BasicMaterials: Mountain,
+  Energy: Flame,
+  InfrastructureServices: Wrench,
+};
 
 export const INDUSTRY_FILTER_CODE_GROUPS: Record<string, { include: string[]; exclude: string[] }> = {
   Financials: {
