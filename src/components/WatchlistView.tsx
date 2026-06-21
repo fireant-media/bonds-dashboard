@@ -323,7 +323,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
       <div className="mb-4 space-y-2">
         <h2 className="text-xl font-bold text-text-base">{t('watchList')}</h2>
-        <p className="max-w-3xl text-sm font-medium text-text-muted">{t('watchListSubtitle')}</p>
       </div>
 
       <DataTable

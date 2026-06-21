@@ -817,7 +817,6 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
 
       <div className="space-y-2">
         <h2 className="text-xl font-bold text-text-base">{t('maturityTitle')}</h2>
-        <p className="max-w-3xl text-sm font-medium text-text-muted">{t('maturityTitleSubtitle')}</p>
       </div>
 
       <BondFilterPanel

@@ -1048,9 +1048,6 @@ export default function MarketOverview() {
       <div className="mb-3 mt-1 flex min-w-0 items-center justify-between">
         <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
-          <p className="max-w-2xl text-sm font-medium leading-snug text-text-muted">
-            {t('marketOverviewSubtitle')}
-          </p>
         </div>
       </div>
 

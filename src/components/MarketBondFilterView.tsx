@@ -830,7 +830,6 @@ export default function MarketBondFilterView({
 
       <div className="space-y-2">
         <h2 className="text-xl font-bold text-text-base">{t('marketBondList')}</h2>
-        <p className="max-w-3xl text-sm font-medium text-text-muted">{t('marketBondListSubtitle')}</p>
       </div>
 
       <BondFilterPanel

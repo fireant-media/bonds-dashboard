@@ -1,425 +1,644 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import ChartWithToolbar from './ChartWithToolbar';
+import ReactECharts from 'echarts-for-react';
 import {
-  ArrowRight,
-  Building2,
-  Clock3,
-  Database,
-  FileSearch,
-  Globe2,
-  Landmark,
-  LineChart,
-  Languages,
-  Moon,
-  Sun,
-  Users,
   AlertCircle,
+  ArrowRight,
+  Bot,
+  Building2,
+  ChartColumn,
+  Languages,
+  ListChecks,
+  Moon,
+  ShieldCheck,
+  Sun,
+  type LucideIcon,
 } from 'lucide-react';
 import Logo from './Logo';
-import { getCache } from '../utils/cache';
-import { formatNumber } from '../utils/format';
-import { CHART_PALETTE, getChartTheme, getChartTooltip } from '../utils/chart';
 import { useLanguage } from '../LanguageContext';
 import { useTheme } from '../ThemeContext';
 import { Language } from '../translations';
-import { loadMarketOverviewData } from '../services/marketOverviewData';
+import { useIndustryBaseDashboardQuery, useMarketOverviewIndustryDataQuery } from '../query/dashboardQueries';
+import {
+  loadBondDetailsMapByCodes,
+  loadBondFilterRows,
+  loadGovernmentBondRows,
+  loadUnlistedEnterpriseBondRows,
+  type BondDataRow,
+} from '../services/bondData';
+import { applyChartTheme, CHART_PALETTE, getChartTheme, splitLegendItems } from '../utils/chart';
+import { formatDate, formatInterestRate, formatNumber, parseDateToTimestamp } from '../utils/format';
 
 interface LoginViewProps {
   onSignIn: () => Promise<void> | void;
   isSigningIn?: boolean;
 }
 
-type LoginSnapshot = {
-  totalBonds: number;
-  totalIssuers: number;
-  totalRemainingDebt: number;
-  totalIssuedValue: number;
-  topIssuerName: string;
-  topIssuerSymbol: string;
-  topIssuerRemainingDebt: number;
-  topIndustryName: string;
-  topIndustryRemainingDebt: number;
-  upcoming30: number;
-  upcoming90: number;
-  upcoming180: number;
-  issuerBars: Array<{
-    label: string;
-    value: number;
-    debt: number;
-  }>;
-  industryHeatmap: Array<{
-    label: string;
-    value: number;
-    debt: number;
-  }>;
-  industryData: Array<{
-    icbName: string;
-    totalIssuedVolume: number;
-    totalCurrentListedVolume: number;
-  }>;
-  maturityTimeline: Array<{
-    label: string;
-    value: number;
-  }>;
-};
+type FeatureCardId = 'market-overview' | 'banking-industry' | 'market-bond-list';
 
-type CacheIssuerRow = {
-  issuerName?: string;
+interface PreviewTableColumn {
+  title: string;
+  unit?: string;
+  widthClassName?: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+interface PreviewTableRow {
+  code: string;
+  rate: string;
+  maturity: string;
+  value: string;
+}
+
+interface FeatureCard {
+  id: FeatureCardId;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  previewTitle: string;
+}
+
+interface BenefitCard {
+  title: string;
+  description: string;
+  icon: LucideIcon;
+}
+
+interface LoginCopy {
+  errorTitle: string;
+  errorHint: string;
+  signIn: string;
+  getStarted: string;
+  section2Title: string;
+  section2Subtitle: string;
+  previewEmpty: string;
+  section3Cards: FeatureCard[];
+  section4Title: string;
+  section4Cards: BenefitCard[];
+  tableColumns: PreviewTableColumn[];
+}
+
+interface BankingIssuerSummary {
   issuerSymbol?: string;
-  totalRemainingDebt?: number;
-  totalIssuedValue?: number;
-  bondCount?: number;
-};
+  issuerName?: string;
+  totalRemainingDebt: number;
+}
 
-type CacheIndustryRow = {
-  icbName?: string;
-  totalRemainingDebt?: number;
-  totalIssuedVolume?: number;
-  totalCurrentListedVolume?: number;
-};
-
-const formatBillion = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} tỷ`;
-
-const normalizeIndustryLabel = (value: string | undefined) => (value && value.trim() ? value : 'Chưa xác định');
-
-const buildSnapshotFromOverview = (cachedOverview: {
-  issuerStatsData?: CacheIssuerRow[];
-  industryData?: CacheIndustryRow[];
-}): LoginSnapshot | null => {
-  const issuerRows = cachedOverview.issuerStatsData || [];
-  const industryRows = cachedOverview.industryData || [];
-
-  if (!issuerRows.length && !industryRows.length) {
-    return null;
-  }
-
-  const sortedIssuers = [...issuerRows].sort(
-    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
-  );
-  const sortedIndustries = [...industryRows].sort(
-    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
-  );
-  const topIssuer = sortedIssuers[0];
-  const topIndustry = sortedIndustries[0];
-  const maxIssuerDebt = Math.max(...sortedIssuers.slice(0, 5).map((issuer) => Number(issuer.totalRemainingDebt || 0)), 0);
-  const maxIndustryDebt = Math.max(
-    ...sortedIndustries.slice(0, 6).map((industry) => Number(industry.totalRemainingDebt || 0)),
-    0,
-  );
-
-  return {
-    totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
-    totalIssuers: issuerRows.length,
-    totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
-    totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
-    topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
-    topIssuerSymbol: topIssuer?.issuerSymbol || '',
-    topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
-    topIndustryName: normalizeIndustryLabel(topIndustry?.icbName),
-    topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
-    upcoming30: 0,
-    upcoming90: 0,
-    upcoming180: 0,
-    issuerBars: sortedIssuers.slice(0, 5).map((issuer) => ({
-      label: issuer.issuerSymbol || issuer.issuerName || '--',
-      value: maxIssuerDebt > 0 ? Math.round((Number(issuer.totalRemainingDebt || 0) / maxIssuerDebt) * 100) : 0,
-      debt: Number(issuer.totalRemainingDebt || 0),
-    })),
-    industryHeatmap: sortedIndustries.slice(0, 6).map((industry) => ({
-      label: normalizeIndustryLabel(industry.icbName),
-      value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
-      debt: Number(industry.totalRemainingDebt || 0),
-    })),
-    industryData: industryRows as Array<{
-      icbName: string;
-      totalIssuedVolume: number;
-      totalCurrentListedVolume: number;
-    }>,
-    maturityTimeline: [
-      { label: '30 ngày', value: 0 },
-      { label: '90 ngày', value: 0 },
-      { label: '180 ngày', value: 0 },
-    ],
-  };
-};
-
-const resolveSnapshot = (): LoginSnapshot | null => {
-  const cachedOverview = getCache('market_overview') as {
-    issuerStatsData?: CacheIssuerRow[];
-    industryData?: CacheIndustryRow[];
-  } | null;
-
-  const snapshotFromOverview = cachedOverview ? buildSnapshotFromOverview(cachedOverview) : null;
-  if (snapshotFromOverview) return snapshotFromOverview;
-
-  const cachedSnapshot = getCache('login_snapshot') as LoginSnapshot | null;
-  if (cachedSnapshot) return cachedSnapshot;
-
-  if (!cachedOverview?.issuerStatsData?.length && !cachedOverview?.industryData?.length) {
-    return null;
-  }
-
-  const issuerRows = cachedOverview.issuerStatsData || [];
-  const industryRows = cachedOverview.industryData || [];
-  const sortedIssuers = [...issuerRows].sort(
-    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
-  );
-  const sortedIndustries = [...industryRows].sort(
-    (a, b) => Number(b.totalRemainingDebt || 0) - Number(a.totalRemainingDebt || 0),
-  );
-  const topIssuer = sortedIssuers[0];
-  const topIndustry = sortedIndustries[0];
-  const maxIssuerDebt = Math.max(...sortedIssuers.slice(0, 5).map((issuer) => Number(issuer.totalRemainingDebt || 0)), 0);
-  const maxIndustryDebt = Math.max(
-    ...sortedIndustries.slice(0, 6).map((industry) => Number(industry.totalRemainingDebt || 0)),
-    0,
-  );
-
-  return {
-    totalBonds: issuerRows.reduce((total, issuer) => total + Number(issuer.bondCount || 0), 0),
-    totalIssuers: issuerRows.length,
-    totalRemainingDebt: issuerRows.reduce((total, issuer) => total + Number(issuer.totalRemainingDebt || 0), 0),
-    totalIssuedValue: issuerRows.reduce((total, issuer) => total + Number(issuer.totalIssuedValue || 0), 0),
-    topIssuerName: topIssuer?.issuerName || topIssuer?.issuerSymbol || 'FireAnt',
-    topIssuerSymbol: topIssuer?.issuerSymbol || '',
-    topIssuerRemainingDebt: Number(topIssuer?.totalRemainingDebt || 0),
-    topIndustryName: normalizeIndustryLabel(topIndustry?.icbName),
-    topIndustryRemainingDebt: Number(topIndustry?.totalRemainingDebt || 0),
-    upcoming30: 0,
-    upcoming90: 0,
-    upcoming180: 0,
-    issuerBars: sortedIssuers.slice(0, 5).map((issuer) => ({
-      label: issuer.issuerSymbol || issuer.issuerName || '--',
-      value: maxIssuerDebt > 0 ? Math.round((Number(issuer.totalRemainingDebt || 0) / maxIssuerDebt) * 100) : 0,
-      debt: Number(issuer.totalRemainingDebt || 0),
-    })),
-    industryHeatmap: sortedIndustries.slice(0, 6).map((industry) => ({
-      label: normalizeIndustryLabel(industry.icbName),
-      value: maxIndustryDebt > 0 ? Math.round((Number(industry.totalRemainingDebt || 0) / maxIndustryDebt) * 100) : 0,
-      debt: Number(industry.totalRemainingDebt || 0),
-    })),
-    industryData: industryRows as Array<{
-      icbName: string;
-      totalIssuedVolume: number;
-      totalCurrentListedVolume: number;
-    }>,
-    maturityTimeline: [
-      { label: '30 ngày', value: 0 },
-      { label: '90 ngày', value: 0 },
-      { label: '180 ngày', value: 0 },
-    ],
-  };
-};
-
-const getHeightClass = (value: number) => {
-  if (value >= 90) return 'h-28';
-  if (value >= 75) return 'h-24';
-  if (value >= 60) return 'h-20';
-  if (value >= 45) return 'h-16';
-  if (value >= 30) return 'h-12';
-  if (value >= 15) return 'h-10';
-  return 'h-8';
-};
-
-const getHeatWidthClass = (value: number) => {
-  if (value >= 90) return 'w-full';
-  if (value >= 75) return 'w-5/6';
-  if (value >= 60) return 'w-3/4';
-  if (value >= 45) return 'w-2/3';
-  if (value >= 30) return 'w-1/2';
-  return 'w-1/3';
-};
+const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
+const LOGIN_PREVIEW_ROW_COUNT = 8;
+const LOGIN_CARD_SURFACE_CLASSNAME = 'rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20';
 
 const getCurrentLanguageLabel = (language: Language) => (language === 'vi' ? 'VI' : 'EN');
 
+const mergePreviewBondRowWithDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
+  const detail = detailPayload?.detail || detailPayload || {};
+  const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
+
+  return {
+    ...row,
+    bondRate: row.bondRate || Number(detail?.bondRate || detail?.BondRate || detail?.interestRate || detail?.InterestRate || 0),
+    maturityDate: row.maturityDate || String(detail?.maturityDate || detail?.MaturityDate || ''),
+    totalIssuedValue:
+      row.totalIssuedValue > 0
+        ? row.totalIssuedValue
+        : Number(detail?.totalIssuedValue || detail?.TotalIssuedValue || historyItem?.value || 0),
+    raw: {
+      ...row.raw,
+      detail,
+    },
+  };
+};
+
+const sortPreviewBondRows = (rows: BondDataRow[]) =>
+  [...rows].sort((left, right) => {
+    const leftTimestamp = parseDateToTimestamp(left.maturityDate) || 0;
+    const rightTimestamp = parseDateToTimestamp(right.maturityDate) || 0;
+    if (leftTimestamp !== rightTimestamp) {
+      return leftTimestamp - rightTimestamp;
+    }
+
+    return String(left.bondCode || '').localeCompare(String(right.bondCode || ''));
+  });
+
+function PreviewLoadingState() {
+  return (
+    <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
+      <div className="flex h-6 items-center">
+        <div className="h-4 w-2/3 animate-pulse rounded-full bg-surface-container-low" />
+      </div>
+      <div className="mt-3 min-h-0 flex-1 animate-pulse rounded-2xl bg-bg-base" />
+    </div>
+  );
+}
+
+function PreviewEmptyState({ title, message }: { title: string; message: string }) {
+  return (
+    <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
+      <div className="flex h-6 items-center">
+        {title ? <p className="text-sm font-semibold text-text-base">{title}</p> : <span className="invisible text-sm font-semibold">.</span>}
+      </div>
+      <div className="mt-3 flex min-h-0 flex-1 items-center justify-center rounded-2xl bg-bg-base px-4 text-center text-sm font-medium text-text-muted">
+        {message}
+      </div>
+    </div>
+  );
+}
+
+function FeaturePreview({
+  chartOption,
+  tableColumns,
+  tableRows,
+  isLoading,
+  emptyMessage,
+  previewTitle,
+}: {
+  chartOption?: any | null;
+  tableColumns?: PreviewTableColumn[];
+  tableRows?: PreviewTableRow[];
+  isLoading?: boolean;
+  emptyMessage: string;
+  previewTitle?: string;
+}) {
+  if (isLoading) {
+    return <PreviewLoadingState />;
+  }
+
+  if (chartOption) {
+    return (
+      <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
+        <div className="flex h-6 items-center">
+          <p className="truncate text-sm font-semibold text-text-base">{previewTitle || ' '}</p>
+        </div>
+        <div className="mt-3 min-h-0 flex-1">
+          <ReactECharts option={chartOption} style={{ height: '100%', width: '100%' }} notMerge lazyUpdate />
+        </div>
+      </div>
+    );
+  }
+
+  if (tableColumns && tableRows && tableRows.length > 0) {
+    return (
+      <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
+        <div className="flex h-6 items-center">
+          <span className="invisible text-sm font-semibold">.</span>
+        </div>
+        <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-2xl">
+          <table className="h-full w-full table-fixed">
+            <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
+              <tr>
+                {tableColumns.map((column) => (
+                  <th
+                    key={column.title}
+                    className={`px-2 py-3 text-xs font-bold uppercase tracking-wider ${
+                      column.widthClassName || ''
+                    } ${column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'}`}
+                  >
+                    <span className="block whitespace-nowrap">{column.title}</span>
+                    {column.unit ? <span className="mt-1 block text-xs font-semibold text-white/80">{column.unit}</span> : null}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-base">
+              {tableRows.map((row) => (
+                <tr key={row.code} className="text-xs font-medium text-text-base">
+                  <td className="whitespace-nowrap px-2 py-2.5 font-bold text-text-highlight">{row.code}</td>
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right">{row.rate}</td>
+                  <td className="whitespace-nowrap px-1 py-2.5 text-center">{row.maturity}</td>
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right">{row.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  return <PreviewEmptyState title={previewTitle || ''} message={emptyMessage} />;
+}
+
 export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
-  const [snapshot, setSnapshot] = useState<LoginSnapshot | null>(() => resolveSnapshot());
   const [loginError, setLoginError] = useState<string | null>(null);
-  const { t, language, setLanguage } = useLanguage();
+  const [marketBondRows, setMarketBondRows] = useState<BondDataRow[]>([]);
+  const [isMarketBondPreviewLoading, setIsMarketBondPreviewLoading] = useState(true);
+  const { language, setLanguage, t } = useLanguage();
   const { effectiveTheme, setTheme } = useTheme();
 
-  const isDarkMode = effectiveTheme === 'dark';
-  const chartTheme = getChartTheme(isDarkMode);
-  const billionVndUnit = t('unitBillionVND');
-  const formatBillionVnd = (value: number) => `${formatNumber(value / 1_000_000_000, 2)} ${billionVndUnit}`;
   const currentLanguageLabel = getCurrentLanguageLabel(language);
-  const whyTitle = t('loginWhyTitle');
-  const whyDescription = t('loginWhyDescription');
-  const featureCards = [
-    {
-      icon: LineChart,
-      title: t('loginWhyCard1Title'),
-      description: t('loginWhyCard1Desc'),
-    },
-    {
-      icon: Building2,
-      title: t('loginWhyCard2Title'),
-      description: t('loginWhyCard2Desc'),
-    },
-    {
-      icon: FileSearch,
-      title: t('loginWhyCard3Title'),
-      description: t('loginWhyCard3Desc'),
-    },
-  ];
-  const loginCopy = language === 'vi'
+  const isVietnamese = language === 'vi';
+  const isDark = effectiveTheme === 'dark';
+  const chartTheme = getChartTheme(isDark);
+
+  const marketOverviewIndustryQuery = useMarketOverviewIndustryDataQuery();
+  const bankingIndustryQuery = useIndustryBaseDashboardQuery('Banking');
+
+  const marketOverviewIndustryData = Array.isArray(marketOverviewIndustryQuery.data)
+    ? marketOverviewIndustryQuery.data
+    : [];
+
+  const bankingRankingData = useMemo<BankingIssuerSummary[]>(() => {
+    const payload = bankingIndustryQuery.data as
+      | {
+          issuerSummaries?: BankingIssuerSummary[];
+          rankingData?: BankingIssuerSummary[];
+        }
+      | null
+      | undefined;
+
+    const source = Array.isArray(payload?.issuerSummaries)
+      ? payload.issuerSummaries
+      : Array.isArray(payload?.rankingData)
+        ? payload.rankingData
+        : [];
+
+    return [...source]
+      .filter((item) => Number(item?.totalRemainingDebt || 0) > 0)
+      .sort((left, right) => Number(right.totalRemainingDebt || 0) - Number(left.totalRemainingDebt || 0));
+  }, [bankingIndustryQuery.data]);
+
+  const marketBondFetchLimit = useMemo(() => {
+    const marketBondCount = marketOverviewIndustryData.reduce(
+      (total, item) => total + Number(item?.bondCount || 0),
+      0,
+    );
+
+    return marketBondCount > 0 ? marketBondCount + 100 : MARKET_BOND_FETCH_FALLBACK_LIMIT;
+  }, [marketOverviewIndustryData]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPreviewMarketBonds = async () => {
+      setIsMarketBondPreviewLoading(true);
+
+      try {
+        const [marketRows, governmentRows, unlistedEnterpriseRows] = await Promise.all([
+          loadBondFilterRows(
+            {
+              StatusID: 1,
+              IsListing: 1,
+              Top: marketBondFetchLimit,
+            },
+            { enrichWithDetails: false },
+          ),
+          loadGovernmentBondRows(),
+          loadUnlistedEnterpriseBondRows(),
+        ]);
+
+        const mergedRows = Array.from(
+          new Map(
+            [...marketRows, ...governmentRows, ...unlistedEnterpriseRows]
+              .filter((row) => Boolean(row?.bondCode))
+              .map((row) => [row.bondCode, row] as const),
+          ).values(),
+        );
+
+        const previewCodes = sortPreviewBondRows(mergedRows)
+          .slice(0, 5)
+          .map((row) => row.bondCode)
+          .filter(Boolean);
+
+        const detailMap = previewCodes.length > 0
+          ? await loadBondDetailsMapByCodes(previewCodes, { concurrency: 5, forceRefresh: false })
+          : {};
+
+        if (cancelled) return;
+
+        setMarketBondRows(
+          mergedRows.map((row) => {
+            const detailPayload = detailMap[row.bondCode];
+            return detailPayload ? mergePreviewBondRowWithDetail(row, detailPayload) : row;
+          }),
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load login market bond preview', error);
+          setMarketBondRows([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsMarketBondPreviewLoading(false);
+        }
+      }
+    };
+
+    void loadPreviewMarketBonds();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [marketBondFetchLimit]);
+
+  const copy: LoginCopy = isVietnamese
     ? {
         errorTitle: 'Lỗi đăng nhập',
         errorHint: 'Kiểm tra console (F12) để xem chi tiết lỗi.',
-        heroTitle: 'Làm Chủ Thị Trường Trái Phiếu Với Fireant',
-        heroDescription:
-          'Nền tảng dữ liệu và phân tích trái phiếu dành cho nhà đầu tư chuyên nghiệp - trực quan, tốc độ cao và tập trung vào quyết định đầu tư.',
-        primaryAction: 'Bắt Đầu Ngay',
-        signInButton: 'Đăng nhập',
-        heroStats: [
-          { label: 'Mã trái phiếu' },
-          { label: 'Tổ chức phát hành' },
+        signIn: 'Đăng nhập',
+        getStarted: 'Bắt đầu ngay',
+        section2Title: 'Nền Tảng Dữ Liệu và Phân Tích Trái Phiếu Toàn Diện',
+        section2Subtitle:
+          'Cung cấp dữ liệu thị trường, thông tin tổ chức phát hành, công cụ phân tích chuyên sâu và hệ thống theo dõi trực quan, giúp nhà đầu tư đánh giá cơ hội và rủi ro một cách nhanh chóng, chính xác.',
+        previewEmpty: 'Chưa có dữ liệu để hiển thị.',
+        section3Cards: [
+          {
+            id: 'market-overview',
+            title: 'Tổng quan thị trường',
+            description: 'Theo dõi toàn cảnh thị trường trái phiếu với dữ liệu về lãi suất, quy mô phát hành.',
+            icon: ChartColumn,
+            previewTitle: 'Khối lượng trái phiếu theo ngành',
+          },
+          {
+            id: 'banking-industry',
+            title: 'Ngành & Tổ chức phát hành',
+            description:
+              'Phân tích theo ngành, tra cứu thông tin tổ chức phát hành và đánh giá cơ hội đầu tư.',
+            icon: Building2,
+            previewTitle: 'Thị phần dư nợ trong ngành ngân hàng',
+          },
+          {
+            id: 'market-bond-list',
+            title: 'Danh sách trái phiếu',
+            description:
+              'Quản lý toàn bộ danh sách trái phiếu, theo dõi trái phiếu sắp đáo hạn và các mã quan tâm.',
+            icon: ListChecks,
+            previewTitle: '',
+          },
         ],
-        marketOverviewTitle: 'Tổng quan thị trường',
-        chartTitle: 'Khối lượng trái phiếu theo ngành',
-        yAxisName: 'Nghìn TP',
-        issuedLabel: 'Phát hành',
-        listedLabel: 'Niêm yết',
-        totalBondsLabel: 'Tổng mã trái phiếu',
-        totalIssuedLabel: 'Tổng giá trị phát hành',
-        totalRemainingLabel: 'Tổng dư nợ còn lại',
-        topIssuerTitle: 'Top doanh nghiệp dư nợ lớn nhất',
-        loadingSnapshot: 'Đang chờ cache dữ liệu',
-        unknownIndustry: 'Chưa xác định',
-        debtSuffix: 'dư nợ',
-        debtUnitSuffix: 'tỷ VND',
-        maturityLabel: 'Đáo hạn 90 ngày',
-        maturityDetail: 'Giám sát thanh khoản',
+        section4Title: 'Tại sao lựa chọn FireAnt Bonds?',
+        section4Cards: [
+          {
+            title: 'Dữ liệu tin cậy',
+            description: 'Cập nhật thông tin trái phiếu đầy đủ, hỗ trợ theo dõi thị trường hiệu quả.',
+            icon: ShieldCheck,
+          },
+          {
+            title: 'Phân tích toàn diện',
+            description: 'Đánh giá trái phiếu theo thị trường, ngành và tổ chức phát hành.',
+            icon: ChartColumn,
+          },
+          {
+            title: 'Quản lý linh hoạt',
+            description: 'Theo dõi danh sách quan tâm và biến động các mã trái phiếu dễ dàng.',
+            icon: ListChecks,
+          },
+          {
+            title: 'AI hỗ trợ thông minh',
+            description: 'Tra cứu nhanh, phân tích dữ liệu và hỗ trợ quyết định đầu tư.',
+            icon: Bot,
+          },
+        ],
+        tableColumns: [
+          { title: 'Mã trái phiếu', widthClassName: 'w-3/12', align: 'left' },
+          { title: 'Lãi suất', unit: '(%)', widthClassName: 'w-2/12', align: 'right' },
+          { title: 'Ngày đáo hạn', widthClassName: 'w-3/12', align: 'center' },
+          { title: 'Giá trị phát hành', unit: '(Tỷ VNĐ)', widthClassName: 'w-4/12', align: 'right' },
+        ],
       }
     : {
         errorTitle: 'Login error',
         errorHint: 'Check the console (F12) for error details.',
-        heroTitle: 'Take Control of the Bond Market with Fireant',
-        heroDescription:
-          'An institutional bond data and analytics platform for professional investors - intuitive, fast, and focused on investment decisions.',
-        primaryAction: 'Get Started',
-        signInButton: 'Sign in',
-        heroStats: [
-          { label: 'Bond codes' },
-          { label: 'Issuers' },
+        signIn: 'Sign in',
+        getStarted: 'Get started',
+        section2Title: 'A Complete Corporate Bond Data and Analytics Platform',
+        section2Subtitle:
+          'Access market data, issuer intelligence, deep analysis tools, and clear monitoring views so investors can assess opportunities and risks quickly and accurately.',
+        previewEmpty: 'No preview data available.',
+        section3Cards: [
+          {
+            id: 'market-overview',
+            title: 'Market overview',
+            description: 'Track the full bond market with data on interest rates and issuance scale.',
+            icon: ChartColumn,
+            previewTitle: 'Bond volume by industry',
+          },
+          {
+            id: 'banking-industry',
+            title: 'Industries & issuers',
+            description:
+              'Analyze by industry, review issuer profiles, and evaluate investment opportunities.',
+            icon: Building2,
+            previewTitle: 'Banking outstanding balance share',
+          },
+          {
+            id: 'market-bond-list',
+            title: 'Bond list',
+            description:
+              'Manage the full bond universe, monitor upcoming maturities, and track saved bonds.',
+            icon: ListChecks,
+            previewTitle: '',
+          },
         ],
-        marketOverviewTitle: 'Market Overview',
-        chartTitle: 'Bond Volume by Industry',
-        yAxisName: 'Thousand bonds',
-        issuedLabel: 'Issued',
-        listedLabel: 'Listed',
-        totalBondsLabel: 'Total bond codes',
-        totalIssuedLabel: 'Total issued value',
-        totalRemainingLabel: 'Total remaining debt',
-        topIssuerTitle: 'Top issuers by outstanding debt',
-        loadingSnapshot: 'Waiting for cached data',
-        unknownIndustry: 'Unspecified',
-        debtSuffix: 'outstanding debt',
-        debtUnitSuffix: 'Billion VND',
-        maturityLabel: '90-day maturity',
-        maturityDetail: 'Liquidity monitoring',
+        section4Title: 'Why choose FireAnt Bonds?',
+        section4Cards: [
+          {
+            title: 'Reliable data',
+            description: 'Stay current with complete bond information and monitor the market effectively.',
+            icon: ShieldCheck,
+          },
+          {
+            title: 'Comprehensive analysis',
+            description: 'Evaluate bonds by market, industry, and issuer perspective.',
+            icon: ChartColumn,
+          },
+          {
+            title: 'Flexible management',
+            description: 'Track watchlists and bond movements with a more practical workflow.',
+            icon: ListChecks,
+          },
+          {
+            title: 'Smart AI support',
+            description: 'Search quickly, analyze data, and support faster investment decisions.',
+            icon: Bot,
+          },
+        ],
+        tableColumns: [
+          { title: 'Bond code', widthClassName: 'w-3/12', align: 'left' },
+          { title: 'Rate', unit: '(%)', widthClassName: 'w-2/12', align: 'right' },
+          { title: 'Maturity date', widthClassName: 'w-3/12', align: 'center' },
+          { title: 'Issue value', unit: '(Billion VND)', widthClassName: 'w-4/12', align: 'right' },
+        ],
       };
 
-  useEffect(() => {
-    let active = true;
+  const previewBondRows = useMemo<PreviewTableRow[]>(() => {
+    return sortPreviewBondRows(marketBondRows)
+      .slice(0, LOGIN_PREVIEW_ROW_COUNT)
+      .map((row) => ({
+        code: row.bondCode,
+        rate: formatInterestRate(row.bondRate),
+        maturity: formatDate(row.maturityDate),
+        value: formatNumber((row.totalIssuedValue || 0) / 1_000_000_000, 2),
+      }));
+  }, [marketBondRows]);
 
-    const fetchOverview = async () => {
-      try {
-        const overview = await loadMarketOverviewData();
-        if (!active) return;
-        setSnapshot(buildSnapshotFromOverview(overview));
-      } catch (error) {
-        console.error('Login overview fetch error', error);
-      }
-    };
+  const overviewVolumeChartOption = useMemo(() => {
+    if (marketOverviewIndustryData.length === 0) return null;
 
-    void fetchOverview();
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const industryVolumeOptions = {
-    backgroundColor: 'transparent',
-    color: CHART_PALETTE,
-    tooltip: {
-      ...getChartTooltip(isDarkMode),
-      show: false,
-    },
-    grid: { left: '2%', right: '2%', top: '12%', bottom: '2%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => t(d.icbName as any)) : [],
-      axisLabel: {
-        fontSize: 10,
-        color: chartTheme.subText,
-        fontFamily: 'Manrope',
-        fontWeight: 'bold' as const,
-        rotate: 45,
-      },
-      axisLine: {
-        lineStyle: {
-          color: chartTheme.axisLine,
-        },
-      },
-      axisTick: {
-        lineStyle: {
-          color: chartTheme.axisLine,
-        },
-      },
-    },
-    yAxis: {
-      type: 'value',
-      splitNumber: 4,
-      splitLine: {
-        show: true,
-        lineStyle: {
-          color: chartTheme.grid,
-        },
-      },
-      name: loginCopy.yAxisName,
-      nameTextStyle: {
-        fontSize: 10,
-        color: chartTheme.text,
-        fontWeight: 'bold' as const,
-        fontFamily: 'Manrope',
-      },
-      axisLine: {
-        lineStyle: {
-          color: chartTheme.axisLine,
-        },
-      },
-      axisTick: {
-        lineStyle: {
-          color: chartTheme.axisLine,
-        },
-      },
-      axisLabel: {
-        fontSize: 10,
-        color: chartTheme.subText,
-        fontFamily: 'Manrope',
-        formatter: (value: number) => formatNumber(value, 0),
-      },
-    },
-    series: [
+    return applyChartTheme(
       {
-        name: t('issuedVolumeTitle'),
-        type: 'bar',
-        data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalIssuedVolume || 0) / 1000)) : [],
-        itemStyle: { borderRadius: [10, 10, 0, 0] },
-        barWidth: '30%',
+        color: CHART_PALETTE,
+        tooltip: {
+          show: false,
+        },
+        legend: {
+          top: 0,
+          right: 8,
+          data: [
+            language === 'vi' ? 'Phát hành' : 'Issued',
+            language === 'vi' ? 'Niêm yết' : 'Listed',
+          ],
+        },
+        grid: {
+          left: '5%',
+          right: '5%',
+          top: '16%',
+          bottom: '0%',
+          containLabel: true,
+        },
+        xAxis: {
+          type: 'category',
+          data: marketOverviewIndustryData.map((item) => t(item.icbName as any)),
+          axisLabel: {
+            interval: 0,
+            rotate: 35,
+            fontSize: 10,
+          },
+        },
+        yAxis: {
+          type: 'value',
+          name: t('unitMillionShares'),
+          nameGap: 10,
+          nameTextStyle: {
+            fontSize: 10,
+            color: chartTheme.text,
+            fontWeight: 'bold',
+            fontFamily: 'Manrope',
+          },
+          axisLabel: {
+            margin: 12,
+            formatter: (value: number) => formatNumber(value, 2),
+          },
+          splitLine: {
+            show: false,
+          },
+        },
+        series: [
+          {
+            name: language === 'vi' ? 'Phát hành' : 'Issued',
+            type: 'bar',
+            data: marketOverviewIndustryData.map((item) => Number(item.totalIssuedVolume || 0) / 1_000_000),
+            barWidth: '28%',
+            itemStyle: {
+              borderRadius: [6, 6, 0, 0],
+            },
+          },
+          {
+            name: language === 'vi' ? 'Niêm yết' : 'Listed',
+            type: 'bar',
+            data: marketOverviewIndustryData.map((item) => Number(item.totalCurrentListedVolume || 0) / 1_000_000),
+            barWidth: '28%',
+            itemStyle: {
+              borderRadius: [6, 6, 0, 0],
+            },
+          },
+        ],
       },
+      isDark,
+    );
+  }, [isDark, language, marketOverviewIndustryData, t]);
+
+  const bankingMarketShareOption = useMemo(() => {
+    if (bankingRankingData.length === 0) return null;
+
+    const totalRemainingDebt = bankingRankingData.reduce(
+      (sum, item) => sum + Number(item?.totalRemainingDebt || 0),
+      0,
+    );
+    const topNine = bankingRankingData.slice(0, 9);
+    const topNineDebt = topNine.reduce((sum, item) => sum + Number(item?.totalRemainingDebt || 0), 0);
+    const othersDebt = totalRemainingDebt - topNineDebt;
+
+    const chartData = topNine.map((item, index) => ({
+      value: Number(item.totalRemainingDebt || 0),
+      name: item.issuerSymbol || '',
+      itemStyle: {
+        color: CHART_PALETTE[index % CHART_PALETTE.length],
+      },
+    }));
+
+    if (othersDebt > 0) {
+      chartData.push({
+        value: othersDebt,
+        name: t('others'),
+        itemStyle: {
+          color: CHART_PALETTE[9 % CHART_PALETTE.length],
+        },
+      });
+    }
+
+    const legendGroups = splitLegendItems(chartData.map((item) => item.name), 5, 2);
+    const legendBase = {
+      orient: 'vertical' as const,
+      itemWidth: 8,
+      itemHeight: 8,
+    };
+    const legendConfig = legendGroups.length > 1
+      ? [
+          {
+            ...legendBase,
+            right: '18%',
+            top: 'middle',
+            data: legendGroups[0],
+          },
+          {
+            ...legendBase,
+            right: '2%',
+            top: 'middle',
+            data: legendGroups[1],
+          },
+        ]
+      : {
+          ...legendBase,
+          right: '4%',
+          top: 'middle',
+          data: legendGroups[0],
+        };
+
+    return applyChartTheme(
       {
-        name: t('listedVolume'),
-        type: 'bar',
-        data: snapshot?.industryData?.length ? snapshot.industryData.map((d) => Math.round((d.totalCurrentListedVolume || 0) / 1000)) : [],
-        itemStyle: { borderRadius: [10, 10, 0, 0] },
-        barWidth: '30%',
+        color: CHART_PALETTE,
+        tooltip: {
+          show: false,
+        },
+        legend: legendConfig,
+        series: [
+          {
+            name: t('marketShare'),
+            type: 'pie',
+            radius: ['40%', '70%'],
+            center: ['34%', '50%'],
+            avoidLabelOverlap: true,
+            label: {
+              show: false,
+            },
+            labelLine: {
+              show: false,
+            },
+            itemStyle: {
+              borderRadius: 8,
+            },
+            emphasis: {
+              label: {
+                show: false,
+              },
+            },
+            data: chartData,
+          },
+        ],
       },
-    ],
-  };
+      isDark,
+    );
+  }, [bankingRankingData, isDark, t]);
 
   const handleLogin = async () => {
     try {
@@ -428,317 +647,174 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('OIDC sign-in failed:', errorMessage);
-      setLoginError(errorMessage || (language === 'vi' ? 'Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại.' : 'An error occurred while signing in. Please try again.'));
+      setLoginError(
+        errorMessage ||
+          (isVietnamese
+            ? 'Đã xảy ra lỗi khi đăng nhập. Vui lòng thử lại.'
+            : 'An error occurred while signing in. Please try again.'),
+      );
     }
   };
 
-  const scrollToSection = (target: string) => {
-    document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  const heroStats = [
-    {
-      label: 'Mã trái phiếu',
-      value: snapshot ? formatNumber(snapshot.totalBonds, 0) : '0',
-      icon: Database,
-    },
-    {
-      label: 'Tổ chức phát hành',
-      value: snapshot ? formatNumber(snapshot.totalIssuers, 0) : '0',
-      icon: Users,
-    },
-    {
-      label: 'Dư nợ còn lại',
-      value: snapshot ? formatBillionVnd(snapshot.totalRemainingDebt) : `0 ${billionVndUnit}`,
-      icon: LineChart,
-    },
-    {
-      label: 'Giá trị phát hành',
-      value: snapshot ? formatBillionVnd(snapshot.totalIssuedValue) : `0 ${billionVndUnit}`,
-      icon: Building2,
-    },
-  ];
-
-  const topIssuerLabel = snapshot
-    ? snapshot.topIssuerSymbol
-      ? `${snapshot.topIssuerName} (${snapshot.topIssuerSymbol})`
-      : snapshot.topIssuerName
-    : 'FireAnt';
-
-  const previewCards = [
-    {
-      label: 'Tổ chức dẫn đầu',
-      value: topIssuerLabel,
-      detail: snapshot ? `${formatBillionVnd(snapshot.topIssuerRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
-      icon: Landmark,
-    },
-    {
-      label: 'Ngành dẫn đầu',
-      value: snapshot?.topIndustryName || 'Chưa xác định',
-      detail: snapshot ? `${formatBillionVnd(snapshot.topIndustryRemainingDebt)} dư nợ` : 'Đang chờ cache dữ liệu',
-      icon: Globe2,
-    },
-    {
-      label: 'Đáo hạn 90 ngày',
-      value: snapshot ? `${formatNumber(snapshot.upcoming90, 0)} mã` : '0 mã',
-      detail: 'Giám sát thanh khoản',
-      icon: Clock3,
-    },
-  ];
-
-  const bars = snapshot?.issuerBars || [];
-  const hasSnapshotBars = bars.length > 0;
-  const heatmap = snapshot?.industryHeatmap || [];
-  const maturityTimeline = snapshot?.maturityTimeline || [
-    { label: '30 ngày', value: 0 },
-    { label: '90 ngày', value: 0 },
-    { label: '180 ngày', value: 0 },
-  ];
-
   return (
-    <div className="min-h-dvh overflow-x-hidden overflow-y-auto bg-bg-base text-text-base">
-      <header className="relative sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
-        <div className="flex min-w-0 shrink-0 items-center gap-2 lg:min-w-72 lg:pr-3">
-          <button
-            type="button"
-            onClick={() => scrollToSection('overview')}
-            className="flex min-w-0 shrink-0 items-center gap-3 select-none"
-            aria-label="FireAnt Bond Dashboard"
-          >
+    <div className="min-h-dvh bg-bg-base text-text-base">
+      <div className="relative z-10">
+        <header className="border-b border-border-base bg-surface-bright/95 backdrop-blur">
+          <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 py-4 lg:px-6">
             <Logo />
-          </button>
-        </div>
 
-        <div className="ml-auto flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
-            className="shrink-0 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
-            title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-            aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-          >
-            {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => setLanguage((language === 'vi' ? 'en' : 'vi') as Language)}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
-            title={t('uiLanguage')}
-            aria-label={t('uiLanguage')}
-          >
-            <Languages className="h-5 w-5" />
-            <span className="text-xs font-bold uppercase">{currentLanguageLabel}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleLogin()}
-            disabled={isSigningIn}
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-action-accent px-3 text-xs font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
-          >
-            {loginCopy.signInButton}
-          </button>
-        </div>
-      </header>
-
-      {loginError && (
-        <div className="mx-4 mt-4 border-l-4 border-red-500 bg-red-50 p-4 sm:mx-6 lg:mx-8">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-red-800">{loginCopy.errorTitle}</p>
-              <p className="text-sm text-red-700 mt-1">{loginError}</p>
-              <p className="text-xs text-red-600 mt-2">
-                {loginCopy.errorHint}
-              </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
+                className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                title={effectiveTheme === 'dark' ? 'Light mode' : 'Dark mode'}
+                aria-label={effectiveTheme === 'dark' ? 'Light mode' : 'Dark mode'}
+              >
+                {effectiveTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLanguage((isVietnamese ? 'en' : 'vi') as Language)}
+                className="flex h-10 items-center gap-2 rounded-lg border border-border-base bg-bg-surface px-3 text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                title="Language"
+                aria-label="Language"
+              >
+                <Languages className="h-4 w-4" />
+                <span className="text-xs font-semibold uppercase tracking-wide">{currentLanguageLabel}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleLogin()}
+                disabled={isSigningIn}
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-action-accent px-4 text-sm font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {copy.signIn}
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        </header>
 
-      <main>
-        <section id="overview" className="relative overflow-hidden bg-bg-base px-3 pb-8 pt-8 sm:px-4 sm:pb-10 sm:pt-10 lg:px-6 lg:pb-12 lg:pt-12 xl:px-8">
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/10 via-transparent to-blue-900/5" />
-          <div className="mx-auto grid max-w-7xl items-start gap-8 xl:grid-cols-12">
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45 }}
-              className="relative z-10 xl:col-span-5"
-            >
-              <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-tight text-text-base sm:text-4xl md:text-5xl xl:text-6xl">
-                {loginCopy.heroTitle}
-              </h1>
-              <p className="mt-4 max-w-2xl text-sm leading-7 text-text-muted sm:mt-5 sm:text-base sm:leading-8 md:text-lg">
-                {loginCopy.heroDescription}
-              </p>
+        {loginError ? (
+          <div className="mx-auto max-w-screen-2xl px-4 pt-4 lg:px-6">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                <div>
+                  <p className="text-sm font-semibold text-red-800">{copy.errorTitle}</p>
+                  <p className="mt-1 text-sm text-red-700">{loginError}</p>
+                  <p className="mt-2 text-xs text-red-600">{copy.errorHint}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
-              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4">
+        <main>
+          <section className="bg-bg-base px-4 py-12 lg:px-6 lg:py-16">
+            <div className="mx-auto max-w-screen-2xl">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45 }}
+                className="mx-auto max-w-3xl text-center"
+              >
+                <h1 className="text-4xl font-bold leading-tight text-text-base sm:text-5xl">
+                  {copy.section2Title}
+                </h1>
+                <p className="mt-5 text-base font-medium leading-8 text-text-muted sm:text-lg">
+                  {copy.section2Subtitle}
+                </p>
                 <button
                   type="button"
                   onClick={() => void handleLogin()}
                   disabled={isSigningIn}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-action-accent px-6 py-3.5 font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:px-8 sm:py-4"
+                  className="mt-8 inline-flex items-center justify-center gap-2 rounded-lg bg-action-accent px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {loginCopy.primaryAction}
+                  {copy.getStarted}
                   <ArrowRight className="h-4 w-4" />
                 </button>
+              </motion.div>
+
+              <div className="mt-12 grid gap-6 xl:grid-cols-3">
+                {copy.section3Cards.map((card, index) => {
+                  const isOverviewCard = card.id === 'market-overview';
+                  const isBankingCard = card.id === 'banking-industry';
+                  const isBondListCard = card.id === 'market-bond-list';
+
+                  return (
+                    <motion.article
+                      key={card.id}
+                      initial={{ opacity: 0, y: 16 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, amount: 0.2 }}
+                      transition={{ duration: 0.35, delay: index * 0.06 }}
+                      className={`flex h-full flex-col p-5 ${LOGIN_CARD_SURFACE_CLASSNAME}`}
+                    >
+                      <FeaturePreview
+                        chartOption={isOverviewCard ? overviewVolumeChartOption : isBankingCard ? bankingMarketShareOption : null}
+                        tableColumns={isBondListCard ? copy.tableColumns : undefined}
+                        tableRows={isBondListCard ? previewBondRows : undefined}
+                        previewTitle={card.previewTitle}
+                        isLoading={
+                          isOverviewCard
+                            ? marketOverviewIndustryQuery.isLoading && marketOverviewIndustryData.length === 0
+                            : isBankingCard
+                              ? bankingIndustryQuery.isLoading && bankingRankingData.length === 0
+                              : isBondListCard
+                                ? isMarketBondPreviewLoading
+                                : false
+                        }
+                        emptyMessage={copy.previewEmpty}
+                      />
+                      <div className="mt-5 flex-1">
+                        <div className="flex items-center gap-3">
+                          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+                            <card.icon className="h-6 w-6" />
+                          </div>
+                          <h2 className="text-xl font-bold text-text-base">{card.title}</h2>
+                        </div>
+                        <p className="mt-3 text-sm font-medium leading-7 text-text-muted">
+                          {card.description}
+                        </p>
+                      </div>
+                    </motion.article>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <section className="border-t border-border-base bg-bg-base px-4 py-16 lg:px-6">
+            <div className="mx-auto max-w-screen-2xl">
+              <div className="mx-auto max-w-2xl text-center">
+                <h2 className="text-3xl font-bold text-text-base">{copy.section4Title}</h2>
               </div>
 
-              <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4">
-                {heroStats.slice(0, 2).map((stat, index) => (
-                  <div
-                    key={stat.label}
-                    className="flex flex-col rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 backdrop-blur sm:p-4 dark:shadow-black/20"
+              <div className="mt-8 grid gap-6 md:grid-cols-2">
+                {copy.section4Cards.map((card, index) => (
+                  <motion.article
+                    key={card.title}
+                    initial={{ opacity: 0, y: 16 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.2 }}
+                    transition={{ duration: 0.35, delay: index * 0.05 }}
+                    className={`p-5 ${LOGIN_CARD_SURFACE_CLASSNAME}`}
                   >
-                    <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-container-low text-text-highlight">
-                      <stat.icon className="h-4 w-4" />
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+                        <card.icon className="h-6 w-6" />
+                      </div>
+                      <h3 className="text-xl font-bold text-text-base">{card.title}</h3>
                     </div>
-                    <span className="text-xl font-bold text-text-base sm:text-2xl">
-                      {index === 0
-                        ? snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,000+'
-                        : snapshot ? formatNumber(snapshot.totalIssuers, 0) : '100+'}
-                    </span>
-                    <span className="mt-1 text-xs font-semibold uppercase tracking-widest text-text-muted">
-                      {stat.label}
-                    </span>
-                  </div>
+                    <p className="mt-3 text-sm font-medium leading-7 text-text-muted">{card.description}</p>
+                  </motion.article>
                 ))}
               </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.05 }}
-              className="relative xl:col-span-7"
-            >
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                <div className="data-card overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-lg shadow-blue-950/5 backdrop-blur sm:p-5 xl:col-span-12 dark:shadow-black/20">
-                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                    <div className="min-w-0">
-                      <h3 className="text-left text-sm font-semibold text-text-base">{loginCopy.chartTitle}</h3>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
-                      <div className="flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[0] }} />
-                        <span className="text-xs font-semibold text-text-muted">{loginCopy.issuedLabel}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: CHART_PALETTE[2] }} />
-                        <span className="text-xs font-semibold text-text-muted">{loginCopy.listedLabel}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="h-52 w-full overflow-hidden bg-bg-surface sm:h-64 lg:h-72">
-                    <ChartWithToolbar
-                      option={industryVolumeOptions}
-                      style={{ height: '100%', width: '100%' }}
-                      allowMagicType
-                      showToolbar={false}
-                      notMerge
-                      lazyUpdate
-                    />
-                  </div>
-                </div>
-
-                <div className="data-card rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 dark:shadow-black/20 xl:col-span-4">
-                  <span className="mb-3 block text-sm font-semibold text-text-base">
-                    {loginCopy.marketOverviewTitle}
-                  </span>
-                  <div className="space-y-3">
-                    <div className="border-b border-border-base pb-1">
-                      <span className="block text-xs font-medium text-text-muted/80">
-                        {loginCopy.totalBondsLabel}
-                      </span>
-                      <span className="mt-1 block text-sm font-semibold text-text-base">
-                        {snapshot ? formatNumber(snapshot.totalBonds, 0) : '1,248'}
-                      </span>
-                    </div>
-                    <div className="border-b border-border-base pb-1">
-                      <span className="block text-xs font-medium text-text-muted/80">
-                        {loginCopy.totalIssuedLabel}
-                      </span>
-                      <span className="mt-1 block text-sm font-semibold text-text-base">
-                        {snapshot ? formatBillionVnd(snapshot.totalIssuedValue) : `0 ${billionVndUnit}`}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-xs font-medium text-text-muted/80">
-                        {loginCopy.totalRemainingLabel}
-                      </span>
-                      <span className="mt-1 block text-sm font-semibold text-text-base">
-                        {snapshot ? formatBillionVnd(snapshot.totalRemainingDebt) : `0 ${billionVndUnit}`}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="data-card rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 dark:shadow-black/20 xl:col-span-8">
-                  <span className="mb-4 block text-sm font-semibold text-text-base">
-                    {loginCopy.topIssuerTitle}
-                  </span>
-                  <div className="space-y-3">
-                    {(bars.length > 0
-                      ? bars
-                      : [
-                          { label: 'VIC', value: 100, debt: 85000 },
-                          { label: 'NVL', value: 82, debt: 70000 },
-                          { label: 'MSN', value: 70, debt: 60000 },
-                          { label: 'VHM', value: 65, debt: 55000 },
-                          { label: 'DIG', value: 53, debt: 45000 },
-                        ]
-                    ).map((item) => (
-                      <div key={item.label} className="grid grid-cols-12 items-center gap-2 sm:gap-3">
-                        <span className="col-span-2 truncate text-sm font-semibold text-text-base sm:col-span-2">
-                          {item.label}
-                        </span>
-                        <div className="col-span-4 h-2 w-full overflow-hidden rounded-full bg-border-base/50 sm:col-span-5">
-                          <div className={`h-full rounded-full bg-action-accent ${getHeatWidthClass(item.value)}`} />
-                        </div>
-                        <span className="col-span-6 min-w-0 whitespace-nowrap text-right text-xs font-medium tabular-nums text-text-muted sm:col-span-5 sm:text-sm">
-                          {hasSnapshotBars
-                            ? formatBillionVnd(item.debt)
-                            : item.debt
-                              ? `${formatNumber(item.debt, 0)} ${loginCopy.debtUnitSuffix}`
-                              : `${item.value}%`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        <section id="solutions" className="-mt-8 border-t border-border-base bg-bg-surface py-16 lg:-mt-10">
-          <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 xl:px-8">
-            <div className="text-center">
-              <h2 className="text-3xl font-semibold text-text-base">{whyTitle}</h2>
-              <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-text-muted">
-                {whyDescription}
-              </p>
             </div>
-
-            <div className="mt-2 grid gap-6 md:grid-cols-3">
-              {featureCards.map((card) => (
-                <motion.div
-                  key={card.title}
-                  whileHover={{ y: -3 }}
-                  className="rounded-lg border border-border-base bg-surface-bright p-6 shadow-md shadow-slate-900/5 transition-colors hover:border-text-highlight dark:shadow-black/20"
-                >
-                  <card.icon className="mb-4 h-8 w-8 text-text-highlight" />
-                  <h3 className="text-xl font-semibold text-text-base">{card.title}</h3>
-                  <p className="mt-2 text-sm leading-7 text-text-muted">{card.description}</p>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-      </main>
+          </section>
+        </main>
+      </div>
     </div>
   );
 }
-
-

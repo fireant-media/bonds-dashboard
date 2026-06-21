@@ -1947,9 +1947,6 @@ export default function EnterpriseView({
       <div className="mb-3 mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h2 className="text-left text-2xl font-bold text-text-base transition-colors">{listTitle || t('filterByIssuer')}</h2>
-          <p className="max-w-2xl text-left text-sm font-medium leading-snug text-text-muted">
-            {t('enterpriseListSubtitle')}
-          </p>
         </div>
       </div>
 

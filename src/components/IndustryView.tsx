@@ -906,11 +906,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       <div className="mb-3 mt-1">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
-          <p className="max-w-2xl text-sm font-medium leading-snug text-text-muted">
-            {language === 'vi'
-              ? `${t('marketTitleSubtitle')} ${getIndustryLabel(industry)}`
-              : `Issuance scale, bond debt, and cash flow for the ${getIndustryLabel(industry)} industry`}
-          </p>
         </div>
       </div>
 
