@@ -14,6 +14,7 @@ import { loadBondIndustryByFilter, loadIndustryBondGroupData, type IndustryBondG
 import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
+import { clearBondDetailChatContext, setBondDetailChatContext } from '../utils/bondDetailChatContext';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { useAIStore } from '../store/aiStore';
 import { setCache, getCache } from '../utils/cache';
@@ -186,6 +187,10 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
   };
 
   useEffect(() => {
+    setBondDetails(null);
+    setLoading(true);
+    setError(null);
+
     const fetchDetails = async () => {
       try {
         const [defaultData, betaData] = await Promise.all([
@@ -889,6 +894,116 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
 
   const aiRemarkSignature = useMemo(() => JSON.stringify(aiRemarkPayload), [aiRemarkPayload]);
 
+  const bondDetailChatDataset = useMemo(
+    () => ({
+      route: `/${currentBond.code || ''}`,
+      page: 'bond-detail',
+      bondCode: currentBond.code || '-',
+      issuer: {
+        symbol: issuerStockCode,
+        name: issuerDisplayName,
+        industry: issuerIndustry,
+        totalAssets: formatFinancialBillionValue(
+          issuerFinancial?.TotalAsset,
+          issuerFinancial?.TotalAssets,
+          issuerFinancial?.Assets,
+        ),
+        equity: formatFinancialBillionValue(
+          issuerFinancial?.TotalStockHolderEquity,
+          issuerFinancial?.StockHolderEquity,
+          issuerFinancial?.OwnerEquity,
+          issuerFinancial?.Equity,
+        ),
+      },
+      bond: {
+        code: currentBond.code || '-',
+        type: normalizeText(currentBond.bondType) || '-',
+        status: normalizeText(currentBond.status) || '-',
+        term: formatTerm(currentBond.term),
+        issueDate: formatDate(currentBond.issueDate),
+        maturityDate: formatDate(currentBond.maturityDate),
+        interestRate: `${formatInterestRate(Number(currentBond.interestRate || 0))}%`,
+        interestType: resolveInterestTypeLabel(currentBond.interestType),
+        paymentPeriod: interestPaymentInfo.period,
+        paymentMethod: interestPaymentInfo.method,
+        issuedVolume: formatNumber(Number(bondDetails?.totalIssuedVolume || 0), 0),
+        parValue: formatIssueScaleParValue(bondDetails?.parValue || bondDetails?.faceValue),
+        issuedValue: formatBondValue(currentBond.issuedValue),
+        listedValue: formatBondValue(currentBond.listedValue),
+        listedVolume: formatNumber(Number(currentBond.listedVolume || 0), 0),
+      },
+      summaryCards: summaryCards.map((item) => ({
+        label: item.label,
+        value: item.value,
+      })),
+      quickAnalysis: quickAnalysis.map((item) => ({
+        label: item.label,
+        evidence: item.evidence,
+        assessment: item.meta.label,
+        confidence: item.confidence,
+      })),
+      cashFlows: Array.isArray(bondDetails?.cashFlows)
+        ? bondDetails.cashFlows.map((cashFlow) => ({
+            paymentDate: formatDate(cashFlow.paymentDate),
+            interestAmount: formatBondValue(cashFlow.interestAmount),
+            principalAmount: formatBondValue(cashFlow.principalAmount),
+            totalCashflow: formatBondValue(cashFlow.totalCashflow),
+            bondRate: `${formatInterestRate(Number(cashFlow.bondRate || 0))}%`,
+          }))
+        : [],
+      aiRemark: aiRemark || '',
+    }),
+    [
+      aiRemark,
+      bondDetails?.cashFlows,
+      bondDetails?.faceValue,
+      bondDetails?.parValue,
+      bondDetails?.totalIssuedVolume,
+      currentBond.bondType,
+      currentBond.code,
+      currentBond.interestRate,
+      currentBond.interestType,
+      currentBond.issueDate,
+      currentBond.issuedValue,
+      currentBond.listedValue,
+      currentBond.listedVolume,
+      currentBond.maturityDate,
+      currentBond.status,
+      currentBond.term,
+      formatBondValue,
+      formatFinancialBillionValue,
+      formatTerm,
+      interestPaymentInfo.method,
+      interestPaymentInfo.period,
+      issuerDisplayName,
+      issuerFinancial,
+      issuerIndustry,
+      issuerStockCode,
+      quickAnalysis,
+      summaryCards,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    if (!currentBond.code) return;
+
+    setBondDetailChatContext({
+      kind: 'bond-detail',
+      routePathname: `/${currentBond.code}`,
+      label: t('bondDetailTitle'),
+      bondCode: currentBond.code,
+      issuerSymbol: issuerStockCode === '-' ? '' : issuerStockCode,
+      issuerName: issuerDisplayName,
+      dataset: bondDetailChatDataset,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return () => {
+      clearBondDetailChatContext(currentBond.code);
+    };
+  }, [bondDetailChatDataset, currentBond.code, issuerDisplayName, issuerStockCode, t]);
+
   useEffect(() => {
     let isActive = true;
 
@@ -1147,7 +1262,7 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
 
   return (
     <div
-      className="fixed inset-x-0 top-16 bottom-0 z-50 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
+      className="fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
       onClick={onClose}
     >
       <div

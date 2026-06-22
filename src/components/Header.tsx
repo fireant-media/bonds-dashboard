@@ -14,7 +14,6 @@ import {
   Building2,
   SlidersHorizontal,
   Bookmark,
-  Clock3,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -396,11 +395,6 @@ export default function Header({
     { id: 'issuer', label: t('filterByIssuer'), icon: UserCircle },
   ];
 
-  const mobileBondItems = [
-    { id: 'market-bonds', label: t('marketBondList'), icon: SlidersHorizontal, isActive: activeTab === 'filter' && activeFilterSubTab === 'bonds', onClick: () => openFilter('bonds') },
-    { id: 'maturity-list', label: t('maturityList'), icon: Clock3, isActive: activeTab === 'maturity-list', onClick: () => openTopLevel('maturity-list') },
-  ];
-
   const isDashboardActive =
     activeTab === 'overview' ||
     activeTab === 'industry' ||
@@ -421,7 +415,7 @@ export default function Header({
   };
 
   const openTopLevel = (tab: string) => {
-    if (tab === 'overview' || tab === 'watchlist' || tab === 'filter' || tab === 'maturity-list') {
+    if (tab === 'overview' || tab === 'watchlist' || tab === 'filter') {
       warmDashboardCoreDataInBackground();
     }
     setActiveTab(tab);
@@ -618,25 +612,18 @@ export default function Header({
                 </section>
 
                 <section className="space-y-2">
-                  <div className="px-1 text-xs font-semibold uppercase tracking-wider text-text-muted/80">{t('bondNavigationMenu')}</div>
                   <div className="space-y-1">
-                    {mobileBondItems.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={item.onClick}
-                          className={mobileSectionItemClassName(item.isActive)}
-                        >
-                          <span className="flex min-w-0 items-center gap-3">
-                            <Icon className="h-4 w-4 shrink-0" />
-                            <span className="truncate font-medium">{item.label}</span>
-                          </span>
-                          {item.isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                        </button>
-                      );
-                    })}
+                    <button
+                      type="button"
+                      onClick={() => openFilter('bonds')}
+                      className={mobileSectionItemClassName(activeTab === 'filter' && activeFilterSubTab === 'bonds')}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                        <span className="truncate font-medium">{t('filterByBond')}</span>
+                      </span>
+                      {activeTab === 'filter' && activeFilterSubTab === 'bonds' ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                    </button>
                     <button
                       type="button"
                       onClick={() => openTopLevel('watchlist')}
@@ -814,127 +801,6 @@ export default function Header({
           <Logo />
         </button>
       </div>
-
-      <nav
-        ref={navMenuRef}
-        className="relative hidden min-w-0 flex-1 items-center gap-1 lg:ml-0 lg:mt-1 lg:flex"
-      >
-        {navItems.map((item) => {
-          if (item.menu === 'dashboard') {
-            return (
-              <div
-                key={item.id}
-                className="relative"
-                onMouseEnter={() => {
-                  clearDashboardMenuCloseTimer();
-                  setActiveMenu('dashboard');
-                  setActiveDashboardSubmenu(null);
-                }}
-                onMouseLeave={() => {
-                  scheduleDashboardMenuClose();
-                }}
-              >
-                {renderNavButton(item)}
-
-                {activeMenu === 'dashboard' && (
-                  <div
-                    className="absolute left-0 top-full z-50 mt-2 w-64 rounded-lg border border-border-base bg-surface-bright p-2"
-                    onMouseEnter={() => {
-                      clearDashboardMenuCloseTimer();
-                      setActiveMenu('dashboard');
-                    }}
-                    onMouseLeave={() => {
-                      scheduleDashboardMenuClose();
-                    }}
-                  >
-                    {dashboardItems.map((item) => {
-                      const Icon = item.icon;
-                      const isActive =
-                        item.id === 'overview'
-                          ? activeTab === 'overview'
-                          : item.id === 'industry'
-                            ? activeTab === 'industry'
-                            : activeTab === 'filter' && activeFilterSubTab === 'issuer';
-                      const isSubmenuOpen = item.submenu === 'industry' && activeDashboardSubmenu === 'industry';
-
-                      return (
-                        <div key={item.id} className="relative">
-                          <button
-                            type="button"
-                            onMouseEnter={() => {
-                              if (item.submenu === 'industry') {
-                                setActiveDashboardSubmenu('industry');
-                              } else {
-                                setActiveDashboardSubmenu(null);
-                              }
-                            }}
-                            onClick={() => {
-                              if (item.id === 'overview') {
-                                openTopLevel('overview');
-                                return;
-                              }
-                              if (item.id === 'industry') {
-                                toggleDashboardSubmenu('industry');
-                                return;
-                              }
-                              openFilter('issuer');
-                            }}
-                            className={cn(
-                              'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
-                              isActive || isSubmenuOpen
-                                ? 'font-semibold text-blue-600'
-                                : 'font-medium text-text-muted hover:text-blue-600'
-                            )}
-                            aria-haspopup={item.submenu ? 'menu' : undefined}
-                            aria-expanded={item.submenu ? isSubmenuOpen : undefined}
-                          >
-                            <span className="flex min-w-0 items-center gap-3">
-                              <Icon className="h-4 w-4 shrink-0" />
-                              <span className="truncate">{item.label}</span>
-                            </span>
-                            {item.submenu === 'industry' && isSubmenuOpen ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
-                          </button>
-
-                          {item.submenu === 'industry' && isSubmenuOpen && (
-                            <div className="absolute left-full top-0 ml-2 w-80 rounded-lg border border-border-base bg-surface-bright p-2">
-                              {subIndustries.map((sub) => {
-                                const isIndustryActive = activeTab === 'industry' && activeIndustry === sub.id;
-
-                                return (
-                                  <button
-                                    key={sub.id}
-                                    type="button"
-                                    onMouseEnter={() => {
-                                      void warmIndustryData(sub.id);
-                                    }}
-                                    onClick={() => openIndustry(sub.id)}
-                                    className={cn(
-                                      'flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
-                                      isIndustryActive
-                                        ? 'font-semibold text-blue-600'
-                                        : 'font-medium text-text-muted hover:text-blue-600'
-                                    )}
-                                  >
-                                    <span className="min-w-0 truncate">{sub.label}</span>
-                                    {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0" />}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          return renderNavButton(item);
-        })}
-
-      </nav>
 
       <div className="ml-auto flex items-center justify-end gap-2">
         <button

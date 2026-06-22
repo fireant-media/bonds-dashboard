@@ -16,7 +16,6 @@ import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/d
 const MarketOverview = lazy(() => import('./components/MarketOverview'));
 const IndustryView = lazy(() => import('./components/IndustryView'));
 const FilterView = lazy(() => import('./components/FilterView'));
-const MaturityListView = lazy(() => import('./components/MaturityListView'));
 const NewsListView = lazy(() => import('./components/NewsListView'));
 const WatchlistView = lazy(() => import('./components/WatchlistView'));
 const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
@@ -78,7 +77,6 @@ export default function App() {
       };
     }
     
-    if (currentPath === '/maturity') return { activeTab: 'maturity-list', bondCode: urlBondCode };
     if (currentPath === '/news-list' || currentPath === '/news') return { activeTab: 'news-list', bondCode: urlBondCode };
     if (currentPath === '/watchlist') return { activeTab: 'watchlist', bondCode: urlBondCode };
     
@@ -109,7 +107,6 @@ export default function App() {
         break;
       }
       case 'filter': navigate('/filter/issuer'); break;
-      case 'maturity-list': navigate('/maturity'); break;
       case 'news-list': navigate('/news'); break;
       case 'watchlist': navigate('/watchlist'); break;
       case 'profile': navigate('/profile'); break;
@@ -287,8 +284,6 @@ export default function App() {
       if (filterSubTab === 'bonds') {
         void import('./components/MarketBondFilterView');
       }
-    } else if (activeTab === 'maturity-list') {
-      void import('./components/MaturityListView');
     } else if (activeTab === 'news-list') {
       void import('./components/NewsListView');
     } else if (activeTab === 'watchlist') {
@@ -482,7 +477,8 @@ export default function App() {
   const isDashboardSidebarMode =
     activeTab === 'overview' ||
     activeTab === 'industry' ||
-    (activeTab === 'filter' && filterSubTab === 'issuer');
+    (activeTab === 'filter' && (filterSubTab === 'issuer' || filterSubTab === 'bonds')) ||
+    activeTab === 'watchlist';
 
   return (
     <div className="h-dvh overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
@@ -527,7 +523,7 @@ export default function App() {
                     ? "w-full"
                   : activeTab === 'overview'
                   ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
-                    : activeTab === 'maturity-list' || activeTab === 'watchlist'
+                    : activeTab === 'watchlist'
                       ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
                       : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
                 )}
@@ -563,12 +559,6 @@ export default function App() {
                     } />
                     <Route path="/enterprise" element={<LegacyEnterpriseRedirect />} />
                     <Route path="/enterprise/:ticker" element={<LegacyEnterpriseRedirect />} />
-                    <Route path="/maturity" element={
-                      <MaturityListView 
-                        setSelectedBond={handleSetSelectedBond}
-                        setBondEnterpriseName={setBondEnterpriseName}
-                      />
-                    } />
                     <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
                     <Route path="/news/:id" element={<Navigate to="/news" replace />} />
                     <Route path="/watchlist" element={

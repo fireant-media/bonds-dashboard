@@ -1,11 +1,21 @@
-import { Building2, ChevronDown, ChevronRight, LayoutDashboard, PanelLeft, PanelRight, UserCircle } from 'lucide-react';
+import {
+  Bookmark,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  LayoutDashboard,
+  PanelLeft,
+  PanelRight,
+  SlidersHorizontal,
+  UserCircle,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
 import { getCache } from '../utils/cache';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
-import { warmIndustryData } from '../services/dashboardPrefetch';
+import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
 
 function cn(...inputs: ClassValue[]) {
@@ -71,6 +81,26 @@ export default function Sidebar({
     { id: 'overview', label: t('overview'), icon: LayoutDashboard },
     { id: 'industry', label: t('industry'), icon: Building2, hasSubmenu: true },
     { id: 'issuer', label: t('filterByIssuer'), icon: UserCircle },
+  ];
+
+  const bondItems = [
+    {
+      id: 'bond-list',
+      label: t('filterByBond'),
+      icon: SlidersHorizontal,
+      isActive: activeTab === 'filter' && activeFilterSubTab === 'bonds',
+      onClick: () => {
+        warmDashboardCoreDataInBackground();
+        setActiveFilterSubTab('bonds');
+      },
+    },
+    {
+      id: 'watchlist',
+      label: t('watchList'),
+      icon: Bookmark,
+      isActive: activeTab === 'watchlist',
+      onClick: () => setActiveTab('watchlist'),
+    },
   ];
 
   return (
@@ -181,6 +211,34 @@ export default function Sidebar({
           </nav>
         )}
 
+        {!isCollapsed ? (
+          <div className="mt-2 space-y-1">
+            {bondItems.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={item.onClick}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
+                    item.isActive
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
+                      : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
+                  )}
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <Icon className="h-5 w-5 shrink-0" />
+                    <span className="truncate font-semibold">{item.label}</span>
+                  </span>
+                  {item.isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         {isCollapsed ? (
           <div className="mt-3 flex flex-col items-center gap-2">
             {dashboardItems.map((item) => {
@@ -211,6 +269,27 @@ export default function Sidebar({
                   className={cn(
                     'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
                     isActive
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
+                      : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
+                  )}
+                  aria-label={item.label}
+                  title={item.label}
+                >
+                  <Icon className="h-5 w-5" />
+                </button>
+              );
+            })}
+            {bondItems.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={item.onClick}
+                  className={cn(
+                    'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                    item.isActive
                       ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100 dark:bg-blue-600/10 dark:text-blue-300 dark:ring-blue-400/20'
                       : 'text-text-muted hover:bg-surface-container-low hover:text-blue-600'
                   )}

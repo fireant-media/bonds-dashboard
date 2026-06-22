@@ -418,8 +418,8 @@ export function BondFilterPanel({
 
   return (
     <section className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
           {isMarketVariant || isMaturityVariant ? null : (
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
@@ -452,14 +452,14 @@ export function BondFilterPanel({
           </div>
         </div>
 
-        <div className="py-2">
-          <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
-            <div className="space-y-2">
+        <div className="py-0.5">
+          <div className="flex flex-col gap-1.5 rounded-lg border border-blue-100 bg-blue-50/80 p-2.5 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
+            <div className="space-y-0.5">
               <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
                 <Sparkles className="h-4 w-4" />
                 <span>{t('applyAIFilter')}</span>
               </span>
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+              <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
                 <div className="min-w-0 flex-1">
                   <textarea
                     rows={2}
@@ -493,7 +493,7 @@ export function BondFilterPanel({
             </div>
 
             {showPromptSuggestions && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 {aiPromptSuggestions.slice(0, AI_PROMPT_SUGGESTION_LIMIT).map((suggestion) => (
                   <button
                     key={suggestion}
@@ -503,7 +503,7 @@ export function BondFilterPanel({
                       setAiSummary([]);
                       setAiError(null);
                     }}
-                    className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+                    className="rounded-full px-3 py-0.5 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-900"
                   >
                     {suggestion}
                   </button>
@@ -512,9 +512,9 @@ export function BondFilterPanel({
             )}
 
             {(aiSummary.length > 0 || aiError) && (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {aiSummary.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {aiSummary.slice(0, AI_FILTER_SUMMARY_LIMIT).map((item) => (
                       <button
                         key={item}
@@ -523,7 +523,7 @@ export function BondFilterPanel({
                           setAiPrompt(item);
                           setAiError(null);
                         }}
-                        className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+                        className="rounded-full px-3 py-0.5 text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-900"
                       >
                         {item}
                       </button>
@@ -1177,14 +1177,12 @@ function MarketFilterToolbar({
         </>
       ) : null}
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <span className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
-        </div>
+        </span>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {marketActionSlot}
-        </div>
+        {marketActionSlot}
       </div>
     </div>
   );

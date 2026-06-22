@@ -18,16 +18,13 @@ import Logo from './Logo';
 import { useLanguage } from '../LanguageContext';
 import { useTheme } from '../ThemeContext';
 import { Language } from '../translations';
-import { useIndustryBaseDashboardQuery, useMarketOverviewIndustryDataQuery } from '../query/dashboardQueries';
 import {
-  loadBondDetailsMapByCodes,
-  loadBondFilterRows,
-  loadGovernmentBondRows,
-  loadUnlistedEnterpriseBondRows,
-  type BondDataRow,
-} from '../services/bondData';
+  useIndustryBaseDashboardQuery,
+  useMarketOverviewIndustryDataQuery,
+} from '../query/dashboardQueries';
 import { applyChartTheme, CHART_PALETTE, getChartTheme, splitLegendItems } from '../utils/chart';
-import { formatDate, formatInterestRate, formatNumber, parseDateToTimestamp } from '../utils/format';
+import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
+import { loadMarketOverviewTopInterestData } from '../services/marketOverviewData';
 
 interface LoginViewProps {
   onSignIn: () => Promise<void> | void;
@@ -48,6 +45,13 @@ interface PreviewTableRow {
   rate: string;
   maturity: string;
   value: string;
+}
+
+interface HighYieldBondPreviewRow {
+  bondCode: string;
+  maturityDate: string;
+  bondRate: number;
+  currentListedVolume: number;
 }
 
 interface FeatureCard {
@@ -84,37 +88,30 @@ interface BankingIssuerSummary {
   totalRemainingDebt: number;
 }
 
-const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
-const LOGIN_PREVIEW_ROW_COUNT = 8;
+const LOGIN_PREVIEW_ROW_COUNT = 6;
 const LOGIN_CARD_SURFACE_CLASSNAME = 'rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20';
 
 const getCurrentLanguageLabel = (language: Language) => (language === 'vi' ? 'VI' : 'EN');
 
-const mergePreviewBondRowWithDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
-  const detail = detailPayload?.detail || detailPayload || {};
-  const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
+const normalizeHighYieldBondRow = (row: any): HighYieldBondPreviewRow | null => {
+  const bondCode = String(row?.bondCode || row?.BondCode || row?.code || row?.Code || '').trim();
+  if (!bondCode) return null;
 
   return {
-    ...row,
-    bondRate: row.bondRate || Number(detail?.bondRate || detail?.BondRate || detail?.interestRate || detail?.InterestRate || 0),
-    maturityDate: row.maturityDate || String(detail?.maturityDate || detail?.MaturityDate || ''),
-    totalIssuedValue:
-      row.totalIssuedValue > 0
-        ? row.totalIssuedValue
-        : Number(detail?.totalIssuedValue || detail?.TotalIssuedValue || historyItem?.value || 0),
-    raw: {
-      ...row.raw,
-      detail,
-    },
+    bondCode,
+    maturityDate: String(row?.maturityDate || row?.MaturityDate || row?.dueDate || row?.DueDate || '').split('T')[0],
+    bondRate: Number(row?.bondRate || row?.BondRate || row?.interestRate || row?.InterestRate || row?.couponRate || row?.CouponRate || 0),
+    currentListedVolume: Number(
+      row?.currentListedVolume || row?.CurrentListedVolume || row?.listedVolume || row?.ListedVolume || 0,
+    ),
   };
 };
 
-const sortPreviewBondRows = (rows: BondDataRow[]) =>
+const sortPreviewBondRows = (rows: HighYieldBondPreviewRow[]) =>
   [...rows].sort((left, right) => {
-    const leftTimestamp = parseDateToTimestamp(left.maturityDate) || 0;
-    const rightTimestamp = parseDateToTimestamp(right.maturityDate) || 0;
-    if (leftTimestamp !== rightTimestamp) {
-      return leftTimestamp - rightTimestamp;
+    const rateDiff = Number(right.bondRate || 0) - Number(left.bondRate || 0);
+    if (rateDiff !== 0) {
+      return rateDiff;
     }
 
     return String(left.bondCode || '').localeCompare(String(right.bondCode || ''));
@@ -179,17 +176,14 @@ function FeaturePreview({
   if (tableColumns && tableRows && tableRows.length > 0) {
     return (
       <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
-        <div className="flex h-6 items-center">
-          <span className="invisible text-sm font-semibold">.</span>
-        </div>
-        <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-2xl">
+        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl">
           <table className="h-full w-full table-fixed">
             <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
               <tr>
                 {tableColumns.map((column) => (
                   <th
                     key={column.title}
-                    className={`px-2 py-3 text-xs font-bold uppercase tracking-wider ${
+                    className={`px-2 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
                       column.widthClassName || ''
                     } ${column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'}`}
                   >
@@ -205,7 +199,7 @@ function FeaturePreview({
                   <td className="whitespace-nowrap px-2 py-2.5 font-bold text-text-highlight">{row.code}</td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-right">{row.rate}</td>
                   <td className="whitespace-nowrap px-1 py-2.5 text-center">{row.maturity}</td>
-                  <td className="whitespace-nowrap px-2 py-2.5 text-right">{row.value}</td>
+                  <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums">{row.value}</td>
                 </tr>
               ))}
             </tbody>
@@ -220,7 +214,7 @@ function FeaturePreview({
 
 export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewProps) {
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [marketBondRows, setMarketBondRows] = useState<BondDataRow[]>([]);
+  const [marketBondRows, setMarketBondRows] = useState<HighYieldBondPreviewRow[]>([]);
   const [isMarketBondPreviewLoading, setIsMarketBondPreviewLoading] = useState(true);
   const { language, setLanguage, t } = useLanguage();
   const { effectiveTheme, setTheme } = useTheme();
@@ -257,15 +251,6 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
       .sort((left, right) => Number(right.totalRemainingDebt || 0) - Number(left.totalRemainingDebt || 0));
   }, [bankingIndustryQuery.data]);
 
-  const marketBondFetchLimit = useMemo(() => {
-    const marketBondCount = marketOverviewIndustryData.reduce(
-      (total, item) => total + Number(item?.bondCount || 0),
-      0,
-    );
-
-    return marketBondCount > 0 ? marketBondCount + 100 : MARKET_BOND_FETCH_FALLBACK_LIMIT;
-  }, [marketOverviewIndustryData]);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -273,44 +258,16 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
       setIsMarketBondPreviewLoading(true);
 
       try {
-        const [marketRows, governmentRows, unlistedEnterpriseRows] = await Promise.all([
-          loadBondFilterRows(
-            {
-              StatusID: 1,
-              IsListing: 1,
-              Top: marketBondFetchLimit,
-            },
-            { enrichWithDetails: false },
-          ),
-          loadGovernmentBondRows(),
-          loadUnlistedEnterpriseBondRows(),
-        ]);
-
-        const mergedRows = Array.from(
-          new Map(
-            [...marketRows, ...governmentRows, ...unlistedEnterpriseRows]
-              .filter((row) => Boolean(row?.bondCode))
-              .map((row) => [row.bondCode, row] as const),
-          ).values(),
-        );
-
-        const previewCodes = sortPreviewBondRows(mergedRows)
-          .slice(0, 5)
-          .map((row) => row.bondCode)
-          .filter(Boolean);
-
-        const detailMap = previewCodes.length > 0
-          ? await loadBondDetailsMapByCodes(previewCodes, { concurrency: 5, forceRefresh: false })
-          : {};
+        const response = await loadMarketOverviewTopInterestData();
+        const mergedRows = Array.isArray(response)
+          ? response
+              .map(normalizeHighYieldBondRow)
+              .filter((row): row is HighYieldBondPreviewRow => Boolean(row?.bondCode))
+          : [];
 
         if (cancelled) return;
 
-        setMarketBondRows(
-          mergedRows.map((row) => {
-            const detailPayload = detailMap[row.bondCode];
-            return detailPayload ? mergePreviewBondRowWithDetail(row, detailPayload) : row;
-          }),
-        );
+        setMarketBondRows(mergedRows);
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load login market bond preview', error);
@@ -328,7 +285,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
     return () => {
       cancelled = true;
     };
-  }, [marketBondFetchLimit]);
+  }, []);
 
   const copy: LoginCopy = isVietnamese
     ? {
@@ -369,22 +326,22 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         section4Cards: [
           {
             title: 'Dữ liệu tin cậy',
-            description: 'Cập nhật thông tin trái phiếu đầy đủ, hỗ trợ theo dõi thị trường hiệu quả.',
+            description: 'Kho dữ liệu trái phiếu được cập nhật liên tục, giúp nhà đầu tư tiếp cận thông tin chính xác.',
             icon: ShieldCheck,
           },
           {
             title: 'Phân tích toàn diện',
-            description: 'Đánh giá trái phiếu theo thị trường, ngành và tổ chức phát hành.',
+            description: 'Cung cấp góc nhìn đa chiều về doanh nghiệp, ngành và chất lượng trái phiếu phát hành.',
             icon: ChartColumn,
           },
           {
             title: 'Quản lý linh hoạt',
-            description: 'Theo dõi danh sách quan tâm và biến động các mã trái phiếu dễ dàng.',
+            description: 'Tùy chỉnh danh sách theo dõi và quản lý thông tin đầu tư theo nhu cầu riêng.',
             icon: ListChecks,
           },
           {
             title: 'AI hỗ trợ thông minh',
-            description: 'Tra cứu nhanh, phân tích dữ liệu và hỗ trợ quyết định đầu tư.',
+            description: 'Ứng dụng AI để tổng hợp, phân tích và giải đáp nhanh các câu hỏi về trái phiếu.',
             icon: Bot,
           },
         ],
@@ -460,6 +417,20 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         ],
       };
 
+  const bondListColumns: PreviewTableColumn[] = isVietnamese
+    ? [
+        { title: 'MÃ TRÁI PHIẾU', widthClassName: 'w-3/12', align: 'left' },
+        { title: 'LÃI SUẤT', unit: '(%)', widthClassName: 'w-2/12', align: 'right' },
+        { title: 'NGÀY ĐÁO HẠN', widthClassName: 'w-3/12', align: 'center' },
+        { title: 'KL NIÊM YẾT', widthClassName: 'w-4/12', align: 'right' },
+      ]
+    : [
+        { title: 'BOND CODE', widthClassName: 'w-3/12', align: 'left' },
+        { title: 'RATE', unit: '(%)', widthClassName: 'w-2/12', align: 'right' },
+        { title: 'MATURITY DATE', widthClassName: 'w-3/12', align: 'center' },
+        { title: 'LISTED VOLUME', widthClassName: 'w-4/12', align: 'right' },
+      ];
+
   const previewBondRows = useMemo<PreviewTableRow[]>(() => {
     return sortPreviewBondRows(marketBondRows)
       .slice(0, LOGIN_PREVIEW_ROW_COUNT)
@@ -467,7 +438,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         code: row.bondCode,
         rate: formatInterestRate(row.bondRate),
         maturity: formatDate(row.maturityDate),
-        value: formatNumber((row.totalIssuedValue || 0) / 1_000_000_000, 2),
+        value: formatNumber(row.currentListedVolume || 0, 0),
       }));
   }, [marketBondRows]);
 
@@ -753,7 +724,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                     >
                       <FeaturePreview
                         chartOption={isOverviewCard ? overviewVolumeChartOption : isBankingCard ? bankingMarketShareOption : null}
-                        tableColumns={isBondListCard ? copy.tableColumns : undefined}
+                        tableColumns={isBondListCard ? bondListColumns : undefined}
                         tableRows={isBondListCard ? previewBondRows : undefined}
                         previewTitle={card.previewTitle}
                         isLoading={
@@ -801,13 +772,15 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                     transition={{ duration: 0.35, delay: index * 0.05 }}
                     className={`p-5 ${LOGIN_CARD_SURFACE_CLASSNAME}`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-start gap-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
                         <card.icon className="h-6 w-6" />
                       </div>
-                      <h3 className="text-xl font-bold text-text-base">{card.title}</h3>
+                      <div className="min-w-0">
+                        <h3 className="text-xl font-bold text-text-base">{card.title}</h3>
+                        <p className="mt-2 text-sm font-medium leading-7 text-text-muted">{card.description}</p>
+                      </div>
                     </div>
-                    <p className="mt-3 text-sm font-medium leading-7 text-text-muted">{card.description}</p>
                   </motion.article>
                 ))}
               </div>

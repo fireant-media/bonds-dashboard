@@ -24,6 +24,8 @@ import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { getWatchlistItems, onWatchlistUpdated } from '../utils/watchlist';
 import { cleanTokenString, getFireantToken, getFireantTokenDebugInfo } from '../utils/token';
 import { safeSetLocalStorageItem } from '../utils/localStorageBudget';
+import { getBondChatContext, subscribeBondChatContext } from '../utils/bondDetailChatContext';
+import { getViewChatContext, subscribeViewChatContext } from '../utils/viewChatContext';
 
 interface MessageAction {
   type: 'navigate';
@@ -426,10 +428,43 @@ function isBondRoute(pathname: string) {
   return segment.length >= 6 && !['industry', 'enterprise', 'filter', 'maturity', 'news', 'watchlist', 'profile', 'help'].includes(segment.toLowerCase());
 }
 
+function getActiveBondContext(pathname: string) {
+  if (!isBondRoute(pathname)) return null;
+
+  const activeContext = getBondChatContext();
+  if (!activeContext) return null;
+
+  const normalizedPathname = normalizeText(pathname);
+  const contextPath = normalizeText(activeContext.routePathname || `/${activeContext.bondCode}`);
+
+  if (contextPath && normalizedPathname && contextPath !== normalizedPathname) {
+    return null;
+  }
+
+  return activeContext;
+}
+
+function getActiveViewContext(pathname: string) {
+  return getViewChatContext(pathname);
+}
+
+function getFilterRouteState(pathname: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'filter') return null;
+
+  return {
+    subTab: parts[1] === 'bonds' ? 'bonds' : 'issuer',
+    ticker: parts[1] === 'issuer' && parts[2] ? parts[2].toUpperCase() : '',
+  };
+}
+
 function getPageLabel(pathname: string) {
   const parts = pathname.split('/').filter(Boolean);
 
-  if (parts.length === 0 || isBondRoute(pathname)) return 'Tổng quan thị trường';
+  if (parts.length === 0) return 'Tổng quan thị trường';
+  if (isBondRoute(pathname)) {
+    return getActiveBondContext(pathname)?.label || 'Chi tiết trái phiếu';
+  }
   if (parts[0] === 'industry') return `Nhóm ngành ${getIndustryDisplayLabel(parts[1] || 'Banking')}`;
   if (parts[0] === 'enterprise' && parts[1]) return `Tổ chức phát hành ${parts[1].toUpperCase()}`;
   if (parts[0] === 'enterprise') return 'Danh sách tổ chức phát hành';
@@ -440,20 +475,74 @@ function getPageLabel(pathname: string) {
   return 'Tổng quan thị trường';
 }
 
+function resolvePageLabel(pathname: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  const activeBondContext = getActiveBondContext(pathname);
+  const activeViewContext = getActiveViewContext(pathname);
+  const filterRouteState = getFilterRouteState(pathname);
+
+  if (activeBondContext?.kind === 'bond-comparison') return activeBondContext.label;
+  if (parts.length === 0) return 'Tổng quan thị trường';
+  if (isBondRoute(pathname)) {
+    return activeBondContext?.label || 'Chi tiết trái phiếu';
+  }
+  if (parts[0] === 'industry') return `Nhóm ngành ${getIndustryDisplayLabel(parts[1] || 'Banking')}`;
+  if (parts[0] === 'enterprise' && parts[1]) return `Tổ chức phát hành ${parts[1].toUpperCase()}`;
+  if (parts[0] === 'enterprise') return 'Tổ chức phát hành';
+  if (filterRouteState?.subTab === 'issuer' && filterRouteState.ticker) {
+    return activeViewContext?.label || `Tổ chức phát hành ${filterRouteState.ticker}`;
+  }
+  if (filterRouteState?.subTab === 'issuer') {
+    return activeViewContext?.label || 'Tổ chức phát hành';
+  }
+  if (filterRouteState?.subTab === 'bonds') {
+    return activeViewContext?.label || 'Danh sách trái phiếu toàn thị trường';
+  }
+  if (parts[0] === 'watchlist') return 'Danh mục theo dõi';
+  if (parts[0] === 'maturity') return 'Danh sách đáo hạn';
+  if (parts[0] === 'news') return 'Tin tức';
+
+  return 'Tổng quan thị trường';
+}
+
 function buildPageDataRequest(pathname: string): PageDataRequestConfig {
   const parts = pathname.split('/').filter(Boolean);
+  const filterRouteState = getFilterRouteState(pathname);
+  const activeViewContext = getActiveViewContext(pathname);
 
-  if (parts.length === 0 || isBondRoute(pathname)) {
+  if (parts.length === 0) {
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       url: '/api/page-data?view=market-overview',
+    };
+  }
+
+  if (isBondRoute(pathname)) {
+    const bondContext = getActiveBondContext(pathname);
+
+    return {
+      label: resolvePageLabel(pathname),
+      fallback: bondContext
+        ? {
+            ...bondContext.dataset,
+            route: pathname,
+            page: bondContext.kind,
+            contextLabel: bondContext.label,
+            updatedAt: bondContext.updatedAt,
+          }
+        : {
+            route: pathname,
+            page: 'bond-detail',
+            bondCode: normalizeText(parts[0]).toUpperCase(),
+            note: 'bond detail context is not active yet',
+          },
     };
   }
 
   if (parts[0] === 'industry') {
     const industryId = encodeURIComponent(parts[1] || 'Banking');
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       url: `/api/page-data?view=industry&industryId=${industryId}&includeCashFlows=0&detailLimit=80`,
     };
   }
@@ -461,15 +550,70 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
   if (parts[0] === 'enterprise' && parts[1]) {
     const symbol = encodeURIComponent(parts[1].toUpperCase());
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       url: `/api/page-data?view=issuer&symbol=${symbol}&detailLimit=60`,
     };
   }
 
   if (parts[0] === 'enterprise') {
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       url: '/api/page-data?view=market-overview',
+    };
+  }
+
+  if (filterRouteState?.subTab === 'issuer' && activeViewContext) {
+    return {
+      label: resolvePageLabel(pathname),
+      fallback: {
+        ...activeViewContext.dataset,
+        route: pathname,
+        contextLabel: activeViewContext.label,
+        updatedAt: activeViewContext.updatedAt,
+      },
+    };
+  }
+
+  if (filterRouteState?.subTab === 'issuer' && filterRouteState.ticker) {
+    return {
+      label: resolvePageLabel(pathname),
+      url: `/api/page-data?view=issuer&symbol=${encodeURIComponent(filterRouteState.ticker)}&detailLimit=60`,
+    };
+  }
+
+  if (filterRouteState?.subTab === 'issuer') {
+    return {
+      label: resolvePageLabel(pathname),
+      fallback: {
+        route: pathname,
+        page: 'issuer-list',
+        title: 'Tổ chức phát hành',
+        note: 'issuer list context is not active yet',
+      },
+    };
+  }
+
+  if (filterRouteState?.subTab === 'bonds' && activeViewContext) {
+    return {
+      label: resolvePageLabel(pathname),
+      fallback: {
+        ...activeViewContext.dataset,
+        route: pathname,
+        contextLabel: activeViewContext.label,
+        updatedAt: activeViewContext.updatedAt,
+      },
+    };
+  }
+
+  if (filterRouteState?.subTab === 'bonds') {
+    return {
+      label: resolvePageLabel(pathname),
+      fallback: {
+        route: pathname,
+        page: 'market-bond-list',
+        title: 'Danh sách trái phiếu toàn thị trường',
+        note: 'market bond list context is not active yet',
+      },
     };
   }
 
@@ -480,7 +624,7 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
 
     if (codes.length === 0) {
       return {
-        label: getPageLabel(pathname),
+        label: resolvePageLabel(pathname),
         fallback: {
           route: pathname,
           page: 'watchlist',
@@ -493,7 +637,7 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
     }
 
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       url: '/api/page-data?view=watchlist',
       init: {
         method: 'POST',
@@ -507,14 +651,14 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
 
   if (parts[0] === 'maturity') {
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       url: '/api/page-data?view=maturity&days=365',
     };
   }
 
   if (parts[0] === 'news') {
     return {
-      label: getPageLabel(pathname),
+      label: resolvePageLabel(pathname),
       fallback: {
         route: pathname,
         page: 'news',
@@ -524,7 +668,7 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
   }
 
   return {
-    label: getPageLabel(pathname),
+    label: resolvePageLabel(pathname),
     url: '/api/page-data?view=market-overview',
   };
 }
@@ -583,16 +727,53 @@ function getIndustryLabel(industryId: string) {
   return labels[industryId] || industryId;
 }
 
+function getCurrentSuggestedSymbol(pathname: string, recentUserMessage: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  const activeBondContext = getActiveBondContext(pathname);
+  const filterRouteState = getFilterRouteState(pathname);
+
+  if (activeBondContext?.kind === 'bond-detail') {
+    return activeBondContext.bondCode;
+  }
+
+  if (activeBondContext?.kind === 'bond-comparison') {
+    return activeBondContext.bondCodes[0] || '';
+  }
+
+  return (
+    filterRouteState?.ticker ||
+    extractCandidateSymbols(recentUserMessage)[0] ||
+    (parts[0] === 'enterprise' && parts[1] ? parts[1].toUpperCase() : '')
+  );
+}
+
 function buildFollowUpSuggestions(pathname: string, messages: Message[], input: string) {
   const parts = pathname.split('/').filter(Boolean);
   const recentUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
-  const recentSymbol =
-    extractCandidateSymbols(recentUserMessage)[0] ||
-    (parts[0] === 'enterprise' && parts[1] ? parts[1].toUpperCase() : '');
+  const activeBondContext = getActiveBondContext(pathname);
+  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentUserMessage);
 
   let suggestions: string[] = [];
 
-  if (parts[0] === 'enterprise' && recentSymbol) {
+  if (activeBondContext?.kind === 'bond-comparison') {
+    const compareCodes = activeBondContext.bondCodes.slice(0, 4);
+    suggestions = [
+      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareCodes.join(', ')}.`,
+      `Mã nào đang có lãi suất nổi bật nhất trong nhóm so sánh này?`,
+      `Mã nào đáo hạn sớm nhất và cần theo dõi nhiều nhất?`,
+      `So sánh nhanh rủi ro, kỳ hạn và quy mô phát hành của các mã này.`,
+    ];
+  } else if (activeBondContext?.kind === 'bond-detail' && recentSymbol) {
+    const issuerSymbol = activeBondContext.issuerSymbol || activeBondContext.issuerName;
+    suggestions = [
+      `Tóm tắt nhanh mã trái phiếu ${recentSymbol}.`,
+      `Lãi suất, kỳ hạn và điểm cần theo dõi của ${recentSymbol} là gì?`,
+      `Lịch thanh toán và áp lực đáo hạn của ${recentSymbol} hiện ra sao?`,
+      issuerSymbol
+        ? `Mã ${recentSymbol} phản ánh gì về tình hình trái phiếu của ${issuerSymbol}?`
+        : `Rủi ro chính của mã ${recentSymbol} hiện nay là gì?`,
+    ];
+  } else if (parts[0] === 'enterprise' && recentSymbol) {
     suggestions = [
       `${recentSymbol} hiện có bao nhiêu mã trái phiếu đang lưu hành?`,
       `Cơ cấu kỳ hạn và lãi suất của ${recentSymbol} hiện như thế nào?`,
@@ -666,13 +847,30 @@ function getIndustryDisplayLabel(industryId: string) {
 function buildSuggestedQuestions(pathname: string, messages: Message[], input: string) {
   const parts = pathname.split('/').filter(Boolean);
   const recentUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
-  const recentSymbol =
-    extractCandidateSymbols(recentUserMessage)[0] ||
-    (parts[0] === 'enterprise' && parts[1] ? parts[1].toUpperCase() : '');
+  const activeBondContext = getActiveBondContext(pathname);
+  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentUserMessage);
 
   let suggestions: string[] = [];
 
-  if (parts[0] === 'enterprise' && recentSymbol) {
+  if (activeBondContext?.kind === 'bond-comparison') {
+    const compareCodes = activeBondContext.bondCodes.slice(0, 4);
+    suggestions = [
+      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareCodes.join(', ')}.`,
+      'Mã nào đang có lãi suất cao nhất trong nhóm này?',
+      'Mã nào có ngày đáo hạn gần nhất trong nhóm này?',
+    ];
+  } else if (activeBondContext?.kind === 'bond-detail' && recentSymbol) {
+    const issuerSymbol = activeBondContext.issuerSymbol || activeBondContext.issuerName;
+    suggestions = [
+      `Tóm tắt nhanh mã trái phiếu ${recentSymbol}.`,
+      `Lãi suất, kỳ hạn và điểm cần theo dõi của ${recentSymbol} là gì?`,
+      `Lịch thanh toán và áp lực đáo hạn của ${recentSymbol} hiện ra sao?`,
+    ];
+
+    if (issuerSymbol) {
+      suggestions.unshift(`Mã ${recentSymbol} đang cho thấy điều gì về tổ chức phát hành ${issuerSymbol}?`);
+    }
+  } else if (parts[0] === 'enterprise' && recentSymbol) {
     suggestions = [
       `${recentSymbol} hiện có bao nhiêu mã trái phiếu đang lưu hành?`,
       `Cơ cấu kỳ hạn và lãi suất của ${recentSymbol} hiện như thế nào?`,
@@ -720,6 +918,122 @@ function buildSuggestedQuestions(pathname: string, messages: Message[], input: s
     .slice(0, MAX_SUGGESTION_COUNT);
 }
 
+function resolveSuggestedQuestions(pathname: string, messages: Message[], input: string) {
+  const parts = pathname.split('/').filter(Boolean);
+  const recentUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
+  const activeBondContext = getActiveBondContext(pathname);
+  const filterRouteState = getFilterRouteState(pathname);
+  const activeViewContext = getActiveViewContext(pathname);
+  const activeViewFilters = isObject(activeViewContext?.dataset?.filters) ? activeViewContext.dataset.filters : null;
+  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentUserMessage);
+
+  let suggestions: string[] = [];
+
+  if (activeBondContext?.kind === 'bond-comparison') {
+    const compareCodes = activeBondContext.bondCodes.slice(0, 4);
+    suggestions = [
+      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareCodes.join(', ')}.`,
+      'Mã nào đang có lãi suất cao nhất trong nhóm này?',
+      'Mã nào có ngày đáo hạn gần nhất trong nhóm này?',
+    ];
+  } else if (activeBondContext?.kind === 'bond-detail' && recentSymbol) {
+    const issuerSymbol = activeBondContext.issuerSymbol || activeBondContext.issuerName;
+    suggestions = [
+      `Tóm tắt nhanh mã trái phiếu ${recentSymbol}.`,
+      `Lãi suất, kỳ hạn và điểm cần theo dõi của ${recentSymbol} là gì?`,
+      `Lịch thanh toán và áp lực đáo hạn của ${recentSymbol} hiện ra sao?`,
+    ];
+
+    if (issuerSymbol) {
+      suggestions.unshift(`Mã ${recentSymbol} đang cho thấy điều gì về tổ chức phát hành ${issuerSymbol}?`);
+    }
+  } else if (filterRouteState?.subTab === 'issuer' && recentSymbol) {
+    suggestions = [
+      `${recentSymbol} hiện có bao nhiêu mã trái phiếu đang lưu hành?`,
+      `Cơ cấu kỳ hạn và lãi suất của ${recentSymbol} hiện như thế nào?`,
+      `Áp lực đáo hạn của ${recentSymbol} trong 12 tháng tới ra sao?`,
+    ];
+  } else if (filterRouteState?.subTab === 'issuer') {
+    const hasFilters = Boolean(
+      normalizeText(activeViewFilters?.searchTerm).length > 0 ||
+      normalizeText(activeViewFilters?.industry).length > 0 ||
+      (Array.isArray(activeViewFilters?.aiSummary) && activeViewFilters.aiSummary.length > 0),
+    );
+    suggestions = hasFilters
+      ? [
+          'Tóm tắt nhanh danh sách tổ chức phát hành đang được lọc hiện tại.',
+          'Nhóm tổ chức phát hành nào đang nổi bật nhất trong kết quả lọc này?',
+          'Bộ lọc hiện tại đang loại ra những nhóm tổ chức nào?',
+        ]
+      : [
+          'Hiện có bao nhiêu tổ chức phát hành trong danh sách này?',
+          'Tổ chức phát hành nào đang có dư nợ còn lại lớn nhất?',
+          'Ngành nào đang tập trung nhiều tổ chức phát hành nhất?',
+        ];
+  } else if (filterRouteState?.subTab === 'bonds') {
+    const hasFilters = Boolean(
+      normalizeText(activeViewFilters?.searchTerm).length > 0 ||
+      (Array.isArray(activeViewFilters?.aiSummary) && activeViewFilters.aiSummary.length > 0),
+    );
+    suggestions = hasFilters
+      ? [
+          'Tóm tắt nhanh danh sách trái phiếu theo bộ lọc hiện tại.',
+          'Trong kết quả đang lọc, mã nào có lãi suất cao nhất?',
+          'Trong kết quả đang lọc, mã nào đáo hạn sớm nhất?',
+        ]
+      : [
+          'Hiện có bao nhiêu mã trái phiếu trong danh sách toàn thị trường?',
+          'Mã nào đang có lãi suất cao nhất trên danh sách này?',
+          'Nhóm ngành nào đang chiếm nhiều mã trái phiếu nhất?',
+        ];
+  } else if (parts[0] === 'enterprise' && recentSymbol) {
+    suggestions = [
+      `${recentSymbol} hiện có bao nhiêu mã trái phiếu đang lưu hành?`,
+      `Cơ cấu kỳ hạn và lãi suất của ${recentSymbol} hiện như thế nào?`,
+      `Áp lực đáo hạn của ${recentSymbol} trong 12 tháng tới ra sao?`,
+    ];
+  } else if (parts[0] === 'industry' && parts[1]) {
+    const industryLabel = getIndustryDisplayLabel(parts[1]);
+    suggestions = [
+      `Top tổ chức phát hành trong nhóm ${industryLabel.toLowerCase()} là ai?`,
+      `Quy mô dư nợ của nhóm ${industryLabel.toLowerCase()} đang tập trung vào đâu?`,
+      `Lãi suất phát hành của nhóm ${industryLabel.toLowerCase()} có điểm gì đáng chú ý?`,
+    ];
+  } else if (parts[0] === 'maturity') {
+    suggestions = [
+      'Có bao nhiêu mã trái phiếu sắp đáo hạn trong 12 tháng tới?',
+      'Những tổ chức nào có áp lực đáo hạn lớn nhất?',
+      'Các tháng nào tập trung nhiều trái phiếu đáo hạn nhất?',
+    ];
+  } else if (parts[0] === 'watchlist') {
+    suggestions = [
+      'Tóm tắt nhanh rủi ro của danh mục theo dõi hiện tại.',
+      'Mã nào trong danh mục theo dõi đáo hạn sớm nhất?',
+      'Cơ cấu kỳ hạn của danh mục theo dõi đang nghiêng về đâu?',
+    ];
+  } else {
+    suggestions = [
+      'Tổng quy mô và điểm nổi bật của thị trường trái phiếu hiện tại là gì?',
+      'Top tổ chức phát hành theo dư nợ hiện nay là ai?',
+      'Ngành nào đang có khối lượng trái phiếu lớn nhất?',
+    ];
+
+    if (recentSymbol) {
+      suggestions.unshift(`Phân tích nhanh tình hình trái phiếu của ${recentSymbol}.`);
+    }
+  }
+
+  const excluded = new Set(
+    [input, recentUserMessage]
+      .map((value) => normalizeText(value).toLowerCase())
+      .filter(Boolean),
+  );
+
+  return Array.from(new Set(suggestions))
+    .filter((question) => !excluded.has(question.toLowerCase()))
+    .slice(0, MAX_SUGGESTION_COUNT);
+}
+
 function extractCandidateSymbols(text: string) {
   const reserved = new Set(['AI', 'API', 'CEO', 'CFO', 'VND', 'VNĐ', 'USD', 'GDP', 'TPDN', 'ICB', 'GPT']);
   return Array.from(new Set((text.match(/\b[A-Z0-9]{2,8}\b/g) || [])
@@ -742,6 +1056,40 @@ function buildQuestionDataRequests(pathname: string, userMessage?: string): Page
   const question = normalizeText(userMessage);
   const normalizedQuestion = question.toLowerCase();
   const requests: PageDataRequestConfig[] = [buildPageDataRequest(pathname)];
+  const activeBondContext = getActiveBondContext(pathname);
+
+  if (activeBondContext?.kind === 'bond-detail' && activeBondContext.issuerSymbol) {
+    requests.push({
+      label: `Tổ chức phát hành ${activeBondContext.issuerSymbol}`,
+      url: `/api/page-data?view=issuer&symbol=${encodeURIComponent(activeBondContext.issuerSymbol)}&detailLimit=60`,
+    });
+  }
+
+  if (activeBondContext?.kind === 'bond-comparison') {
+    activeBondContext.issuerSymbols
+      .filter(Boolean)
+      .slice(0, 4)
+      .forEach((issuerSymbol) => {
+        requests.push({
+          label: `Tổ chức phát hành ${issuerSymbol}`,
+          url: `/api/page-data?view=issuer&symbol=${encodeURIComponent(issuerSymbol)}&detailLimit=60`,
+        });
+      });
+  }
+
+  if (
+    activeBondContext?.kind === 'bond-comparison' &&
+    (normalizedQuestion.includes('so sánh') ||
+      normalizedQuestion.includes('so sanh') ||
+      normalizedQuestion.includes('nhom nay') ||
+      normalizedQuestion.includes('group') ||
+      normalizedQuestion.includes('trong nhom'))
+  ) {
+    requests.push({
+      label: 'Tổng quan thị trường',
+      url: '/api/page-data?view=market-overview',
+    });
+  }
 
   if (!question) return requests;
 
@@ -968,6 +1316,7 @@ export default function AIChatBot() {
   const [contextError, setContextError] = useState<string | null>(null);
   const [pageContext, setPageContext] = useState<PageContextSnapshot | null>(null);
   const [isLoadingContext, setIsLoadingContext] = useState(false);
+  const [runtimeContextVersion, setRuntimeContextVersion] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -1016,6 +1365,20 @@ export default function AIChatBot() {
   }, [messages]);
 
   useEffect(() => {
+    const unsubscribeBondContext = subscribeBondChatContext(() => {
+      setRuntimeContextVersion((current) => current + 1);
+    });
+    const unsubscribeViewContext = subscribeViewChatContext(() => {
+      setRuntimeContextVersion((current) => current + 1);
+    });
+
+    return () => {
+      unsubscribeBondContext();
+      unsubscribeViewContext();
+    };
+  }, []);
+
+  useEffect(() => {
     if (isOpen && !configured && !isLoadingStatus && !statusError) {
       void refreshStatus();
     }
@@ -1049,7 +1412,7 @@ export default function AIChatBot() {
     return () => {
       active = false;
     };
-  }, [isOpen, location.pathname]);
+  }, [isOpen, location.pathname, runtimeContextVersion]);
 
   useEffect(() => {
     if (!isOpen || location.pathname !== '/watchlist') return undefined;
@@ -1064,7 +1427,7 @@ export default function AIChatBot() {
     });
 
     return unsubscribe;
-  }, [isOpen, location.pathname]);
+  }, [isOpen, location.pathname, runtimeContextVersion]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1074,7 +1437,7 @@ export default function AIChatBot() {
 
   const activeModel = getActiveModelId(models, selectedModel, defaultModel);
   const isStreaming = streamingIdx !== null;
-  const suggestedQuestions = buildSuggestedQuestions(location.pathname, messages, input);
+  const suggestedQuestions = resolveSuggestedQuestions(location.pathname, messages, input);
 
   const fillSuggestedQuestion = (question: string) => {
     setInput(question);

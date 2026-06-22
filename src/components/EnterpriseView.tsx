@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Share2, Info, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
+import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Share2, Info, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -40,6 +41,7 @@ import {
 import { ENTERPRISE_LIST_DATA_CACHE_KEY, loadEnterpriseListByIssuerSymbol } from '../services/enterpriseListData';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, type BondDataRow } from '../services/bondData';
 import { useAIStore } from '../store/aiStore';
+import { clearViewChatContext, setViewChatContext } from '../utils/viewChatContext';
 import {
   ActionFilterButton,
   RangeFilterChip,
@@ -228,6 +230,7 @@ export default function EnterpriseView({
   listTitle,
   breadcrumbTitle,
 }: EnterpriseViewProps) {
+  const location = useLocation();
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const { isLoadingStatus } = useAIStore();
@@ -275,6 +278,10 @@ export default function EnterpriseView({
   const [loadingFinancial, setLoadingFinancial] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [enterpriseFilterMenu, setEnterpriseFilterMenu] = useState<string | null>(null);
+  const [enterpriseHiddenColumnIds, setEnterpriseHiddenColumnIds] = useState<string[]>([]);
+  const [enterpriseColumnVisibilityDraft, setEnterpriseColumnVisibilityDraft] = useState<string[]>([]);
+  const [enterpriseColumnVisibilityOpen, setEnterpriseColumnVisibilityOpen] = useState(false);
+  const enterpriseColumnVisibilityRef = useRef<HTMLDivElement | null>(null);
   const enterprisesPerPage = 10;
 
   const chartColors = CHART_PALETTE;
@@ -564,16 +571,81 @@ export default function EnterpriseView({
       <button
         type="button"
         onClick={() => handleEnterpriseTableSort(field)}
-        className="inline-flex w-full items-center justify-center gap-2 text-center transition-opacity hover:opacity-90"
+        className={cn(
+          "w-full text-center transition-opacity hover:opacity-90",
+          unit
+            ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center justify-center gap-x-1"
+            : "inline-flex items-center justify-center gap-1",
+        )}
       >
-        <div className="flex flex-col items-center">
-          <span className={`whitespace-nowrap leading-none ${labelClassName}`}>{label}</span>
-          {unit ? <span className="mt-1 whitespace-nowrap leading-none">({unit})</span> : null}
-        </div>
-        <ArrowUpDown className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+        <span className={cn(
+          "leading-none",
+          unit ? "col-start-1 row-start-1" : "whitespace-nowrap",
+          labelClassName,
+        )}>
+          {label}
+        </span>
+        {unit ? (
+          <span className="col-start-1 row-start-2 whitespace-nowrap leading-none normal-case">
+            ({unit})
+          </span>
+        ) : null}
+        <span className={cn(
+          "flex h-4 w-4 shrink-0 items-center justify-center",
+          unit ? "col-start-2 row-span-2 self-center" : "",
+        )}>
+          <ArrowUpDown className={`h-3.5 w-3.5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+        </span>
       </button>
     );
   };
+
+  const enterpriseColumnOptions = useMemo(() => ([
+    { id: 'ticker', label: t('ticker') },
+    { id: 'issuerName', label: t('issuerName') },
+    { id: 'bondCount', label: 'Số mã trái phiếu' },
+    { id: 'issuedValue', label: `${t('issuedValue')} (${t('unitBillionVND')})` },
+    { id: 'remainingDebt', label: `${t('remainingDebtTitle')} (${t('unitBillionVND')})` },
+  ]), [t]);
+
+  useEffect(() => {
+    if (!enterpriseColumnVisibilityOpen) return undefined;
+
+    setEnterpriseColumnVisibilityDraft(enterpriseHiddenColumnIds);
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!enterpriseColumnVisibilityRef.current) return;
+      if (enterpriseColumnVisibilityRef.current.contains(event.target as Node)) return;
+      setEnterpriseColumnVisibilityOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setEnterpriseColumnVisibilityOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+    document.removeEventListener('keydown', handleEscape);
+    };
+  }, [enterpriseColumnVisibilityOpen, enterpriseHiddenColumnIds]);
+
+  const showEnterpriseTickerColumn = !enterpriseHiddenColumnIds.includes('ticker');
+  const showEnterpriseIssuerNameColumn = !enterpriseHiddenColumnIds.includes('issuerName');
+  const showEnterpriseBondCountColumn = !enterpriseHiddenColumnIds.includes('bondCount');
+  const showEnterpriseIssuedValueColumn = !enterpriseHiddenColumnIds.includes('issuedValue');
+  const showEnterpriseRemainingDebtColumn = !enterpriseHiddenColumnIds.includes('remainingDebt');
+  const enterpriseVisibleColumnCount =
+    Number(showEnterpriseTickerColumn)
+    + Number(showEnterpriseIssuerNameColumn)
+    + Number(showEnterpriseBondCountColumn)
+    + Number(showEnterpriseIssuedValueColumn)
+    + Number(showEnterpriseRemainingDebtColumn)
+    + 1;
 
   useEffect(() => {
     /**
@@ -1244,6 +1316,137 @@ export default function EnterpriseView({
       financialHighlights,
     };
   }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, projectedCashFlowData, selectedEnterprise, sortedYears]);
+
+  const enterpriseChatContext = useMemo(() => {
+    if (selectedEnterprise) {
+      return {
+        label: `Tổ chức phát hành ${selectedEnterprise.ticker}`,
+        dataset: {
+          route: location.pathname,
+          page: 'issuer-detail',
+          title: `Tổ chức phát hành ${selectedEnterprise.ticker}`,
+          issuer: {
+            ticker: selectedEnterprise.ticker,
+            name: enterpriseDisplayName || selectedEnterprise.ticker,
+            industry: selectedEnterprise.industry,
+            bondCount: enterpriseBonds.length > 0 ? enterpriseBonds.length : Number(selectedEnterprise.bondCount || 0),
+            issuedValueBillion: roundMetric(Number(selectedEnterprise.issuedValue || 0)),
+            initialDebtBillion: roundMetric(Number(selectedEnterprise.initialDebt || 0)),
+            remainingDebtBillion: roundMetric(Number(selectedEnterprise.remainingDebt || 0)),
+          },
+          filters: {
+            industry: appliedIndustryFilter,
+            searchTerm: appliedEnterpriseSearchTerm,
+            minIssuedValueBillion: appliedEnterpriseIssuedValueMin || null,
+            maxIssuedValueBillion: appliedEnterpriseIssuedValueMax || null,
+            minRemainingDebtBillion: appliedEnterpriseRemainingDebtMin || null,
+            maxRemainingDebtBillion: appliedEnterpriseRemainingDebtMax || null,
+            aiSummary: enterpriseAISummary,
+          },
+          bonds: enterpriseBonds.slice(0, 20).map((bond) => ({
+            bondCode: bond.code,
+            tenorMonths: Number(bond.term || 0),
+            interestRate: roundMetric(Number(bond.interestRate || 0)),
+            interestType: bond.interestType || '',
+            issueDate: bond.issueDate,
+            maturityDate: bond.maturityDate,
+            listedValueBillion: roundMetric(Number(bond.listedValue || 0)),
+          })),
+          termStructure: pieData.slice(0, 10).map((item) => ({
+            term: item.name,
+            bondCount: Number(item.value || 0),
+          })),
+          interestTypeStructure: interestTypePieData.map((item) => ({
+            type: String(item.name || ''),
+            bondCount: Number(item.value || 0),
+          })),
+          maturityDistribution: sortedYears.slice(0, 10).map((year, index) => ({
+            year,
+            listedValueBillion: roundMetric(Number(columnData[index] || 0)),
+          })),
+          projectedCashFlows: projectedCashFlowData.labels.slice(0, 10).map((label, index) => ({
+            period: label,
+            interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
+            principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
+            totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
+          })),
+          financialHighlights: enterpriseInsightPayload?.financialHighlights || null,
+        },
+      };
+    }
+
+    return {
+      label: 'Tổ chức phát hành',
+      dataset: {
+        route: location.pathname,
+        page: 'issuer-list',
+        title: 'Tổ chức phát hành',
+        filters: {
+          industry: appliedIndustryFilter,
+          searchTerm: appliedEnterpriseSearchTerm,
+          minIssuedValueBillion: appliedEnterpriseIssuedValueMin || null,
+          maxIssuedValueBillion: appliedEnterpriseIssuedValueMax || null,
+          minRemainingDebtBillion: appliedEnterpriseRemainingDebtMin || null,
+          maxRemainingDebtBillion: appliedEnterpriseRemainingDebtMax || null,
+          aiSummary: enterpriseAISummary,
+        },
+        summary: {
+          totalEnterprises: enterprises.length,
+          filteredEnterprises: sortedEnterprises.length,
+          currentPage: enterprisePage,
+          totalPages: totalEnterprisePages,
+          isLoading: loading,
+          error,
+        },
+        enterprises: sortedEnterprises.slice(0, 20).map((enterprise) => ({
+          ticker: enterprise.ticker,
+          name: String(t(enterprise.name as any, enterprise.ticker) || enterprise.ticker),
+          industry: enterprise.industry,
+          bondCount: Number(enterprise.bondCount || 0),
+          issuedValueBillion: roundMetric(Number(enterprise.issuedValue || 0)),
+          remainingDebtBillion: roundMetric(Number(enterprise.remainingDebt || 0)),
+        })),
+      },
+    };
+  }, [
+    appliedEnterpriseIssuedValueMax,
+    appliedEnterpriseIssuedValueMin,
+    appliedEnterpriseRemainingDebtMax,
+    appliedEnterpriseRemainingDebtMin,
+    appliedEnterpriseSearchTerm,
+    appliedIndustryFilter,
+    columnData,
+    enterpriseAISummary,
+    enterpriseBonds,
+    enterpriseDisplayName,
+    enterpriseInsightPayload,
+    enterprisePage,
+    enterprises,
+    error,
+    interestTypePieData,
+    loading,
+    location.pathname,
+    pieData,
+    projectedCashFlowData,
+    selectedEnterprise,
+    sortedEnterprises,
+    sortedYears,
+    t,
+    totalEnterprisePages,
+  ]);
+
+  useEffect(() => {
+    setViewChatContext({
+      routePathname: location.pathname,
+      label: enterpriseChatContext.label,
+      dataset: enterpriseChatContext.dataset,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return () => {
+      clearViewChatContext(location.pathname);
+    };
+  }, [enterpriseChatContext, location.pathname]);
 
   const handleExportEnterprises = async () => {
     setExportLoading(true);
@@ -1943,21 +2146,21 @@ export default function EnterpriseView({
   }
 
   return (
-    <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="mb-3 mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-w-0 space-y-2 transition-colors duration-300">
+      <div className="mb-2 mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h2 className="text-left text-2xl font-bold text-text-base transition-colors">{listTitle || t('filterByIssuer')}</h2>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
-        <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-4 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
-          <div className="space-y-2">
+      <div className="flex flex-col gap-2 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
+        <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-2.5 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
+          <div className="space-y-1">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
               <BadgeDollarSign className="h-4 w-4" />
               <span>{t('applyAIFilter')}</span>
             </span>
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
               <div className="min-w-0 flex-1">
                 <textarea
                   rows={2}
@@ -1984,7 +2187,7 @@ export default function EnterpriseView({
           </div>
 
           {showEnterpriseAISuggestions ? (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-1.5">
               {enterpriseAISuggestions.map((suggestion) => (
                 <button
                   key={suggestion}
@@ -1998,7 +2201,7 @@ export default function EnterpriseView({
                     event.stopPropagation();
                     handleEnterpriseSuggestionClick(suggestion);
                   }}
-                  className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+                  className="rounded-full px-3 py-0.5 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-900"
                 >
                   {suggestion}
                 </button>
@@ -2007,11 +2210,11 @@ export default function EnterpriseView({
           ) : null}
 
           {enterpriseAISummary.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-2 flex flex-wrap gap-1.5">
               {enterpriseAISummary.map((item) => (
                 <span
                   key={item}
-                  className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700"
+                  className="rounded-full px-3 py-0.5 text-xs font-semibold leading-tight text-blue-700"
                 >
                   {item}
                 </span>
@@ -2020,13 +2223,13 @@ export default function EnterpriseView({
           ) : null}
 
           {enterpriseAIError ? (
-            <p className="mt-3 text-sm font-medium text-red-600">{enterpriseAIError}</p>
+            <p className="mt-2 text-sm font-medium text-red-600">{enterpriseAIError}</p>
           ) : null}
         </div>
 
         {isFilterControlsVisible ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-stretch xl:gap-3">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-stretch xl:gap-2">
               <div className="min-w-0 flex-1">
                 <SearchFilterField
                   value={enterpriseSearchTerm}
@@ -2097,21 +2300,96 @@ export default function EnterpriseView({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 pt-0.5">
           <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
             {t('filterResults')}: {formatNumber(sortedEnterprises.length, 0)} / {formatNumber(enterprises.length, 0)}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsFilterControlsVisible((current) => !current)}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
-            aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
-            title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
-          >
-            {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
-            <span className="hidden sm:inline">{t('filterTab')}</span>
-          </button>
+          <div ref={enterpriseColumnVisibilityRef} className="relative inline-flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsFilterControlsVisible((current) => !current)}
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+              aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+              title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+            >
+              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
+              <span className="hidden sm:inline">{t('filterTab')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEnterpriseColumnVisibilityOpen((current) => !current)}
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+              aria-haspopup="dialog"
+              aria-expanded={enterpriseColumnVisibilityOpen}
+              aria-label={t('hideColumns')}
+              title={t('hideColumns')}
+            >
+              <EyeOff className="h-4 w-4 text-blue-600" />
+              <span className="hidden sm:inline">{t('hideColumns')}</span>
+            </button>
+
+            {enterpriseColumnVisibilityOpen ? (
+              <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+                <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+                  <EyeOff className="h-4 w-4 text-blue-600" />
+                  <span>{t('hideColumns')}</span>
+                </div>
+
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {enterpriseColumnOptions.map((column) => {
+                    const checked = enterpriseColumnVisibilityDraft.includes(column.id);
+
+                    return (
+                      <label
+                        key={column.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-base transition-colors hover:bg-surface-container-low"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setEnterpriseColumnVisibilityDraft((current) => (
+                              current.includes(column.id)
+                                ? current.filter((item) => item !== column.id)
+                                : [...current, column.id]
+                            ));
+                          }}
+                          className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-400"
+                        />
+                        <span className="truncate">{column.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnterpriseHiddenColumnIds(enterpriseColumnVisibilityDraft);
+                      setEnterpriseColumnVisibilityOpen(false);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                  >
+                    {t('hideColumns')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnterpriseHiddenColumnIds([]);
+                      setEnterpriseColumnVisibilityDraft([]);
+                      setEnterpriseColumnVisibilityOpen(false);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight"
+                  >
+                    {t('reset')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -2164,71 +2442,111 @@ export default function EnterpriseView({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-max text-left">
-            <thead>
-              <tr className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  {renderEnterpriseSortHeader('ticker', t('ticker'))}
+          <table className="w-full min-w-full table-fixed text-left">
+            <colgroup>
+              <col className="w-14" />
+              {showEnterpriseTickerColumn ? <col className="w-28" /> : null}
+              {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
+              {showEnterpriseBondCountColumn ? <col className="w-32" /> : null}
+              {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
+              {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
+            </colgroup>
+            <thead className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
+              <tr>
+                <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                  <span className="flex items-center justify-center">
+                    <ListOrdered className="h-4 w-4" aria-hidden="true" />
+                  </span>
                 </th>
-                <th className="px-6 py-4 text-xs font-bold tracking-wider text-center whitespace-nowrap normal-case">{t('filterByIssuer')}</th>
-                <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
-                </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}
-                </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'))}
-                </th>
+                {showEnterpriseTickerColumn ? (
+                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    {renderEnterpriseSortHeader('ticker', t('ticker'))}
+                  </th>
+                ) : null}
+                {showEnterpriseIssuerNameColumn ? (
+                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
+                  </th>
+                ) : null}
+                {showEnterpriseBondCountColumn ? (
+                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
+                  </th>
+                ) : null}
+                {showEnterpriseIssuedValueColumn ? (
+                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}
+                  </th>
+                ) : null}
+                {showEnterpriseRemainingDebtColumn ? (
+                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'))}
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-border-base">
               {enterpriseTableLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</td>
+                  <td colSpan={enterpriseVisibleColumnCount} className="px-4 py-10 text-center text-sm font-medium text-text-muted transition-colors">{t('loading')}</td>
                 </tr>
               ) : enterpriseTableError ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-red-600 font-medium transition-colors">{enterpriseTableError}</td>
+                  <td colSpan={enterpriseVisibleColumnCount} className="px-4 py-10 text-center text-sm font-medium text-red-600 transition-colors">{enterpriseTableError}</td>
                 </tr>
               ) : paginatedEnterprises.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('noData')}</td>
+                  <td colSpan={enterpriseVisibleColumnCount} className="px-4 py-10 text-center text-sm font-medium text-text-muted transition-colors">{t('noData')}</td>
                 </tr>
               ) : paginatedEnterprises.map((enterprise, idx) => (
                 <tr 
                   key={enterprise.id} 
                   onClick={() => setSelectedEnterprise(enterprise)}
-                  className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
+                  className={`group cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                 >
-                  <td className="px-6 py-5 text-center">
-                    <span className="text-sm font-bold text-text-highlight">{enterprise.ticker}</span>
+                  <td className="px-4 py-3 text-center whitespace-nowrap">
+                    <span className="text-sm font-medium text-text-base">{idx + 1}</span>
                   </td>
-                  <td className="px-6 py-5 text-left">
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
-                        {language === 'en' && enterpriseNamesEN[enterprise.ticker] 
-                          ? enterpriseNamesEN[enterprise.ticker] 
-                          : t(enterprise.name as any, enterprise.ticker)}
-                      </p>
-                      <p className="text-xs font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
-                        {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
-                      </p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <span className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">{formatNumber(enterprise.bondCount, 0)}</span>
-                  </td>
-                  <td className="px-6 py-5 text-right whitespace-nowrap">
-                    <span className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
-                      {formatNumber(enterprise.issuedValue, 2)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5 text-right whitespace-nowrap">
-                    <span className="text-sm font-bold text-text-highlight">
-                      {formatNumber(enterprise.remainingDebt, 2)}
-                    </span>
-                  </td>
+                  {showEnterpriseTickerColumn ? (
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <span className="text-sm font-bold text-text-highlight transition-colors group-hover:text-blue-600">
+                        {enterprise.ticker}
+                      </span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseIssuerNameColumn ? (
+                    <td className="px-4 py-3 text-left whitespace-nowrap">
+                      <div className="space-y-1">
+                        <p className="truncate text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">
+                          {language === 'en' && enterpriseNamesEN[enterprise.ticker] 
+                            ? enterpriseNamesEN[enterprise.ticker] 
+                            : t(enterprise.name as any, enterprise.ticker)}
+                        </p>
+                        <p className="truncate text-xs font-medium text-text-muted transition-colors group-hover:text-blue-600">
+                          {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
+                        </p>
+                      </div>
+                    </td>
+                  ) : null}
+                  {showEnterpriseBondCountColumn ? (
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">{formatNumber(enterprise.bondCount, 0)}</span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseIssuedValueColumn ? (
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">
+                        {formatNumber(enterprise.issuedValue, 2)}
+                      </span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseRemainingDebtColumn ? (
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">
+                        {formatNumber(enterprise.remainingDebt, 2)}
+                      </span>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -2237,7 +2555,7 @@ export default function EnterpriseView({
 
         {/* Enterprise Pagination Controls */}
         {totalEnterprisePages > 1 && (
-          <div className="p-4 border-t border-border-base flex items-center justify-end bg-surface-container-low/70 transition-colors">
+          <div className="flex items-center justify-end border-t border-border-base bg-surface-container-low/70 px-4 py-4 pr-20 transition-colors sm:pr-24 lg:pr-28">
             <div className="flex gap-2">
               <button 
                 onClick={() => setEnterprisePage(prev => Math.max(1, prev - 1))}

@@ -142,7 +142,7 @@ export function DataTable<T>({
   return (
     <div className={cn("overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
       <div className="overflow-x-auto">
-        <table className="w-max min-w-full table-fixed text-left">
+        <table className="w-full min-w-full table-fixed text-left">
           <colgroup>
             {visibleColumns.map((column) => (
               <col key={column.id} className={column.widthClassName} />
@@ -167,14 +167,31 @@ export function DataTable<T>({
                       onClick={() => handleSort(column)}
                       disabled={!column.sortable || !column.accessor}
                       className={cn(
-                        "inline-flex w-full items-center justify-center gap-2 text-center disabled:cursor-default",
+                        "w-full text-center disabled:cursor-default",
+                        column.unit
+                          ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center justify-center gap-x-1"
+                          : "inline-flex items-center justify-center gap-1",
                       )}
                     >
-                      <span>
-                        <span className="block">{column.header}</span>
-                        {column.unit && <span className="mt-1 block text-xs font-semibold tracking-wider text-white/80">{column.unit}</span>}
+                      <span className={cn(
+                        "leading-none",
+                        column.unit ? "col-start-1 row-start-1" : "block",
+                      )}>
+                        {column.header}
                       </span>
-                      {column.sortable && <SortIcon className="h-3.5 w-3.5 shrink-0 text-white/90" />}
+                      {column.unit ? (
+                        <span className="col-start-1 row-start-2 block text-xs font-semibold tracking-wider text-white/80 normal-case leading-none">
+                          {column.unit}
+                        </span>
+                      ) : null}
+                      {column.sortable ? (
+                        <span className={cn(
+                          "flex h-4 w-4 shrink-0 items-center justify-center",
+                          column.unit ? "col-start-2 row-span-2 self-center" : "",
+                        )}>
+                          <SortIcon className="h-3.5 w-3.5 text-white/90" />
+                        </span>
+                      ) : null}
                     </button>
                   </th>
                 );
@@ -190,11 +207,11 @@ export function DataTable<T>({
               </tr>
             ) : visibleRows.length > 0 ? (
               visibleRows.map((row, index) => (
-                <tr
-                  key={getRowKey(row, index)}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  onKeyDown={onRowClick ? (event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
+                  <tr
+                    key={getRowKey(row, index)}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                    onKeyDown={onRowClick ? (event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
                       onRowClick(row);
                     }
@@ -202,15 +219,15 @@ export function DataTable<T>({
                   tabIndex={onRowClick ? 0 : undefined}
                   role={onRowClick ? 'button' : undefined}
                   className={cn(
-                    "group transition-colors",
-                    onRowClick && "cursor-pointer hover:bg-surface-container-low/70 focus-visible:outline-none focus-visible:bg-surface-container-low/70",
+                    "group h-16 transition-colors odd:bg-bg-base/50 even:bg-bg-surface hover:bg-surface-container-low/70",
+                    onRowClick && "cursor-pointer focus-visible:outline-none focus-visible:bg-surface-container-low/70",
                   )}
                 >
                   {visibleColumns.map((column) => (
                     <td
                       key={column.id}
                       className={cn(
-                        "px-4 py-3 text-sm font-medium text-text-base whitespace-nowrap",
+                        "px-4 py-3 align-middle text-sm font-medium text-text-base whitespace-nowrap transition-colors group-hover:text-blue-600",
                         column.align === 'right' && "text-right",
                         column.align === 'center' && "text-center",
                         column.className,

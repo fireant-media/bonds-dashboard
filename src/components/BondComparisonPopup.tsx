@@ -14,6 +14,7 @@ import { buildFireantUrl, fireantApi } from '../api/fireant';
 import { exportRowsToExcel } from '../utils/excel';
 import { upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
+import { clearBondChatContext, setBondChatContext } from '../utils/bondDetailChatContext';
 
 const MAX_SELECTED_BONDS = 10;
 
@@ -38,7 +39,7 @@ class BondComparisonErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex items-center justify-center p-4">
           <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center">
             <p className="text-red-400 font-bold mb-2">Display Error</p>
             <p className="text-red-300 text-sm mb-4">{this.state.error?.message}</p>
@@ -349,18 +350,48 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
         return [...prev, nextBond];
       });
     };
+
+    const fallbackBond: Bond = {
+      ...bond,
+      term: bond.term || 'N/A',
+      interestRate: Number(bond.interestRate || 0),
+      listedVolume: Number(bond.listedVolume || 0),
+      issuedValue: scaleBondValue(bond.issuedValue),
+      listedValue: scaleBondValue(bond.listedValue),
+      issueDate: bond.issueDate || '',
+      maturityDate: parseDateToTimestamp(bond.maturityDate) !== null
+        ? bond.maturityDate
+        : new Date().toISOString().split('T')[0],
+      bondType: (bond as Bond & { bondType?: string }).bondType || '',
+      interestType: bond.interestType || '',
+      status: bond.status || t('active'),
+    };
     
     try {
-      // If the bond is from pool, it already has data
-      if (bond.term !== 'N/A' && bond.term !== undefined && bond.term !== '' && !isMissingInterestType(bond.interestType)) {
+      const hasCompleteComparisonData =
+        Boolean(bond.term && bond.term !== 'N/A') &&
+        Number(bond.interestRate || 0) > 0 &&
+        Boolean(bond.issueDate) &&
+        Boolean(bond.maturityDate) &&
+        Number(bond.issuedValue || 0) > 0 &&
+        Number(bond.listedValue || 0) > 0 &&
+        Number(bond.listedVolume || 0) >= 0 &&
+        !isMissingInterestType(bond.interestType);
+
+      // If the bond is already complete, keep it after normalizing scales.
+      if (hasCompleteComparisonData) {
         console.log('[BondComparisonPopup] Bond from pool, adding directly:', bond.code);
         // Validate maturityDate before adding
         if (parseDateToTimestamp(bond.maturityDate) !== null) {
-          addComparisonBond(bond);
+          addComparisonBond({
+            ...fallbackBond,
+            issuedValue: scaleBondValue(bond.issuedValue),
+            listedValue: scaleBondValue(bond.listedValue),
+          });
         } else {
           // Fallback to today if date is invalid
           const validBond = {
-            ...bond,
+            ...fallbackBond,
             maturityDate: new Date().toISOString().split('T')[0]
           };
           console.log('[BondComparisonPopup] Fixed invalid date:', validBond);
@@ -379,12 +410,7 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
       const token = getFireantToken();
       if (!token) {
         console.log('[BondComparisonPopup] No token, adding bond with fallback data');
-        // Ensure valid maturityDate for fallback bond
-        const validBond = {
-          ...bond,
-          maturityDate: new Date().toISOString().split('T')[0]
-        };
-        addComparisonBond(validBond);
+        addComparisonBond(fallbackBond);
         setIsSearching(false);
         setSearchTerm('');
         setSuggestions([]);
@@ -407,11 +433,11 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
         const profile = issuerSymbol ? await loadIssuerProfile(issuerSymbol) : null;
 
         const issueValue = b.totalIssuedValue
-          ? b.totalIssuedValue / 1000000000
-          : Number(bond.issuedValue || 0);
+          ? scaleBondValue(b.totalIssuedValue)
+          : scaleBondValue(bond.issuedValue);
         const listedValue = b.currentListedValue
-          ? b.currentListedValue / 1000000000
-          : Number(bond.listedValue || 0);
+          ? scaleBondValue(b.currentListedValue)
+          : scaleBondValue(bond.listedValue);
         const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
         const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
         const interestType = deriveInterestType(b, data.cashFlows);
@@ -421,35 +447,38 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
           maturityDate = new Date().toISOString().split('T')[0];
         }
 
-        const fullBond: Bond = {
-          id: b.bondCode || bond.id,
-          code: b.bondCode || bond.code,
-          enterpriseId: issuerSymbol,
-          term: String(b.tenorPeriod || 'N/A'),
-          interestRate: Number(interestRate) || 0,
-          listedVolume: Number(listedVolume) || 0,
-          issuedValue: Number(issueValue) || 0,
-          listedValue: Number(listedValue) || 0,
-          issueDate: b.issueDate?.split('T')[0] || '',
-          maturityDate,
-          bondType: b.bondType || b.BondType || (bond as Bond & { bondType?: string }).bondType || '',
-          interestType,
-          status: b.status || t('active'),
-          issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseId || ''),
-        } as Bond;
+        const fullBond = buildComparisonBond(
+          {
+            ...fallbackBond,
+            id: b.bondCode || bond.id,
+            code: b.bondCode || bond.code,
+            enterpriseId: issuerSymbol,
+            term: String(b.tenorPeriod || fallbackBond.term || 'N/A'),
+            interestRate: Number(interestRate) || fallbackBond.interestRate,
+            listedVolume: Number(listedVolume) || fallbackBond.listedVolume,
+            issuedValue: Number(issueValue) || fallbackBond.issuedValue,
+            listedValue: Number(listedValue) || fallbackBond.listedValue,
+            issueDate: b.issueDate?.split('T')[0] || fallbackBond.issueDate,
+            maturityDate,
+            bondType: b.bondType || b.BondType || (bond as Bond & { bondType?: string }).bondType || '',
+            interestType,
+            status: b.status || t('active'),
+            issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseId || fallbackBond.enterpriseId || ''),
+          } as Bond,
+          b,
+          historyItem,
+          profile,
+          data.cashFlows,
+        );
 
         addComparisonBond(fullBond);
       } catch (parseError) {
         console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
+        addComparisonBond(fallbackBond);
       }
     } catch (e) {
       console.error('[BondComparisonPopup] Error in handleAddBond:', e);
-      // Ensure valid date for outer catch fallback
-      const validBond = {
-        ...bond,
-        maturityDate: new Date().toISOString().split('T')[0]
-      };
-      addComparisonBond(validBond);
+      addComparisonBond(fallbackBond);
     } finally {
       setIsSearching(false);
       setSearchTerm('');
@@ -467,6 +496,78 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
     const rawInterestType = detail?.bondRateType || detail?.interestRateType || detail?.couponRateType || detail?.interestType || '';
     const paymentMethod = detail?.interestPaymentMethod || detail?.paymentMethod || detail?.bondType || detail?.bondName || '';
     return normalizeInterestType(rawInterestType, paymentMethod, cashFlows);
+  };
+
+  const scaleBondValue = (value: unknown) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+    return Math.abs(numericValue) >= 1_000_000 ? numericValue / 1_000_000_000 : numericValue;
+  };
+
+  const formatComparisonValue = (value: unknown) => {
+    const scaledValue = scaleBondValue(value);
+    return scaledValue > 0 ? formatValue(scaledValue) : '-';
+  };
+
+  const buildComparisonBond = (
+    baseBond: Bond,
+    detail?: any,
+    historyItem?: any,
+    profile?: any,
+    cashFlows: any[] = [],
+  ): Bond => {
+    const detailBond = detail || {};
+    const issueValue = detailBond.totalIssuedValue !== undefined && detailBond.totalIssuedValue !== null
+      ? scaleBondValue(detailBond.totalIssuedValue)
+      : scaleBondValue(baseBond.issuedValue);
+    const listedValue = detailBond.currentListedValue !== undefined && detailBond.currentListedValue !== null
+      ? scaleBondValue(detailBond.currentListedValue)
+      : scaleBondValue(baseBond.listedValue);
+    const listedVolume = Number(
+      detailBond.currentListedVolume
+      || historyItem?.volume
+      || baseBond.listedVolume
+      || 0,
+    );
+    const interestRate = Number(
+      detailBond.bondRate
+      || detailBond.interestRate
+      || detailBond.couponRate
+      || cashFlows?.[0]?.bondRate
+      || baseBond.interestRate
+      || 0,
+    );
+    const termMonths = String(detailBond.tenorPeriod || baseBond.term || 'N/A');
+    const issueDate = String(detailBond.issueDate || baseBond.issueDate || '').split('T')[0];
+    const maturityDate = String(detailBond.maturityDate || baseBond.maturityDate || '').split('T')[0];
+    const issuerSymbol = String(detailBond.issuerSymbol || baseBond.enterpriseId || '').trim();
+    const issuerName = String(profile?.internationalName || profile?.name || detailBond.issuerName || (baseBond as Bond & { issuerName?: string }).issuerName || baseBond.enterpriseId || '').trim();
+    const bondType = String(detailBond.bondType || detailBond.BondType || (baseBond as Bond & { bondType?: string }).bondType || '').trim();
+
+    return {
+      ...baseBond,
+      enterpriseId: issuerSymbol,
+      term: termMonths,
+      interestRate: Number.isFinite(interestRate) ? interestRate : baseBond.interestRate,
+      listedVolume,
+      issuedValue: issueValue,
+      listedValue,
+      issueDate,
+      maturityDate: maturityDate || baseBond.maturityDate,
+      bondType,
+      interestType: deriveInterestType(detailBond, cashFlows) || baseBond.interestType,
+      status: String(detailBond.status || baseBond.status || t('active')),
+      cashFlows: Array.isArray(cashFlows)
+        ? cashFlows.map((cf: any) => ({
+            paymentDate: cf.paymentDate,
+            interestAmount: (cf.interestAmount || 0) / 1000000000,
+            principalAmount: (cf.principalAmount || 0) / 1000000000,
+            totalCashflow: (cf.totalCashflow || 0) / 1000000000,
+            bondRate: cf.bondRate || 0,
+          }))
+        : baseBond.cashFlows,
+      ...(issuerName ? { issuerName } : {}),
+    };
   };
 
   const handleReset = () => {
@@ -863,14 +964,14 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
           name: labels.value,
           type: 'bar',
           barWidth: 15,
-          data: selectedBonds.map(b => b.issuedValue),
+          data: selectedBonds.map(b => scaleBondValue(b.issuedValue)),
           itemStyle: { borderRadius: [2, 2, 0, 0] }
         },
         {
           name: labels.listed,
           type: 'bar',
           barWidth: 15,
-          data: selectedBonds.map(b => b.listedValue),
+          data: selectedBonds.map(b => scaleBondValue(b.listedValue)),
           itemStyle: { borderRadius: [2, 2, 0, 0] }
         },
         {
@@ -1002,14 +1103,107 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
     {
       key: 'issuedValue',
       label: `${formatComparisonLabel(t('issuedValue'))} (tỷ VNĐ)`,
-      value: (bond: Bond) => formatValue(bond.issuedValue),
+      value: (bond: Bond) => formatComparisonValue(bond.issuedValue),
     },
     {
       key: 'listedValue',
       label: `${formatComparisonLabel(t('listedValue'))} (tỷ VNĐ)`,
-      value: (bond: Bond) => formatValue(bond.listedValue),
+      value: (bond: Bond) => formatComparisonValue(bond.listedValue),
     },
   ];
+
+  useEffect(() => {
+    if (selectedBonds.length === 0) return;
+
+    const bonds = selectedBonds.map((bond) => {
+      const issuerName = String(
+        (bond as any).issuerName ||
+        (bond as any).enterpriseName ||
+        (bond.code === primaryBond.code ? primaryEnterpriseName : '') ||
+        bond.enterpriseId ||
+        '-',
+      ).trim() || '-';
+
+      return {
+        code: bond.code,
+        issuerSymbol: bond.enterpriseId || '',
+        issuerName,
+        termMonths: bond.term.replace(/[^0-9]/g, '') || '-',
+        interestRate: `${formatInterestRate(Number(bond.interestRate || 0))}%`,
+        issueDate: formatDate(bond.issueDate),
+        maturityDate: formatDate(bond.maturityDate),
+        listedVolume: formatValue(Number(bond.listedVolume || 0)),
+        issuedValueBillion: formatComparisonValue(bond.issuedValue),
+        listedValueBillion: formatComparisonValue(bond.listedValue),
+        interestType: String(bond.interestType || '-'),
+        bondType: String((bond as Bond & { bondType?: string }).bondType || '-'),
+        status: String(bond.status || '-'),
+      };
+    });
+
+    const byInterestRate = [...selectedBonds].sort(
+      (left, right) => Number(right.interestRate || 0) - Number(left.interestRate || 0),
+    );
+    const byMaturity = [...selectedBonds].sort((left, right) => {
+      const leftTs = parseDateToTimestamp(left.maturityDate) ?? Number.MAX_SAFE_INTEGER;
+      const rightTs = parseDateToTimestamp(right.maturityDate) ?? Number.MAX_SAFE_INTEGER;
+      return leftTs - rightTs;
+    });
+    const byIssuedValue = [...selectedBonds].sort(
+      (left, right) => scaleBondValue(right.issuedValue) - scaleBondValue(left.issuedValue),
+    );
+
+    setBondChatContext({
+      kind: 'bond-comparison',
+      routePathname: `/${primaryBond.code}`,
+      label: t('bondComparisonTitle'),
+      bondCodes: selectedBonds.map((bond) => bond.code),
+      issuerSymbols: Array.from(
+        new Set(selectedBonds.map((bond) => String(bond.enterpriseId || '').trim()).filter(Boolean)),
+      ),
+      dataset: {
+        route: `/${primaryBond.code || ''}`,
+        page: 'bond-comparison',
+        title: t('bondComparisonTitle'),
+        bondCodes: selectedBonds.map((bond) => bond.code),
+        totalBonds: selectedBonds.length,
+        primaryBondCode: primaryBond.code,
+        comparisonSummary: {
+          highestInterestRateBond: byInterestRate[0]
+            ? {
+                code: byInterestRate[0].code,
+                interestRate: `${formatInterestRate(Number(byInterestRate[0].interestRate || 0))}%`,
+              }
+            : null,
+          earliestMaturityBond: byMaturity[0]
+            ? {
+                code: byMaturity[0].code,
+                maturityDate: formatDate(byMaturity[0].maturityDate),
+              }
+            : null,
+          largestIssuedValueBond: byIssuedValue[0]
+            ? {
+                code: byIssuedValue[0].code,
+                issuedValueBillion: formatComparisonValue(byIssuedValue[0].issuedValue),
+              }
+            : null,
+        },
+        bonds,
+        detailTable: detailRows.map((row) => ({
+          label: row.label,
+          values: selectedBonds.map((bond) => ({
+            code: bond.code,
+            value: row.value(bond),
+          })),
+        })),
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    return () => {
+      clearBondChatContext(selectedBonds.map((bond) => bond.code));
+    };
+  }, [detailRows, primaryBond.code, primaryEnterpriseName, selectedBonds, t]);
 
   const handleExportComparison = async () => {
     if (selectedBonds.length === 0) return;
@@ -1108,7 +1302,7 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
 
   return (
     <div 
-      className="fixed inset-x-0 top-16 bottom-0 z-[110] flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
+      className="fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
       onClick={onClose}
     >
       <div 

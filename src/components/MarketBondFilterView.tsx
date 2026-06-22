@@ -23,7 +23,6 @@ import { MARKET_OVERVIEW_CACHE_KEY, type MarketOverviewPayload } from '../servic
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { getCache, getCacheEntryAllowExpired, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
-import BondSectionNav from './BondSectionNav';
 import {
   buildIndustrySymbolLookup,
   resolveEnterpriseIndustryFromCandidates,
@@ -36,6 +35,7 @@ import {
 import { DataTable, DataTableColumn } from './ui/DataTable';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { createWatchlistItemFromBond, isBondTracked, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItemWithStatus } from '../utils/watchlist';
+import { clearViewChatContext, setViewChatContext } from '../utils/viewChatContext';
 
 const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
 const MARKET_BOND_VIEW_CACHE_PREFIX = 'market_bond_list_v2_';
@@ -608,12 +608,105 @@ export default function MarketBondFilterView({
     [appliedCriteria.secondarySorts, appliedCriteria.sortBy],
   );
 
+  const marketBondChatContext = useMemo(() => {
+    const highestRateRows = [...filteredRows]
+      .sort((left, right) => Number(right.bondRate || 0) - Number(left.bondRate || 0))
+      .slice(0, 10);
+    const earliestMaturityRows = [...filteredRows]
+      .sort((left, right) => {
+        const leftTs = parseDateToTimestamp(left.maturityDate) ?? Number.MAX_SAFE_INTEGER;
+        const rightTs = parseDateToTimestamp(right.maturityDate) ?? Number.MAX_SAFE_INTEGER;
+        return leftTs - rightTs;
+      })
+      .slice(0, 10);
+    const industryBreakdown = Array.from(
+      filteredRows.reduce((accumulator, row) => {
+        const key = String(resolveDisplayedIndustry(row) || 'Chưa phân loại').trim();
+        accumulator.set(key, (accumulator.get(key) || 0) + 1);
+        return accumulator;
+      }, new Map<string, number>()),
+    )
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 10)
+      .map(([industry, count]) => ({ industry, bondCount: count }));
+    const interestTypeBreakdown = Array.from(
+      filteredRows.reduce((accumulator, row) => {
+        const key = String(normalizeBondRateType(row) || 'Khác').trim();
+        accumulator.set(key, (accumulator.get(key) || 0) + 1);
+        return accumulator;
+      }, new Map<string, number>()),
+    )
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 10)
+      .map(([type, count]) => ({ type, bondCount: count }));
+
+    return {
+      label: 'Danh sách trái phiếu toàn thị trường',
+      dataset: {
+        route: location.pathname,
+        page: 'market-bond-list',
+        title: 'Danh sách trái phiếu toàn thị trường',
+        filters: {
+          ...appliedFilters,
+          ...appliedCriteria,
+          aiSummary,
+          aiPrompt,
+        },
+        summary: {
+          totalRows: rows.length,
+          filteredRows: filteredRows.length,
+          loading,
+          error,
+        },
+        bonds: filteredRows.slice(0, 25).map((row) => ({
+          bondCode: row.bondCode,
+          issuerName: row.issuerName || row.issuerSymbol,
+          issuerSymbol: row.issuerSymbol,
+          industry: resolveDisplayedIndustry(row),
+          bondType: row.bondType || '',
+          interestType: normalizeBondRateType(row),
+          interestRate: Number(row.bondRate || 0),
+          issueDate: row.issueDate,
+          maturityDate: row.maturityDate,
+          issuedValueBillion: Number(((row.totalIssuedValue || 0) / 1_000_000_000).toFixed(2)),
+          listedValueBillion: Number(((row.currentListedValue || 0) / 1_000_000_000).toFixed(2)),
+        })),
+        highestInterestRates: highestRateRows.map((row) => ({
+          bondCode: row.bondCode,
+          issuerSymbol: row.issuerSymbol,
+          interestRate: Number(Number(row.bondRate || 0).toFixed(2)),
+        })),
+        earliestMaturities: earliestMaturityRows.map((row) => ({
+          bondCode: row.bondCode,
+          issuerSymbol: row.issuerSymbol,
+          maturityDate: row.maturityDate,
+          listedValueBillion: Number(((row.currentListedValue || 0) / 1_000_000_000).toFixed(2)),
+        })),
+        industryBreakdown,
+        interestTypeBreakdown,
+      },
+    };
+  }, [aiPrompt, aiSummary, appliedCriteria, appliedFilters, error, filteredRows, loading, location.pathname, rows]);
+
+  useEffect(() => {
+    setViewChatContext({
+      routePathname: location.pathname,
+      label: marketBondChatContext.label,
+      dataset: marketBondChatContext.dataset,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return () => {
+      clearViewChatContext(location.pathname);
+    };
+  }, [location.pathname, marketBondChatContext]);
+
   const columns = useMemo<DataTableColumn<BondDataRow>[]>(() => ([
     {
       id: 'order',
       header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
       align: 'center',
-      widthClassName: 'w-14',
+      widthClassName: 'w-12',
       cell: (_row, index) => index + 1,
     },
     {
@@ -621,7 +714,7 @@ export default function MarketBondFilterView({
       header: t('bondCode'),
       accessor: (row) => row.bondCode,
       sortable: true,
-      widthClassName: 'w-32',
+      widthClassName: 'w-36',
       cell: (row) => (
         <div className="flex min-w-0 items-center gap-1.5">
           <button
@@ -670,7 +763,7 @@ export default function MarketBondFilterView({
               setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
               setSelectedBond(toBondModel(row));
             }}
-            className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600"
+            className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600 group-hover:text-blue-600"
           >
             {row.bondCode}
           </button>
@@ -682,17 +775,17 @@ export default function MarketBondFilterView({
       header: t('issuer'),
       accessor: (row) => row.issuerName || row.issuerSymbol,
       sortable: true,
-      widthClassName: 'w-60',
+      widthClassName: 'w-96',
       cell: (row) => {
         const issuerName = row.issuerName || row.issuerSymbol || t('none');
         const industry = resolveDisplayedIndustry(row);
         const industryLabel = industry ? (t(industry as any) || industry) : '';
 
         return (
-          <div className="max-w-xs min-w-0">
-            <div className="truncate">{issuerName}</div>
+          <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
+            <div>{issuerName}</div>
             {industryLabel ? (
-              <div className="mt-1 text-xs font-semibold text-text-muted">
+              <div className="mt-1 text-xs font-semibold text-text-muted transition-colors group-hover:text-blue-600">
                 {industryLabel}
               </div>
             ) : null}
@@ -705,8 +798,12 @@ export default function MarketBondFilterView({
       header: t('bondTypeLabel'),
       accessor: (row) => row.bondType,
       sortable: true,
-      widthClassName: 'w-36',
-      cell: (row) => row.bondType || t('none'),
+      widthClassName: 'w-60',
+      cell: (row) => (
+        <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
+          {row.bondType || t('none')}
+        </div>
+      ),
     },
     {
       id: 'tenorPeriod',
@@ -714,7 +811,7 @@ export default function MarketBondFilterView({
       unit: `(${t('monthUnit')})`,
       accessor: (row) => row.tenorPeriod || 0,
       sortable: true,
-      align: 'right',
+      align: 'center',
       widthClassName: 'w-24',
       cell: (row) => formatNumber(row.tenorPeriod || 0, 0),
     },
@@ -724,7 +821,7 @@ export default function MarketBondFilterView({
       accessor: (row) => parseDateToTimestamp(row.issueDate) || 0,
       sortable: true,
       align: 'center',
-      widthClassName: 'w-28',
+      widthClassName: 'w-36',
       cell: (row) => formatDate(row.issueDate),
     },
     {
@@ -733,7 +830,7 @@ export default function MarketBondFilterView({
       accessor: (row) => parseDateToTimestamp(row.maturityDate) || 0,
       sortable: true,
       align: 'center',
-      widthClassName: 'w-28',
+      widthClassName: 'w-36',
       cell: (row) => formatDate(row.maturityDate),
     },
     {
@@ -761,7 +858,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.currentListedVolume || 0,
       sortable: true,
       align: 'right',
-      widthClassName: 'w-32',
+      widthClassName: 'w-40',
       cell: (row) => formatNumber(row.currentListedVolume || 0, 0),
     },
     {
@@ -771,7 +868,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.totalIssuedValue || 0,
       sortable: true,
       align: 'right',
-      widthClassName: 'w-36',
+      widthClassName: 'w-40',
       cell: (row) => formatNumber((row.totalIssuedValue || 0) / 1000000000, 2),
     },
     {
@@ -781,7 +878,7 @@ export default function MarketBondFilterView({
       accessor: (row) => row.currentListedValue || 0,
       sortable: true,
       align: 'right',
-      widthClassName: 'w-36',
+      widthClassName: 'w-40',
       cell: (row) => formatNumber((row.currentListedValue || 0) / 1000000000, 2),
     },
   ]), [setBondEnterpriseName, setSelectedBond, t, watchlistVersion]);
@@ -825,11 +922,9 @@ export default function MarketBondFilterView({
   }), []);
 
   return (
-    <div className="min-w-0 space-y-4 transition-colors duration-300">
-      <BondSectionNav activeSection="market" />
-
+    <div className="min-w-0 space-y-2 transition-colors duration-300">
       <div className="space-y-2">
-        <h2 className="text-xl font-bold text-text-base">{t('marketBondList')}</h2>
+        <h2 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketBondList')}</h2>
       </div>
 
       <BondFilterPanel
@@ -859,7 +954,7 @@ export default function MarketBondFilterView({
         searchOptions={rows.map((row) => row.bondCode)}
         showFilterControls={isFilterControlsVisible}
         marketActionSlot={(
-          <div ref={columnVisibilityRef} className="relative flex items-center justify-end gap-2">
+          <div ref={columnVisibilityRef} className="relative inline-flex items-center gap-2">
             <button
               type="button"
               onClick={() => setIsFilterControlsVisible((current) => !current)}
@@ -955,20 +1050,24 @@ export default function MarketBondFilterView({
           {error}
         </div>
       ) : (
-        <DataTable
-          rows={filteredRows}
-          columns={columns}
-          getRowKey={(row) => row.bondCode}
-          pageSize={15}
-          initialSort={tableInitialSort}
-          emptyState={t('noData')}
-          noColumnsState={t('noColumnsSelected')}
-          hiddenColumnIds={hiddenColumnIds}
-          onVisibleRowsChange={(nextVisibleRows) => {
-            const nextCodes = nextVisibleRows.map((row) => row.bondCode);
-            setVisibleBondCodes((currentCodes) => (
-              currentCodes.length === nextCodes.length
-              && currentCodes.every((code, index) => code === nextCodes[index])
+      <DataTable
+        rows={filteredRows}
+        columns={columns}
+        getRowKey={(row) => row.bondCode}
+        pageSize={15}
+        initialSort={tableInitialSort}
+        emptyState={t('noData')}
+        noColumnsState={t('noColumnsSelected')}
+        hiddenColumnIds={hiddenColumnIds}
+        onRowClick={(row) => {
+          setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
+          setSelectedBond(toBondModel(row));
+        }}
+        onVisibleRowsChange={(nextVisibleRows) => {
+          const nextCodes = nextVisibleRows.map((row) => row.bondCode);
+          setVisibleBondCodes((currentCodes) => (
+            currentCodes.length === nextCodes.length
+            && currentCodes.every((code, index) => code === nextCodes[index])
             ) ? currentCodes : nextCodes);
           }}
         />

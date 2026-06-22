@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookmarkCheck, ListOrdered, Plus, Trash2 } from 'lucide-react';
+import { BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, Plus, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { useLanguage } from '../LanguageContext';
-import BondSectionNav from './BondSectionNav';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItem, type WatchlistItem } from '../utils/watchlist';
-import { loadBondDetail } from '../services/bondData';
+import { loadBondDetail, type BondDataRow } from '../services/bondData';
 import { DataTable, type DataTableColumn } from './ui/DataTable';
+import { BondFilterPanel, useBondFilterController } from './BondFilterPanel';
+import { filterBondRowsByCriteria, sortBondRowsByCriteria } from '../services/aiBondFilter';
 
 interface WatchlistBond extends WatchlistItem {
   daysLeft: number;
@@ -19,6 +20,34 @@ interface WatchlistViewProps {
   setSelectedBond: (bond: Bond | null) => void;
   setBondEnterpriseName: (name: string) => void;
 }
+
+const toBillionValue = (value: number | string | null | undefined) => {
+  const numericValue = Number(value || 0);
+  if (!Number.isFinite(numericValue)) return 0;
+  return numericValue > 1_000_000_000 ? numericValue / 1_000_000_000 : numericValue;
+};
+
+const toWatchlistFilterRow = (bond: WatchlistBond): BondDataRow => ({
+  bondCode: bond.code,
+  issuerSymbol: String(bond.ticker || bond.enterpriseId || '').trim(),
+  issuerName: String(bond.issuerName || bond.ticker || bond.enterpriseId || bond.code || '').trim(),
+  bondType: String(bond.bondType || '').trim(),
+  industry: String(bond.industry || '').trim(),
+  issueDate: String(bond.issueDate || '').trim(),
+  maturityDate: String(bond.maturityDate || '').trim(),
+  tenorPeriod: Number(String(bond.term || '').replace(/[^0-9.-]/g, '')) || 0,
+  bondRate: Number(bond.interestRate || 0),
+  bondRateType: String(bond.interestType || '').trim(),
+  currentListedVolume: Number(bond.listedVolume || 0),
+  currentListedValue: toBillionValue(bond.listedValue) * 1_000_000_000,
+  totalIssuedValue: toBillionValue(bond.issuedValue) * 1_000_000_000,
+  totalRemainingDebt: 0,
+  totalDebtFull: 0,
+  status: String(bond.status || '').trim(),
+  bondInfos: {},
+  raw: bond,
+  daysLeft: Number(bond.daysLeft || 0),
+});
 
 function toWatchlistBond(item: WatchlistItem): WatchlistBond | null {
   const code = String(item.code || '').trim();
@@ -41,8 +70,8 @@ function toWatchlistBond(item: WatchlistItem): WatchlistBond | null {
     term: item.term || '',
     interestRate: Number(item.interestRate || 0),
     listedVolume: Number(item.listedVolume || 0),
-    issuedValue: Number(item.issuedValue || 0),
-    listedValue: Number(item.listedValue || 0),
+    issuedValue: toBillionValue(item.issuedValue),
+    listedValue: toBillionValue(item.listedValue),
     issueDate: String(item.issueDate || ''),
     maturityDate,
     interestType: String(item.interestType || ''),
@@ -59,6 +88,94 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   const navigate = useNavigate();
   const [bonds, setBonds] = useState<WatchlistBond[]>([]);
   const enrichingRef = useRef(false);
+  const [isWatchlistFilterControlsVisible, setIsWatchlistFilterControlsVisible] = useState(false);
+  const [watchlistHiddenColumnIds, setWatchlistHiddenColumnIds] = useState<string[]>([]);
+  const [watchlistColumnVisibilityDraft, setWatchlistColumnVisibilityDraft] = useState<string[]>([]);
+  const [watchlistColumnVisibilityOpen, setWatchlistColumnVisibilityOpen] = useState(false);
+  const watchlistColumnVisibilityRef = useRef<HTMLDivElement | null>(null);
+
+  const watchlistFilterRows = useMemo(
+    () => bonds.map((bond) => toWatchlistFilterRow(bond)),
+    [bonds],
+  );
+
+  const watchlistRateTypeOptions = useMemo(
+    () => Array.from(new Set(watchlistFilterRows.map((row) => row.bondRateType).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [watchlistFilterRows],
+  );
+
+  const watchlistIssuerOptions = useMemo(
+    () => Array.from(new Set(watchlistFilterRows.map((row) => row.issuerName || row.issuerSymbol).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [watchlistFilterRows],
+  );
+
+  const watchlistBondTypeOptions = useMemo(
+    () => Array.from(new Set(watchlistFilterRows.map((row) => row.bondType).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [watchlistFilterRows],
+  );
+
+  const watchlistIndustryOptions = useMemo(
+    () => Array.from(new Set(watchlistFilterRows.map((row) => row.industry).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [watchlistFilterRows],
+  );
+
+  const {
+    draftFilters,
+    setDraftFilters,
+    appliedFilters,
+    appliedCriteria,
+    aiPrompt,
+    setAiPrompt,
+    aiSummary,
+    setAiSummary,
+    aiError,
+    setAiError,
+    isApplyingAIFilter,
+    isLoadingStatus,
+    aiPromptSuggestions,
+    showPromptSuggestions,
+    applyDraftFilters,
+    resetFilters,
+    applyAIFilter,
+  } = useBondFilterController({
+    rateTypeOptions: watchlistRateTypeOptions,
+    issuerOptions: watchlistIssuerOptions,
+    bondTypeOptions: watchlistBondTypeOptions,
+    industryOptions: watchlistIndustryOptions,
+  });
+
+  const filteredWatchlistRows = useMemo(() => {
+    const manuallyFilteredRows = filterBondRowsByCriteria(watchlistFilterRows, appliedCriteria).filter((row) => {
+      const searchTerm = appliedFilters.searchTerm.trim().toLowerCase();
+      if (searchTerm) {
+        const haystack = [
+          row.bondCode,
+          row.issuerName,
+          row.issuerSymbol,
+          row.bondType,
+          row.industry,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+
+        if (!haystack.includes(searchTerm)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    return sortBondRowsByCriteria(manuallyFilteredRows, appliedCriteria);
+  }, [appliedCriteria, appliedFilters.searchTerm, watchlistFilterRows]);
+
+  const filteredBonds = useMemo(() => {
+    const bondByCode = new Map(bonds.map((bond) => [bond.code, bond] as const));
+    return filteredWatchlistRows
+      .map((row) => bondByCode.get(row.bondCode))
+      .filter((bond): bond is WatchlistBond => Boolean(bond));
+  }, [bonds, filteredWatchlistRows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,7 +267,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
   const handleOpenBond = (bond: WatchlistBond) => {
     setBondEnterpriseName(bond.issuerName);
-    setSelectedBond(bond);
+    setSelectedBond({
+      ...bond,
+      issuedValue: toBillionValue(bond.issuedValue),
+      listedValue: toBillionValue(bond.listedValue),
+    });
   };
 
   const columns = useMemo<DataTableColumn<WatchlistBond>[]>(() => ([
@@ -158,7 +279,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       id: 'order',
       header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
       align: 'center',
-      widthClassName: 'w-14',
+      widthClassName: 'w-12',
       cell: (_row, index) => index + 1,
     },
     {
@@ -170,7 +291,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       cell: (row) => (
         <div className="flex min-w-0 items-center gap-1.5">
           <BookmarkCheck className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
-          <span className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600">
+          <span className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600 group-hover:text-blue-600">
             {row.code}
           </span>
         </div>
@@ -181,15 +302,15 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       header: t('issuer'),
       accessor: (row) => row.issuerName || row.ticker,
       sortable: true,
-      widthClassName: 'w-60',
+      widthClassName: 'w-96',
       cell: (row) => {
         const issuerName = row.issuerName || row.ticker || t('none');
         const industry = row.industry ? t(row.industry as any) : '';
 
         return (
-          <div className="max-w-xs min-w-0">
-            <div className="truncate">{issuerName}</div>
-            {industry ? <div className="mt-1 text-xs font-semibold text-text-muted">{industry}</div> : null}
+          <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
+            <div>{issuerName}</div>
+            {industry ? <div className="mt-1 text-xs font-semibold text-text-muted transition-colors group-hover:text-blue-600">{industry}</div> : null}
           </div>
         );
       },
@@ -199,8 +320,12 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       header: t('bondTypeLabel'),
       accessor: (row) => row.bondType || '',
       sortable: true,
-      widthClassName: 'w-36',
-      cell: (row) => row.bondType || t('none'),
+      widthClassName: 'w-60',
+      cell: (row) => (
+        <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
+          {row.bondType || t('none')}
+        </div>
+      ),
     },
     {
       id: 'term',
@@ -208,7 +333,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       unit: `(${t('monthUnit')})`,
       accessor: (row) => Number(String(row.term || '').replace(/[^0-9.-]/g, '')) || 0,
       sortable: true,
-      align: 'right',
+      align: 'center',
       widthClassName: 'w-24',
       cell: (row) => {
         const termValue = String(row.term || '').replace(/(tháng|thang|months?)$/i, '').trim();
@@ -221,7 +346,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       accessor: (row) => parseDateToTimestamp(row.issueDate) ?? Number.POSITIVE_INFINITY,
       sortable: true,
       align: 'center',
-      widthClassName: 'w-28',
+      widthClassName: 'w-36',
       cell: (row) => formatDate(row.issueDate),
     },
     {
@@ -230,7 +355,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       accessor: (row) => parseDateToTimestamp(row.maturityDate) ?? Number.POSITIVE_INFINITY,
       sortable: true,
       align: 'center',
-      widthClassName: 'w-28',
+      widthClassName: 'w-36',
       cell: (row) => formatDate(row.maturityDate),
     },
     {
@@ -257,28 +382,28 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       accessor: (row) => row.listedVolume || 0,
       sortable: true,
       align: 'right',
-      widthClassName: 'w-32',
+      widthClassName: 'w-40',
       cell: (row) => formatNumber(row.listedVolume || 0, 0),
     },
     {
       id: 'totalIssuedValue',
       header: t('issuedValue'),
       unit: `(${t('unitBillionShort')})`,
-      accessor: (row) => row.issuedValue || 0,
+      accessor: (row) => toBillionValue(row.issuedValue || 0),
       sortable: true,
       align: 'right',
-      widthClassName: 'w-36',
-      cell: (row) => formatNumber(row.issuedValue || 0, 2),
+      widthClassName: 'w-40',
+      cell: (row) => formatNumber(toBillionValue(row.issuedValue || 0), 2),
     },
     {
       id: 'currentListedValue',
       header: t('listedValue'),
       unit: `(${t('unitBillionShort')})`,
-      accessor: (row) => row.listedValue || 0,
+      accessor: (row) => toBillionValue(row.listedValue || 0),
       sortable: true,
       align: 'right',
-      widthClassName: 'w-36',
-      cell: (row) => formatNumber(row.listedValue || 0, 2),
+      widthClassName: 'w-40',
+      cell: (row) => formatNumber(toBillionValue(row.listedValue || 0), 2),
     },
     {
       id: 'action',
@@ -303,6 +428,40 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     },
   ]), [t]);
 
+  const watchlistColumnOptions = useMemo(
+    () => columns.filter((column) => column.id !== 'order').map((column) => ({
+      id: column.id,
+      label: typeof column.header === 'string' ? column.header : t(column.id as any),
+    })),
+    [columns, t],
+  );
+
+  useEffect(() => {
+    if (!watchlistColumnVisibilityOpen) return undefined;
+
+    setWatchlistColumnVisibilityDraft(watchlistHiddenColumnIds);
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!watchlistColumnVisibilityRef.current) return;
+      if (watchlistColumnVisibilityRef.current.contains(event.target as Node)) return;
+      setWatchlistColumnVisibilityOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setWatchlistColumnVisibilityOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [watchlistColumnVisibilityOpen, watchlistHiddenColumnIds]);
+
   const emptyState = (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
       <p className="text-sm font-bold text-text-base">Chưa có mã trái phiếu đang theo dõi</p>
@@ -319,22 +478,138 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
   return (
     <div className="min-w-0 transition-colors duration-300">
-      <BondSectionNav activeSection="watchlist" />
-
       <div className="mb-4 space-y-2">
-        <h2 className="text-xl font-bold text-text-base">{t('watchList')}</h2>
+        <h2 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('watchList')}</h2>
       </div>
 
-      <DataTable
-        rows={bonds}
-        columns={columns}
-        getRowKey={(row) => row.code}
-        pageSize={15}
-        emptyState={emptyState}
-        onRowClick={handleOpenBond}
-      />
+      <div className="space-y-2">
+        <BondFilterPanel
+          title={t('watchList')}
+          resultCount={filteredBonds.length}
+          totalCount={bonds.length}
+          draftFilters={draftFilters}
+          setDraftFilters={setDraftFilters}
+          rateTypeOptions={watchlistRateTypeOptions}
+          aiPrompt={aiPrompt}
+          setAiPrompt={setAiPrompt}
+          aiSummary={aiSummary}
+          setAiSummary={setAiSummary}
+          aiError={aiError}
+          setAiError={setAiError}
+          isApplyingAIFilter={isApplyingAIFilter}
+          isLoadingStatus={isLoadingStatus}
+          aiPromptSuggestions={aiPromptSuggestions}
+          showPromptSuggestions={showPromptSuggestions}
+          onApply={applyDraftFilters}
+          onReset={resetFilters}
+          onApplyAI={applyAIFilter}
+          variant="market"
+          issuerOptions={watchlistIssuerOptions}
+          bondTypeOptions={watchlistBondTypeOptions}
+          industryOptions={watchlistIndustryOptions}
+          searchOptions={bonds.map((bond) => bond.code)}
+          showFilterControls={isWatchlistFilterControlsVisible}
+          marketActionSlot={(
+            <div ref={watchlistColumnVisibilityRef} className="relative inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsWatchlistFilterControlsVisible((current) => !current)}
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+                aria-label={isWatchlistFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+                title={isWatchlistFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+              >
+                {isWatchlistFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
+                <span className="hidden sm:inline">{t('filterTab')}</span>
+              </button>
 
-      {bonds.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setWatchlistColumnVisibilityOpen((current) => !current)}
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+                aria-haspopup="dialog"
+                aria-expanded={watchlistColumnVisibilityOpen}
+                aria-label={t('hideColumns')}
+                title={t('hideColumns')}
+              >
+                <EyeOff className="h-4 w-4 text-blue-600" />
+                <span className="hidden sm:inline">{t('hideColumns')}</span>
+              </button>
+
+              {watchlistColumnVisibilityOpen ? (
+                <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+                  <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+                    <EyeOff className="h-4 w-4 text-blue-600" />
+                    <span>{t('hideColumns')}</span>
+                  </div>
+
+                  <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {watchlistColumnOptions.map((column) => {
+                      const checked = watchlistColumnVisibilityDraft.includes(column.id);
+
+                      return (
+                        <label
+                          key={column.id}
+                          className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-base transition-colors hover:bg-surface-container-low"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setWatchlistColumnVisibilityDraft((current) => (
+                                current.includes(column.id)
+                                  ? current.filter((item) => item !== column.id)
+                                  : [...current, column.id]
+                              ));
+                            }}
+                            className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-400"
+                          />
+                          <span className="truncate">{column.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWatchlistHiddenColumnIds(watchlistColumnVisibilityDraft);
+                        setWatchlistColumnVisibilityOpen(false);
+                      }}
+                      className="inline-flex flex-1 items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                    >
+                      {t('hideColumns')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWatchlistHiddenColumnIds([]);
+                        setWatchlistColumnVisibilityDraft([]);
+                        setWatchlistColumnVisibilityOpen(false);
+                      }}
+                      className="inline-flex flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight"
+                    >
+                      {t('reset')}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        />
+
+        <DataTable
+          rows={filteredBonds}
+          columns={columns}
+          getRowKey={(row) => row.code}
+          pageSize={15}
+          emptyState={emptyState}
+          onRowClick={handleOpenBond}
+          hiddenColumnIds={watchlistHiddenColumnIds}
+        />
+      </div>
+
+      {filteredBonds.length > 0 ? (
         <div className="mt-4 flex justify-center">
           <button
             type="button"
