@@ -5,7 +5,7 @@ import AIInsightPanel from './AIInsightPanel';
 import { IndustryType } from '../types';
 import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BadgeDollarSign, Boxes, GalleryVerticalEnd, Landmark, Wallet } from 'lucide-react';
+import { BadgeDollarSign, Boxes, GalleryVerticalEnd, Landmark, Wallet, type LucideIcon } from 'lucide-react';
 
 interface IndustryViewProps {
   industry: IndustryType;
@@ -13,13 +13,13 @@ interface IndustryViewProps {
 
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
+import { getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
-import { MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
-import RelatedNewsPanel from './RelatedNewsPanel';
+import { Card, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
 import { useIndustryBaseDashboardQuery, useIndustryFullDashboardQuery } from '../query/dashboardQueries';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
+import { MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY, type IndustryData } from '../services/marketOverviewData';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -50,6 +50,80 @@ interface IndustryBondItem {
   totalRemainingDebt?: number;
   totalIssuedValue?: number;
   [key: string]: unknown;
+}
+
+type IndustryMetricTone = 'blue' | 'purple' | 'green' | 'cyan' | 'indigo' | 'orange';
+
+interface IndustryMetricCardProps {
+  label: string;
+  value: string;
+  unit: string;
+  icon: LucideIcon;
+  tone: IndustryMetricTone;
+}
+
+const chartCardClassName = 'col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4';
+
+const metricToneClasses: Record<IndustryMetricTone, { icon: string; line: string; glow: string }> = {
+  blue: {
+    icon: 'from-blue-500 to-blue-400 shadow-blue-500/25',
+    line: 'text-blue-500',
+    glow: 'from-blue-50/90 dark:from-blue-500/10',
+  },
+  purple: {
+    icon: 'from-violet-500 to-violet-400 shadow-violet-500/25',
+    line: 'text-violet-500',
+    glow: 'from-violet-50/90 dark:from-violet-500/10',
+  },
+  green: {
+    icon: 'from-emerald-500 to-emerald-400 shadow-emerald-500/25',
+    line: 'text-emerald-500',
+    glow: 'from-emerald-50/90 dark:from-emerald-500/10',
+  },
+  cyan: {
+    icon: 'from-cyan-500 to-cyan-300 shadow-cyan-500/25',
+    line: 'text-cyan-500',
+    glow: 'from-cyan-50/90 dark:from-cyan-500/10',
+  },
+  indigo: {
+    icon: 'from-indigo-500 to-blue-400 shadow-indigo-500/25',
+    line: 'text-indigo-500',
+    glow: 'from-indigo-50/90 dark:from-indigo-500/10',
+  },
+  orange: {
+    icon: 'from-orange-500 to-amber-400 shadow-orange-500/25',
+    line: 'text-orange-500',
+    glow: 'from-orange-50/90 dark:from-orange-500/10',
+  },
+};
+
+function IndustryMetricCard({ label, value, unit, icon: Icon, tone }: IndustryMetricCardProps) {
+  const toneClass = metricToneClasses[tone];
+
+  return (
+    <Card className="group relative min-h-40 p-4 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10">
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t to-transparent ${toneClass.glow}`} />
+      <div className="relative flex min-h-32 flex-col justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg ${toneClass.icon}`}>
+            <Icon className="h-6 w-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 dark:text-text-base">
+              {label}
+            </p>
+            <p className="mt-2 break-words text-2xl font-bold leading-tight text-slate-950 transition-colors group-hover:text-blue-600 dark:text-text-base">
+              {value}
+            </p>
+            <p className="mt-1 break-words text-xs font-semibold leading-snug text-text-muted">{unit}</p>
+          </div>
+        </div>
+        <svg viewBox="0 0 120 26" preserveAspectRatio="none" className={`h-7 w-full ${toneClass.line}`} aria-hidden="true">
+          <polyline points="0,18 12,15 24,17 36,11 48,14 60,8 72,12 84,7 96,10 108,5 120,9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+        </svg>
+      </div>
+    </Card>
+  );
 }
 
 const hasMeaningfulIndustryData = (value: unknown) => {
@@ -219,11 +293,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     return t(ind as any);
   };
 
-  const chartColors = {
-    primary: CHART_PALETTE[0],
-    secondary: CHART_PALETTE[2],
-  };
-
   const legendStyle = {
     fontSize: 12,
     color: chartTheme.subText,
@@ -245,7 +314,18 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const tooltipTextStyle = getChartTooltip(isDark).textStyle;
   const chartTooltip = getChartTooltip(isDark);
-  const chartPalette = CHART_PALETTE;
+  const chartPalette = useMemo(() => [
+    '#4D93F9',
+    '#F56B2D',
+    '#23C68E',
+    '#F55A5A',
+    '#F8B011',
+    '#9974F8',
+    '#F05DA8',
+    '#14C6E4',
+    '#7279F5',
+    '#94D926',
+  ], []);
   const chartTitleStyle = {
     fontSize: 10,
     color: chartTheme.text,
@@ -290,36 +370,42 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           value: issuedVolume.value,
           unit: getBondVolumeUnitLabel(issuedVolume.unitScale),
           icon: Boxes,
+          tone: 'purple' as const,
         },
         { 
           label: industryIssuedValueLabel, 
           value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2), 
           unit: t('unitBillionVND'),
           icon: BadgeDollarSign,
+          tone: 'blue' as const,
         },
         { 
           label: industryInitialDebtLabel, 
           value: formatNumber(industryStats.totalDebtFull / 1000000000, 2), 
           unit: t('unitBillionVND'),
           icon: Landmark,
+          tone: 'green' as const,
         },
         { 
           label: t('listedVolume'), 
           value: listedVolume.value,
           unit: getBondVolumeUnitLabel(listedVolume.unitScale),
           icon: GalleryVerticalEnd,
+          tone: 'cyan' as const,
         },
         { 
           label: t('listedValueTitle'), 
           value: formatNumber(industryStats.totalCurrentListedValue / 1000000000, 2), 
           unit: t('unitBillionVND'),
           icon: BadgeDollarSign,
+          tone: 'indigo' as const,
         },
         { 
           label: t('remainingDebtTitle'), 
           value: formatNumber(industryStats.totalRemainingDebt / 1000000000, 2), 
           unit: t('unitBillionVND'),
           icon: Wallet,
+          tone: 'orange' as const,
         },
       ];
     }
@@ -745,6 +831,34 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     ? 'Số mã trái phiếu & Dư nợ còn lại của các doanh nghiệp'
     : 'Bond codes & remaining debt of companies';
   const industryPageTitle = `${t('marketTitle')} ${getIndustryLabel(industry)}`;
+  const industryMarketShare = useMemo(() => {
+    const overviewPayload = getCache('market_overview') as { industryData?: IndustryData[] } | null;
+    const overviewIndustries = (
+      getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY)
+      || overviewPayload?.industryData
+      || []
+    ) as IndustryData[];
+
+    if (!Array.isArray(overviewIndustries) || overviewIndustries.length === 0) return null;
+
+    const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+    const currentLabel = normalize(getIndustryLabel(industry));
+    const matchedIndustry = overviewIndustries.find((item) => (
+      normalize(item.icbName) === normalize(industry)
+      || normalize(t(item.icbName as any)) === currentLabel
+    ));
+    const currentDebt = Number(matchedIndustry?.totalRemainingDebt || industryStats?.totalRemainingDebt || 0);
+    const totalDebt = overviewIndustries.reduce((sum, item) => sum + Number(item.totalRemainingDebt || 0), 0);
+
+    if (!Number.isFinite(currentDebt) || !Number.isFinite(totalDebt) || currentDebt <= 0 || totalDebt <= 0) {
+      return null;
+    }
+
+    return (currentDebt / totalDebt) * 100;
+  }, [industry, industryStats?.totalRemainingDebt, t]);
+  const industryMarketShareLabel = industryMarketShare == null
+    ? null
+    : `${formatNumber(industryMarketShare, 1)}% ${language === 'vi' ? 'thị phần' : 'share'}`;
   const industryInsightTitle = language === 'vi'
     ? `Nhận định ngành ${getIndustryLabel(industry)}`
     : `${getIndustryLabel(industry)} insight`;
@@ -902,19 +1016,25 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   }
 
   return (
-    <div className="min-w-0 space-y-3 transition-colors duration-300">
-      <div className="mb-3 mt-1">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-text-base tracking-tight transition-colors">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+    <div className="min-w-0 space-y-4 transition-colors duration-300">
+      <div className="flex min-w-0 flex-col gap-2 pt-1 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950 transition-colors dark:text-text-base md:text-3xl">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
+            {industryMarketShareLabel ? (
+              <span className="inline-flex shrink-0 items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/20">
+                {industryMarketShareLabel}
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {isIndustrySummaryLoading
           ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
           : kpis.map((kpi, idx) => (
-            <MetricCard key={idx} label={kpi.label} value={kpi.value} unit={kpi.unit} icon={kpi.icon} />
+            <IndustryMetricCard key={`${kpi.label}-${idx}`} label={kpi.label} value={kpi.value} unit={kpi.unit} icon={kpi.icon} tone={kpi.tone} />
           ))}
       </div>
 
@@ -924,14 +1044,16 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         pageTitle={industryPageTitle}
         sectionTitle={getIndustryLabel(industry)}
         payload={industryInsightPayload}
+        expandContent
+        className="border-blue-100 bg-blue-50/70 shadow-blue-500/10 dark:border-blue-500/20 dark:bg-blue-500/10"
       />
 
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {isIndustryChartsLoading ? (
-          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+          <SectionCardSkeleton className="col-span-12 xl:col-span-4" />
         ) : (
           <div 
-            className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
+            className={`${chartCardClassName} xl:col-span-4`}
           >
             <div className="h-80 overflow-hidden md:h-96">
               <ChartWithToolbar
@@ -981,10 +1103,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         )}
 
         {isIndustryChartsLoading ? (
-          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+          <SectionCardSkeleton className="col-span-12 xl:col-span-4" />
         ) : (
           <div 
-            className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
+            className={`${chartCardClassName} xl:col-span-4`}
           >
             <div className="h-80 overflow-hidden md:h-96">
               <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
@@ -992,7 +1114,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </div>
         )}
 
-        <div className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6">
+        <div className={`${chartCardClassName} xl:col-span-4`}>
           {issuedValueTreemapData.length > 0 ? (
             <div className="h-80 overflow-hidden md:h-96">
               <ChartWithToolbar
@@ -1052,7 +1174,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         </div>
 
         <div 
-          className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 lg:col-span-6"
+          className={`${chartCardClassName} lg:col-span-6`}
         >
           <div className="h-80 overflow-hidden md:h-96">
             <ChartWithToolbar
@@ -1065,7 +1187,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </div>
         </div>
 
-        <div ref={projectedCashFlowSectionRef} className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+        <div ref={projectedCashFlowSectionRef} className={`${chartCardClassName} lg:col-span-6`}>
           {isIndustryCashFlowPending ? (
             <div className="min-h-80">
               <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
@@ -1133,8 +1255,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
             </div>
           )}
         </div>
-
-        <RelatedNewsPanel className="col-span-12" />
       </div>
     </div>
   );

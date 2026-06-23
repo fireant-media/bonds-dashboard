@@ -14,6 +14,8 @@ interface AIInsightPanelProps {
   sectionTitle: string;
   payload: unknown;
   className?: string;
+  expandContent?: boolean;
+  layout?: 'default' | 'stacked';
 }
 
 let pendingAIStatusRequest: Promise<void> | null = null;
@@ -126,6 +128,8 @@ export default function AIInsightPanel({
   sectionTitle,
   payload,
   className,
+  expandContent = false,
+  layout = 'default',
 }: AIInsightPanelProps) {
   const { t, language } = useLanguage();
   const { ref, isVisible } = useVisibleOnce<HTMLDivElement>();
@@ -275,22 +279,57 @@ export default function AIInsightPanel({
     void generateInsight(false);
   }, [cachedInsight, configured, error, insight, isLoading, isVisible, payloadText]);
 
+  const isStackedLayout = layout === 'stacked';
+  const insightContentClassName = expandContent || isStackedLayout
+    ? 'overflow-visible'
+    : 'max-h-28 overflow-y-auto pr-1';
+
   return (
-    <Card className={`group relative overflow-hidden p-4 ${className || ''}`}>
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-100/80 via-transparent to-blue-50/80 opacity-80 dark:from-blue-500/10 dark:to-transparent" />
-      <div className="relative flex flex-col gap-4" ref={ref}>
-        <div className="flex items-start gap-3">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
-              <Sparkles className="h-4 w-4" />
-              <span>{t('aiInsightTitle')}</span>
+    <Card className={`group relative overflow-hidden p-3 md:p-4 ${className || ''}`}>
+      <div className={`relative flex gap-3 ${isStackedLayout ? 'items-stretch' : 'flex-col md:flex-row md:items-start'}`} ref={ref}>
+        <div className={isStackedLayout ? 'flex w-24 shrink-0 flex-col items-center justify-center self-stretch text-center' : 'hidden w-20 shrink-0 items-center justify-center md:flex'}>
+          <div className="relative h-16 w-16 rounded-lg bg-blue-50">
+            <div className="absolute bottom-3 left-3 h-7 w-2 rounded-sm bg-blue-300" />
+            <div className="absolute bottom-3 left-7 h-10 w-2 rounded-sm bg-blue-500" />
+            <div className="absolute bottom-3 left-11 h-5 w-2 rounded-sm bg-blue-200" />
+            <div className="absolute left-3 top-4 h-6 w-10 border-l-2 border-t-2 border-blue-600" />
+            <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-blue-600 bg-white">
+              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
             </div>
           </div>
+          {isStackedLayout ? (
+            <h3 className="mt-2 text-xs font-bold uppercase tracking-wider text-blue-700">
+              {title}
+            </h3>
+          ) : null}
         </div>
 
-        <div className="flex flex-col">
+        <div className="min-w-0 flex-1">
+          <div className={`mb-1 flex min-w-0 items-start justify-between gap-3 ${isStackedLayout ? 'md:min-h-8' : ''}`}>
+            {!isStackedLayout ? (
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold uppercase tracking-wide text-blue-700">
+                  {title}
+                </h3>
+                {updatedLabel ? (
+                  <div className="mt-0.5 text-xs font-medium text-text-muted/80">{updatedLabel}</div>
+                ) : null}
+              </div>
+            ) : <div className="min-w-0 flex-1" />}
+            <button
+              type="button"
+              onClick={() => void generateInsight(true)}
+              disabled={!payloadText || isLoading}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-base bg-bg-surface px-2 py-1 text-xs font-semibold text-text-muted transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+              title={t('refresh')}
+              aria-label={t('refresh')}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
           {isLoading ? (
-            <div className="flex items-center gap-3 py-3 text-sm font-semibold text-text-muted">
+            <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
               <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
               <span>{t('aiGeneratingInsight')}</span>
             </div>
@@ -300,33 +339,19 @@ export default function AIInsightPanel({
               <span>{error}</span>
             </div>
           ) : insight ? (
-            <div className="max-h-80 overflow-y-auto pr-1 md:max-h-96">
-              <p className="whitespace-pre-line break-words text-sm leading-7 text-text-base">
+            <div className={insightContentClassName}>
+              <p className="whitespace-pre-line break-words text-sm font-medium leading-6 text-slate-950 dark:text-text-base">
                 {renderInsightContent(insight)}
               </p>
+              {isStackedLayout && updatedLabel ? (
+                <div className="mt-3 text-xs font-medium text-text-muted/80">{updatedLabel}</div>
+              ) : null}
             </div>
           ) : (
             <div className="py-1 text-sm text-text-muted">
               {payloadText ? t('aiNoInsight') : t('noData')}
             </div>
           )}
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border-base/70 pt-3">
-          <div className="min-w-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">
-            {updatedLabel || ''}
-          </div>
-          <button
-            type="button"
-            onClick={() => void generateInsight(true)}
-            disabled={!payloadText || isLoading}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border-base bg-bg-surface px-3 py-1.5 text-xs font-semibold text-text-muted transition-all duration-200 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-blue-500/10"
-            title={t('refresh')}
-            aria-label={t('refresh')}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>{t('refresh')}</span>
-          </button>
         </div>
       </div>
     </Card>

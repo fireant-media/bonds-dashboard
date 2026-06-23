@@ -1,10 +1,9 @@
 export const CHART_BASE_PALETTE = [
-  '#3FB1E3',
-  '#6BE6C1',
-  '#626C91',
-  '#A0A7E6',
-  '#C4EBAD',
-  '#96DEE8',
+  '#0E87F7',
+  '#68D7F0',
+  '#0B3D91',
+  '#7DDCF4',
+  '#2CBCE8',
 ];
 
 export const CHART_PALETTE = [...CHART_BASE_PALETTE];
@@ -25,13 +24,13 @@ export const chartThemes = {
     pieBorder: '#FFFFFF',
     lineWidth: 3,
     lineShadowBlur: 0,
-    lineShadowColor: 'rgba(63,177,227,0)',
+    lineShadowColor: 'rgba(14,135,247,0)',
     barShadowBlur: 10,
-    barShadowColor: 'rgba(63,177,227,0.12)',
+    barShadowColor: 'rgba(14,135,247,0.18)',
     gradientStops: {
-      blue: ['rgba(63,177,227,0.28)', 'rgba(63,177,227,0.01)'],
-      green: ['rgba(107,230,193,0.24)', 'rgba(107,230,193,0.01)'],
-      purple: ['rgba(160,167,230,0.22)', 'rgba(160,167,230,0.01)'],
+      blue: ['rgba(14,135,247,0.34)', 'rgba(14,135,247,0.02)'],
+      green: ['rgba(104,215,240,0.28)', 'rgba(104,215,240,0.02)'],
+      purple: ['rgba(11,61,145,0.18)', 'rgba(11,61,145,0.01)'],
     },
   },
   dark: {
@@ -47,13 +46,13 @@ export const chartThemes = {
     pieBorder: '#0F172A',
     lineWidth: 4,
     lineShadowBlur: 12,
-    lineShadowColor: 'rgba(63,177,227,0.35)',
+    lineShadowColor: 'rgba(14,135,247,0.35)',
     barShadowBlur: 14,
-    barShadowColor: 'rgba(63,177,227,0.25)',
+    barShadowColor: 'rgba(14,135,247,0.25)',
     gradientStops: {
-      blue: ['rgba(63,177,227,0.65)', 'rgba(63,177,227,0.02)'],
-      green: ['rgba(107,230,193,0.55)', 'rgba(107,230,193,0.02)'],
-      purple: ['rgba(160,167,230,0.55)', 'rgba(160,167,230,0.02)'],
+      blue: ['rgba(14,135,247,0.65)', 'rgba(14,135,247,0.02)'],
+      green: ['rgba(104,215,240,0.55)', 'rgba(104,215,240,0.02)'],
+      purple: ['rgba(11,61,145,0.45)', 'rgba(11,61,145,0.02)'],
     },
   },
 } as const;
@@ -105,9 +104,9 @@ export const getChartAreaGradient = (isDark: boolean, index = 0) => {
 };
 
 const BAR_GRADIENT_PAIRS = [
-  ['#3FB1E3', '#96DEE8'],
-  ['#626C91', '#A0A7E6'],
-  ['#6BE6C1', '#C4EBAD'],
+  ['#0E87F7', '#68D7F0'],
+  ['#2CBCE8', '#7DDCF4'],
+  ['#0E87F7', '#68D7F0'],
 ] as const;
 
 export const getChartBarGradient = (horizontal = false, index = 0) => {
@@ -118,7 +117,7 @@ export const getChartBarGradient = (horizontal = false, index = 0) => {
 };
 
 export const getComparisonAreaSeriesStyle = (isDark: boolean, index = 0) => {
-  const color = index % 2 === 0 ? '#3FB1E3' : (isDark ? '#A0A7E6' : '#626C91');
+  const color = index % 2 === 0 ? '#0B3D91' : '#0E87F7';
 
   return {
     color,
@@ -281,7 +280,7 @@ const styleSeries = (series: any, index: number, isDark: boolean, horizontalBar:
       : typeof series.color === 'string'
         ? series.color
         : '';
-    const lineColor = configuredColor || (hasBarSeries ? (isDark ? '#A0A7E6' : '#626C91') : baseColor);
+    const lineColor = configuredColor || (hasBarSeries ? '#0B3D91' : baseColor);
     nextSeries.smooth = series.smooth ?? true;
     nextSeries.symbol = series.symbol ?? 'none';
     nextSeries.lineStyle = {
@@ -324,10 +323,10 @@ const styleSeries = (series: any, index: number, isDark: boolean, horizontalBar:
 
   if (type === 'candlestick') {
     nextSeries.itemStyle = {
-      color: '#6BE6C1',
-      color0: '#626C91',
-      borderColor: '#57D9B5',
-      borderColor0: '#7D86B2',
+      color: '#68D7F0',
+      color0: '#0B3D91',
+      borderColor: '#0E87F7',
+      borderColor0: '#0B4EA2',
       ...itemStyle,
     };
   }
@@ -413,7 +412,7 @@ export const applyChartTheme = (option: any, isDark: boolean) => {
     nextOption.dataZoom = asArray(option.dataZoom).map((zoom: any) => ({
       ...(isPlainObject(zoom) ? zoom : {}),
       borderColor: theme.border,
-      fillerColor: isDark ? 'rgba(63,177,227,0.14)' : 'rgba(63,177,227,0.10)',
+      fillerColor: isDark ? 'rgba(14,135,247,0.14)' : 'rgba(14,135,247,0.10)',
       textStyle: {
         color: theme.subText,
         ...(isPlainObject(zoom?.textStyle) ? zoom.textStyle : {}),

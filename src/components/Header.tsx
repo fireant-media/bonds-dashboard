@@ -59,6 +59,7 @@ interface HeaderProps {
   setActiveIndustry: (industry: string) => void;
   activeFilterSubTab: 'issuer' | 'bonds';
   setActiveFilterSubTab: (subTab: 'issuer' | 'bonds') => void;
+  showDesktopBrand?: boolean;
 }
 
 type HeaderMenu = 'dashboard' | null;
@@ -75,6 +76,7 @@ export default function Header({
   setActiveIndustry,
   activeFilterSubTab,
   setActiveFilterSubTab,
+  showDesktopBrand = true,
 }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -776,8 +778,8 @@ export default function Header({
 
   return (
     <>
-      <header ref={headerRef} className="relative sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-surface-bright/95 px-3 py-2 shadow-md shadow-blue-950/5 backdrop-blur transition-colors duration-300 dark:shadow-black/20 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
-      <div className="flex min-w-0 shrink-0 items-center gap-2 lg:min-w-72 lg:pr-3">
+      <header ref={headerRef} className="relative sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-bg-base/90 px-3 py-2 backdrop-blur transition-colors duration-300 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
+      <div className={cn('flex min-w-0 shrink-0 items-center gap-2', showDesktopBrand ? 'lg:min-w-72 lg:pr-3' : 'lg:min-w-0 lg:pr-0')}>
         <button
           type="button"
           onClick={() => {
@@ -794,7 +796,7 @@ export default function Header({
         </button>
         <button
           type="button"
-          className="flex min-w-0 shrink-0 items-center gap-3 select-none"
+          className={cn('min-w-0 shrink-0 items-center gap-3 select-none', showDesktopBrand ? 'flex' : 'flex lg:hidden')}
           onClick={onLogoClick}
           aria-label="FireAnt"
         >
@@ -817,7 +819,7 @@ export default function Header({
           <Search className="h-5 w-5" />
         </button>
 
-        <div ref={containerRef} className="relative hidden w-72 min-w-0 max-w-xs lg:block">
+        <div ref={containerRef} className="relative hidden w-80 min-w-0 max-w-sm lg:block">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-text-muted" />
           </div>
@@ -830,7 +832,7 @@ export default function Header({
             onFocus={() => setShowDropdown(true)}
             type="text"
             aria-label={t('searchPlaceholder')}
-            className="block w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-3 text-sm font-medium text-text-base placeholder-text-muted transition-colors focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400/20"
+            className="block w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-3 text-sm font-medium text-text-base placeholder-text-muted shadow-sm shadow-blue-950/5 transition-colors focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400/20"
             placeholder={t('searchPlaceholder')}
           />
 
@@ -915,7 +917,7 @@ export default function Header({
           <button
             type="button"
             onClick={toggleTheme}
-            className="shrink-0 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95"
+            className="shrink-0 rounded-lg border border-transparent p-2 text-slate-950 transition-all hover:border-border-base hover:bg-bg-surface hover:text-text-highlight active:scale-95 dark:text-text-muted"
             title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
             aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
           >
@@ -925,7 +927,7 @@ export default function Header({
           <button
             type="button"
             onClick={toggleLanguage}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-text-muted transition-all hover:bg-surface-container-low hover:text-text-highlight active:scale-95 sm:px-2.5"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-transparent p-2 text-slate-950 transition-all hover:border-border-base hover:bg-bg-surface hover:text-text-highlight active:scale-95 sm:px-2.5 dark:text-text-muted"
             title={t('uiLanguage')}
             aria-label={t('uiLanguage')}
           >
@@ -938,7 +940,7 @@ export default function Header({
           <button 
             type="button"
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex shrink-0 items-center gap-3 rounded-lg p-1.5 transition-all hover:bg-surface-container-low active:scale-95"
+            className="flex shrink-0 items-center gap-3 rounded-lg p-1.5 transition-all hover:bg-bg-surface active:scale-95"
             aria-label={t('profile')}
           >
             <div className="text-right hidden sm:block">

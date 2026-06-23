@@ -1,6 +1,10 @@
 import { useId } from 'react';
 
-export default function Logo() {
+interface LogoProps {
+  className?: string;
+}
+
+export default function Logo({ className = 'text-text-base' }: LogoProps) {
   const id = useId().replace(/:/g, '');
   const titleId = `${id}-fireant-bonds-logo-title`;
   const clipPathId = `${id}-fireant-bonds-logo-clip`;
@@ -9,7 +13,7 @@ export default function Logo() {
   const whiteGradientTwoId = `${id}-fireant-bonds-linear-2`;
 
   return (
-    <div className="flex items-center text-text-base">
+    <div className={`flex items-center ${className}`}>
       <svg
         viewBox="0 0 207 32"
         role="img"

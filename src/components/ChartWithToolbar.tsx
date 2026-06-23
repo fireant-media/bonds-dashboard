@@ -43,6 +43,9 @@ interface ChartWithToolbarProps {
   titleAlign?: 'left' | 'center' | 'right';
   actions?: ReactNode;
   actionsPlacement?: 'inline' | 'below';
+  headerClassName?: string;
+  belowActionsClassName?: string;
+  chartContainerClassName?: string;
   onDataViewCategoryClick?: (categoryValue: string, row: Array<string | number | null | undefined>) => void;
   zoomConfig?: {
     shellClassName?: string;
@@ -388,6 +391,9 @@ export default function ChartWithToolbar({
   titleAlign = 'left',
   actions,
   actionsPlacement = 'below',
+  headerClassName,
+  belowActionsClassName,
+  chartContainerClassName,
   onDataViewCategoryClick,
   zoomConfig,
 }: ChartWithToolbarProps) {
@@ -658,7 +664,7 @@ export default function ChartWithToolbar({
     >
       <div className="flex flex-col gap-1">
         {(title || actions || showToolbar) ? (
-          <div className="flex flex-col gap-2">
+          <div className={`flex flex-col gap-2 ${headerClassName || ''}`}>
             <div className="flex min-w-0 items-center gap-3">
               <div
                 className={
@@ -680,8 +686,8 @@ export default function ChartWithToolbar({
                             : 'justify-center'
                       }`}
                     >
-                      <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
-                      <div className="line-clamp-2 text-base font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
+                      <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-colors duration-200 group-hover:text-blue-700" />
+                      <div className="line-clamp-2 text-base font-bold leading-snug text-slate-950 transition-colors duration-200 group-hover:text-blue-600 dark:text-text-base">
                         {title}
                       </div>
                     </div>
@@ -755,14 +761,14 @@ export default function ChartWithToolbar({
             </div>
 
             {actions && actionsPlacement === 'below' ? (
-              <div className="flex min-w-0 justify-end text-right">
+              <div className={`flex min-w-0 justify-end text-right ${belowActionsClassName || ''}`}>
                 {actions}
               </div>
             ) : null}
           </div>
         ) : null}
       </div>
-      <div ref={chartContainerRef} className="min-h-0 flex-1 overflow-hidden">
+      <div ref={chartContainerRef} className={`min-h-0 flex-1 overflow-hidden ${chartContainerClassName || ''}`}>
           <ReactECharts
             ref={chartRef}
             option={renderedOption}
@@ -807,7 +813,7 @@ export default function ChartWithToolbar({
                     {title ? (
                       <div className="min-w-0 text-left">
                         <div className="inline-flex max-w-full items-center gap-2 transition-colors duration-200">
-                          <TitleIcon className="h-5 w-5 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                          <TitleIcon className="h-5 w-5 shrink-0 text-blue-600 transition-colors duration-200 group-hover:text-blue-700" />
                           <div className="line-clamp-2 text-lg font-bold leading-snug text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-2xl">
                             {title}
                           </div>

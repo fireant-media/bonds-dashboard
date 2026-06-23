@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Share2, Info, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff } from 'lucide-react';
+import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -21,7 +21,6 @@ interface EnterpriseViewProps {
 }
 
 import { getFireantToken, cleanTokenString } from '../utils/token';
-import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
@@ -30,7 +29,6 @@ import { sendChat } from '../api/ai';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { MetricCard } from './ui/Card';
-import RelatedNewsPanel from './RelatedNewsPanel';
 import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
 import {
@@ -1144,9 +1142,15 @@ export default function EnterpriseView({
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
                  ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : t('others'));
     if (!acc[type]) acc[type] = [];
-    // Use months directly for the chart
-    const termMonths = parseFloat(bond.term) || 0;
-    acc[type].push([termMonths, bond.interestRate, bond.listedVolume, bond.code]);
+    const termMonths = Number.parseFloat(String(bond.term || ''));
+    const interestRate = Number(bond.interestRate || 0);
+    const listedVolume = Number(bond.listedVolume || 0);
+
+    if (!Number.isFinite(termMonths) || !Number.isFinite(interestRate) || termMonths <= 0) {
+      return acc;
+    }
+
+    acc[type].push([termMonths, interestRate, Math.max(0, listedVolume), bond.code]);
     return acc;
   }, {});
 
@@ -1160,7 +1164,10 @@ export default function EnterpriseView({
     [enterpriseBonds],
   );
 
-  const maxVolume = Math.max(...enterpriseBonds.map(b => b.listedVolume), 1);
+  const maxVolume = Math.max(
+    ...Object.values(bubbleGroups).flatMap((points: any) => points.map((point: any[]) => Number(point[2] || 0))),
+    1,
+  );
 
   const bubbleSeries = Object.entries(bubbleGroups)
     .sort((a, b) => {
@@ -1250,6 +1257,9 @@ export default function EnterpriseView({
   const enterpriseInsightTitle = language === 'vi'
     ? 'Nhận định tổ chức phát hành'
     : 'Issuer insight';
+  const cashFlowInsightTitle = language === 'vi'
+    ? 'NH\u1eacN X\u00c9T D\u00d2NG TI\u1ec0N'
+    : 'CASH FLOW COMMENTARY';
   const handleEnterpriseBondDataViewCategoryClick = (bondCode: string) => {
     const normalizedBondCode = String(bondCode || '').trim().toUpperCase();
     if (!normalizedBondCode) return;
@@ -1316,6 +1326,24 @@ export default function EnterpriseView({
       financialHighlights,
     };
   }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, projectedCashFlowData, selectedEnterprise, sortedYears]);
+
+  const cashFlowInsightPayload = useMemo(() => ({
+    issuer: selectedEnterprise ? {
+      ticker: selectedEnterprise.ticker,
+      name: enterpriseDisplayName || selectedEnterprise.ticker,
+    } : null,
+    period: cashFlowPeriod,
+    labels: projectedCashFlowData.labels,
+    interest: projectedCashFlowData.interest,
+    principal: projectedCashFlowData.principal,
+    total: projectedCashFlowData.total,
+    peakBucket: projectedCashFlowData.total.length > 0
+      ? {
+        label: projectedCashFlowData.labels[projectedCashFlowData.total.indexOf(Math.max(...projectedCashFlowData.total))] || '',
+        value: Math.max(...projectedCashFlowData.total),
+      }
+      : null,
+  }), [cashFlowPeriod, enterpriseDisplayName, projectedCashFlowData, selectedEnterprise]);
 
   const enterpriseChatContext = useMemo(() => {
     if (selectedEnterprise) {
@@ -1469,6 +1497,28 @@ export default function EnterpriseView({
       setExportLoading(false);
     }
   };
+
+  const handleExportSelectedEnterprise = () => {
+    if (!selectedEnterprise) return;
+
+    exportRowsToExcel({
+      fileNameBase: `Issuer_${selectedEnterprise.ticker}_Bonds`,
+      sheetName: selectedEnterprise.ticker,
+      rows: enterpriseBonds,
+      columns: [
+        { header: t('bondCode'), value: (bond) => bond.code },
+        { header: t('term'), value: (bond) => bond.term },
+        { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => formatInterestRate(bond.interestRate) },
+        { header: t('interestType'), value: (bond) => bond.interestType },
+        { header: t('issueDate'), value: (bond) => formatDate(bond.issueDate) },
+        { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
+        { header: t('listedVolume'), value: (bond) => formatNumber(bond.listedVolume || 0, 0) },
+        { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
+        { header: `${t('listedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue || 0, 2) },
+      ],
+    });
+  };
+
   const pieOptions = {
     color: chartPalette,
     __dataView: {
@@ -1563,12 +1613,16 @@ export default function EnterpriseView({
     },
     grid: { top: '15%', bottom: '20%', left: '8%', right: '10%' },
     xAxis: { 
+      type: 'value',
+      scale: true,
       name: `${t('term')} (${t('monthUnit')})`, 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: axisLabelStyle 
     },
     yAxis: { 
+      type: 'value',
+      scale: true,
       name: `${t('interestRate')} (${t('unitPercentLabel')})`, 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
@@ -1730,25 +1784,34 @@ export default function EnterpriseView({
 
   if (selectedEnterprise) {
     return (
-      <div className="mt-2 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-        <div className="flex items-center gap-2 text-xs font-bold text-text-muted uppercase tracking-widest">
-          <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">
+      <div className="min-w-0 space-y-3 py-2 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted/80">
+          <button
+            type="button"
+            onClick={() => setSelectedEnterprise(null)}
+            className="transition-colors hover:text-text-highlight cursor-pointer"
+          >
             {(breadcrumbTitle || listTitle || t('filterByIssuer')).toUpperCase()}
           </button>
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-3 w-3 text-text-muted" />
           <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
         </div>
 
-      <div className="mb-3 mt-2 flex items-start justify-between">
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-text-base tracking-tight md:text-4xl">
-              {language === 'en' && enterpriseProfile?.internationalName 
-                ? enterpriseProfile.internationalName 
-                : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
-            </h2>
+        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h2 className="min-w-0 break-words text-2xl font-bold leading-tight text-text-base md:text-3xl">
+                {language === 'en' && enterpriseProfile?.internationalName
+                  ? enterpriseProfile.internationalName
+                  : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
+              </h2>
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+            </div>
             
             {/* Financial Badges Section */}
-            <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2 pt-1">
+            <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2">
               {!loadingFinancial ? (() => {
                 const ind = selectedEnterprise.industry ? t(selectedEnterprise.industry as any).toLowerCase() : '';
                 const type = (financialData?.__companyType || '').toLowerCase();
@@ -1866,11 +1929,11 @@ export default function EnterpriseView({
                 return activeBadges.map((badge, idx) => (
                   <div 
                     key={idx} 
-                    className="flex h-8 items-center rounded-full border border-blue-100 bg-blue-50/80 px-4 py-1.5 shadow-sm transition-all hover:bg-blue-50 cursor-help select-none dark:border-blue-400/30 dark:bg-blue-900/20 dark:hover:bg-blue-900/30"
+                    className="flex min-h-8 items-center rounded-full border border-border-base bg-bg-surface px-3 py-1.5 shadow-sm shadow-blue-950/5 transition-colors hover:border-blue-200 hover:bg-blue-50 cursor-help select-none dark:bg-blue-500/10 dark:hover:bg-blue-500/15"
                     title={badge.tooltip}
                   >
-                    <span className="mr-2 text-xs font-semibold uppercase text-text-highlight opacity-80">{badge.label}:</span>
-                    <span className="text-xs font-bold text-text-highlight leading-none">{badge.value}</span>
+                    <span className="mr-2 text-xs font-semibold uppercase text-text-muted/80">{badge.label}:</span>
+                    <span className="text-xs font-bold leading-none text-text-highlight">{badge.value || 'N/A'}</span>
                   </div>
                 ));
               })() : loadingFinancial ? (
@@ -1881,6 +1944,17 @@ export default function EnterpriseView({
                 </div>
               ) : null}
             </div>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
+            <button
+              type="button"
+              onClick={handleExportSelectedEnterprise}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition-colors hover:bg-blue-500 cursor-pointer"
+            >
+              <Download className="h-4 w-4" />
+              <span>{t('exportExcel')}</span>
+            </button>
           </div>
         </div>
 
@@ -1904,41 +1978,34 @@ export default function EnterpriseView({
             value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
             unit={t('unitBondCode')}
             icon={Hash}
+            tone="purple"
           />
           <MetricCard
             label={t('totalIssuedValueTitle')}
             value={formatNumber(selectedEnterprise.issuedValue, 2)}
             unit={t('unitBillionVND')}
             icon={BadgeDollarSign}
+            tone="blue"
           />
           <MetricCard
             label={t('initialDebtFull')}
             value={formatNumber(selectedEnterprise.initialDebt, 2)}
             unit={t('unitBillionVND')}
             icon={Landmark}
+            tone="green"
           />
           <MetricCard
             label={t('remainingDebtTitle')}
             value={formatNumber(selectedEnterprise.remainingDebt, 2)}
             unit={t('unitBillionVND')}
             icon={Wallet}
+            tone="orange"
           />
         </div>
 
-        <AIInsightPanel
-          cacheKey={`enterprise-insight-${selectedEnterprise.ticker}`}
-          title={enterpriseInsightTitle}
-          pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
-          sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
-          payload={enterpriseInsightPayload}
-          className="min-h-80"
-        />
-
         {/* Charts Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div 
-            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
-          >
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-3">
             <ChartWithToolbar
               option={pieOptions}
               style={{ height: '320px' }}
@@ -1981,9 +2048,7 @@ export default function EnterpriseView({
               }}
             />
           </div>
-          <div 
-            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
-          >
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-3">
             <ChartWithToolbar
               option={interestTypePieOptions}
               style={{ height: '300px' }}
@@ -2040,106 +2105,112 @@ export default function EnterpriseView({
               }}
             />
           </div>
-          <div 
-            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
-          >
+          <AIInsightPanel
+            cacheKey={`enterprise-insight-${selectedEnterprise.ticker}`}
+            title={enterpriseInsightTitle}
+            pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
+            sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
+            payload={enterpriseInsightPayload}
+            className="xl:col-span-6"
+            expandContent
+            layout="stacked"
+          />
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-6">
             <ChartWithToolbar
               option={bubbleOptions}
-              style={{ height: '300px' }}
+              style={{ height: '320px' }}
               title={t('interestRateVsTerm')}
               onDataViewCategoryClick={handleEnterpriseBondDataViewCategoryClick}
             />
           </div>
-          <div 
-            className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20"
-          >
-            <ChartWithToolbar option={columnOptions} style={{ height: '300px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-6">
+            <ChartWithToolbar option={columnOptions} style={{ height: '320px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
+          </div>
+          <AIInsightPanel
+            cacheKey={`enterprise-cashflow-insight-${selectedEnterprise.ticker}`}
+            title={cashFlowInsightTitle}
+            pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
+            sectionTitle={cashFlowInsightTitle}
+            payload={cashFlowInsightPayload}
+            className="xl:col-span-4"
+            expandContent
+            layout="stacked"
+          />
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-8">
+            {loadingCashFlows && !hasProjectedCashFlowData ? (
+              <div className="h-80 flex items-center justify-center">
+                <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
+                  <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  {t('loading')}
+                </div>
+              </div>
+            ) : hasProjectedCashFlowData ? (
+              <ChartWithToolbar
+                option={projectedCashFlowOptions}
+                style={{ height: '360px' }}
+                allowMagicType
+                title={projectedCashFlowTitle}
+                showDataZoomSliderOnHover
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    grid: { bottom: '22%' },
+                    legend: {
+                      bottom: 8,
+                    },
+                    dataZoom: [
+                      {
+                        type: 'inside',
+                        xAxisIndex: 0,
+                        filterMode: 'none',
+                      },
+                      {
+                        type: 'slider',
+                        xAxisIndex: 0,
+                        height: 18,
+                        bottom: 44,
+                        filterMode: 'none',
+                        brushSelect: false,
+                        textStyle: axisLabelStyle,
+                      },
+                    ],
+                  },
+                }}
+                actions={(
+                  <div className="flex items-center justify-center gap-1 rounded-lg border border-border-base bg-bg-base p-1 sm:justify-self-end">
+                    <button
+                      type="button"
+                      onClick={() => setCashFlowPeriod('month')}
+                      className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                        cashFlowPeriod === 'month'
+                          ? 'bg-action-accent text-slate-950 shadow-sm'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {t('month')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCashFlowPeriod('year')}
+                      className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                        cashFlowPeriod === 'year'
+                          ? 'bg-action-accent text-slate-950 shadow-sm'
+                          : 'text-text-muted hover:text-text-base'
+                      }`}
+                    >
+                      {t('year')}
+                    </button>
+                  </div>
+                )}
+              />
+            ) : (
+              <div className="h-80 flex items-center justify-center text-sm font-medium text-text-muted">
+                {t('noData')}
+              </div>
+            )}
           </div>
         </div>
-
-        <div className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-          {loadingCashFlows && !hasProjectedCashFlowData ? (
-            <div className="h-80 flex items-center justify-center">
-              <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
-                <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                {t('loading')}
-              </div>
-            </div>
-          ) : hasProjectedCashFlowData ? (
-            <ChartWithToolbar
-              option={projectedCashFlowOptions}
-              style={{ height: '360px' }}
-              allowMagicType
-              title={projectedCashFlowTitle}
-              showDataZoomSliderOnHover
-              zoomConfig={{
-                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                chartStyle: { height: '100%', width: '100%' },
-                option: {
-                  grid: { bottom: '22%' },
-                  legend: {
-                    bottom: 8,
-                  },
-                  dataZoom: [
-                    {
-                      type: 'inside',
-                      xAxisIndex: 0,
-                      filterMode: 'none',
-                    },
-                    {
-                      type: 'slider',
-                      xAxisIndex: 0,
-                      height: 18,
-                      bottom: 44,
-                      filterMode: 'none',
-                      brushSelect: false,
-                      textStyle: axisLabelStyle,
-                    },
-                  ],
-                },
-              }}
-              actions={(
-                <div className="flex items-center justify-center gap-1 rounded-lg border border-border-base bg-bg-base p-1 sm:justify-self-end">
-                  <button
-                    type="button"
-                    onClick={() => setCashFlowPeriod('month')}
-                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
-                      cashFlowPeriod === 'month'
-                        ? 'bg-action-accent text-slate-950 shadow-sm'
-                        : 'text-text-muted hover:text-text-base'
-                    }`}
-                  >
-                    {t('month')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCashFlowPeriod('year')}
-                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
-                      cashFlowPeriod === 'year'
-                        ? 'bg-action-accent text-slate-950 shadow-sm'
-                        : 'text-text-muted hover:text-text-base'
-                    }`}
-                  >
-                    {t('year')}
-                  </button>
-                </div>
-              )}
-            />
-          ) : (
-            <div className="h-80 flex items-center justify-center text-sm font-medium text-text-muted">
-              {t('noData')}
-            </div>
-          )}
-        </div>
-
-        <RelatedNewsPanel
-          className="col-span-12"
-          symbol={selectedEnterprise.ticker}
-          title={t('relatedNews')}
-          description={language === 'en'
-            ? 'Latest articles related to this listed enterprise and its bond activity.'
-            : 'Tin tức mới nhất liên quan đến doanh nghiệp niêm yết này và hoạt động trái phiếu của doanh nghiệp.'}
-        />
         {/* Bond Detail Popup removed from here, now handled in App.tsx */}
       </div>
     );
@@ -2660,7 +2731,5 @@ export default function EnterpriseView({
     </div>
   );
 }
-
-
 
 

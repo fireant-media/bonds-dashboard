@@ -14,7 +14,7 @@ interface CardProps {
 
 export function Card({ children, className }: CardProps) {
   return (
-    <div className={cn('min-w-0 max-w-full overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-sm shadow-slate-900/5 transition-all duration-200 dark:bg-bg-surface/95 dark:shadow-black/20', className)}>
+    <div className={cn('min-w-0 max-w-full overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 transition-all duration-200 dark:bg-bg-surface dark:shadow-black/20', className)}>
       {children}
     </div>
   );
@@ -25,29 +25,94 @@ interface MetricCardProps {
   value: string;
   unit: string;
   icon?: LucideIcon;
+  tone?: 'blue' | 'purple' | 'green' | 'orange';
+  sparklineValues?: number[];
 }
 
-export function MetricCard({ label, value, unit, icon: Icon = BarChart3 }: MetricCardProps) {
+const metricToneClass = {
+  blue: {
+    card: 'hover:border-blue-200 hover:shadow-blue-500/10',
+    icon: 'from-ref-blue-start to-ref-blue-end shadow-blue-500/25',
+    glow: 'from-blue-50/90 dark:from-blue-500/10',
+    value: 'group-hover:text-blue-700',
+    sparkline: 'text-ref-blue-start',
+  },
+  purple: {
+    card: 'hover:border-violet-200 hover:shadow-violet-500/10',
+    icon: 'from-ref-purple-start to-ref-purple-end shadow-violet-500/25',
+    glow: 'from-violet-50/90 dark:from-violet-500/10',
+    value: 'group-hover:text-violet-700',
+    sparkline: 'text-ref-purple-start',
+  },
+  green: {
+    card: 'hover:border-emerald-200 hover:shadow-emerald-500/10',
+    icon: 'from-ref-green-start to-ref-green-end shadow-emerald-500/25',
+    glow: 'from-emerald-50/90 dark:from-emerald-500/10',
+    value: 'group-hover:text-emerald-700',
+    sparkline: 'text-ref-green-start',
+  },
+  orange: {
+    card: 'hover:border-orange-200 hover:shadow-orange-500/10',
+    icon: 'from-ref-orange-start to-ref-orange-end shadow-orange-500/25',
+    glow: 'from-orange-50/90 dark:from-orange-500/10',
+    value: 'group-hover:text-orange-700',
+    sparkline: 'text-ref-orange-start',
+  },
+};
+
+const decorativeMetricLines = {
+  blue: {
+    line: '0,26 14,22 28,24 42,16 56,18 70,10 84,14 98,8 112,12 120,6',
+    area: '0,28 0,26 14,22 28,24 42,16 56,18 70,10 84,14 98,8 112,12 120,6 120,28',
+  },
+  purple: {
+    line: '0,20 16,24 30,18 46,22 60,12 74,16 88,10 102,14 114,8 120,11',
+    area: '0,28 0,20 16,24 30,18 46,22 60,12 74,16 88,10 102,14 114,8 120,11 120,28',
+  },
+  green: {
+    line: '0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7',
+    area: '0,28 0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7 120,28',
+  },
+  orange: {
+    line: '0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9',
+    area: '0,28 0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9 120,28',
+  },
+};
+
+export function MetricCard({ label, value, unit, icon: Icon = BarChart3, tone = 'blue' }: MetricCardProps) {
+  const toneClass = metricToneClass[tone];
+  const decorativeLine = decorativeMetricLines[tone];
+
   return (
-    <Card className="group relative p-3 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/25 hover:shadow-lg hover:shadow-blue-500/10">
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-100/80 via-blue-50/50 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:from-blue-500/15 dark:via-blue-500/5" />
-      <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-blue-200/30 blur-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:bg-blue-500/10" />
-      <div className="relative flex min-w-0 min-h-28 flex-col gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:bg-blue-500/15 group-hover:text-blue-700">
-            <Icon className="h-5 w-5" />
+    <Card className={cn('group relative p-4 transition-all duration-200 hover:shadow-lg', toneClass.card)}>
+      <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t to-transparent opacity-80', toneClass.glow)} />
+      <div className="pointer-events-none absolute inset-x-4 bottom-3">
+        <svg
+          viewBox="0 0 120 28"
+          preserveAspectRatio="none"
+          className={cn('h-9 w-full', toneClass.sparkline)}
+          aria-hidden="true"
+        >
+          <polygon points={decorativeLine.area} fill="currentColor" opacity="0.06" />
+          <polyline points={decorativeLine.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.32" />
+        </svg>
+      </div>
+      <div className="relative flex min-w-0 min-h-32 flex-col justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg transition-colors duration-200', toneClass.icon)}>
+            <Icon className="h-6 w-6" />
           </div>
-          <p className="min-w-0 flex-1 break-words text-left text-xs font-semibold uppercase leading-snug tracking-wider text-text-muted/80 transition-colors group-hover:text-text-muted">
-            {label}
-          </p>
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-left text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 transition-colors dark:text-text-base">
+              {label}
+            </p>
+            <p className={cn('mt-2 break-words text-left text-3xl font-bold leading-tight text-slate-950 transition-colors duration-200 dark:text-text-base md:text-4xl', toneClass.value)}>
+              {value}
+            </p>
+            <p className="mt-1 break-words text-left text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
+          </div>
         </div>
-        <div className="flex flex-1 items-center justify-center">
-          <p className="break-words text-center text-3xl font-bold leading-tight text-text-base transition-all duration-200 group-hover:scale-105 group-hover:text-blue-700 md:text-4xl">
-            {value}
-          </p>
-        </div>
-        <p className="break-words text-center text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
+        <div className="h-8" aria-hidden="true" />
       </div>
     </Card>
   );

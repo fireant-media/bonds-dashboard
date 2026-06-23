@@ -13,30 +13,38 @@
   --color-text-highlight: var(--text-highlight);
   --color-action-accent: var(--action-accent);
   --color-border-base: var(--border-base);
-  --color-blue-50: #eaf8fd;
-  --color-blue-100: #d8f2fb;
-  --color-blue-200: #b9e7f6;
-  --color-blue-300: #96dee8;
-  --color-blue-400: #6bc9e8;
-  --color-blue-500: #3fb1e3;
-  --color-blue-600: #256f93;
-  --color-blue-700: #1f5f80;
-  --color-blue-800: #234f68;
-  --color-blue-900: #243f52;
+  --color-blue-50: #edf6ff;
+  --color-blue-100: #d8edff;
+  --color-blue-200: #b7e0ff;
+  --color-blue-300: #68d7f0;
+  --color-blue-400: #40bdf0;
+  --color-blue-500: #0e87f7;
+  --color-blue-600: #006feb;
+  --color-blue-700: #0b4ea2;
+  --color-blue-800: #0b3d91;
+  --color-blue-900: #092c68;
+  --color-ref-blue-start: #0e87f7;
+  --color-ref-blue-end: #68d7f0;
+  --color-ref-purple-start: #7c4dff;
+  --color-ref-purple-end: #9b6bff;
+  --color-ref-green-start: #18c985;
+  --color-ref-green-end: #61e5bd;
+  --color-ref-orange-start: #f7a52b;
+  --color-ref-orange-end: #f6be66;
   --font-sans: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
   --font-data-mono: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
-  --bg-base: #f5f7fb;
+  --bg-base: #f6f8fd;
   --bg-surface: #ffffff;
-  --surface-container-low: #eef2ff;
+  --surface-container-low: #f1f4f9;
   --surface-bright: #ffffff;
-  --text-base: #1e293b;
+  --text-base: #0b102f;
   --text-muted: #64748b;
-  --text-highlight: #256f93;
-  --action-accent: #3fb1e3;
-  --border-base: rgba(15, 23, 42, 0.06);
+  --text-highlight: #0b4ea2;
+  --action-accent: #006feb;
+  --border-base: rgba(15, 23, 42, 0.08);
 }
 
 html,
@@ -85,8 +93,8 @@ body[data-app-view='login'] .ai-chatbot-shell {
   --surface-bright: #18243a;
   --text-base: #e5e7eb;
   --text-muted: #94a3b8;
-  --text-highlight: #3fb1e3;
-  --action-accent: #3fb1e3;
+  --text-highlight: #63d8f2;
+  --action-accent: #168bff;
   --border-base: rgba(255, 255, 255, 0.06);
 }
 
@@ -95,8 +103,8 @@ body[data-app-view='login'] .ai-chatbot-shell {
     @apply bg-bg-base text-text-base font-sans transition-colors duration-300;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     background-image:
-      radial-gradient(circle at top left, rgba(63, 177, 227, 0.10), transparent 28rem),
-      radial-gradient(circle at bottom right, rgba(160, 167, 230, 0.08), transparent 30rem);
+      radial-gradient(circle at top left, rgba(14, 135, 247, 0.08), transparent 28rem),
+      radial-gradient(circle at bottom right, rgba(99, 216, 242, 0.06), transparent 30rem);
   }
 
   *:focus-visible {

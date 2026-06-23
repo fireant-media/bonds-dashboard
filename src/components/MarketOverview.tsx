@@ -1,11 +1,10 @@
-import ChartWithToolbar from './ChartWithToolbar';
+﻿import ChartWithToolbar from './ChartWithToolbar';
 import AIInsightPanel from './AIInsightPanel';
-import ReactECharts from 'echarts-for-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BadgeDollarSign, BarChart3, Boxes, Download, Hash, Landmark, LineChart, Maximize2, RotateCcw, TableProperties, Wallet, X } from 'lucide-react';
+import { BadgeDollarSign, Boxes, Hash, Landmark, Maximize2, RotateCcw, TableProperties, Wallet, X } from 'lucide-react';
 import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
 interface ProjectedCashFlowBucket {
@@ -17,13 +16,14 @@ interface ProjectedCashFlowBucket {
 interface TopInterestBond {
   bondCode: string;
   bondRate: number;
+  maturityDate?: string;
+  tenorPeriod?: number;
 }
 
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
-import RelatedNewsPanel from './RelatedNewsPanel';
-import { CHART_PALETTE, applyChartTheme, downloadChartImage, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
 import {
@@ -43,6 +43,7 @@ import {
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
 
 const TOP_INTEREST_CHART_LIMIT = 10;
+type IndustryCompositionMetric = 'issuedValue' | 'listedValue' | 'remainingDebt';
 
 const roundMetric = (value: number, digits = 2) => {
   if (!Number.isFinite(value)) return 0;
@@ -75,8 +76,7 @@ export default function MarketOverview() {
   const [topInterestData, setTopInterestData] = useState<any[]>(
     (Array.isArray(cachedTopInterestData) ? cachedTopInterestData : cachedData?.topInterestData || [])
   );
-  const [topInterestMetric, setTopInterestMetric] = useState<'highest' | 'lowest'>('highest');
-  const [loadingTopInterestChart, setLoadingTopInterestChart] = useState(false);
+  const [industryCompositionMetric, setIndustryCompositionMetric] = useState<IndustryCompositionMetric>('remainingDebt');
   const [industryData, setIndustryData] = useState<IndustryData[]>(
     (Array.isArray(cachedIndustryData) ? cachedIndustryData : cachedData?.industryData || [])
   );
@@ -88,45 +88,43 @@ export default function MarketOverview() {
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(cachedProjectedCashFlows);
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
-  const topIssuerChartRef = useRef<any>(null);
   const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
 
-  // Common styles for consistency
-  const chartColors = {
-    primary: CHART_PALETTE[0],
-    secondary: CHART_PALETTE[2],
-  };
-
   const legendStyle = {
-    fontSize: 12,
+    fontSize: 11,
     color: chartTheme.subText,
-    fontFamily: 'Manrope',
+    fontWeight: 600 as const,
+    fontFamily: 'Inter, Manrope, sans-serif',
   };
 
   const categoryLabelStyle = {
-    fontSize: 12,
+    fontSize: 11,
     color: chartTheme.subText,
-    fontWeight: 'bold' as const,
-    fontFamily: 'Manrope',
+    fontWeight: 600 as const,
+    fontFamily: 'Inter, Manrope, sans-serif',
   };
 
   const valueLabelStyle = {
-    fontSize: 12,
+    fontSize: 11,
     color: chartTheme.subText,
-    fontFamily: 'Manrope',
+    fontWeight: 500 as const,
+    fontFamily: 'Inter, Manrope, sans-serif',
   };
 
   const chartTitleStyle = {
-    fontSize: 10,
+    fontSize: 11,
     color: chartTheme.text,
-    fontWeight: 'bold' as const,
-    fontFamily: 'Manrope',
+    fontWeight: 700 as const,
+    fontFamily: 'Inter, Manrope, sans-serif',
   };
 
   const tooltipTextStyle = getChartTooltip(isDark).textStyle;
   const chartTooltip = getChartTooltip(isDark);
   const chartPalette = CHART_PALETTE;
   const bondVolumeUnitLabel = t('unitMillionShares');
+  const industryPrimaryBarColor = '#0E87F7';
+  const industrySecondaryBarColor = '#20BEE8';
+  const industryPieColors = ['#4D93F9', '#23C68E', '#F56B2D', '#7279F5', '#F8B011', '#14C6E4', '#94D926', '#F05DA8'];
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);
@@ -187,42 +185,13 @@ export default function MarketOverview() {
     return { issuers, topInterest, industries };
   };
 
-  const getTopIssuerDisplayName = (issuer: TopDebtIssuer) => {
-    return t(issuer.issuerName as any, issuer.issuerSymbol);
-  };
-
-  const getTopIssuerChartData = (source: TopDebtIssuer[], metric: 'remainingDebt' | 'issuedValue') => {
-    const sorted = [...source].sort((a, b) => {
-      if (metric === 'issuedValue') return b.totalIssuedValue - a.totalIssuedValue;
-      return b.totalRemainingDebt - a.totalRemainingDebt;
-    });
-
-    return sorted.slice(0, 10);
-  };
-
-  const getTopInterestChartData = (source: TopInterestBond[], metric: 'highest' | 'lowest') => {
-    const sorted = [...source].sort((a, b) => {
-      return metric === 'highest' ? b.bondRate - a.bondRate : a.bondRate - b.bondRate;
-    });
-
-    return sorted.slice(0, TOP_INTEREST_CHART_LIMIT);
-  };
-
   const topIssuerMetricTitle = topIssuerMetric === 'remainingDebt'
     ? (language === 'vi'
-      ? 'Top 10 doanh nghiệp có dư nợ trái phiếu lớn nhất'
+      ? 'Top 10 doanh nghi\u1ec7p c\u00f3 d\u01b0 n\u1ee3 tr\u00e1i phi\u1ebfu l\u1edbn nh\u1ea5t'
       : 'Top 10 enterprises with the highest bond debt')
     : (language === 'vi'
-      ? 'Top 10 doanh nghiệp có giá trị phát hành lớn nhất'
+      ? 'Top 10 doanh nghi\u1ec7p c\u00f3 gi\u00e1 tr\u1ecb ph\u00e1t h\u00e0nh l\u1edbn nh\u1ea5t'
       : 'Top 10 enterprises with the highest issued value');
-
-  const topInterestChartTitle = topInterestMetric === 'highest'
-    ? (language === 'vi'
-      ? 'Top 10 mã trái phiếu lãi suất cao nhất'
-      : 'Top 10 bond codes with the highest interest rates')
-    : (language === 'vi'
-      ? 'Top 10 mã trái phiếu lãi suất thấp nhất'
-      : 'Top 10 bond codes with the lowest interest rates');
 
   const getDateKey = (dateString: string, period: 'month' | 'year') => {
     const date = new Date(dateString);
@@ -260,30 +229,57 @@ export default function MarketOverview() {
     );
   }, [deferredIndustryData]);
 
+  const getSparklineSource = (...sources: number[][]) => (
+    sources.find((source) => {
+      const values = source.filter((value) => Number.isFinite(value));
+      return values.length >= 2 && Math.max(...values) !== Math.min(...values);
+    }) || []
+  );
+
   const kpiCards = [
     {
       label: t('totalBondCodes'),
       value: formatNumber(marketKpis.bondCount, 0),
       unit: t('bondCodeUnit'),
       icon: Hash,
+      tone: 'blue' as const,
+      sparklineValues: getSparklineSource(
+        deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.bondCount)),
+        deferredIndustryData.map((industry) => toNumber(industry.bondCount)),
+      ),
     },
     {
       label: t('totalIssuedVolume'),
       value: formatNumber(marketKpis.issuedVolume / 1_000_000, 2),
       unit: t('unitMillionShares'),
       icon: Boxes,
+      tone: 'purple' as const,
+      sparklineValues: getSparklineSource(
+        deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.totalIssuedVolume)),
+        deferredIndustryData.map((industry) => toNumber(industry.totalIssuedVolume)),
+      ),
     },
     {
       label: t('totalIssuedValueTitle'),
       value: formatNumber(marketKpis.issuedValue / 1000000000, 2),
       unit: t('unitBillionVND'),
       icon: BadgeDollarSign,
+      tone: 'green' as const,
+      sparklineValues: getSparklineSource(
+        deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.totalIssuedValue)),
+        deferredIndustryData.map((industry) => toNumber(industry.totalIssuedValue)),
+      ),
     },
     {
       label: t('totalRemainingDebt'),
       value: formatNumber(marketKpis.remainingDebt / 1000000000, 2),
       unit: t('unitBillionVND'),
       icon: Wallet,
+      tone: 'orange' as const,
+      sparklineValues: getSparklineSource(
+        deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.totalRemainingDebt)),
+        deferredIndustryData.map((industry) => toNumber(industry.totalRemainingDebt)),
+      ),
     }
   ];
 
@@ -337,45 +333,6 @@ export default function MarketOverview() {
       console.error('Top issuer chart refresh error', error);
     } finally {
       setLoadingTopIssuerChart(false);
-    }
-  };
-
-  const refreshTopInterestChart = async (metric: 'highest' | 'lowest') => {
-    const cachedInterest = getCache('market_top_interest_bonds');
-    const baseFromCache = Array.isArray(cachedInterest) ? cachedInterest : [];
-    setLoadingTopInterestChart(true);
-    try {
-      const sourceIssuers = issuerStatsData.length > 0 ? issuerStatsData : (cachedIssuerStats || cachedData?.issuerStatsData || []);
-      const issuerSymbols: string[] = Array.from(
-        new Set(
-          sourceIssuers
-            .map((issuer) => issuer.issuerSymbol)
-            .filter((symbol): symbol is string => Boolean(symbol))
-        )
-      );
-      const issuerBondResults = await mapWithConcurrency(issuerSymbols, 6, async (symbol) => {
-        const bonds = await loadIssuerBondsByFilter(symbol);
-        return Array.isArray(bonds) ? bonds : [];
-      });
-
-      const allBonds = getFulfilledValues(issuerBondResults)
-        .flat()
-        .reduce<TopInterestBond[]>((items, bond: any) => {
-          const bondCode = String(bond.bondCode || bond.code || '').trim();
-          const bondRate = Number(bond.bondRate || 0);
-          if (bondCode && Number.isFinite(bondRate)) {
-            items.push({ bondCode, bondRate });
-          }
-          return items;
-        }, []);
-
-      const uniqueBonds = Array.from(new Map(allBonds.map((bond) => [bond.bondCode, bond])).values());
-      setTopInterestData(uniqueBonds);
-      setCache('market_top_interest_bonds', uniqueBonds);
-    } catch (error) {
-      console.error('Top interest chart refresh error', error);
-    } finally {
-      setLoadingTopInterestChart(false);
     }
   };
 
@@ -524,22 +481,112 @@ export default function MarketOverview() {
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
 
   const topDebtData = useMemo(
-    () => getTopIssuerChartData(deferredIssuerStatsData, 'remainingDebt'),
+    () => [...deferredIssuerStatsData].sort((a, b) => b.totalRemainingDebt - a.totalRemainingDebt).slice(0, 10),
     [deferredIssuerStatsData]
   );
 
   const topIssuerDisplayData = useMemo(
-    () => getTopIssuerChartData(deferredIssuerStatsData, topIssuerMetric),
+    () => [...deferredIssuerStatsData].sort((a, b) => (
+      topIssuerMetric === 'issuedValue'
+        ? b.totalIssuedValue - a.totalIssuedValue
+        : b.totalRemainingDebt - a.totalRemainingDebt
+    )).slice(0, 10),
     [deferredIssuerStatsData, topIssuerMetric]
   );
 
-  const topInterestChartData = useMemo(
-    () => getTopInterestChartData(deferredTopInterestData as TopInterestBond[], topInterestMetric),
-    [deferredTopInterestData, topInterestMetric]
-  );
+  const topInterestRankingItems = useMemo(() => {
+    const normalized = (deferredTopInterestData as TopInterestBond[])
+      .map((bond: any) => {
+        const bondCode = String(bond?.bondCode || bond?.BondCode || bond?.code || bond?.Code || '').trim();
+        const bondRate = toNumber(bond?.bondRate ?? bond?.BondRate ?? bond?.interestRate ?? bond?.InterestRate ?? bond?.couponRate ?? bond?.CouponRate);
+        const maturityDate = String(bond?.maturityDate || bond?.MaturityDate || bond?.dueDate || bond?.DueDate || '').split('T')[0];
+        const tenorPeriod = toNumber(bond?.tenorPeriod ?? bond?.TenorPeriod ?? bond?.term ?? bond?.Term);
+
+        return {
+          bondCode,
+          bondRate,
+          maturityDate,
+          tenorPeriod,
+        };
+      })
+      .filter((bond) => Boolean(bond.bondCode) && Number.isFinite(bond.bondRate));
+
+    const sorted = normalized.sort((left, right) => {
+      const rateDiff = right.bondRate - left.bondRate;
+      if (rateDiff !== 0) return rateDiff;
+      return left.bondCode.localeCompare(right.bondCode);
+    });
+
+    const topRows = sorted.slice(0, TOP_INTEREST_CHART_LIMIT);
+    const maxRate = topRows.reduce((max, bond) => Math.max(max, bond.bondRate), 0);
+
+    return topRows.map((bond, index) => {
+      const remainingTermLabel = (() => {
+        if (bond.maturityDate) {
+          const maturityTime = new Date(bond.maturityDate).getTime();
+          if (!Number.isNaN(maturityTime)) {
+            const diffDays = Math.ceil((maturityTime - Date.now()) / 86400000);
+            if (diffDays <= 0) return language === 'vi' ? 'Đã đáo hạn' : 'Matured';
+            if (diffDays < 30) return language === 'vi' ? `${diffDays} ngày` : `${diffDays} days`;
+            const diffMonths = Math.ceil(diffDays / 30);
+            if (diffMonths < 12) return language === 'vi' ? `${diffMonths} tháng` : `${diffMonths} months`;
+            const years = Math.floor(diffMonths / 12);
+            const months = diffMonths % 12;
+            if (months === 0) return language === 'vi' ? `${years} năm` : `${years} years`;
+            return language === 'vi' ? `${years} năm ${months} tháng` : `${years} years ${months} months`;
+          }
+        }
+
+        if (bond.tenorPeriod > 0) {
+          return language === 'vi' ? `${formatNumber(bond.tenorPeriod, 0)} tháng` : `${formatNumber(bond.tenorPeriod, 0)} months`;
+        }
+
+        return language === 'vi' ? 'Không có dữ liệu' : 'No data';
+      })();
+
+      return {
+        ...bond,
+        rank: index + 1,
+        rateRatio: maxRate > 0 ? bond.bondRate / maxRate : 0,
+        remainingTermLabel,
+      };
+    });
+  }, [deferredTopInterestData, language]);
+
+  const industryCompositionConfig = useMemo(() => {
+    switch (industryCompositionMetric) {
+      case 'issuedValue':
+        return {
+          label: language === 'vi' ? 'Giá trị phát hành' : 'Issued value',
+          title: language === 'vi' ? 'Cơ cấu giá trị phát hành theo ngành' : 'Issued value composition by industry',
+          selectorKey: 'totalIssuedValue' as const,
+        };
+      case 'listedValue':
+        return {
+          label: language === 'vi' ? 'Giá trị niêm yết' : 'Listed value',
+          title: language === 'vi' ? 'Cơ cấu giá trị niêm yết theo ngành' : 'Listed value composition by industry',
+          selectorKey: 'totalCurrentListedValue' as const,
+        };
+      default:
+        return {
+          label: language === 'vi' ? 'Dư nợ còn lại' : 'Remaining debt',
+          title: language === 'vi' ? 'Cơ cấu dư nợ còn lại theo ngành' : 'Remaining debt composition by industry',
+          selectorKey: 'totalRemainingDebt' as const,
+        };
+    }
+  }, [industryCompositionMetric, language]);
+  const industryCompositionData = useMemo(() => (
+    [...deferredIndustryData]
+      .map((industry) => ({
+        name: t(industry.icbName as any),
+        value: toBillionVnd(industry[industryCompositionConfig.selectorKey]),
+      }))
+      .filter((item) => item.value > 0)
+      .sort((left, right) => right.value - left.value)
+  ), [deferredIndustryData, industryCompositionConfig.selectorKey, t]);
   const marketInsightTitle = language === 'vi'
-    ? 'Nhận định tổng quan thị trường trái phiếu'
-    : 'Bond market overview insight';
+    ? 'NH\u1eacN X\u00c9T T\u1ed4NG QUAN'
+    : 'OVERVIEW COMMENTARY';
   const marketInsightPayload = useMemo(() => ({
     kpis: {
       bondCount: marketKpis.bondCount,
@@ -554,38 +601,29 @@ export default function MarketOverview() {
       issuedValueBillion: roundMetric(issuer.totalIssuedValue / 1_000_000_000),
       bondCount: issuer.bondCount,
     })),
-    topBondRates: topInterestChartData.slice(0, 6).map((bond) => ({
+    topBondRates: topInterestRankingItems.slice(0, 6).map((bond) => ({
       bondCode: bond.bondCode,
       bondRate: roundMetric(bond.bondRate),
     })),
-  }), [marketKpis, topDebtData, topInterestChartData]);
-  const marketFlowInsightTitle = language === 'vi'
-    ? 'Nhận xét dòng tiền và cơ cấu theo ngành'
-    : 'Industry structure and cash flow insight';
-  const marketFlowInsightPayload = useMemo(() => ({
-    valueByIndustry: [...deferredIndustryData]
-      .sort((left, right) => toNumber(right.totalCurrentListedValue) - toNumber(left.totalCurrentListedValue))
-      .slice(0, 8)
-      .map((industry) => ({
-        industry: t(industry.icbName as any),
-        listedValueBillion: roundMetric(toNumber(industry.totalCurrentListedValue) / 1_000_000_000),
-        remainingDebtBillion: roundMetric(toNumber(industry.totalRemainingDebt) / 1_000_000_000),
-      })),
-    volumeByIndustry: [...deferredIndustryData]
-      .sort((left, right) => toNumber(right.totalIssuedVolume) - toNumber(left.totalIssuedVolume))
-      .slice(0, 8)
-      .map((industry) => ({
-        industry: t(industry.icbName as any),
-        issuedVolumeMillion: roundMetric(toNumber(industry.totalIssuedVolume) / 1_000_000),
-        listedVolumeMillion: roundMetric(toNumber(industry.totalCurrentListedVolume) / 1_000_000),
-      })),
-    projectedCashFlows: projectedCashFlowData.labels.map((label, index) => ({
-      period: label,
-      interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
-      principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
-      totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
-    })),
-  }), [deferredIndustryData, projectedCashFlowData, t]);
+  }), [marketKpis, topDebtData, topInterestRankingItems]);
+
+  const cashFlowInsightTitle = language === 'vi'
+    ? 'NH\u1eacN X\u00c9T V\u1ec0 D\u00d2NG TI\u1ec0N'
+    : 'CASH FLOW COMMENTARY';
+
+  const cashFlowInsightPayload = useMemo(() => ({
+    period: cashFlowPeriod,
+    labels: projectedCashFlowData.labels,
+    interest: projectedCashFlowData.interest,
+    principal: projectedCashFlowData.principal,
+    total: projectedCashFlowData.total,
+    peakBucket: projectedCashFlowData.total.length > 0
+      ? {
+        label: projectedCashFlowData.labels[projectedCashFlowData.total.indexOf(Math.max(...projectedCashFlowData.total))] || '',
+        value: Math.max(...projectedCashFlowData.total),
+      }
+      : null,
+  }), [cashFlowPeriod, projectedCashFlowData]);
 
   const topIssuerDataViewRows = useMemo(() => {
     return topIssuerDisplayData.map((issuer) => ([
@@ -608,209 +646,152 @@ export default function MarketOverview() {
     navigate(`/filter/issuer/${encodeURIComponent(normalizedTicker)}`);
   };
 
-  const handleTopInterestCategoryClick = (bondCode: string) => {
-    const normalizedBondCode = String(bondCode || '').trim();
-    if (!normalizedBondCode) return;
-    navigate(`/${encodeURIComponent(normalizedBondCode)}`);
+  const handleTopIssuerMetricChange = (metric: 'remainingDebt' | 'issuedValue') => {
+    setTopIssuerMetric(metric);
+    void refreshTopIssuerChart(metric);
   };
 
-  const topIssuerOptions = useMemo(() => {
-    const labels = topIssuerDisplayData.length > 0
-      ? topIssuerDisplayData.map((d) => d.issuerSymbol || getTopIssuerDisplayName(d))
-      : [];
-    const remainingDebtData = topIssuerDisplayData.length > 0
-      ? topIssuerDisplayData.map((d) => Math.round(d.totalRemainingDebt / 1000000000))
-      : [];
-    const issuedValueData = topIssuerDisplayData.length > 0
-      ? topIssuerDisplayData.map((d) => Math.round(d.totalIssuedValue / 1000000000))
-      : [];
+  const topIssuerRankingItems = useMemo(() => {
+    const maxValue = topIssuerDisplayData.reduce((highest, issuer) => {
+      const currentValue = topIssuerMetric === 'remainingDebt'
+        ? toNumber(issuer.totalRemainingDebt)
+        : toNumber(issuer.totalIssuedValue);
+      return Math.max(highest, currentValue);
+    }, 0);
 
-    return {
-      color: chartPalette,
-      tooltip: {
-        ...chartTooltip,
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        confine: true,
-        textStyle: tooltipTextStyle,
-        formatter: (params: any) => {
-          const index = params?.[0]?.dataIndex ?? 0;
-          const issuer = topIssuerDisplayData[index];
-          const symbol = issuer?.issuerSymbol || params?.[0]?.name || '';
-          const issuerLabel = issuer ? getTopIssuerDisplayName(issuer) : symbol;
-          let content = `${issuerLabel} (${symbol})`;
-          params.forEach((param: any) => {
-            const unit = param.seriesName === t('bondLotsTitle') ? '' : ` ${t('unitBillionVND')}`;
-            content += `<br/>${param.marker}${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value, 0), unit)}`;
-          });
-          return content;
-        }
-      },
-      legend: { bottom: 5, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-      grid: { left: '6%', right: '14%', top: '4%', bottom: '12%', containLabel: true },
-      xAxis: {
-        type: 'value',
-        splitLine: { show: false },
-        name: t('unitBillionVND'),
-        nameGap: 12,
-        nameTextStyle: chartTitleStyle,
-        axisLabel: {
-          ...valueLabelStyle,
-          margin: 12,
-          formatter: (value: number) => formatNumber(value, 0)
-        }
-      },
-      yAxis: {
-        type: 'category',
-        data: labels,
-        inverse: true,
-        axisLabel: {
-          ...categoryLabelStyle,
-          width: 120,
-          overflow: 'truncate',
-        }
-      },
-      series: [
-        {
-          name: t('remainingDebtTitle'),
-          type: 'bar',
-          data: remainingDebtData,
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
-          barWidth: '38%',
-          universalTransition: true,
-          animationDurationUpdate: 600,
-          animationEasingUpdate: 'cubicOut'
-        },
-        {
-          name: t('totalIssuedValueTitle'),
-          type: 'bar',
-          data: issuedValueData,
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
-          barWidth: '38%',
-          universalTransition: true,
-          animationDurationUpdate: 600,
-          animationEasingUpdate: 'cubicOut'
-        }
-      ]
-    };
-  }, [chartPalette, chartTooltip, chartTitleStyle, categoryLabelStyle, topIssuerDisplayData, t, tooltipTextStyle, valueLabelStyle, legendStyle]);
-  const themedTopIssuerOptions = useMemo(
-    () => applyChartTheme(topIssuerOptions, isDark),
-    [topIssuerOptions, isDark]
-  );
+    return topIssuerDisplayData.map((issuer, index) => {
+      const currentValue = topIssuerMetric === 'remainingDebt'
+        ? toNumber(issuer.totalRemainingDebt)
+        : toNumber(issuer.totalIssuedValue);
+      const ratio = maxValue > 0 ? currentValue / maxValue : 0;
 
-  const topInterestOptions = {
-    color: chartPalette,
-    __dataView: {
-      categoryLabel: t('bondCode'),
-      categoryAlign: 'center',
-    },
-    tooltip: { 
-      ...chartTooltip,
-      trigger: 'axis',
-      confine: true,
-      textStyle: tooltipTextStyle,
-      formatter: (params: any) => {
-        return `${params[0].name}<br/>${params[0].marker}${params[0].seriesName}: ${highlightChartTooltipValue(formatInterestRate(params[0].value), '%')}`;
-      }
-    },
-    grid: { left: '5%', right: '8%', top: '14%', bottom: '10%', containLabel: true },
-    xAxis: { 
-      type: 'category', 
-      data: topInterestChartData.length > 0 
-        ? topInterestChartData.map(d => d.bondCode) 
-        : [], 
-      axisLabel: {
-        ...categoryLabelStyle,
-        rotate: 45,
-      }
-    },
-    yAxis: { 
-      type: 'value', 
-      splitLine: { show: false },
-      name: t('unitPercentLabel'),
-      nameGap: 24,
-      nameTextStyle: chartTitleStyle,
-      axisLabel: { 
-        ...valueLabelStyle,
-        formatter: '{value}'
-      } 
-    },
-    series: [{
-      name: t('interestRate'),
-      type: 'bar',
-      data: topInterestChartData.length > 0 
-        ? topInterestChartData.map(d => d.bondRate) 
-        : [],
-      itemStyle: { borderRadius: [4, 4, 0, 0] },
-      barWidth: '50%',
-      barGap: 15,
-      universalTransition: true,
-      animationDurationUpdate: 600,
-      animationEasingUpdate: 'cubicOut'
-    }]
+      return {
+        issuer,
+        rank: index + 1,
+        value: currentValue,
+        valueBillion: currentValue / 1_000_000_000,
+        ratio,
+      };
+    });
+  }, [topIssuerDisplayData, topIssuerMetric]);
+
+  const renderTopIssuerRankingList = (zoom = false) => {
+    if (topIssuerRankingItems.length === 0) {
+      return (
+        <div className={`flex items-center justify-center text-center text-sm font-medium text-text-muted ${zoom ? 'h-full min-h-96' : 'h-full min-h-80'}`}>
+          {t('noData')}
+        </div>
+      );
+    }
+
+    return (
+      <div className={`${zoom ? 'h-full overflow-y-auto pr-1 space-y-4' : 'space-y-2.5'}`}>
+        {topIssuerRankingItems.map(({ issuer, rank, valueBillion, ratio }) => {
+          const symbol = issuer.issuerSymbol || '';
+          const minWidth = ratio > 0 ? Math.max(ratio * 100, 8) : 0;
+
+          return (
+            <button
+              key={`${symbol}-${rank}`}
+              type="button"
+              onClick={() => handleTopIssuerCategoryClick(symbol)}
+              className={`w-full text-left transition-colors hover:text-blue-700 dark:hover:text-blue-200 ${zoom ? 'py-1.5' : 'py-0.5'}`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`flex shrink-0 items-center justify-center rounded-lg bg-blue-50 font-bold text-blue-700 dark:bg-blue-500/15 dark:text-blue-200 ${zoom ? 'h-10 w-10 text-sm' : 'h-9 w-9 text-xs'}`}>
+                  {rank}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className={`truncate font-bold text-text-base ${zoom ? 'text-base' : 'text-sm'}`}>
+                      {symbol}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className={`font-bold text-text-base ${zoom ? 'text-base' : 'text-sm'}`}>
+                        {formatNumber(valueBillion, 0)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`mt-2.5 h-2 overflow-hidden rounded-full bg-surface-container-low ${zoom ? 'h-2.5' : 'h-2'}`}>
+                    <div
+                      className="h-full rounded-full bg-blue-500"
+                      style={{ width: `${minWidth}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   const industryValueOptions = {
-    color: chartPalette,
+    color: industryPieColors,
     __dataView: {
       categoryLabel: t('marketTitle'),
       categoryAlign: 'left',
     },
-    tooltip: { 
+    tooltip: {
       ...chartTooltip,
-      trigger: 'axis',
+      trigger: 'item',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => {
-        let res = params[0].name;
-        params.forEach((p: any) => {
-          res += `<br/>${p.marker}${p.seriesName}: ${highlightChartTooltipValue(formatNumber(p.value, 0), ` ${t('unitBillionVND')}`)}`;
-        });
-        return res;
-      }
+      formatter: (params: any) => `${params.name}<br/>${params.marker}${industryCompositionConfig.label}: ${highlightChartTooltipValue(formatNumber(params.value, 2), ` ${t('unitBillionVND')}`)}`,
     },
-    legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '4%', top: '12%', bottom: '10%', containLabel: true },
-    xAxis: { 
-      type: 'category', 
-      data: industryData.length > 0 
-        ? industryData.map(d => t(d.icbName as any)) 
-        : [], 
-      axisLabel: { ...categoryLabelStyle, rotate: 45 } 
+    legend: {
+      type: 'plain',
+      orient: 'vertical',
+      top: 20,
+      bottom: 20,
+      right: 0,
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 8,
+      textStyle: legendStyle,
     },
-    yAxis: { 
-      type: 'value', 
-      splitLine: { show: false },
-      name: t('unitBillionVND'),
-      nameTextStyle: chartTitleStyle,
-      axisLabel: { 
-        ...valueLabelStyle,
-        formatter: (value: number) => formatNumber(value, 0)
-      } 
-    },
-    series: [
-      { 
-        name: t('totalIssuedValueTitle'), 
-        type: 'bar', 
-        data: industryData.length > 0 
-          ? industryData.map(d => Math.round(d.totalIssuedValue / 1000000000)) 
-          : [], 
-        itemStyle: { } 
+    graphic: industryCompositionData.length === 0 ? {
+      type: 'text',
+      left: 'center',
+      top: '42%',
+      style: {
+        text: language === 'vi' ? 'Không có dữ liệu' : 'No data',
+        fill: chartTheme.subText,
+        fontSize: 12,
+        fontFamily: 'Inter, Manrope, sans-serif',
+        fontWeight: 600,
       },
-      { 
-        name: t('listedValueTitle'), 
-        type: 'bar', 
-        data: industryData.length > 0 
-          ? industryData.map(d => Math.round(d.totalCurrentListedValue / 1000000000)) 
-          : [], 
-        itemStyle: { } 
-      }
-    ]
+    } : undefined,
+    series: [
+      {
+        name: industryCompositionConfig.label,
+        type: 'pie',
+        radius: '68%',
+        center: ['31%', '50%'],
+        avoidLabelOverlap: true,
+        minAngle: 4,
+        label: { show: false },
+        labelLine: { show: false },
+        itemStyle: {
+          borderRadius: 4,
+          borderColor: isDark ? '#0f172a' : '#ffffff',
+          borderWidth: 2,
+        },
+        emphasis: {
+          scale: true,
+          scaleSize: 4,
+        },
+        data: industryCompositionData.map((item, index) => ({
+          ...item,
+          itemStyle: { color: industryPieColors[index % industryPieColors.length] },
+        })),
+      },
+    ],
   };
 
   const industryVolumeOptions = {
-    color: chartPalette,
+    color: ['#0E87F7', '#20BEE8'],
     __dataView: {
       categoryLabel: t('marketTitle'),
       categoryAlign: 'left',
@@ -829,7 +810,7 @@ export default function MarketOverview() {
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '8%', top: '12%', bottom: '10%', containLabel: true },
+    grid: { left: '3%', right: '6%', top: '10%', bottom: '5%', containLabel: true },
     xAxis: { 
       type: 'category', 
       data: industryData.length > 0 ? industryData.map(d => t(d.icbName as any)) : [], 
@@ -837,9 +818,9 @@ export default function MarketOverview() {
     },
     yAxis: { 
       type: 'value', 
-      splitLine: { show: false },
+      splitLine: { show: true, lineStyle: { type: 'dashed' } },
       name: bondVolumeUnitLabel,
-      nameGap: 28,
+      nameGap: 10,
       nameTextStyle: chartTitleStyle,
       axisLabel: { 
         ...valueLabelStyle,
@@ -851,14 +832,14 @@ export default function MarketOverview() {
           name: t('issuedVolumeTitle'),
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalIssuedVolume / 1_000_000) : [],
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          itemStyle: { borderRadius: [4, 4, 0, 0], color: industryPrimaryBarColor },
           barWidth: '30%'
         },
         {
           name: t('listedVolume'),
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalCurrentListedVolume / 1_000_000) : [],
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          itemStyle: { borderRadius: [4, 4, 0, 0], color: industrySecondaryBarColor },
           barWidth: '30%'
         }
     ]
@@ -890,13 +871,13 @@ export default function MarketOverview() {
       }
     },
     legend: {
-      bottom: 0,
+      bottom: 25,
       left: 'center',
       itemWidth: 10,
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%' },
+    grid: { top: '3%', bottom: '30%', left: '8%', right: '6%' },
     xAxis: {
       type: 'category',
       boundaryGap: false,
@@ -917,7 +898,7 @@ export default function MarketOverview() {
         type: 'slider',
         xAxisIndex: 0,
         height: 18,
-        bottom: 24,
+        bottom: 5,
         filterMode: 'none',
         brushSelect: false,
         textStyle: valueLabelStyle
@@ -925,7 +906,7 @@ export default function MarketOverview() {
     ],
     yAxis: {
       type: 'value',
-      splitLine: { show: false },
+      splitLine: { show: true, lineStyle: { type: 'dashed' } },
       name: t('unitBillionVND'),
       nameGap: 12,
       nameTextStyle: chartTitleStyle,
@@ -953,21 +934,7 @@ export default function MarketOverview() {
     ]
   };
 
-  const handleTopIssuerDownload = async () => {
-    const instance = topIssuerChartRef.current?.getEchartsInstance?.();
-    if (!instance) return;
-    await downloadChartImage(instance, {
-      fileName: 'top-10-issuer-chart.png',
-      title: topIssuerMetricTitle,
-      backgroundColor: chartTheme.bg,
-      textColor: chartTheme.text,
-      titleAlign: 'center',
-    });
-  };
-
   const handleTopIssuerReset = () => {
-    const instance = topIssuerChartRef.current?.getEchartsInstance?.();
-    instance?.restore?.();
     setTopIssuerMetric('remainingDebt');
     setShowTopIssuerDataView(false);
     setShowTopIssuerDataViewBackButton(false);
@@ -1017,7 +984,7 @@ export default function MarketOverview() {
       : null;
   const isKpiSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
   const isTopIssuerSectionLoading = (issuerStatsQuery.isLoading || loadingTopIssuerChart) && topIssuerDisplayData.length === 0;
-  const isTopInterestSectionLoading = (topInterestQuery.isLoading || loadingTopInterestChart) && topInterestChartData.length === 0;
+  const isTopInterestSectionLoading = topInterestQuery.isLoading && topInterestRankingItems.length === 0;
   const isIndustryChartSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
   const isProjectedCashFlowPending = !projectedCashFlowSectionVisible && !hasProjectedCashFlowData && Object.keys(projectedCashFlowBuckets).length === 0;
 
@@ -1044,10 +1011,10 @@ export default function MarketOverview() {
   }
 
   return (
-    <div className="min-w-0 transition-colors duration-300">
-      <div className="mb-3 mt-1 flex min-w-0 items-center justify-between">
+    <div className="min-w-0 py-3 transition-colors duration-300">
+      <div className="mb-3 flex min-w-0 items-center justify-between">
         <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketOverview')}</h1>
+          <h1 className="break-words text-2xl font-bold tracking-tight text-slate-950 transition-colors dark:text-text-base">{t('marketOverview')}</h1>
         </div>
       </div>
 
@@ -1056,163 +1023,117 @@ export default function MarketOverview() {
           {isKpiSectionLoading
             ? Array.from({ length: 4 }, (_, index) => <MetricCardSkeleton key={index} />)
             : kpiCards.map((card) => (
-              <MetricCard key={card.label} label={card.label} value={card.value} unit={card.unit} icon={card.icon} />
+              <MetricCard
+                key={card.label}
+                label={card.label}
+                value={card.value}
+                unit={card.unit}
+                icon={card.icon}
+                tone={card.tone}
+                sparklineValues={card.sparklineValues}
+              />
             ))}
         </div>
 
-        {isTopIssuerSectionLoading ? (
-          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        {isTopInterestSectionLoading ? (
+          <SectionCardSkeleton className="order-5 col-span-12 lg:col-span-4 lg:h-full" />
         ) : (
-        <Card className="group col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
-          <div className="flex min-w-0 flex-col gap-1">
-            <div className="flex min-w-0 items-center justify-between gap-3">
-              <div className="flex min-w-0 justify-start text-left">
-                <div className="inline-flex max-w-full items-center justify-start gap-2 transition-colors duration-200 group-hover:text-blue-600">
-                  <Landmark className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
-                  <h3 className="text-left text-base font-bold leading-snug break-words text-text-base transition-colors duration-200 group-hover:text-blue-600 md:text-lg">
-                    {topIssuerMetricTitle}
-                  </h3>
-                </div>
-              </div>
-              <div className={hoverToolbarClass}>
-                <button
-                  type="button"
-                  onClick={() => openTopIssuerDataView(false)}
-                  className={topIssuerToolbarButtonClass()}
-                  title={t('dataView')}
-                  aria-label={t('dataView')}
-                >
-                  <TableProperties className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className={topIssuerToolbarButtonClass()}
-                  title={t('lineChart')}
-                >
-                  <LineChart className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className={topIssuerToolbarButtonClass()}
-                  title={t('columnChart')}
-                >
-                  <BarChart3 className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTopIssuerReset}
-                  className={topIssuerToolbarButtonClass()}
-                  title={t('reset')}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTopIssuerDownload}
-                  className={topIssuerToolbarButtonClass()}
-                  title={t('download')}
-                >
-                  <Download className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowTopIssuerZoom(true)}
-                  className={topIssuerToolbarButtonClass()}
-                  title="Zoom"
-                >
-                  <Maximize2 className="h-4 w-4" />
-                </button>
+          <Card className="order-5 col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-4 lg:h-full">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <h3 className="text-left text-base font-bold leading-snug text-text-base">
+                {language === 'vi' ? 'Top 10 mã trái phiếu lãi suất cao nhất' : 'Top 10 bonds with the highest interest rate'}
+              </h3>
+            </div>
+            <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="grid min-h-0 flex-1 gap-1.5">
+                {topInterestRankingItems.length === 0 ? (
+                  <div className="flex items-center justify-center py-6 text-sm font-medium text-text-muted">
+                    {t('noData')}
+                  </div>
+                ) : (
+                  topInterestRankingItems.map((item) => {
+                    const filledDots = Math.max(1, Math.min(10, Math.round(item.rateRatio * 10)));
+
+                    return (
+                      <button
+                        key={`${item.bondCode}-${item.rank}`}
+                        type="button"
+                        className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 border-b border-border-base/60 px-1.5 py-2 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 cursor-pointer"
+                        onClick={() => navigate(`/${encodeURIComponent(item.bondCode)}`)}
+                      >
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm shadow-blue-500/10 dark:bg-blue-500/10 dark:text-blue-300">
+                          {item.rank}
+                        </div>
+                        <div className="min-w-0 text-sm font-semibold text-text-base whitespace-nowrap">
+                          {item.bondCode}
+                        </div>
+                        <div className="inline-flex min-w-[88px] items-center justify-center rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                          {formatInterestRate(item.bondRate)} %
+                        </div>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {Array.from({ length: 10 }, (_, index) => (
+                            <span
+                              key={`${item.bondCode}-dot-${index}`}
+                              className={`h-2.5 w-2.5 rounded-full ${index < filledDots ? 'bg-blue-500' : 'bg-surface-container-low'}`}
+                            />
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </div>
-            <div className="flex justify-center md:justify-end">
-              <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTopIssuerMetric('remainingDebt');
-                    refreshTopIssuerChart('remainingDebt');
-                  }}
-                  disabled={loadingTopIssuerChart && topIssuerMetric === 'remainingDebt'}
-                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                    topIssuerMetric === 'remainingDebt'
-                      ? 'bg-action-accent text-slate-950'
-                      : 'text-text-muted hover:text-text-base'
-                  }`}
-                >
-                  {t('remainingDebtTitle')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTopIssuerMetric('issuedValue');
-                    refreshTopIssuerChart('issuedValue');
-                  }}
-                  disabled={loadingTopIssuerChart && topIssuerMetric === 'issuedValue'}
-                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                    topIssuerMetric === 'issuedValue'
-                      ? 'bg-action-accent text-slate-950'
-                      : 'text-text-muted hover:text-text-base'
-                  }`}
-                >
-                  {t('totalIssuedValueTitle')}
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-            <ReactECharts ref={topIssuerChartRef} option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} autoResize />
-          </div>
-        </Card>
+          </Card>
         )}
 
-        <div className="col-span-12 flex min-h-0 flex-col space-y-3 lg:col-span-6">
-          {isTopInterestSectionLoading ? (
-            <SectionCardSkeleton className="flex-1" />
+        <div className="order-1 col-span-12 grid min-w-0 grid-cols-12 gap-3 lg:col-span-8">
+          {isIndustryChartSectionLoading ? (
+            <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
           ) : (
-            <Card className="flex flex-none flex-col p-3 md:p-4">
-              <div className="h-80 min-w-0 overflow-hidden md:h-96">
+            <Card className="col-span-12 flex h-96 min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
+              <div className="h-96 overflow-hidden">
                 <ChartWithToolbar
-                  option={topInterestOptions}
+                  key={`market-overview-industry-composition-${industryCompositionMetric}`}
+                  option={industryValueOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  notMerge
+                  title={industryCompositionConfig.title}
+                  showZoomButton={false}
+                  actionsPlacement="below"
+                  headerClassName="gap-1"
+                  belowActionsClassName="mt-0"
+                  chartContainerClassName="pt-2"
+                  actions={(
+                    <select
+                      value={industryCompositionMetric}
+                      onChange={(event) => setIndustryCompositionMetric(event.target.value as IndustryCompositionMetric)}
+                      className="appearance-none rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-xs font-semibold text-text-base outline-none transition-colors hover:border-blue-200 focus:border-border-base focus:outline-none focus:ring-0 focus-visible:outline-none"
+                      aria-label={language === 'vi' ? 'Chọn giá trị biểu đồ ngành' : 'Select industry chart metric'}
+                    >
+                      <option value="issuedValue">{language === 'vi' ? 'Giá trị phát hành' : 'Issued value'}</option>
+                      <option value="listedValue">{language === 'vi' ? 'Giá trị niêm yết' : 'Listed value'}</option>
+                      <option value="remainingDebt">{language === 'vi' ? 'Dư nợ còn lại' : 'Remaining debt'}</option>
+                    </select>
+                  )}
+                />
+              </div>
+            </Card>
+          )}
+
+          {isIndustryChartSectionLoading ? (
+            <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+          ) : (
+            <Card className="col-span-12 flex h-96 min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <ChartWithToolbar
+                  key="market-overview-industry-volume"
+                  option={industryVolumeOptions}
                   style={{ height: '100%', width: '100%' }}
                   allowMagicType
-                  title={topInterestChartTitle}
-                  onDataViewCategoryClick={handleTopInterestCategoryClick}
-                  actions={(
-                    <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTopInterestMetric('highest');
-                          refreshTopInterestChart('highest');
-                        }}
-                        disabled={loadingTopInterestChart && topInterestMetric === 'highest'}
-                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                          topInterestMetric === 'highest'
-                            ? 'bg-action-accent text-slate-950'
-                            : 'text-text-muted hover:text-text-base'
-                        }`}
-                      >
-                        {t('highest')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTopInterestMetric('lowest');
-                          refreshTopInterestChart('lowest');
-                        }}
-                        disabled={loadingTopInterestChart && topInterestMetric === 'lowest'}
-                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                          topInterestMetric === 'lowest'
-                            ? 'bg-action-accent text-slate-950'
-                            : 'text-text-muted hover:text-text-base'
-                        }`}
-                      >
-                        {t('lowest')}
-                      </button>
-                    </div>
-                  )}
+                  notMerge
+                  title={t('volumeByIndustry')}
+                  chartContainerClassName="pt-1"
                 />
               </div>
             </Card>
@@ -1224,112 +1145,156 @@ export default function MarketOverview() {
             pageTitle={t('marketOverview')}
             sectionTitle={t('marketOverview')}
             payload={marketInsightPayload}
-            className="flex min-h-0 flex-1 flex-col"
+            className="col-span-12"
+            expandContent
+            layout="stacked"
           />
         </div>
 
-        {isIndustryChartSectionLoading ? (
-          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        {isTopIssuerSectionLoading ? (
+          <SectionCardSkeleton className="order-2 col-span-12 lg:col-span-4" />
         ) : (
-          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
-            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-              <ChartWithToolbar
-                option={industryValueOptions}
-                style={{ height: '100%', width: '100%' }}
-                allowMagicType
-                title={t('valueByIndustry')}
-              />
+          <Card className="group order-2 col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-4">
+            <div className="flex min-w-0 flex-col gap-2">
+              <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div className="flex min-w-0 justify-start text-left">
+                  <div className="inline-flex max-w-full items-center justify-start gap-2 transition-colors duration-200 group-hover:text-blue-600">
+                    <Landmark className="h-4 w-4 shrink-0 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:text-blue-700" />
+                    <h3 className="text-left text-base font-bold leading-snug break-words text-slate-950 transition-colors duration-200 group-hover:text-blue-600 dark:text-text-base">
+                      {topIssuerMetricTitle}
+                    </h3>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <div className={hoverToolbarClass}>
+                    <button
+                      type="button"
+                      onClick={() => openTopIssuerDataView(false)}
+                      className={topIssuerToolbarButtonClass()}
+                      title={t('dataView')}
+                      aria-label={t('dataView')}
+                    >
+                      <TableProperties className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTopIssuerReset}
+                      className={topIssuerToolbarButtonClass()}
+                      title={t('reset')}
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTopIssuerZoom(true)}
+                      className={topIssuerToolbarButtonClass()}
+                      title="Zoom"
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <select
+                  value={topIssuerMetric}
+                  onChange={(event) => handleTopIssuerMetricChange(event.target.value as 'remainingDebt' | 'issuedValue')}
+                  className="appearance-none rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-xs font-semibold text-text-base outline-none transition-colors hover:border-blue-200 focus:border-border-base focus:outline-none focus:ring-0 focus-visible:outline-none"
+                  aria-label={language === 'vi' ? 'Chọn giá trị xếp hạng doanh nghiệp' : 'Select issuer ranking metric'}
+                >
+                  <option value="issuedValue">{language === 'vi' ? 'Giá trị phát hành' : 'Issued value'}</option>
+                  <option value="remainingDebt">{language === 'vi' ? 'Dư nợ còn lại' : 'Remaining debt'}</option>
+                </select>
+              </div>
+            </div>
+            <div className="min-w-0">
+              {renderTopIssuerRankingList(false)}
             </div>
           </Card>
         )}
 
-        {isIndustryChartSectionLoading ? (
-          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
-        ) : (
-          <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
-            <div className="flex-1 min-h-80 min-w-0 overflow-hidden md:min-h-96">
-              <ChartWithToolbar
-                option={industryVolumeOptions}
-                style={{ height: '100%', width: '100%' }}
-                allowMagicType
-                title={t('volumeByIndustry')}
-              />
-            </div>
-          </Card>
-        )}
-
-        <div ref={projectedCashFlowSectionRef} className="col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
-          {isProjectedCashFlowPending ? (
-            <div className="min-h-80">
-              <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
-            </div>
-          ) : (
-            <div className="h-80 overflow-hidden md:h-96">
-              <ChartWithToolbar
-                option={projectedCashFlowOptions}
-                style={{ height: '360px', width: '100%' }}
-                allowMagicType
-                title={projectedCashFlowTitle}
-                showDataZoomSliderOnHover
-                zoomConfig={{
-                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                    chartStyle: { height: '100%', width: '100%' },
-                    option: {
-                      grid: { bottom: '22%' },
-                      legend: {
-                        bottom: 8,
-                      },
-                      dataZoom: [
+        <div className="order-4 col-span-12 flex min-h-0 flex-col gap-3 lg:col-span-8 lg:h-full">
+          <div
+            ref={projectedCashFlowSectionRef}
+            className="flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-2 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-3 lg:flex-1"
+          >
+            {isProjectedCashFlowPending ? (
+              <div className="h- lg:h-full">
+                <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
+              </div>
+            ) : (
+              <div className="h-86 overflow-hidden">
+                <ChartWithToolbar
+                  key={`market-overview-projected-cash-flow-${cashFlowPeriod}`}
+                  option={projectedCashFlowOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  allowMagicType
+                  notMerge
+                  title={projectedCashFlowTitle}
+                  actionsPlacement="below"
+                  headerClassName="gap-1"
+                  belowActionsClassName="mt-0"
+                  chartContainerClassName="pt-2"
+                  showDataZoomSliderOnHover
+                  zoomConfig={{
+                    shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                      chartStyle: { height: '100%', width: '100%' },
+                      option: {
+                        grid: { top: '10%', bottom: '20%', left: '8%', right: '6%' },
+                        legend: {
+                          bottom: 4,
+                        },
+                        dataZoom: [
                       {
-                        type: 'inside',
-                        xAxisIndex: 0,
-                        filterMode: 'none',
-                      },
-                        {
+                          type: 'inside',
+                          xAxisIndex: 0,
+                          filterMode: 'none',
+                        },
+                          {
                           type: 'slider',
                           xAxisIndex: 0,
                           height: 18,
-                          bottom: 44,
+                          bottom: 36,
                           filterMode: 'none',
                           brushSelect: false,
                           textStyle: valueLabelStyle,
-                      },
-                    ],
-                  },
-                }}
-                actions={(
-                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                    {(['month', 'year'] as const).map((period) => (
-                      <button
-                        key={period}
-                        type="button"
-                        onClick={() => setCashFlowPeriod(period)}
-                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                          cashFlowPeriod === period
-                            ? 'bg-action-accent text-slate-950'
-                            : 'text-text-muted hover:text-text-base'
-                        }`}
-                      >
-                        {period === 'month' ? t('month') : t('year')}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              />
-            </div>
-          )}
+                        },
+                      ],
+                    },
+                  }}
+                  actions={(
+                    <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                      {(['month', 'year'] as const).map((period) => (
+                        <button
+                          key={period}
+                          type="button"
+                          onClick={() => setCashFlowPeriod(period)}
+                          className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                            cashFlowPeriod === period
+                              ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
+                              : 'text-text-muted hover:text-text-base'
+                          }`}
+                        >
+                          {period === 'month' ? t('month') : t('year')}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                />
+              </div>
+            )}
+          </div>
+
+          <AIInsightPanel
+            cacheKey="market-overview-cash-flow-insight"
+            title={cashFlowInsightTitle}
+            pageTitle={t('marketOverview')}
+            sectionTitle={cashFlowInsightTitle}
+            payload={cashFlowInsightPayload}
+            expandContent
+            layout="stacked"
+          />
         </div>
-
-        <AIInsightPanel
-          cacheKey="market-overview-structure-insight"
-          title={marketFlowInsightTitle}
-          pageTitle={t('marketOverview')}
-          sectionTitle={projectedCashFlowTitle}
-          payload={marketFlowInsightPayload}
-          className="col-span-12"
-        />
-
-        <RelatedNewsPanel className="col-span-12" />
       </div>
 
       <ChartDataViewModal
@@ -1377,71 +1342,24 @@ export default function MarketOverview() {
                   </button>
                   <button
                     type="button"
-                    disabled
-                    className={topIssuerToolbarButtonClass(true)}
-                    title={t('lineChart')}
-                  >
-                    <LineChart className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    className={topIssuerToolbarButtonClass(true)}
-                    title={t('columnChart')}
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
                     onClick={handleTopIssuerReset}
                     className={topIssuerToolbarButtonClass()}
                     title={t('reset')}
                   >
                     <RotateCcw className="h-4 w-4" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleTopIssuerDownload}
-                    className={topIssuerToolbarButtonClass()}
-                    title={t('download')}
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
                 </div>
                 </div>
                 <div className="mt-2 flex justify-end text-right">
-                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTopIssuerMetric('remainingDebt');
-                        refreshTopIssuerChart('remainingDebt');
-                      }}
-                      disabled={loadingTopIssuerChart && topIssuerMetric === 'remainingDebt'}
-                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                        topIssuerMetric === 'remainingDebt'
-                          ? 'bg-action-accent text-slate-950'
-                          : 'text-text-muted hover:text-text-base'
-                      }`}
-                    >
-                      {t('remainingDebtTitle')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTopIssuerMetric('issuedValue');
-                        refreshTopIssuerChart('issuedValue');
-                      }}
-                      disabled={loadingTopIssuerChart && topIssuerMetric === 'issuedValue'}
-                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                        topIssuerMetric === 'issuedValue'
-                          ? 'bg-action-accent text-slate-950'
-                          : 'text-text-muted hover:text-text-base'
-                      }`}
-                    >
-                      {t('totalIssuedValueTitle')}
-                    </button>
-                  </div>
+                  <select
+                    value={topIssuerMetric}
+                    onChange={(event) => handleTopIssuerMetricChange(event.target.value as 'remainingDebt' | 'issuedValue')}
+                    className="appearance-none rounded-lg border border-border-base bg-bg-surface px-3 py-2 text-xs font-semibold text-text-base outline-none transition-colors hover:border-blue-200 focus:border-border-base focus:outline-none focus:ring-0 focus-visible:outline-none"
+                    aria-label={language === 'vi' ? 'Chọn giá trị xếp hạng doanh nghiệp' : 'Select issuer ranking metric'}
+                  >
+                    <option value="issuedValue">{language === 'vi' ? 'Giá trị phát hành' : 'Issued value'}</option>
+                    <option value="remainingDebt">{language === 'vi' ? 'Dư nợ còn lại' : 'Remaining debt'}</option>
+                  </select>
                 </div>
               </div>
               <button
@@ -1454,7 +1372,7 @@ export default function MarketOverview() {
               </button>
             </div>
             <div className="flex-1 min-h-0 px-4 pb-4 pt-2">
-              <ReactECharts option={themedTopIssuerOptions} style={{ height: '100%', width: '100%' }} autoResize />
+              {renderTopIssuerRankingList(true)}
             </div>
           </div>
         </div>

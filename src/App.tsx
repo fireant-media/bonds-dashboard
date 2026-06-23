@@ -481,39 +481,42 @@ export default function App() {
     activeTab === 'watchlist';
 
   return (
-    <div className="h-dvh overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 flex flex-col">
-      <Header 
-        onProfileClick={() => setActiveTab('profile')} 
-        onHelpClick={() => setActiveTab('help')}
-        onLogoClick={() => setActiveTab('overview')}
-        onLogout={handleLogout}
-        onSearchSelect={handleSearchSelect}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        activeIndustry={activeIndustry}
-        setActiveIndustry={setActiveIndustry}
-        activeFilterSubTab={filterSubTab || 'issuer'}
-        setActiveFilterSubTab={setActiveFilterSubTab}
-      />
-      
+    <div className="flex h-dvh flex-col overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 lg:flex-row">
+      {!isProfileMode && isDashboardSidebarMode && (
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          activeIndustry={activeIndustry}
+          setActiveIndustry={setActiveIndustry}
+          activeFilterSubTab={filterSubTab || 'issuer'}
+          setActiveFilterSubTab={setActiveFilterSubTab}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
+        />
+      )}
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <Header
+          onProfileClick={() => setActiveTab('profile')}
+          onHelpClick={() => setActiveTab('help')}
+          onLogoClick={() => setActiveTab('overview')}
+          onLogout={handleLogout}
+          onSearchSelect={handleSearchSelect}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          activeIndustry={activeIndustry}
+          setActiveIndustry={setActiveIndustry}
+          activeFilterSubTab={filterSubTab || 'issuer'}
+          setActiveFilterSubTab={setActiveFilterSubTab}
+          showDesktopBrand={isProfileMode || !isDashboardSidebarMode}
+        />
+
       <div className="flex flex-1 min-h-0 flex-col relative items-stretch overflow-hidden">
         <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
           <div className={cn(
             "flex h-full min-h-0 w-full items-stretch overflow-hidden transition-all duration-300",
             !isProfileMode ? "bg-bg-base" : "h-full"
           )}>
-            {!isProfileMode && isDashboardSidebarMode && (
-              <Sidebar
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                activeIndustry={activeIndustry}
-                setActiveIndustry={setActiveIndustry}
-                activeFilterSubTab={filterSubTab || 'issuer'}
-                setActiveFilterSubTab={setActiveFilterSubTab}
-                isCollapsed={isSidebarCollapsed}
-                onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
-              />
-            )}
             <main className="flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
               <div
                 ref={scrollContainerRef}
@@ -580,6 +583,7 @@ export default function App() {
             </main>
           </div>
         </div>
+      </div>
       </div>
 
       <Suspense fallback={null}>
