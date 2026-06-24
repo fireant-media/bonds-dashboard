@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BadgeDollarSign, Boxes, Hash, Landmark, Maximize2, RotateCcw, TableProperties, Wallet, X } from 'lucide-react';
+import { BadgeDollarSign, Boxes, EllipsisVertical, Hash, Landmark, Maximize2, RotateCcw, TableProperties, TrendingUp, Wallet, X } from 'lucide-react';
 import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
 
 interface ProjectedCashFlowBucket {
@@ -50,6 +50,46 @@ const roundMetric = (value: number, digits = 2) => {
   return Number(value.toFixed(digits));
 };
 
+const wrapAxisLabel = (label: string, maxLineLength = 12) => {
+  const normalized = String(label || '').trim();
+  if (!normalized) return '';
+
+  const words = normalized.split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = '';
+
+  words.forEach((word) => {
+    if (word.length > maxLineLength) {
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = '';
+      }
+
+      for (let index = 0; index < word.length; index += maxLineLength) {
+        lines.push(word.slice(index, index + maxLineLength));
+      }
+      return;
+    }
+
+    const nextLine = currentLine ? `${currentLine} ${word}` : word;
+    if (nextLine.length <= maxLineLength) {
+      currentLine = nextLine;
+      return;
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+    currentLine = word;
+  });
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines.join('\n');
+};
+
 export default function MarketOverview() {
   const navigate = useNavigate();
   const { effectiveTheme } = useTheme();
@@ -85,10 +125,15 @@ export default function MarketOverview() {
   const [showTopIssuerDataView, setShowTopIssuerDataView] = useState(false);
   const [showTopIssuerDataViewBackButton, setShowTopIssuerDataViewBackButton] = useState(false);
   const [showTopIssuerZoom, setShowTopIssuerZoom] = useState(false);
+  const [showTopIssuerMenu, setShowTopIssuerMenu] = useState(false);
+  const [showTopInterestMenu, setShowTopInterestMenu] = useState(false);
+  const [showTopInterestDataView, setShowTopInterestDataView] = useState(false);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
   const [projectedCashFlowBuckets, setProjectedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>(cachedProjectedCashFlows);
   const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
+  const topIssuerMenuRef = useRef<HTMLDivElement | null>(null);
+  const topInterestMenuRef = useRef<HTMLDivElement | null>(null);
 
   const legendStyle = {
     fontSize: 11,
@@ -584,6 +629,16 @@ export default function MarketOverview() {
       .filter((item) => item.value > 0)
       .sort((left, right) => right.value - left.value)
   ), [deferredIndustryData, industryCompositionConfig.selectorKey, t]);
+  const industryVolumeCategories = useMemo(
+    () => (industryData.length > 0 ? industryData.map((item) => t(item.icbName as any)) : []),
+    [industryData, t]
+  );
+  const industryVolumeAxisRotate = useMemo(() => {
+    const maxLabelLength = industryVolumeCategories.reduce((max, label) => Math.max(max, label.length), 0);
+    if (industryVolumeCategories.length >= 10 || maxLabelLength >= 20) return 48;
+    if (industryVolumeCategories.length >= 8 || maxLabelLength >= 14) return 36;
+    return 0;
+  }, [industryVolumeCategories]);
   const marketInsightTitle = language === 'vi'
     ? 'NH\u1eacN X\u00c9T T\u1ed4NG QUAN'
     : 'OVERVIEW COMMENTARY';
@@ -638,6 +693,18 @@ export default function MarketOverview() {
     { label: t('remainingDebtTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
     { label: t('totalIssuedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
   ]), [t]);
+  const topInterestDataViewRows = useMemo(() => (
+    topInterestRankingItems.map((item) => ([
+      item.bondCode,
+      formatNumber(item.bondRate, 2),
+      item.remainingTermLabel,
+    ]))
+  ), [topInterestRankingItems]);
+  const topInterestDataViewColumns: ChartDataTableColumn[] = useMemo(() => ([
+    { label: t('ticker'), align: 'center', kind: 'text' },
+    { label: t('interestRate'), unit: '%', align: 'right', kind: 'number' },
+    { label: language === 'vi' ? 'Kỳ hạn còn lại' : 'Remaining term', align: 'left', kind: 'text' },
+  ]), [language, t]);
 
   const handleTopIssuerCategoryClick = (ticker: string) => {
     const normalizedTicker = String(ticker || '').trim();
@@ -740,17 +807,7 @@ export default function MarketOverview() {
       textStyle: tooltipTextStyle,
       formatter: (params: any) => `${params.name}<br/>${params.marker}${industryCompositionConfig.label}: ${highlightChartTooltipValue(formatNumber(params.value, 2), ` ${t('unitBillionVND')}`)}`,
     },
-    legend: {
-      type: 'plain',
-      orient: 'vertical',
-      top: 20,
-      bottom: 20,
-      right: 0,
-      itemWidth: 10,
-      itemHeight: 10,
-      itemGap: 8,
-      textStyle: legendStyle,
-    },
+    legend: { show: false },
     graphic: industryCompositionData.length === 0 ? {
       type: 'text',
       left: 'center',
@@ -768,11 +825,25 @@ export default function MarketOverview() {
         name: industryCompositionConfig.label,
         type: 'pie',
         radius: '68%',
-        center: ['31%', '50%'],
+        center: ['50%', '54%'],
         avoidLabelOverlap: true,
         minAngle: 4,
-        label: { show: false },
-        labelLine: { show: false },
+        label: {
+          show: true,
+          color: chartTheme.text,
+          fontSize: 11,
+          fontWeight: 700,
+          lineHeight: 15,
+          formatter: (params: any) => `${params.name}\n${formatNumber(params.percent || 0, 1)}%`,
+        },
+        labelLine: {
+          show: true,
+          length: 10,
+          length2: 8,
+          lineStyle: {
+            color: chartTheme.subText,
+          },
+        },
         itemStyle: {
           borderRadius: 4,
           borderColor: isDark ? '#0f172a' : '#ffffff',
@@ -810,11 +881,23 @@ export default function MarketOverview() {
       }
     },
     legend: { bottom: 0, itemWidth: 10, itemHeight: 10, textStyle: legendStyle },
-    grid: { left: '3%', right: '6%', top: '10%', bottom: '5%', containLabel: true },
+    grid: { left: '6%', right: '4%', top: '12%', bottom: '8%', containLabel: true },
     xAxis: { 
       type: 'category', 
-      data: industryData.length > 0 ? industryData.map(d => t(d.icbName as any)) : [], 
-      axisLabel: { ...categoryLabelStyle, rotate: 45 } 
+      data: industryVolumeCategories,
+      axisTick: {
+        alignWithLabel: true,
+      },
+      axisLabel: {
+        ...categoryLabelStyle,
+        interval: 0,
+        rotate: industryVolumeAxisRotate,
+        margin: industryVolumeAxisRotate > 0 ? 16 : 12,
+        lineHeight: 14,
+        hideOverlap: false,
+        fontSize: industryVolumeAxisRotate > 0 ? 10 : categoryLabelStyle.fontSize,
+        formatter: (value: string) => String(value || ''),
+      },
     },
     yAxis: { 
       type: 'value', 
@@ -935,6 +1018,7 @@ export default function MarketOverview() {
   };
 
   const handleTopIssuerReset = () => {
+    closeOverviewMenus();
     setTopIssuerMetric('remainingDebt');
     setShowTopIssuerDataView(false);
     setShowTopIssuerDataViewBackButton(false);
@@ -942,6 +1026,7 @@ export default function MarketOverview() {
   };
 
   const openTopIssuerDataView = (fromZoom = false) => {
+    closeOverviewMenus();
     setShowTopIssuerDataViewBackButton(fromZoom);
     setShowTopIssuerDataView(true);
     if (fromZoom) {
@@ -962,6 +1047,11 @@ export default function MarketOverview() {
     }
   };
 
+  const closeOverviewMenus = () => {
+    setShowTopIssuerMenu(false);
+    setShowTopInterestMenu(false);
+  };
+
   const topIssuerToolbarButtonClass = (disabled = false) => (
     `rounded-md p-1.5 transition-colors ${
       disabled
@@ -969,9 +1059,39 @@ export default function MarketOverview() {
         : 'text-text-muted hover:bg-surface-container-low hover:text-text-highlight'
     }`
   );
+  const overviewMenuTriggerButtonClass =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600';
+  const overviewMenuPanelClass =
+    'absolute right-0 top-full z-20 mt-2 min-w-44 rounded-lg border border-border-base bg-bg-surface p-1.5 shadow-lg shadow-blue-950/10 dark:shadow-black/30';
+  const overviewMenuItemClass =
+    'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs font-semibold text-text-base transition-colors hover:bg-surface-container-low';
 
   const hoverToolbarClass =
     'flex flex-wrap items-center justify-end gap-1 text-text-muted opacity-100 pointer-events-auto lg:flex-nowrap lg:opacity-0 lg:pointer-events-none lg:transition-opacity lg:duration-200 lg:ease-out lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto';
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (topIssuerMenuRef.current?.contains(target) || topInterestMenuRef.current?.contains(target)) {
+        return;
+      }
+      closeOverviewMenus();
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeOverviewMenus();
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
 
   const hasAnyOverviewData = issuerStatsData.length > 0 || topInterestData.length > 0 || industryData.length > 0;
   const marketOverviewError = !hasAnyOverviewData
@@ -1029,58 +1149,6 @@ export default function MarketOverview() {
             ))}
         </div>
 
-        {isTopInterestSectionLoading ? (
-          <SectionCardSkeleton className="order-5 col-span-12 lg:col-span-4 lg:h-full" />
-        ) : (
-          <Card className="order-5 col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-4 lg:h-full">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <h3 className="text-left text-base font-bold leading-snug text-text-base">
-                {language === 'vi' ? 'Top 10 mã trái phiếu lãi suất cao nhất' : 'Top 10 bonds with the highest interest rate'}
-              </h3>
-            </div>
-            <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="grid min-h-0 flex-1 gap-1.5">
-                {topInterestRankingItems.length === 0 ? (
-                  <div className="flex items-center justify-center py-6 text-sm font-medium text-text-muted">
-                    {t('noData')}
-                  </div>
-                ) : (
-                  topInterestRankingItems.map((item) => {
-                    const filledDots = Math.max(1, Math.min(10, Math.round(item.rateRatio * 10)));
-
-                    return (
-                      <button
-                        key={`${item.bondCode}-${item.rank}`}
-                        type="button"
-                        className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 border-b border-border-base/60 px-1.5 py-2 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 cursor-pointer"
-                        onClick={() => navigate(`/${encodeURIComponent(item.bondCode)}`)}
-                      >
-                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm shadow-blue-500/10 dark:bg-blue-500/10 dark:text-blue-300">
-                          {item.rank}
-                        </div>
-                        <div className="min-w-0 text-sm font-semibold text-text-base whitespace-nowrap">
-                          {item.bondCode}
-                        </div>
-                        <div className="inline-flex min-w-[88px] items-center justify-center rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
-                          {formatInterestRate(item.bondRate)} %
-                        </div>
-                        <div className="flex items-center justify-end gap-1.5">
-                          {Array.from({ length: 10 }, (_, index) => (
-                            <span
-                              key={`${item.bondCode}-dot-${index}`}
-                              className={`h-2.5 w-2.5 rounded-full ${index < filledDots ? 'bg-blue-500' : 'bg-surface-container-low'}`}
-                            />
-                          ))}
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </Card>
-        )}
-
         <div className="order-1 col-span-12 grid min-w-0 grid-cols-12 gap-3 lg:col-span-8">
           {isIndustryChartSectionLoading ? (
             <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
@@ -1119,7 +1187,7 @@ export default function MarketOverview() {
             <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
           ) : (
             <Card className="col-span-12 flex h-96 min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-hidden pt-2">
                 <ChartWithToolbar
                   key="market-overview-industry-volume"
                   option={industryVolumeOptions}
@@ -1127,7 +1195,8 @@ export default function MarketOverview() {
                   allowMagicType
                   notMerge
                   title={t('volumeByIndustry')}
-                  chartContainerClassName="pt-1"
+                  headerClassName="gap-1"
+                  chartContainerClassName="pt-0"
                 />
               </div>
             </Card>
@@ -1159,34 +1228,51 @@ export default function MarketOverview() {
                     </h3>
                   </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                  <div className={hoverToolbarClass}>
-                    <button
-                      type="button"
-                      onClick={() => openTopIssuerDataView(false)}
-                      className={topIssuerToolbarButtonClass()}
-                      title={t('dataView')}
-                      aria-label={t('dataView')}
-                    >
-                      <TableProperties className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleTopIssuerReset}
-                      className={topIssuerToolbarButtonClass()}
-                      title={t('reset')}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowTopIssuerZoom(true)}
-                      className={topIssuerToolbarButtonClass()}
-                      title="Zoom"
-                    >
-                      <Maximize2 className="h-4 w-4" />
-                    </button>
-                  </div>
+                <div ref={topIssuerMenuRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTopInterestMenu(false);
+                      setShowTopIssuerMenu((previous) => !previous);
+                    }}
+                    className={overviewMenuTriggerButtonClass}
+                    title={t('moreOptions') || 'More options'}
+                    aria-label={t('moreOptions') || 'More options'}
+                    aria-expanded={showTopIssuerMenu}
+                  >
+                    <EllipsisVertical className="h-4 w-4" />
+                  </button>
+                  {showTopIssuerMenu ? (
+                    <div className={overviewMenuPanelClass}>
+                      <button
+                        type="button"
+                        onClick={() => openTopIssuerDataView(false)}
+                        className={overviewMenuItemClass}
+                      >
+                        <TableProperties className="h-4 w-4 shrink-0" />
+                        <span>{t('dataView')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleTopIssuerReset}
+                        className={overviewMenuItemClass}
+                      >
+                        <RotateCcw className="h-4 w-4 shrink-0" />
+                        <span>{t('reset')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeOverviewMenus();
+                          setShowTopIssuerZoom(true);
+                        }}
+                        className={overviewMenuItemClass}
+                      >
+                        <Maximize2 className="h-4 w-4 shrink-0" />
+                        <span>{t('zoom')}</span>
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
               <div className="flex justify-end">
@@ -1207,17 +1293,104 @@ export default function MarketOverview() {
           </Card>
         )}
 
-        <div className="order-4 col-span-12 flex min-h-0 flex-col gap-3 lg:col-span-8 lg:h-full">
+        {isTopInterestSectionLoading ? (
+          <SectionCardSkeleton className="order-4 col-span-12 lg:col-span-4 lg:h-full" />
+        ) : (
+          <Card className="order-4 col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-4 lg:h-full">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="inline-flex min-w-0 items-center gap-2">
+                <TrendingUp className="h-4 w-4 shrink-0 text-blue-600" />
+                <h3 className="text-left text-base font-bold leading-snug text-text-base">
+                  {language === 'vi' ? 'Top 10 mã trái phiếu lãi suất cao nhất' : 'Top 10 bonds with the highest interest rate'}
+                </h3>
+              </div>
+              <div ref={topInterestMenuRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTopIssuerMenu(false);
+                    setShowTopInterestMenu((previous) => !previous);
+                  }}
+                  className={overviewMenuTriggerButtonClass}
+                  title={t('moreOptions') || 'More options'}
+                  aria-label={t('moreOptions') || 'More options'}
+                  aria-expanded={showTopInterestMenu}
+                >
+                  <EllipsisVertical className="h-4 w-4" />
+                </button>
+                {showTopInterestMenu ? (
+                  <div className={overviewMenuPanelClass}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeOverviewMenus();
+                        setShowTopInterestDataView(true);
+                      }}
+                      className={overviewMenuItemClass}
+                    >
+                      <TableProperties className="h-4 w-4 shrink-0" />
+                      <span>{t('dataView')}</span>
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="grid min-h-0 flex-1 gap-1.5">
+                {topInterestRankingItems.length === 0 ? (
+                  <div className="flex items-center justify-center py-6 text-sm font-medium text-text-muted">
+                    {t('noData')}
+                  </div>
+                ) : (
+                  topInterestRankingItems.map((item) => {
+                    const filledDots = Math.max(1, Math.min(10, Math.round(item.rateRatio * 10)));
+
+                    return (
+                      <button
+                        key={`${item.bondCode}-${item.rank}`}
+                        type="button"
+                        className="flex items-center gap-3 border-b border-border-base/60 px-1.5 py-2 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 cursor-pointer"
+                        onClick={() => navigate(`/${encodeURIComponent(item.bondCode)}`)}
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm shadow-blue-500/10 dark:bg-blue-500/10 dark:text-blue-300">
+                          {item.rank}
+                        </div>
+                        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-text-base">
+                          {item.bondCode}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+                          <div className="inline-flex min-w-16 items-center justify-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300 sm:min-w-20 sm:px-2.5 sm:text-sm">
+                            {formatInterestRate(item.bondRate)} %
+                          </div>
+                          <div className="flex items-center justify-end gap-1">
+                            {Array.from({ length: 10 }, (_, index) => (
+                              <span
+                                key={`${item.bondCode}-dot-${index}`}
+                                className={`${index < filledDots ? 'bg-blue-500' : 'bg-surface-container-low'} h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        <div className="order-5 col-span-12 flex min-h-0 flex-col gap-3 lg:col-span-8">
           <div
             ref={projectedCashFlowSectionRef}
-            className="flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-2 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-3 lg:flex-1"
+            className="flex shrink-0 min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-2 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-3"
           >
             {isProjectedCashFlowPending ? (
-              <div className="h- lg:h-full">
+              <div className="h-80 shrink-0 md:h-96">
                 <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
               </div>
             ) : (
-              <div className="h-86 overflow-hidden">
+              <div className="h-80 shrink-0 overflow-hidden md:h-96">
                 <ChartWithToolbar
                   key={`market-overview-projected-cash-flow-${cashFlowPeriod}`}
                   option={projectedCashFlowOptions}
@@ -1302,6 +1475,16 @@ export default function MarketOverview() {
         fileNameBase={`top-issuer-${topIssuerMetric}`}
         sheetName={topIssuerMetricTitle}
         onCategoryClick={handleTopIssuerCategoryClick}
+      />
+
+      <ChartDataViewModal
+        isOpen={showTopInterestDataView}
+        title={language === 'vi' ? 'Top 10 mã trái phiếu lãi suất cao nhất' : 'Top 10 bonds with the highest interest rate'}
+        columns={topInterestDataViewColumns}
+        rows={topInterestDataViewRows}
+        onClose={() => setShowTopInterestDataView(false)}
+        fileNameBase="top-interest-bonds"
+        sheetName={language === 'vi' ? 'Top lai suat cao' : 'Top interest bonds'}
       />
 
       {showTopIssuerZoom && (

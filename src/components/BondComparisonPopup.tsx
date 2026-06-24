@@ -20,10 +20,10 @@ const MAX_SELECTED_BONDS = 10;
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded' },
   { hasError: boolean; error: Error | null }
 > {
-  constructor(props: { children: ReactNode }) {
+  constructor(props: { children: ReactNode; sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded' }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
@@ -38,8 +38,15 @@ class BondComparisonErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
+      const sidebarOffsetClass =
+        this.props.sidebarDisplayMode === 'expanded'
+          ? 'lg:left-72'
+          : this.props.sidebarDisplayMode === 'collapsed'
+            ? 'lg:left-16'
+            : 'lg:left-0';
+
       return (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+        <div className={`fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm ${sidebarOffsetClass}`}>
           <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center">
             <p className="text-red-400 font-bold mb-2">Display Error</p>
             <p className="text-red-300 text-sm mb-4">{this.state.error?.message}</p>
@@ -58,9 +65,16 @@ interface BondComparisonPopupProps {
   primaryEnterpriseName?: string;
   onClose: () => void;
   onBack: () => void;
+  sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded';
 }
 
-function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBack }: BondComparisonPopupProps) {
+function BondComparisonPopup({
+  primaryBond,
+  primaryEnterpriseName,
+  onClose,
+  onBack,
+  sidebarDisplayMode = 'none',
+}: BondComparisonPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -1302,7 +1316,13 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
 
   return (
     <div 
-      className="fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
+      className={`fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300 ${
+        sidebarDisplayMode === 'expanded'
+          ? 'lg:left-72'
+          : sidebarDisplayMode === 'collapsed'
+            ? 'lg:left-16'
+            : 'lg:left-0'
+      }`}
       onClick={onClose}
     >
       <div 
@@ -1570,9 +1590,9 @@ function BondComparisonPopup({ primaryBond, primaryEnterpriseName, onClose, onBa
 }
 
 // Export wrapped with error boundary
-export default function BondComparisonPopupWrapper(props: any) {
+export default function BondComparisonPopupWrapper(props: BondComparisonPopupProps) {
   return (
-    <BondComparisonErrorBoundary>
+    <BondComparisonErrorBoundary sidebarDisplayMode={props.sidebarDisplayMode}>
       <BondComparisonPopup {...props} />
     </BondComparisonErrorBoundary>
   );

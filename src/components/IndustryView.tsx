@@ -5,7 +5,7 @@ import AIInsightPanel from './AIInsightPanel';
 import { IndustryType } from '../types';
 import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BadgeDollarSign, Boxes, GalleryVerticalEnd, Landmark, Wallet, type LucideIcon } from 'lucide-react';
+import { BadgeDollarSign, BarChart3, Boxes, GalleryVerticalEnd, Landmark, LayoutGrid, Percent, PieChart, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
 
 interface IndustryViewProps {
   industry: IndustryType;
@@ -13,10 +13,10 @@ interface IndustryViewProps {
 
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
+import { getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
-import { Card, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
+import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
 import { useIndustryBaseDashboardQuery, useIndustryFullDashboardQuery } from '../query/dashboardQueries';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
 import { type IndustryData } from '../services/marketOverviewData';
@@ -63,64 +63,111 @@ interface IndustryMetricCardProps {
 }
 
 const chartCardClassName = 'col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4';
+const topChartCardClassName = 'flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4';
 
-const metricToneClasses: Record<IndustryMetricTone, { icon: string; line: string; glow: string }> = {
+const metricToneClasses: Record<IndustryMetricTone, { card: string; icon: string; glow: string; value: string; sparkline: string }> = {
   blue: {
+    card: 'hover:border-blue-200 hover:shadow-blue-500/10',
     icon: 'from-blue-500 to-blue-400 shadow-blue-500/25',
-    line: 'text-blue-500',
     glow: 'from-blue-50/90 dark:from-blue-500/10',
+    value: 'group-hover:text-blue-700',
+    sparkline: 'text-blue-500',
   },
   purple: {
+    card: 'hover:border-violet-200 hover:shadow-violet-500/10',
     icon: 'from-violet-500 to-violet-400 shadow-violet-500/25',
-    line: 'text-violet-500',
     glow: 'from-violet-50/90 dark:from-violet-500/10',
+    value: 'group-hover:text-violet-700',
+    sparkline: 'text-violet-500',
   },
   green: {
+    card: 'hover:border-emerald-200 hover:shadow-emerald-500/10',
     icon: 'from-emerald-500 to-emerald-400 shadow-emerald-500/25',
-    line: 'text-emerald-500',
     glow: 'from-emerald-50/90 dark:from-emerald-500/10',
+    value: 'group-hover:text-emerald-700',
+    sparkline: 'text-emerald-500',
   },
   cyan: {
+    card: 'hover:border-cyan-200 hover:shadow-cyan-500/10',
     icon: 'from-cyan-500 to-cyan-300 shadow-cyan-500/25',
-    line: 'text-cyan-500',
     glow: 'from-cyan-50/90 dark:from-cyan-500/10',
+    value: 'group-hover:text-cyan-700',
+    sparkline: 'text-cyan-500',
   },
   indigo: {
+    card: 'hover:border-indigo-200 hover:shadow-indigo-500/10',
     icon: 'from-indigo-500 to-blue-400 shadow-indigo-500/25',
-    line: 'text-indigo-500',
     glow: 'from-indigo-50/90 dark:from-indigo-500/10',
+    value: 'group-hover:text-indigo-700',
+    sparkline: 'text-indigo-500',
   },
   orange: {
+    card: 'hover:border-orange-200 hover:shadow-orange-500/10',
     icon: 'from-orange-500 to-amber-400 shadow-orange-500/25',
-    line: 'text-orange-500',
     glow: 'from-orange-50/90 dark:from-orange-500/10',
+    value: 'group-hover:text-orange-700',
+    sparkline: 'text-orange-500',
+  },
+};
+
+const decorativeMetricLines: Record<IndustryMetricTone, { line: string; area: string }> = {
+  blue: {
+    line: '0,26 14,22 28,24 42,16 56,18 70,10 84,14 98,8 112,12 120,6',
+    area: '0,28 0,26 14,22 28,24 42,16 56,18 70,10 84,14 98,8 112,12 120,6 120,28',
+  },
+  purple: {
+    line: '0,20 16,24 30,18 46,22 60,12 74,16 88,10 102,14 114,8 120,11',
+    area: '0,28 0,20 16,24 30,18 46,22 60,12 74,16 88,10 102,14 114,8 120,11 120,28',
+  },
+  green: {
+    line: '0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7',
+    area: '0,28 0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7 120,28',
+  },
+  cyan: {
+    line: '0,22 14,18 28,20 42,12 56,14 70,8 84,10 98,6 112,9 120,5',
+    area: '0,28 0,22 14,18 28,20 42,12 56,14 70,8 84,10 98,6 112,9 120,5 120,28',
+  },
+  indigo: {
+    line: '0,24 12,22 24,24 38,18 52,20 66,12 80,14 94,8 108,10 120,6',
+    area: '0,28 0,24 12,22 24,24 38,18 52,20 66,12 80,14 94,8 108,10 120,6 120,28',
+  },
+  orange: {
+    line: '0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9',
+    area: '0,28 0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9 120,28',
   },
 };
 
 function IndustryMetricCard({ label, value, unit, icon: Icon, tone }: IndustryMetricCardProps) {
   const toneClass = metricToneClasses[tone];
+  const decorativeLine = decorativeMetricLines[tone];
 
   return (
-    <Card className="group relative min-h-40 p-4 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10">
-      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t to-transparent ${toneClass.glow}`} />
-      <div className="relative flex min-h-32 flex-col justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg ${toneClass.icon}`}>
-            <Icon className="h-6 w-6" />
+    <Card className={`group relative p-3 transition-all duration-200 hover:shadow-lg ${toneClass.card}`}>
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t to-transparent opacity-80 ${toneClass.glow}`} />
+      <div className="pointer-events-none absolute inset-x-3 bottom-2">
+        <svg viewBox="0 0 120 28" preserveAspectRatio="none" className={`h-9 w-full ${toneClass.sparkline}`} aria-hidden="true">
+          <polygon points={decorativeLine.area} fill="currentColor" opacity="0.06" />
+          <polyline points={decorativeLine.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.32" />
+        </svg>
+      </div>
+      <div className="relative flex min-h-28 min-w-0 flex-col gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg transition-colors duration-200 ${toneClass.icon}`}>
+            <Icon className="h-5 w-5" />
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="break-words text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 dark:text-text-base">
+          <div className="min-w-0 flex-1 self-center">
+            <p className="break-words text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 transition-colors dark:text-text-base">
               {label}
             </p>
-            <p className="mt-2 break-words text-2xl font-bold leading-tight text-slate-950 transition-colors group-hover:text-blue-600 dark:text-text-base">
-              {value}
-            </p>
-            <p className="mt-1 break-words text-xs font-semibold leading-snug text-text-muted">{unit}</p>
           </div>
         </div>
-        <svg viewBox="0 0 120 26" preserveAspectRatio="none" className={`h-7 w-full ${toneClass.line}`} aria-hidden="true">
-          <polyline points="0,18 12,15 24,17 36,11 48,14 60,8 72,12 84,7 96,10 108,5 120,9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
-        </svg>
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <p className={`break-words text-2xl font-bold leading-tight text-slate-950 transition-colors duration-200 dark:text-text-base md:text-3xl ${toneClass.value}`}>
+            {value}
+          </p>
+          <p className="mt-1 break-words text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
+        </div>
+        <div className="h-4" aria-hidden="true" />
       </div>
     </Card>
   );
@@ -326,6 +373,30 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     '#7279F5',
     '#94D926',
   ], []);
+  const marketSharePalette = useMemo(() => [
+    '#3FB1E3',
+    '#6BE6C1',
+    '#626C91',
+    '#A0A7E6',
+    '#C4EBAD',
+    '#96DEE8',
+    '#4D93F9',
+    '#14C6E4',
+    '#7279F5',
+    '#9974F8',
+  ], []);
+  const treemapPalette = useMemo(() => [
+    '#4D93F9',
+    '#14C6E4',
+    '#7279F5',
+    '#23C68E',
+    '#3FB1E3',
+    '#9974F8',
+    '#6BE6C1',
+    '#626C91',
+    '#A0A7E6',
+    '#96DEE8',
+  ], []);
   const chartTitleStyle = {
     fontSize: 10,
     color: chartTheme.text,
@@ -463,7 +534,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         return {
           value: item.totalRemainingDebt,
           name: item.issuerSymbol || '',
-          itemStyle: { color: chartPalette[idx % chartPalette.length] }
+          itemStyle: { color: marketSharePalette[idx % marketSharePalette.length] }
         };
       });
 
@@ -471,42 +542,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         chartData.push({
           value: othersDebt,
           name: t('others'),
-          itemStyle: { color: chartPalette[9 % chartPalette.length] }
+          itemStyle: { color: marketSharePalette[9 % marketSharePalette.length] }
         });
       }
     }
 
-    const legendGroups = splitLegendItems(chartData.map((item) => item.name), 5, 2);
-    const legendBase = {
-      orient: 'vertical' as const,
-      itemWidth: 8,
-      itemHeight: 8,
-      textStyle: legendStyle,
-    };
-    const legendConfig = legendGroups.length > 1
-      ? [
-          {
-            ...legendBase,
-            right: '22%',
-            top: 'middle',
-            data: legendGroups[0],
-          },
-          {
-            ...legendBase,
-            right: '5%',
-            top: 'middle',
-            data: legendGroups[1],
-          },
-        ]
-      : {
-          ...legendBase,
-          right: '5%',
-          top: 'middle',
-          data: legendGroups[0],
-        };
-
     return {
-      color: chartPalette,
+      color: marketSharePalette,
       grid: undefined,
       xAxis: undefined,
       yAxis: undefined,
@@ -530,16 +572,35 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           return `${displayName}<br/>${t('marketShare')}: ${highlightChartTooltipValue(params.percent, '%')}<br/>${t('remainingDebtTitle')}: ${highlightChartTooltipValue(formatNumber(Math.round(params.value / 1000000000), 0), ` ${t('unitBillionVND')}`)}`;
         }
       },
-      legend: legendConfig,
+      legend: {
+        show: true,
+        orient: 'vertical',
+        right: '4%',
+        top: 'middle',
+        itemWidth: 10,
+        itemHeight: 10,
+        icon: 'circle',
+        textStyle: legendStyle,
+        formatter: (value: string) => value,
+      },
       series: [{
         name: t('marketShare'),
         type: 'pie',
-        radius: ['40%', '70%'],
-        center: ['35%', '50%'],
+        radius: ['46%', '74%'],
+        center: ['34%', '52%'],
         avoidLabelOverlap: false,
         itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
-        label: { show: false },
-        emphasis: { label: { show: true, fontSize: 12, fontWeight: 'bold', formatter: '{d}%' } },
+        label: {
+          show: false,
+        },
+        labelLine: {
+          show: false,
+        },
+        emphasis: {
+          label: {
+            show: false,
+          }
+        },
         data: chartData
       }]
     };
@@ -625,10 +686,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           ? (item.totalIssuedValue / totalIssuedValue) >= 0.045 || (item.totalIssuedValue / 1000000000) >= 40
           : false,
         itemStyle: {
-          color: chartPalette[index % chartPalette.length],
+          color: treemapPalette[index % treemapPalette.length],
         },
       }));
-  }, [deferredRankingData, chartPalette, t]);
+  }, [deferredRankingData, t, treemapPalette]);
 
   const buildTreemapZoomLabel = (params: any) => {
     const data = params?.data || {};
@@ -647,7 +708,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   };
 
   const getIssuedValueTreemapOptions = () => ({
-    color: chartPalette,
+    color: treemapPalette,
     __dataView: {
       columns: [
         { label: t('ticker'), align: 'center', kind: 'text' },
@@ -892,13 +953,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       }
     },
     legend: {
-      bottom: 0,
+      bottom: 18,
       left: 'center',
       itemWidth: 10,
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%' },
+    grid: { top: '8%', bottom: '24%', left: '10%', right: '8%' },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -917,7 +978,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         type: 'slider',
         xAxisIndex: 0,
         height: 18,
-        bottom: 24,
+        bottom: 0,
         filterMode: 'none',
         brushSelect: false,
         textStyle: valueLabelStyle
@@ -989,66 +1050,62 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-4 transition-colors duration-300">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {isIndustrySummaryLoading
           ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
           : kpis.map((kpi, idx) => (
-            <IndustryMetricCard key={`${kpi.label}-${idx}`} label={kpi.label} value={kpi.value} unit={kpi.unit} icon={kpi.icon} tone={kpi.tone} />
+            <MetricCard
+              key={`${kpi.label}-${idx}`}
+              label={kpi.label}
+              value={kpi.value}
+              unit={kpi.unit}
+              icon={kpi.icon}
+              tone={kpi.tone}
+            />
           ))}
       </div>
 
-      <AIInsightPanel
-        cacheKey={`industry-insight-${industry}`}
-        title={industryInsightTitle}
-        pageTitle={industryPageTitle}
-        sectionTitle={getIndustryLabel(industry)}
-        payload={industryInsightPayload}
-        expandContent
-      />
-
-      <div className="grid grid-cols-12 gap-3 lg:items-stretch">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {isIndustryChartsLoading ? (
-          <SectionCardSkeleton className="col-span-12 xl:col-span-4" />
+          <SectionCardSkeleton className="h-80 md:h-96" />
         ) : (
-          <div 
-            className={`${chartCardClassName} xl:col-span-4`}
-          >
-            <div className="h-80 overflow-hidden md:h-96">
+          <div className={`${topChartCardClassName} h-80 md:h-96`}>
+            <div className="min-h-0 flex-1 overflow-hidden">
               <ChartWithToolbar
                 option={marketShareOptions}
                 style={{ height: '100%', width: '100%' }}
                 notMerge
                 title={t('marketShare')}
+                titleIcon={PieChart}
                 onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
                 zoomConfig={{
                   shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
                   chartStyle: { height: '100%', width: '100%' },
                   option: {
+                    color: marketSharePalette,
+                    legend: {
+                      show: true,
+                      orient: 'vertical',
+                      right: '4%',
+                      top: 'middle',
+                      itemWidth: 10,
+                      itemHeight: 10,
+                      icon: 'circle',
+                      textStyle: legendStyle,
+                    },
                     series: [
                       {
-                        center: ['33%', '50%'],
-                        radius: ['42%', '72%'],
+                        center: ['34%', '52%'],
+                        radius: ['46%', '74%'],
                         label: {
-                          show: true,
-                          position: 'outside',
-                          formatter: '{d}%',
-                          color: isDark ? '#e5e7eb' : '#1e293b',
-                          fontSize: 11,
-                          fontWeight: 'bold',
+                          show: false,
                         },
                         labelLine: {
-                          show: true,
-                          length: 12,
-                          length2: 10,
-                          smooth: true,
+                          show: false,
                         },
                         emphasis: {
                           label: {
-                            show: true,
-                            fontSize: 12,
-                            fontWeight: 'bold',
-                            formatter: '{d}%',
-                            color: isDark ? '#e5e7eb' : '#1e293b',
+                            show: false,
                           }
                         },
                       },
@@ -1060,86 +1117,101 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           </div>
         )}
 
+        <AIInsightPanel
+          cacheKey={`industry-insight-${industry}`}
+          title={industryInsightTitle}
+          pageTitle={industryPageTitle}
+          sectionTitle={getIndustryLabel(industry)}
+          payload={industryInsightPayload}
+          expandContent
+          className="h-80 min-w-0 w-full md:h-96"
+        />
+      </div>
+
+      <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {isIndustryChartsLoading ? (
-          <SectionCardSkeleton className="col-span-12 xl:col-span-4" />
+          <>
+            <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+            <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+          </>
         ) : (
-          <div 
-            className={`${chartCardClassName} xl:col-span-4`}
-          >
-            <div className="h-80 overflow-hidden md:h-96">
-              <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} />
+          <>
+            <div className={`${chartCardClassName} lg:col-span-6`}>
+              <div className="h-80 overflow-hidden md:h-96">
+                <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} titleIcon={Percent} />
+              </div>
             </div>
-          </div>
+
+            <div className={`${chartCardClassName} lg:col-span-6`}>
+              {issuedValueTreemapData.length > 0 ? (
+                <div className="h-80 overflow-hidden md:h-96">
+                  <ChartWithToolbar
+                    option={issuedValueTreemapOptions}
+                    style={{ height: '100%', width: '100%' }}
+                    title={industryIssuedValueTreemapLabel}
+                    titleIcon={LayoutGrid}
+                    onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
+                    zoomConfig={{
+                      scale: 1.1,
+                      shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                      chartStyle: { height: '100%', width: '100%' },
+                      option: {
+                        series: [
+                          {
+                            label: {
+                              show: true,
+                              formatter: buildTreemapZoomLabel,
+                              position: 'inside',
+                              distance: 0,
+                              align: 'center',
+                              verticalAlign: 'middle',
+                              padding: 0,
+                              color: isDark ? '#ffffff' : '#111827',
+                              fontSize: 14,
+                              fontFamily: 'Manrope',
+                              fontWeight: 'bold',
+                              overflow: 'break',
+                              lineHeight: 18,
+                            },
+                            emphasis: {
+                              label: {
+                                show: true,
+                                formatter: buildTreemapZoomLabel,
+                                position: 'inside',
+                                distance: 0,
+                                align: 'center',
+                                verticalAlign: 'middle',
+                                padding: 0,
+                                fontWeight: 'bold',
+                                overflow: 'break',
+                                lineHeight: 18,
+                              },
+                            },
+                            upperLabel: { show: false },
+                            breadcrumb: { show: false },
+                          },
+                        ],
+                      },
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex min-h-80 items-center justify-center">
+                  <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
-        <div className={`${chartCardClassName} xl:col-span-4`}>
-          {issuedValueTreemapData.length > 0 ? (
-            <div className="h-80 overflow-hidden md:h-96">
-              <ChartWithToolbar
-                option={issuedValueTreemapOptions}
-                style={{ height: '100%', width: '100%' }}
-                title={industryIssuedValueTreemapLabel}
-                onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
-                zoomConfig={{
-                  scale: 1.1,
-                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                  chartStyle: { height: '100%', width: '100%' },
-                  option: {
-                    series: [
-                      {
-                        label: {
-                          show: true,
-                          formatter: buildTreemapZoomLabel,
-                          position: 'inside',
-                          distance: 0,
-                          align: 'center',
-                          verticalAlign: 'middle',
-                          padding: 0,
-                          color: isDark ? '#ffffff' : '#111827',
-                          fontSize: 14,
-                          fontFamily: 'Manrope',
-                          fontWeight: 'bold',
-                          overflow: 'break',
-                          lineHeight: 18,
-                        },
-                        emphasis: {
-                          label: {
-                            show: true,
-                            formatter: buildTreemapZoomLabel,
-                            position: 'inside',
-                            distance: 0,
-                            align: 'center',
-                            verticalAlign: 'middle',
-                            padding: 0,
-                            fontWeight: 'bold',
-                            overflow: 'break',
-                            lineHeight: 18,
-                          },
-                        },
-                        upperLabel: { show: false },
-                        breadcrumb: { show: false },
-                      },
-                    ],
-                  },
-                }}
-              />
-            </div>
-          ) : (
-            <div className="flex min-h-80 items-center justify-center">
-              <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
-            </div>
-          )}
-        </div>
-
-        <div 
-          className={`${chartCardClassName} lg:col-span-6`}
-        >
+        <div className={`${chartCardClassName} lg:col-span-6`}>
           <div className="h-80 overflow-hidden md:h-96">
             <ChartWithToolbar
               option={combinedOptions}
               style={{ height: '100%', width: '100%' }}
               allowMagicType
               title={combinedChartTitle}
+              titleIcon={BarChart3}
               onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
             />
           </div>
@@ -1158,9 +1230,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           ) : hasProjectedCashFlowData ? (
             <ChartWithToolbar
               option={projectedCashFlowOptions}
-              style={{ height: '360px', width: '100%' }}
+              style={{ height: '100%', width: '100%' }}
               allowMagicType
               title={projectedCashFlowTitle}
+              titleIcon={TrendingUp}
               showDataZoomSliderOnHover
               zoomConfig={{
                 shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',

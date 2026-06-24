@@ -923,10 +923,6 @@ export default function MarketBondFilterView({
 
   return (
     <div className="min-w-0 space-y-2 transition-colors duration-300">
-      <div className="space-y-2">
-        <h2 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('marketBondList')}</h2>
-      </div>
-
       <BondFilterPanel
         title={t('marketBondList')}
         resultCount={filteredRows.length}

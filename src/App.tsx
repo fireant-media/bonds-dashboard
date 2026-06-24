@@ -33,6 +33,69 @@ const isBondCode = (s: string) => {
   return s.length >= 6;
 };
 
+type SidebarDisplayMode = 'none' | 'collapsed' | 'expanded';
+
+type RouteContext = {
+  activeTab: string;
+  activeIndustry?: IndustryType;
+  ticker?: string | null;
+  bondCode?: string | null;
+  filterSubTab?: 'issuer' | 'bonds';
+};
+
+const deriveRouteContext = (pathname: string, urlBondCode?: string | null): RouteContext => {
+  const parts = pathname.split('/').filter(Boolean);
+
+  if (pathname === '/' || pathname === '') {
+    return { activeTab: 'overview', bondCode: urlBondCode || null };
+  }
+
+  if (pathname.startsWith('/industry')) {
+    return {
+      activeTab: 'industry',
+      activeIndustry: (parts[1] || 'Banking') as IndustryType,
+      bondCode: urlBondCode || null,
+    };
+  }
+
+  if (pathname.startsWith('/filter')) {
+    const subTab = parts[1] === 'bonds' ? 'bonds' : 'issuer';
+    return {
+      activeTab: 'filter',
+      filterSubTab: subTab,
+      ticker: subTab === 'issuer' ? parts[2] || null : null,
+      bondCode: urlBondCode || null,
+    };
+  }
+
+  if (pathname.startsWith('/enterprise')) {
+    return {
+      activeTab: 'filter',
+      filterSubTab: 'issuer',
+      ticker: parts[1] || null,
+      bondCode: urlBondCode || null,
+    };
+  }
+
+  if (pathname === '/news-list' || pathname === '/news' || pathname.startsWith('/news/')) {
+    return { activeTab: 'news-list', bondCode: urlBondCode || null };
+  }
+
+  if (pathname === '/watchlist') {
+    return { activeTab: 'watchlist', bondCode: urlBondCode || null };
+  }
+
+  if (pathname === '/profile') {
+    return { activeTab: 'profile', bondCode: urlBondCode || null };
+  }
+
+  if (pathname === '/help') {
+    return { activeTab: 'help', bondCode: urlBondCode || null };
+  }
+
+  return { activeTab: 'overview', bondCode: urlBondCode || null };
+};
+
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -40,58 +103,34 @@ export default function App() {
   
   // Derive activeTab from location.pathname
   const { activeTab, activeIndustry, ticker, bondCode, filterSubTab } = (() => {
-    // If we have a background location (from state), use that to determine the active tab
-    const currentPath = location.state?.backgroundLocation?.pathname || location.pathname;
-    const parts = currentPath.split('/').filter(Boolean);
-    
-    // Check if the actual URL is a bond code first to handle deep links
+    const backgroundPath = location.state?.backgroundLocation?.pathname;
     const directParts = location.pathname.split('/').filter(Boolean);
-    const urlBondCode = (directParts.length === 1 && isBondCode(directParts[0])) ? directParts[0] : null;
+    const urlBondCode = directParts.length === 1 && isBondCode(directParts[0]) ? directParts[0] : null;
 
-    if (currentPath === '/' || currentPath === '') return { activeTab: 'overview', bondCode: urlBondCode };
-    
-    if (currentPath.startsWith('/industry')) {
-      return { 
-        activeTab: 'industry', 
-        activeIndustry: (parts[1] || 'Banking') as IndustryType,
-        bondCode: urlBondCode
-      };
-    }
-    
-    if (currentPath.startsWith('/filter')) {
-      const subTab = parts[1] === 'bonds' ? 'bonds' : 'issuer';
-      return {
-        activeTab: 'filter',
-        filterSubTab: subTab as 'issuer' | 'bonds',
-        ticker: subTab === 'issuer' ? parts[2] || null : null,
-        bondCode: urlBondCode,
-      };
+    if (backgroundPath) {
+      return deriveRouteContext(backgroundPath, urlBondCode);
     }
 
-    if (currentPath.startsWith('/enterprise')) {
-      return { 
-        activeTab: 'filter',
-        filterSubTab: 'issuer' as const,
-        ticker: parts[1] || null,
-        bondCode: urlBondCode
-      };
+    if (urlBondCode) {
+      return { activeTab: 'bond-detail', bondCode: urlBondCode };
     }
-    
-    if (currentPath === '/news-list' || currentPath === '/news') return { activeTab: 'news-list', bondCode: urlBondCode };
-    if (currentPath === '/watchlist') return { activeTab: 'watchlist', bondCode: urlBondCode };
-    
-    if (currentPath.startsWith('/news/')) return { activeTab: 'news-list', bondCode: urlBondCode };
-    
-    if (currentPath === '/profile') return { activeTab: 'profile', bondCode: urlBondCode };
-    if (currentPath === '/help') return { activeTab: 'help', bondCode: urlBondCode };
-    
-    // If it's a direct bond link and no background
-    if (directParts.length === 1 && isBondCode(directParts[0])) {
-      return { activeTab: 'bond-detail', bondCode: directParts[0] };
-    }
-    
-    return { activeTab: 'overview', bondCode: urlBondCode };
+
+    return deriveRouteContext(location.pathname, urlBondCode);
   })();
+
+  const sidebarRouteContext = (() => {
+    const backgroundPath = location.state?.backgroundLocation?.pathname;
+    if (backgroundPath) {
+      return deriveRouteContext(backgroundPath);
+    }
+
+    return activeTab === 'bond-detail'
+      ? { activeTab: 'filter', filterSubTab: 'bonds' as const }
+      : deriveRouteContext(location.pathname);
+  })();
+  const navigationRouteContext = bondCode
+    ? { activeTab: 'filter', filterSubTab: 'bonds' as const }
+    : sidebarRouteContext;
 
   const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | null>(null);
   const [selectedBond, setSelectedBond] = useState<Bond | null>(null);
@@ -479,16 +518,20 @@ export default function App() {
     activeTab === 'industry' ||
     (activeTab === 'filter' && (filterSubTab === 'issuer' || filterSubTab === 'bonds')) ||
     activeTab === 'watchlist';
+  const shouldShowDashboardSidebar = !isProfileMode && (isDashboardSidebarMode || activeTab === 'bond-detail');
+  const sidebarDisplayMode: SidebarDisplayMode = shouldShowDashboardSidebar
+    ? (isSidebarCollapsed ? 'collapsed' : 'expanded')
+    : 'none';
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 lg:flex-row">
-      {!isProfileMode && isDashboardSidebarMode && (
+      {shouldShowDashboardSidebar && (
         <Sidebar
-          activeTab={activeTab}
+          activeTab={navigationRouteContext.activeTab}
           setActiveTab={setActiveTab}
-          activeIndustry={activeIndustry}
+          activeIndustry={navigationRouteContext.activeIndustry}
           setActiveIndustry={setActiveIndustry}
-          activeFilterSubTab={filterSubTab || 'issuer'}
+          activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
           setActiveFilterSubTab={setActiveFilterSubTab}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
@@ -502,13 +545,13 @@ export default function App() {
           onLogoClick={() => setActiveTab('overview')}
           onLogout={handleLogout}
           onSearchSelect={handleSearchSelect}
-          activeTab={activeTab}
+          activeTab={navigationRouteContext.activeTab}
           setActiveTab={setActiveTab}
-          activeIndustry={activeIndustry}
+          activeIndustry={navigationRouteContext.activeIndustry}
           setActiveIndustry={setActiveIndustry}
-          activeFilterSubTab={filterSubTab || 'issuer'}
+          activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
           setActiveFilterSubTab={setActiveFilterSubTab}
-          showDesktopBrand={isProfileMode || !isDashboardSidebarMode}
+          showDesktopBrand={isProfileMode || !shouldShowDashboardSidebar}
         />
 
       <div className="flex flex-1 min-h-0 flex-col relative items-stretch overflow-hidden">
@@ -597,6 +640,7 @@ export default function App() {
             enterpriseName={bondEnterpriseName}
             onClose={() => handleSetSelectedBond(null)}
             onCompare={() => setShowBondComparison(true)}
+            sidebarDisplayMode={sidebarDisplayMode}
           />
         </Suspense>
       )}
@@ -608,6 +652,7 @@ export default function App() {
             primaryEnterpriseName={bondEnterpriseName}
             onBack={() => setShowBondComparison(false)}
             onClose={() => handleSetSelectedBond(null)}
+            sidebarDisplayMode={sidebarDisplayMode}
           />
         </Suspense>
       )}

@@ -25,8 +25,9 @@ interface MetricCardProps {
   value: string;
   unit: string;
   icon?: LucideIcon;
-  tone?: 'blue' | 'purple' | 'green' | 'orange';
+  tone?: 'blue' | 'purple' | 'green' | 'cyan' | 'indigo' | 'orange';
   sparklineValues?: number[];
+  className?: string;
 }
 
 const metricToneClass = {
@@ -51,6 +52,20 @@ const metricToneClass = {
     value: 'group-hover:text-emerald-700',
     sparkline: 'text-ref-green-start',
   },
+  cyan: {
+    card: 'hover:border-cyan-200 hover:shadow-cyan-500/10',
+    icon: 'from-cyan-500 to-cyan-300 shadow-cyan-500/25',
+    glow: 'from-cyan-50/90 dark:from-cyan-500/10',
+    value: 'group-hover:text-cyan-700',
+    sparkline: 'text-cyan-500',
+  },
+  indigo: {
+    card: 'hover:border-indigo-200 hover:shadow-indigo-500/10',
+    icon: 'from-indigo-500 to-blue-400 shadow-indigo-500/25',
+    glow: 'from-indigo-50/90 dark:from-indigo-500/10',
+    value: 'group-hover:text-indigo-700',
+    sparkline: 'text-indigo-500',
+  },
   orange: {
     card: 'hover:border-orange-200 hover:shadow-orange-500/10',
     icon: 'from-ref-orange-start to-ref-orange-end shadow-orange-500/25',
@@ -73,46 +88,56 @@ const decorativeMetricLines = {
     line: '0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7',
     area: '0,28 0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7 120,28',
   },
+  cyan: {
+    line: '0,22 14,18 28,20 42,12 56,14 70,8 84,10 98,6 112,9 120,5',
+    area: '0,28 0,22 14,18 28,20 42,12 56,14 70,8 84,10 98,6 112,9 120,5 120,28',
+  },
+  indigo: {
+    line: '0,24 12,22 24,24 38,18 52,20 66,12 80,14 94,8 108,10 120,6',
+    area: '0,28 0,24 12,22 24,24 38,18 52,20 66,12 80,14 94,8 108,10 120,6 120,28',
+  },
   orange: {
     line: '0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9',
     area: '0,28 0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9 120,28',
   },
 };
 
-export function MetricCard({ label, value, unit, icon: Icon = BarChart3, tone = 'blue' }: MetricCardProps) {
+export function MetricCard({ label, value, unit, icon: Icon = BarChart3, tone = 'blue', className }: MetricCardProps) {
   const toneClass = metricToneClass[tone];
   const decorativeLine = decorativeMetricLines[tone];
 
   return (
-    <Card className={cn('group relative p-4 transition-all duration-200 hover:shadow-lg', toneClass.card)}>
-      <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t to-transparent opacity-80', toneClass.glow)} />
-      <div className="pointer-events-none absolute inset-x-4 bottom-3">
+    <Card className={cn('group relative p-3 transition-all duration-200 hover:shadow-lg', toneClass.card, className)}>
+      <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t to-transparent opacity-80', toneClass.glow)} />
+      <div className="pointer-events-none absolute inset-x-3 bottom-2">
         <svg
           viewBox="0 0 120 28"
           preserveAspectRatio="none"
-          className={cn('h-9 w-full', toneClass.sparkline)}
+          className={cn('h-8 w-full', toneClass.sparkline)}
           aria-hidden="true"
         >
           <polygon points={decorativeLine.area} fill="currentColor" opacity="0.06" />
           <polyline points={decorativeLine.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.32" />
         </svg>
       </div>
-      <div className="relative flex min-w-0 min-h-32 flex-col justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-4">
-          <div className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg transition-colors duration-200', toneClass.icon)}>
-            <Icon className="h-6 w-6" />
+      <div className="relative flex min-h-28 min-w-0 flex-col gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg transition-colors duration-200', toneClass.icon)}>
+            <Icon className="h-5 w-5" />
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="break-words text-left text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 transition-colors dark:text-text-base">
+          <div className="min-w-0 flex-1 self-center">
+            <p className="break-words text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 transition-colors dark:text-text-base">
               {label}
             </p>
-            <p className={cn('mt-2 break-words text-left text-3xl font-bold leading-tight text-slate-950 transition-colors duration-200 dark:text-text-base md:text-4xl', toneClass.value)}>
-              {value}
-            </p>
-            <p className="mt-1 break-words text-left text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
           </div>
         </div>
-        <div className="h-8" aria-hidden="true" />
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <p className={cn('break-words text-2xl font-bold leading-tight text-slate-950 transition-colors duration-200 dark:text-text-base md:text-3xl', toneClass.value)}>
+            {value}
+          </p>
+          <p className="mt-1 break-words text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
+        </div>
+        <div className="h-4" aria-hidden="true" />
       </div>
     </Card>
   );

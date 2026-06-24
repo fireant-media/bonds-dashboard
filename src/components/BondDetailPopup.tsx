@@ -25,6 +25,7 @@ interface BondDetailPopupProps {
   enterpriseName: string;
   onClose: () => void;
   onCompare?: () => void;
+  sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded';
 }
 
 type BondCashFlow = {
@@ -155,7 +156,13 @@ const percentile = (values: number[], p: number) => {
 
 const median = (values: number[]) => percentile(values, 50);
 
-export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompare }: BondDetailPopupProps) {
+export default function BondDetailPopup({
+  bond,
+  enterpriseName,
+  onClose,
+  onCompare,
+  sidebarDisplayMode = 'none',
+}: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const { configured, baseUrl, defaultModel, defaultSystemPrompt, selectedModel, systemPrompt, isLoadingStatus, statusError, refreshStatus } = useAIStore();
@@ -1262,11 +1269,17 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
 
   return (
     <div
-      className="fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300"
+      className={`fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-bg-base animate-in fade-in duration-300 ${
+        sidebarDisplayMode === 'expanded'
+          ? 'lg:left-72'
+          : sidebarDisplayMode === 'collapsed'
+            ? 'lg:left-16'
+            : 'lg:left-0'
+      }`}
       onClick={onClose}
     >
       <div
-        className="relative flex h-full w-screen flex-col overflow-hidden border-l border-border-base bg-bg-base shadow-2xl animate-in slide-in-from-right duration-300"
+        className="relative flex h-full w-screen flex-col overflow-hidden border-l border-border-base bg-bg-base animate-in slide-in-from-right duration-300"
         onClick={(event) => event.stopPropagation()}
       >
         {watchlistNotice ? (
@@ -1283,50 +1296,49 @@ export default function BondDetailPopup({ bond, enterpriseName, onClose, onCompa
           </div>
         ) : null}
 
-        <div className="sticky top-0 z-30 border-b border-border-base bg-bg-surface/95 backdrop-blur">
-          <div className="mx-auto flex w-full max-w-screen-2xl items-center justify-between gap-4 px-4 py-4 md:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                <span>{t('back')}</span>
-              </button>
-              <h1 className="truncate text-lg font-bold text-text-base md:text-xl">
-                {t('bondDetailTitle')}
-                {currentBond.code ? <span className="ml-2 font-semibold text-blue-600">{currentBond.code}</span> : null}
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCompareBond}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
-              >
-                <ArrowLeftRight className="h-4 w-4" />
-                <span>{t('compareBond')}</span>
-              </button>
-              <button
-                type="button"
-                onClick={isTracked ? handleUntrackBond : handleTrackBond}
-                className={
-                  isTracked
-                    ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-emerald-600 transition-colors'
-                    : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700'
-                }
-              >
-                {isTracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
-                <span>{isTracked ? t('followed') : t('follow')}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
           <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-6 px-4 py-4 md:px-6 lg:py-6">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label={t('back')}
+                  title={t('back')}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <h1 className="truncate text-lg font-bold text-text-base md:text-xl">
+                  {t('bondDetailTitle')}
+                  {currentBond.code ? <span className="ml-2 font-semibold text-blue-600">{currentBond.code}</span> : null}
+                </h1>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCompareBond}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                >
+                  <ArrowLeftRight className="h-4 w-4" />
+                  <span>{t('compareBond')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={isTracked ? handleUntrackBond : handleTrackBond}
+                  className={
+                    isTracked
+                      ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-emerald-600 transition-colors'
+                      : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700'
+                  }
+                >
+                  {isTracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
+                  <span>{isTracked ? t('followed') : t('follow')}</span>
+                </button>
+              </div>
+            </div>
+
             <section className="grid gap-4 lg:grid-cols-4">
               {summaryCards.map((item) => {
                 const Icon = item.icon;

@@ -23,7 +23,7 @@ import { useAuthUser } from '../auth/authStore';
 import Logo from './Logo';
 import { useTheme } from '../ThemeContext';
 import { Language } from '../translations';
-import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
+import { INDUSTRY_LABEL_KEYS, INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
 import { ENTERPRISE_LIST_DATA_CACHE_KEY, loadEnterpriseListByIssuerSymbol } from '../services/enterpriseListData';
@@ -375,13 +375,23 @@ export default function Header({
     setLanguage((language === 'vi' ? 'en' : 'vi') as Language);
   };
 
+  const getIndustryHeaderLabel = (value?: string) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return '';
+
+    const labelKey = INDUSTRY_LABEL_KEYS[normalized];
+    if (labelKey) return t(labelKey as any);
+
+    return t(normalized as any) || normalized;
+  };
+
   const currentPageTitle = (() => {
     if (activeTab === 'overview') {
       return t('marketOverview');
     }
 
     if (activeTab === 'industry') {
-      return `${t('marketTitle')} ${t(activeIndustry as any) || activeIndustry || ''}`.trim();
+      return `${t('marketTitle')} ${getIndustryHeaderLabel(activeIndustry)}`.trim();
     }
 
     if (activeTab === 'filter') {
@@ -839,7 +849,7 @@ export default function Header({
       <div className="hidden min-w-0 flex-1 items-center lg:flex">
         {currentPageTitle ? (
           <div className="min-w-0">
-            <p className="truncate text-base font-bold text-text-base transition-colors">{currentPageTitle}</p>
+            <p className="truncate text-lg font-bold text-text-base transition-colors lg:text-xl">{currentPageTitle}</p>
           </div>
         ) : null}
       </div>

@@ -93,6 +93,8 @@ function toSentenceCase(value: string) {
 }
 
 function renderInsightInlineContent(content: string) {
+  const emphasisClassName = 'font-bold text-blue-700 dark:text-blue-300';
+
   const renderTextSegment = (text: string, keyPrefix: string, isBold = false) => (
     text.split(/(\d[\d.,]*(?:\s*%)?)/g).map((part, index) => {
       if (!part) return null;
@@ -101,7 +103,7 @@ function renderInsightInlineContent(content: string) {
         return (
           <span
             key={`${keyPrefix}-${part}-${index}`}
-            className={isBold ? 'font-bold text-text-base' : 'font-bold text-blue-700 dark:text-blue-300'}
+            className={emphasisClassName}
           >
             {part}
           </span>
@@ -109,7 +111,7 @@ function renderInsightInlineContent(content: string) {
       }
 
       return (
-        <span key={`${keyPrefix}-${part}-${index}`} className={isBold ? 'font-bold text-text-base' : undefined}>
+        <span key={`${keyPrefix}-${part}-${index}`} className={isBold ? emphasisClassName : undefined}>
           {part}
         </span>
       );
@@ -313,8 +315,8 @@ export default function AIInsightPanel({
   const displayTitle = toSentenceCase(title);
 
   return (
-    <Card className={`group relative overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/70 p-4 shadow-sm shadow-blue-500/10 transition-colors dark:border-blue-900/40 dark:bg-blue-950/20 dark:shadow-black/20 ${className || ''}`}>
-      <div className="relative" ref={ref}>
+    <Card className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/70 p-4 shadow-sm shadow-blue-500/10 transition-colors dark:border-blue-900/40 dark:bg-blue-950/20 dark:shadow-black/20 ${className || ''}`}>
+      <div className="relative flex h-full min-h-0 flex-col" ref={ref}>
         <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900/40 dark:ring-blue-900/40">

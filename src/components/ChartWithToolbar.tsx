@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { formatNumber } from '../utils/format';
-import { BarChart3, Download, LineChart, Maximize2, RotateCcw, TableProperties, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, Download, EllipsisVertical, LineChart, Maximize2, RotateCcw, TableProperties, X, type LucideIcon } from 'lucide-react';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { applyChartTheme, downloadChartImage, getChartTheme } from '../utils/chart';
@@ -404,9 +404,13 @@ export default function ChartWithToolbar({
   const chartRef = useRef<any>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const zoomChartContainerRef = useRef<HTMLDivElement | null>(null);
+  const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
+  const zoomToolbarMenuRef = useRef<HTMLDivElement | null>(null);
   const [showDataView, setShowDataView] = useState(false);
   const [showDataViewBackButton, setShowDataViewBackButton] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
+  const [showToolbarMenu, setShowToolbarMenu] = useState(false);
+  const [showZoomToolbarMenu, setShowZoomToolbarMenu] = useState(false);
   const [supportsHover, setSupportsHover] = useState(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
     return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
@@ -564,10 +568,25 @@ export default function ChartWithToolbar({
     }`
   );
 
-  const hoverToolbarClass =
-    'flex flex-wrap items-center justify-end gap-1 text-text-muted opacity-100 pointer-events-auto lg:flex-nowrap lg:opacity-0 lg:pointer-events-none lg:transition-opacity lg:duration-200 lg:ease-out lg:group-hover:opacity-100 lg:group-hover:pointer-events-auto lg:group-focus-within:opacity-100 lg:group-focus-within:pointer-events-auto';
+  const menuTriggerButtonClass =
+    'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600';
+  const menuPanelClass =
+    'absolute right-0 top-full z-20 mt-2 min-w-44 rounded-lg border border-border-base bg-bg-surface p-1.5 shadow-lg shadow-blue-950/10 dark:shadow-black/30';
+  const menuItemClass = (active = false) => (
+    `flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs font-semibold transition-colors ${
+      active
+        ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+        : 'text-text-base hover:bg-surface-container-low'
+    }`
+  );
+
+  const closeToolbarMenus = () => {
+    setShowToolbarMenu(false);
+    setShowZoomToolbarMenu(false);
+  };
 
   const handleDownload = async () => {
+    closeToolbarMenus();
     const instance = chartRef.current?.getEchartsInstance?.();
     if (!instance) return;
     await downloadChartImage(instance, {
@@ -580,12 +599,14 @@ export default function ChartWithToolbar({
   };
 
   const handleReset = () => {
+    closeToolbarMenus();
     const instance = chartRef.current?.getEchartsInstance?.();
     instance?.restore?.();
     setChartMode(baseChartMode);
   };
 
   const openDataView = (fromZoom = false) => {
+    closeToolbarMenus();
     setShowDataViewBackButton(fromZoom);
     setShowDataView(true);
     if (fromZoom) {
@@ -605,6 +626,34 @@ export default function ChartWithToolbar({
       setShowZoom(true);
     }
   };
+
+  const handleSetChartMode = (mode: 'line' | 'bar') => {
+    closeToolbarMenus();
+    setChartMode(mode);
+  };
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (toolbarMenuRef.current?.contains(target) || zoomToolbarMenuRef.current?.contains(target)) {
+        return;
+      }
+      closeToolbarMenus();
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeToolbarMenus();
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
 
   useEffect(() => {
     if (!showZoom) return;
@@ -655,6 +704,76 @@ export default function ChartWithToolbar({
     return () => observer.disconnect();
   }, [renderedZoomOption, showZoom]);
 
+  useEffect(() => {
+    if (!showZoom) {
+      setShowZoomToolbarMenu(false);
+    }
+  }, [showZoom]);
+
+  const renderToolbarMenuItems = (fromZoom = false) => (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => openDataView(fromZoom)}
+        className={menuItemClass()}
+      >
+        <TableProperties className="h-4 w-4 shrink-0" />
+        <span>{t('dataView')}</span>
+      </button>
+      {magicTypeCapable ? (
+        <>
+          <button
+            type="button"
+            onClick={() => handleSetChartMode('line')}
+            disabled={!isMixedMagicChart && chartMode === 'line'}
+            className={menuItemClass(!isMixedMagicChart && chartMode === 'line')}
+          >
+            <LineChart className="h-4 w-4 shrink-0" />
+            <span>{t('lineChart')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSetChartMode('bar')}
+            disabled={!isMixedMagicChart && chartMode === 'bar'}
+            className={menuItemClass(!isMixedMagicChart && chartMode === 'bar')}
+          >
+            <BarChart3 className="h-4 w-4 shrink-0" />
+            <span>{t('columnChart')}</span>
+          </button>
+        </>
+      ) : null}
+      <button
+        type="button"
+        onClick={handleReset}
+        className={menuItemClass()}
+      >
+        <RotateCcw className="h-4 w-4 shrink-0" />
+        <span>{t('reset')}</span>
+      </button>
+      <button
+        type="button"
+        onClick={handleDownload}
+        className={menuItemClass()}
+      >
+        <Download className="h-4 w-4 shrink-0" />
+        <span>{t('download')}</span>
+      </button>
+      {!fromZoom && showZoomButton ? (
+        <button
+          type="button"
+          onClick={() => {
+            closeToolbarMenus();
+            setShowZoom(true);
+          }}
+          className={menuItemClass()}
+        >
+          <Maximize2 className="h-4 w-4 shrink-0" />
+          <span>{t('zoom')}</span>
+        </button>
+      ) : null}
+    </div>
+  );
+
   return (
     <div
       className={`group flex min-h-0 flex-col ${className || ''}`}
@@ -665,99 +784,63 @@ export default function ChartWithToolbar({
       <div className="flex flex-col gap-1">
         {(title || actions || showToolbar) ? (
           <div className={`flex flex-col gap-2 ${headerClassName || ''}`}>
-            <div className="flex min-w-0 items-center gap-3">
-              <div
-                className={
-                  titleAlign === 'left'
-                    ? 'flex min-w-0 flex-1 justify-start'
-                    : titleAlign === 'right'
-                      ? 'flex min-w-0 flex-1 justify-end'
-                      : 'flex min-w-0 flex-1 justify-center'
-                }
-              >
-                {title ? (
-                  <div className={titleWrapClass}>
-                    <div
-                      className={`inline-flex max-w-full items-center gap-2 transition-colors duration-200 ${
-                        titleAlign === 'left'
-                          ? 'justify-start'
-                          : titleAlign === 'right'
-                            ? 'justify-end'
-                            : 'justify-center'
-                      }`}
-                    >
-                      <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-colors duration-200 group-hover:text-blue-700" />
-                      <div className="line-clamp-2 text-base font-bold leading-snug text-slate-950 transition-colors duration-200 group-hover:text-blue-600 dark:text-text-base">
-                        {title}
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-3">
+                <div
+                  className={
+                    titleAlign === 'left'
+                      ? 'flex min-w-0 flex-1 justify-start'
+                      : titleAlign === 'right'
+                        ? 'flex min-w-0 flex-1 justify-end'
+                        : 'flex min-w-0 flex-1 justify-center'
+                  }
+                >
+                  {title ? (
+                    <div className={titleWrapClass}>
+                      <div
+                        className={`inline-flex max-w-full items-center gap-2 transition-colors duration-200 ${
+                          titleAlign === 'left'
+                            ? 'justify-start'
+                            : titleAlign === 'right'
+                              ? 'justify-end'
+                              : 'justify-center'
+                        }`}
+                      >
+                        <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-colors duration-200 group-hover:text-blue-700" />
+                        <div className="break-words text-base font-bold leading-snug text-slate-950 transition-colors duration-200 group-hover:text-blue-600 dark:text-text-base">
+                          {title}
+                        </div>
                       </div>
                     </div>
+                  ) : null}
+                </div>
+
+                {actions && actionsPlacement === 'inline' ? (
+                  <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                    {actions}
+                  </div>
+                ) : null}
+
+                {showToolbar ? (
+                  <div ref={toolbarMenuRef} className="relative shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowToolbarMenu((previous) => !previous)}
+                      className={menuTriggerButtonClass}
+                      title={t('moreOptions') || 'More options'}
+                      aria-label={t('moreOptions') || 'More options'}
+                      aria-expanded={showToolbarMenu}
+                    >
+                      <EllipsisVertical className="h-4 w-4" />
+                    </button>
+                    {showToolbarMenu ? (
+                      <div className={menuPanelClass}>
+                        {renderToolbarMenuItems(false)}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
-
-              {actions && actionsPlacement === 'inline' ? (
-                <div className="flex shrink-0 items-center justify-end gap-2 text-right">
-                  {actions}
-                </div>
-              ) : null}
-
-              {showToolbar ? (
-                <div className={hoverToolbarClass}>
-                  <button
-                    type="button"
-                    onClick={() => openDataView(false)}
-                    className={toolbarButtonClass()}
-                    title={t('dataView')}
-                    aria-label={t('dataView')}
-                  >
-                    <TableProperties className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChartMode('line')}
-                    disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'line')}
-                    className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'line')}
-                    title={t('lineChart')}
-                  >
-                    <LineChart className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChartMode('bar')}
-                    disabled={!magicTypeCapable || (!isMixedMagicChart && chartMode === 'bar')}
-                    className={toolbarButtonClass(!magicTypeCapable, !isMixedMagicChart && chartMode === 'bar')}
-                    title={t('columnChart')}
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className={toolbarButtonClass()}
-                    title={t('reset')}
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownload}
-                    className={toolbarButtonClass()}
-                    title={t('download')}
-                  >
-                    <Download className="h-4 w-4" />
-                  </button>
-                  {showZoomButton ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowZoom(true)}
-                      className={toolbarButtonClass()}
-                      title={t('zoom')}
-                    >
-                      <Maximize2 className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
 
             {actions && actionsPlacement === 'below' ? (
@@ -825,57 +908,25 @@ export default function ChartWithToolbar({
                       </h3>
                     )}
                   </div>
-                {showToolbar ? (
-                  <div className={`${hoverToolbarClass} shrink-0 text-right`}>
-                    <button
-                      type="button"
-                      onClick={() => openDataView(true)}
-                      className={toolbarButtonClass()}
-                      title={t('dataView')}
-                      aria-label={t('dataView')}
-                    >
-                      <TableProperties className="h-4 w-4" />
-                    </button>
-                    {magicTypeCapable ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setChartMode('line')}
-                          disabled={(!isMixedMagicChart && chartMode === 'line')}
-                          className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'line')}
-                          title={t('lineChart')}
-                        >
-                          <LineChart className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setChartMode('bar')}
-                          disabled={(!isMixedMagicChart && chartMode === 'bar')}
-                          className={toolbarButtonClass(false, !isMixedMagicChart && chartMode === 'bar')}
-                          title={t('columnChart')}
-                        >
-                          <BarChart3 className="h-4 w-4" />
-                        </button>
-                      </>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={handleReset}
-                      className={toolbarButtonClass()}
-                      title={t('reset')}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDownload}
-                      className={toolbarButtonClass()}
-                      title={t('download')}
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : null}
+                  {showToolbar ? (
+                    <div ref={zoomToolbarMenuRef} className="relative shrink-0 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setShowZoomToolbarMenu((previous) => !previous)}
+                        className={menuTriggerButtonClass}
+                        title={t('moreOptions') || 'More options'}
+                        aria-label={t('moreOptions') || 'More options'}
+                        aria-expanded={showZoomToolbarMenu}
+                      >
+                        <EllipsisVertical className="h-4 w-4" />
+                      </button>
+                      {showZoomToolbarMenu ? (
+                        <div className={menuPanelClass}>
+                          {renderToolbarMenuItems(true)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 {actions ? (
                   <div className="mt-2 flex min-w-0 justify-end text-right">

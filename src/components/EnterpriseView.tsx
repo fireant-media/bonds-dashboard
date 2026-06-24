@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search } from 'lucide-react';
+import { ArrowUpDown, ChevronRight, ChevronLeft, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -29,7 +29,6 @@ import { sendChat } from '../api/ai';
 import { buildFireantUrl } from '../api/fireant';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { MetricCard } from './ui/Card';
-import { exportRowsToExcel } from '../utils/excel';
 import { fireantApi } from '../api/fireant';
 import {
   buildEnterpriseIndustryOptions,
@@ -299,7 +298,6 @@ export default function EnterpriseView({
   const [financialData, setFinancialData] = useState<any>(null);
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
-  const [exportLoading, setExportLoading] = useState(false);
   const [enterpriseFilterMenu, setEnterpriseFilterMenu] = useState<string | null>(null);
   const [enterpriseHiddenColumnIds, setEnterpriseHiddenColumnIds] = useState<string[]>([]);
   const [enterpriseColumnVisibilityDraft, setEnterpriseColumnVisibilityDraft] = useState<string[]>([]);
@@ -1066,76 +1064,26 @@ export default function EnterpriseView({
     ]),
     [pieData, pieDataTotal],
   );
-  const pieLegendRows = splitLegendItems(pieData.map((item) => item.name), 5, 2);
-  const hasMultiColumnPieLegend = pieLegendRows.length > 1;
-  const pieLegendBase = {
+  const pieLegendConfig = {
+    show: pieData.length > 0,
+    type: 'scroll' as const,
     orient: 'vertical' as const,
-    itemWidth: 16,
+    right: 0,
+    top: 'center' as const,
+    itemWidth: 10,
     itemHeight: 10,
-    itemGap: 12,
-    textStyle: {
-      ...legendStyle,
-      width: 88,
-      overflow: 'truncate' as const,
-      align: 'left' as const,
-      padding: [0, 0, 0, 6] as [number, number, number, number],
-    },
+    textStyle: legendStyle,
   };
-  const pieLegendConfig = hasMultiColumnPieLegend
-      ? [
-        {
-          ...pieLegendBase,
-          right: 136,
-          top: 'middle' as const,
-          data: pieLegendRows[0],
-        },
-        {
-          ...pieLegendBase,
-          right: 24,
-          top: 'middle' as const,
-          data: pieLegendRows[1],
-        },
-      ]
-    : {
-        ...pieLegendBase,
-        right: 24,
-        top: 'middle' as const,
-        data: pieLegendRows[0],
-      };
-  const pieZoomLegendBase = {
+  const pieZoomLegendConfig = {
+    show: pieData.length > 0,
+    type: 'scroll' as const,
     orient: 'vertical' as const,
-    itemWidth: 16,
+    right: 12,
+    top: 'center' as const,
+    itemWidth: 10,
     itemHeight: 10,
-    itemGap: 12,
-    textStyle: {
-      ...legendStyle,
-      width: 110,
-      overflow: 'truncate' as const,
-      align: 'left' as const,
-      padding: [0, 0, 0, 6] as [number, number, number, number],
-    },
+    textStyle: legendStyle,
   };
-  const pieZoomLegendConfig = hasMultiColumnPieLegend
-    ? [
-        {
-          ...pieZoomLegendBase,
-          right: 24,
-          top: 'middle' as const,
-          data: pieLegendRows[1],
-        },
-        {
-          ...pieZoomLegendBase,
-          right: 168,
-          top: 'middle' as const,
-          data: pieLegendRows[0],
-        },
-      ]
-    : {
-        ...pieZoomLegendBase,
-        right: 24,
-        top: 'middle' as const,
-        data: pieLegendRows[0],
-      };
 
   const interestTypeData = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -1528,49 +1476,6 @@ export default function EnterpriseView({
     };
   }, [enterpriseChatContext, location.pathname]);
 
-  const handleExportEnterprises = async () => {
-    setExportLoading(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      exportRowsToExcel({
-        fileNameBase: 'Enterprise_List',
-        sheetName: t('enterprise'),
-        rows: sortedEnterprises,
-        columns: [
-          { header: t('ticker'), value: (enterprise) => enterprise.ticker },
-          { header: t('issuerName'), value: (enterprise) => language === 'en' && enterpriseNamesEN[enterprise.ticker] ? enterpriseNamesEN[enterprise.ticker] : t(enterprise.name as any, enterprise.ticker) },
-          { header: t('bondCodeCount'), value: (enterprise) => formatNumber(enterprise.bondCount, 0) },
-          { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (enterprise) => formatNumber(enterprise.issuedValue, 2) },
-          { header: `${t('remainingDebtTitle')} (${t('unitBillionVND')})`, value: (enterprise) => formatNumber(enterprise.remainingDebt, 2) },
-        ],
-      });
-    } finally {
-      setExportLoading(false);
-    }
-  };
-
-  const handleExportSelectedEnterprise = () => {
-    if (!selectedEnterprise) return;
-
-    exportRowsToExcel({
-      fileNameBase: `Issuer_${selectedEnterprise.ticker}_Bonds`,
-      sheetName: selectedEnterprise.ticker,
-      rows: enterpriseBonds,
-      columns: [
-        { header: t('bondCode'), value: (bond) => bond.code },
-        { header: t('term'), value: (bond) => bond.term },
-        { header: `${t('interestRate')} (${t('unitPercentLabel')})`, value: (bond) => formatInterestRate(bond.interestRate) },
-        { header: t('interestType'), value: (bond) => bond.interestType },
-        { header: t('issueDate'), value: (bond) => formatDate(bond.issueDate) },
-        { header: t('maturityDate'), value: (bond) => formatDate(bond.maturityDate) },
-        { header: t('listedVolume'), value: (bond) => formatNumber(bond.listedVolume || 0, 0) },
-        { header: `${t('issuedValue')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.issuedValue || 0, 2) },
-        { header: `${t('listedValueTitle')} (${t('unitBillionVND')})`, value: (bond) => formatNumber(bond.listedValue || 0, 2) },
-      ],
-    });
-  };
-
   const pieOptions = {
     color: chartPalette,
     __dataView: {
@@ -1593,8 +1498,8 @@ export default function EnterpriseView({
     legend: pieLegendConfig,
     series: [{
       type: 'pie',
-      radius: ['30%', '60%'],
-      center: hasMultiColumnPieLegend ? ['28%', '50%'] : ['36%', '50%'],
+      radius: ['39%', '64%'],
+      center: ['36%', '48%'],
       avoidLabelOverlap: false,
       itemStyle: { borderRadius: 8 },
       label: { show: false },
@@ -1630,7 +1535,7 @@ export default function EnterpriseView({
     legend: interestTypePieLegendConfig,
     series: [{
       type: 'pie',
-      radius: ['40%', '70%'],
+      radius: ['40%', '66%'],
       center: ['50%', '45%'],
       avoidLabelOverlap: false,
       itemStyle: { borderRadius: 8 },
@@ -1837,20 +1742,8 @@ export default function EnterpriseView({
   if (selectedEnterprise) {
     return (
       <div className="min-w-0 space-y-3 py-2 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted/80">
-          <button
-            type="button"
-            onClick={() => setSelectedEnterprise(null)}
-            className="transition-colors hover:text-text-highlight cursor-pointer"
-          >
-            {(breadcrumbTitle || listTitle || t('filterByIssuer')).toUpperCase()}
-          </button>
-          <ChevronRight className="h-3 w-3 text-text-muted" />
-          <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1 space-y-3">
+        <div className="min-w-0 space-y-3">
+          <div className="min-w-0 space-y-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="min-w-0 break-words text-2xl font-bold leading-tight text-text-base md:text-3xl">
                 {language === 'en' && enterpriseProfile?.internationalName
@@ -1997,17 +1890,6 @@ export default function EnterpriseView({
               ) : null}
             </div>
           </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-            <button
-              type="button"
-              onClick={handleExportSelectedEnterprise}
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition-colors hover:bg-blue-500 cursor-pointer"
-            >
-              <Download className="h-4 w-4" />
-              <span>{t('exportExcel')}</span>
-            </button>
-          </div>
         </div>
 
         {loadingBonds ? (
@@ -2069,8 +1951,8 @@ export default function EnterpriseView({
                   legend: pieZoomLegendConfig,
                   series: [
                     {
-                      center: hasMultiColumnPieLegend ? ['34%', '50%'] : ['38%', '50%'],
-                      radius: ['34%', '63%'],
+                      center: ['36%', '50%'],
+                      radius: ['39%', '64%'],
                       label: {
                         show: true,
                         position: 'outside',
@@ -2126,7 +2008,7 @@ export default function EnterpriseView({
                   series: [
                     {
                       center: ['50%', '44%'],
-                      radius: ['44%', '74%'],
+                      radius: ['40%', '66%'],
                       label: {
                         show: true,
                         position: 'inside',
