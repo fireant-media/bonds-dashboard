@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff } from 'lucide-react';
+import { ArrowUpDown, ChevronRight, ChevronLeft, Download, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -41,7 +41,6 @@ import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, type BondDa
 import { useAIStore } from '../store/aiStore';
 import { clearViewChatContext, setViewChatContext } from '../utils/viewChatContext';
 import {
-  ActionFilterButton,
   RangeFilterChip,
   SearchFilterField,
   SelectFilterChip,
@@ -59,6 +58,32 @@ function cn(...inputs: ClassValue[]) {
 const roundMetric = (value: number, digits = 2) => {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(digits));
+};
+
+const INDUSTRY_BADGE_CLASSES: Array<{ keywords: string[]; className: string }> = [
+  { keywords: ['bank', 'ngân hàng', 'tài chính'], className: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300' },
+  { keywords: ['real estate', 'bất động sản', 'property'], className: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' },
+  { keywords: ['industrial', 'công nghiệp', 'manufacturing', 'sản xuất'], className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' },
+  { keywords: ['securities', 'chứng khoán'], className: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-500/10 dark:text-fuchsia-300' },
+  { keywords: ['energy', 'năng lượng', 'power', 'utilities'], className: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' },
+  { keywords: ['telecom', 'viễn thông', 'technology', 'công nghệ'], className: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300' },
+  { keywords: ['consumer', 'bán lẻ', 'retail', 'tiêu dùng'], className: 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300' },
+  { keywords: ['transport', 'logistics', 'vận tải'], className: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300' },
+  { keywords: ['health', 'y tế', 'pharmaceutical', 'dược'], className: 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300' },
+  { keywords: ['agriculture', 'nông nghiệp', 'food', 'thực phẩm'], className: 'bg-lime-50 text-lime-700 dark:bg-lime-500/10 dark:text-lime-300' },
+];
+
+const getIndustryBadgeClassName = (industry: string) => {
+  const normalized = String(industry || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
+  }
+
+  const matched = INDUSTRY_BADGE_CLASSES.find((entry) => (
+    entry.keywords.some((keyword) => normalized.includes(keyword))
+  ));
+
+  return matched?.className || 'bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
 };
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -252,7 +277,7 @@ export default function EnterpriseView({
   const [enterpriseAIError, setEnterpriseAIError] = useState<string | null>(null);
   const [isApplyingEnterpriseAIFilter, setIsApplyingEnterpriseAIFilter] = useState(false);
   const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
-  const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'ticker' | 'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
+  const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
   const [enterpriseAppliedSortDirection, setEnterpriseAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [enterprises, setEnterprises] = useState<Enterprise[]>(
     Array.isArray(cachedData)
@@ -348,14 +373,14 @@ export default function EnterpriseView({
   const enterpriseAISuggestions = useMemo(() => (
     language === 'en'
       ? [
-          'Find listed companies in banking with the highest remaining debt.',
-          'Show real estate issuers with issued value above 1.000.',
-          'Filter industrial companies with remaining debt below 500.',
+          'Banks with high remaining debt',
+          'Real estate issuers with issued value above 1,000 billion VND',
+          'Industrial companies with low remaining debt',
         ]
       : [
-          'Lọc doanh nghiệp niêm yết ngành ngân hàng có dư nợ còn lại cao.',
-          'Hiển thị doanh nghiệp bất động sản có giá trị phát hành trên 1.000.',
-          'Lọc doanh nghiệp công nghiệp có dư nợ còn lại dưới 500.',
+          'Ngân hàng có dư nợ còn lại cao',
+          'Doanh nghiệp bất động sản có giá trị phát hành trên 1.000 tỷ đồng',
+          'Doanh nghiệp công nghiệp có dư nợ còn lại thấp',
         ]
   ), [language]);
   const showEnterpriseAISuggestions = enterpriseAISummary.length === 0 && !enterpriseAIError && !enterpriseAIPrompt.trim();
@@ -547,7 +572,7 @@ export default function EnterpriseView({
     setEnterpriseAIError(null);
   };
 
-  const handleEnterpriseTableSort = (field: 'ticker' | 'bondCount' | 'issuedValue' | 'remainingDebt') => {
+  const handleEnterpriseTableSort = (field: 'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt') => {
     if (enterpriseAppliedSortField === field) {
       setEnterpriseAppliedSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
       return;
@@ -558,12 +583,31 @@ export default function EnterpriseView({
   };
 
   const renderEnterpriseSortHeader = (
-    field: 'ticker' | 'bondCount' | 'issuedValue' | 'remainingDebt',
+    field: 'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt',
     label: string,
     unit?: string,
     labelClassName = '',
+    inlineIcon = false,
   ) => {
     const isActive = enterpriseAppliedSortField === field;
+
+    if (unit && inlineIcon) {
+      return (
+        <button
+          type="button"
+          onClick={() => handleEnterpriseTableSort(field)}
+          className="flex w-full flex-col items-center justify-center gap-0.5 text-center transition-opacity hover:opacity-90"
+        >
+          <span className="inline-flex items-center justify-center gap-1 whitespace-nowrap leading-none">
+            <span className={labelClassName}>{label}</span>
+            <ArrowUpDown className={`h-3.5 w-3.5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+          </span>
+          <span className="whitespace-nowrap leading-none normal-case">
+            ({unit})
+          </span>
+        </button>
+      );
+    }
 
     return (
       <button
@@ -599,8 +643,9 @@ export default function EnterpriseView({
   };
 
   const enterpriseColumnOptions = useMemo(() => ([
-    { id: 'ticker', label: t('ticker') },
     { id: 'issuerName', label: t('issuerName') },
+    { id: 'ticker', label: t('ticker') },
+    { id: 'industry', label: t('industryLabel') },
     { id: 'bondCount', label: 'Số mã trái phiếu' },
     { id: 'issuedValue', label: `${t('issuedValue')} (${t('unitBillionVND')})` },
     { id: 'remainingDebt', label: `${t('remainingDebtTitle')} (${t('unitBillionVND')})` },
@@ -634,12 +679,14 @@ export default function EnterpriseView({
 
   const showEnterpriseTickerColumn = !enterpriseHiddenColumnIds.includes('ticker');
   const showEnterpriseIssuerNameColumn = !enterpriseHiddenColumnIds.includes('issuerName');
+  const showEnterpriseIndustryColumn = !enterpriseHiddenColumnIds.includes('industry');
   const showEnterpriseBondCountColumn = !enterpriseHiddenColumnIds.includes('bondCount');
   const showEnterpriseIssuedValueColumn = !enterpriseHiddenColumnIds.includes('issuedValue');
   const showEnterpriseRemainingDebtColumn = !enterpriseHiddenColumnIds.includes('remainingDebt');
   const enterpriseVisibleColumnCount =
     Number(showEnterpriseTickerColumn)
     + Number(showEnterpriseIssuerNameColumn)
+    + Number(showEnterpriseIndustryColumn)
     + Number(showEnterpriseBondCountColumn)
     + Number(showEnterpriseIssuedValueColumn)
     + Number(showEnterpriseRemainingDebtColumn)
@@ -953,6 +1000,11 @@ export default function EnterpriseView({
       const direction = enterpriseAppliedSortDirection === 'asc' ? 1 : -1;
       if (enterpriseAppliedSortField === 'ticker') {
         return a.ticker.localeCompare(b.ticker) * direction;
+      }
+      if (enterpriseAppliedSortField === 'industry') {
+        const aIndustry = String(t(a.industry as any) || a.industry || 'N/A');
+        const bIndustry = String(t(b.industry as any) || b.industry || 'N/A');
+        return aIndustry.localeCompare(bIndustry) * direction;
       }
       if (enterpriseAppliedSortField === 'bondCount') {
         return (Number(a.bondCount || 0) - Number(b.bondCount || 0)) * direction;
@@ -2005,7 +2057,7 @@ export default function EnterpriseView({
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-3">
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-4">
             <ChartWithToolbar
               option={pieOptions}
               style={{ height: '320px' }}
@@ -2048,7 +2100,7 @@ export default function EnterpriseView({
               }}
             />
           </div>
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-3">
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-4">
             <ChartWithToolbar
               option={interestTypePieOptions}
               style={{ height: '300px' }}
@@ -2111,7 +2163,7 @@ export default function EnterpriseView({
             pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
             sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
             payload={enterpriseInsightPayload}
-            className="xl:col-span-6"
+            className="xl:col-span-4"
             expandContent
             layout="stacked"
           />
@@ -2132,13 +2184,13 @@ export default function EnterpriseView({
             pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
             sectionTitle={cashFlowInsightTitle}
             payload={cashFlowInsightPayload}
-            className="xl:col-span-4"
+            className="xl:col-span-6"
             expandContent
             layout="stacked"
           />
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-8">
+          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-6">
             {loadingCashFlows && !hasProjectedCashFlowData ? (
-              <div className="h-80 flex items-center justify-center">
+              <div className="flex h-72 items-center justify-center">
                 <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
                   <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                   {t('loading')}
@@ -2147,7 +2199,7 @@ export default function EnterpriseView({
             ) : hasProjectedCashFlowData ? (
               <ChartWithToolbar
                 option={projectedCashFlowOptions}
-                style={{ height: '360px' }}
+                style={{ height: '300px' }}
                 allowMagicType
                 title={projectedCashFlowTitle}
                 showDataZoomSliderOnHover
@@ -2218,12 +2270,6 @@ export default function EnterpriseView({
 
   return (
     <div className="min-w-0 space-y-2 transition-colors duration-300">
-      <div className="mb-2 mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-left text-2xl font-bold text-text-base transition-colors">{listTitle || t('filterByIssuer')}</h2>
-        </div>
-      </div>
-
       <div className="flex flex-col gap-2 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
         <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-2.5 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
           <div className="space-y-1">
@@ -2231,25 +2277,32 @@ export default function EnterpriseView({
               <BadgeDollarSign className="h-4 w-4" />
               <span>{t('applyAIFilter')}</span>
             </span>
-            <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-stretch">
               <div className="min-w-0 flex-1">
                 <textarea
-                  rows={2}
+                  rows={1}
                   value={enterpriseAIPrompt}
                   onChange={(event) => {
-                    setEnterpriseAIPrompt(event.target.value);
+                    const nextPrompt = event.target.value;
+
+                    if (!nextPrompt.trim()) {
+                      handleResetEnterpriseFilters();
+                      return;
+                    }
+
+                    setEnterpriseAIPrompt(nextPrompt);
                     if (enterpriseAISummary.length > 0) setEnterpriseAISummary([]);
                     if (enterpriseAIError) setEnterpriseAIError(null);
                   }}
                   placeholder={enterpriseAIPromptPlaceholder}
-                  className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+                  className="h-11 w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => void handleApplyEnterpriseAIFilter()}
                 disabled={!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter || isLoadingStatus}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <BadgeDollarSign className={`h-4 w-4 ${isApplyingEnterpriseAIFilter ? 'animate-pulse' : ''}`} />
                 <span>{t('applyAIFilter')}</span>
@@ -2258,7 +2311,8 @@ export default function EnterpriseView({
           </div>
 
           {showEnterpriseAISuggestions ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
+              <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
               {enterpriseAISuggestions.map((suggestion) => (
                 <button
                   key={suggestion}
@@ -2272,7 +2326,7 @@ export default function EnterpriseView({
                     event.stopPropagation();
                     handleEnterpriseSuggestionClick(suggestion);
                   }}
-                  className="rounded-full px-3 py-0.5 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-900"
+                  className="shrink-0 rounded-full border border-blue-100 bg-white px-3 py-1 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-900 dark:border-blue-400/20 dark:bg-slate-900/40 dark:text-blue-300"
                 >
                   {suggestion}
                 </button>
@@ -2285,7 +2339,7 @@ export default function EnterpriseView({
               {enterpriseAISummary.map((item) => (
                 <span
                   key={item}
-                  className="rounded-full px-3 py-0.5 text-xs font-semibold leading-tight text-blue-700"
+                  className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold leading-tight text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300"
                 >
                   {item}
                 </span>
@@ -2351,54 +2405,54 @@ export default function EnterpriseView({
                   fullWidth
                 />
               </div>
-              <div className="w-full xl:w-36 xl:flex-none">
-                <ActionFilterButton
-                  icon={CheckCircle2}
-                  label={t('applyFilters')}
-                  onClick={handleApplyEnterpriseFilters}
-                  variant="primary"
-                />
-              </div>
-              <div className="w-full xl:w-36 xl:flex-none">
-                <ActionFilterButton
-                  icon={RotateCcw}
-                  label={t('resetFilters')}
-                  onClick={handleResetEnterpriseFilters}
-                  variant="secondary"
-                />
-              </div>
             </div>
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2 pt-0.5">
+        <div className="flex flex-col gap-2 pt-0.5 xl:flex-row xl:items-center xl:justify-between">
           <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
             {t('filterResults')}: {formatNumber(sortedEnterprises.length, 0)} / {formatNumber(enterprises.length, 0)}
           </div>
 
-          <div ref={enterpriseColumnVisibilityRef} className="relative inline-flex items-center gap-2">
+          <div ref={enterpriseColumnVisibilityRef} className="relative flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleApplyEnterpriseFilters}
+              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+            >
+              <Search className="h-4 w-4 shrink-0 text-blue-600" />
+              <span>Áp dụng</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetEnterpriseFilters}
+              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+            >
+              <RotateCcw className="h-4 w-4 shrink-0 text-blue-600" />
+              <span>{t('reset')}</span>
+            </button>
             <button
               type="button"
               onClick={() => setIsFilterControlsVisible((current) => !current)}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
               aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
             >
               {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
-              <span className="hidden sm:inline">{t('filterTab')}</span>
+              <span>{t('filterTab')}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setEnterpriseColumnVisibilityOpen((current) => !current)}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
               aria-haspopup="dialog"
               aria-expanded={enterpriseColumnVisibilityOpen}
               aria-label={t('hideColumns')}
               title={t('hideColumns')}
             >
               <EyeOff className="h-4 w-4 text-blue-600" />
-              <span className="hidden sm:inline">{t('hideColumns')}</span>
+              <span>{t('hideColumns')}</span>
             </button>
 
             {enterpriseColumnVisibilityOpen ? (
@@ -2516,8 +2570,9 @@ export default function EnterpriseView({
           <table className="w-full min-w-full table-fixed text-left">
             <colgroup>
               <col className="w-14" />
-              {showEnterpriseTickerColumn ? <col className="w-28" /> : null}
               {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
+              {showEnterpriseTickerColumn ? <col className="w-28" /> : null}
+              {showEnterpriseIndustryColumn ? <col className="w-44" /> : null}
               {showEnterpriseBondCountColumn ? <col className="w-32" /> : null}
               {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
               {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
@@ -2529,14 +2584,19 @@ export default function EnterpriseView({
                     <ListOrdered className="h-4 w-4" aria-hidden="true" />
                   </span>
                 </th>
+                {showEnterpriseIssuerNameColumn ? (
+                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
+                  </th>
+                ) : null}
                 {showEnterpriseTickerColumn ? (
                   <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
                     {renderEnterpriseSortHeader('ticker', t('ticker'))}
                   </th>
                 ) : null}
-                {showEnterpriseIssuerNameColumn ? (
+                {showEnterpriseIndustryColumn ? (
                   <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
+                    {renderEnterpriseSortHeader('industry', t('industryLabel'))}
                   </th>
                 ) : null}
                 {showEnterpriseBondCountColumn ? (
@@ -2546,12 +2606,12 @@ export default function EnterpriseView({
                 ) : null}
                 {showEnterpriseIssuedValueColumn ? (
                   <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}
+                    {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'), '', true)}
                   </th>
                 ) : null}
                 {showEnterpriseRemainingDebtColumn ? (
                   <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'))}
+                    {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'), '', true)}
                   </th>
                 ) : null}
               </tr>
@@ -2578,29 +2638,33 @@ export default function EnterpriseView({
                   <td className="px-4 py-3 text-center whitespace-nowrap">
                     <span className="text-sm font-medium text-text-base">{idx + 1}</span>
                   </td>
+                  {showEnterpriseIssuerNameColumn ? (
+                    <td className="px-4 py-3 text-left whitespace-nowrap">
+                      <p className="truncate text-sm font-bold text-text-base transition-colors group-hover:text-blue-600">
+                        {language === 'en' && enterpriseNamesEN[enterprise.ticker]
+                          ? enterpriseNamesEN[enterprise.ticker]
+                          : t(enterprise.name as any, enterprise.ticker)}
+                      </p>
+                    </td>
+                  ) : null}
                   {showEnterpriseTickerColumn ? (
                     <td className="px-4 py-3 text-center whitespace-nowrap">
-                      <span className="text-sm font-bold text-text-highlight transition-colors group-hover:text-blue-600">
-                        {enterprise.ticker}
+                      <span className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold leading-none text-blue-700 transition-colors group-hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:group-hover:bg-blue-500/20">
+                        <span className="truncate">{enterprise.ticker}</span>
                       </span>
                     </td>
                   ) : null}
-                  {showEnterpriseIssuerNameColumn ? (
-                    <td className="px-4 py-3 text-left whitespace-nowrap">
-                      <div className="space-y-1">
-                        <p className="truncate text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">
-                          {language === 'en' && enterpriseNamesEN[enterprise.ticker] 
-                            ? enterpriseNamesEN[enterprise.ticker] 
-                            : t(enterprise.name as any, enterprise.ticker)}
-                        </p>
-                        <p className="truncate text-xs font-medium text-text-muted transition-colors group-hover:text-blue-600">
+                  {showEnterpriseIndustryColumn ? (
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <span className={`inline-flex max-w-full items-center rounded-full px-3 py-1.5 text-xs font-semibold leading-tight transition-colors ${getIndustryBadgeClassName(String(t(enterprise.industry as any) || enterprise.industry || ''))} group-hover:brightness-95`}>
+                        <span className="truncate">
                           {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
-                        </p>
-                      </div>
+                        </span>
+                      </span>
                     </td>
                   ) : null}
                   {showEnterpriseBondCountColumn ? (
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
                       <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">{formatNumber(enterprise.bondCount, 0)}</span>
                     </td>
                   ) : null}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, Plus, Trash2 } from 'lucide-react';
+import { BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
@@ -478,10 +478,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
 
   return (
     <div className="min-w-0 transition-colors duration-300">
-      <div className="mb-4 space-y-2">
-        <h2 className="text-2xl font-bold text-text-base tracking-tight break-words transition-colors">{t('watchList')}</h2>
-      </div>
-
       <div className="space-y-2">
         <BondFilterPanel
           title={t('watchList')}
@@ -510,29 +506,45 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           searchOptions={bonds.map((bond) => bond.code)}
           showFilterControls={isWatchlistFilterControlsVisible}
           marketActionSlot={(
-            <div ref={watchlistColumnVisibilityRef} className="relative inline-flex items-center gap-2">
+            <div ref={watchlistColumnVisibilityRef} className="relative flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={applyDraftFilters}
+                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              >
+                <Search className="h-4 w-4 shrink-0 text-blue-600" />
+                <span>Áp dụng</span>
+              </button>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              >
+                <RefreshCcw className="h-4 w-4 shrink-0 text-blue-600" />
+                <span>{t('reset')}</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setIsWatchlistFilterControlsVisible((current) => !current)}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
                 aria-label={isWatchlistFilterControlsVisible ? t('hideFilters') : t('showFilters')}
                 title={isWatchlistFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               >
                 {isWatchlistFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
-                <span className="hidden sm:inline">{t('filterTab')}</span>
+                <span>{t('filterTab')}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setWatchlistColumnVisibilityOpen((current) => !current)}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
                 aria-haspopup="dialog"
                 aria-expanded={watchlistColumnVisibilityOpen}
                 aria-label={t('hideColumns')}
                 title={t('hideColumns')}
               >
                 <EyeOff className="h-4 w-4 text-blue-600" />
-                <span className="hidden sm:inline">{t('hideColumns')}</span>
+                <span>{t('hideColumns')}</span>
               </button>
 
               {watchlistColumnVisibilityOpen ? (

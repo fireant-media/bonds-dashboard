@@ -1012,12 +1012,6 @@ export default function MarketOverview() {
 
   return (
     <div className="min-w-0 py-3 transition-colors duration-300">
-      <div className="mb-3 flex min-w-0 items-center justify-between">
-        <div className="min-w-0 space-y-1">
-          <h1 className="break-words text-2xl font-bold tracking-tight text-slate-950 transition-colors dark:text-text-base">{t('marketOverview')}</h1>
-        </div>
-      </div>
-
       <div className="grid min-w-0 grid-cols-12 gap-3">
         <div className="col-span-12 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {isKpiSectionLoading

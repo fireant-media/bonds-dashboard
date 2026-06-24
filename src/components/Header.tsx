@@ -375,6 +375,38 @@ export default function Header({
     setLanguage((language === 'vi' ? 'en' : 'vi') as Language);
   };
 
+  const currentPageTitle = (() => {
+    if (activeTab === 'overview') {
+      return t('marketOverview');
+    }
+
+    if (activeTab === 'industry') {
+      return `${t('marketTitle')} ${t(activeIndustry as any) || activeIndustry || ''}`.trim();
+    }
+
+    if (activeTab === 'filter') {
+      return activeFilterSubTab === 'bonds' ? t('filterByBond') : t('filterByIssuer');
+    }
+
+    if (activeTab === 'watchlist') {
+      return t('watchList');
+    }
+
+    if (activeTab === 'news-list') {
+      return t('relatedNews');
+    }
+
+    if (activeTab === 'profile') {
+      return t('profile');
+    }
+
+    if (activeTab === 'help') {
+      return t('help');
+    }
+
+    return '';
+  })();
+
   const subIndustries = useMemo(() => {
     const items = INDUSTRY_NAV_ITEMS.map((item) => ({
       id: item.id,
@@ -802,6 +834,14 @@ export default function Header({
         >
           <Logo />
         </button>
+      </div>
+
+      <div className="hidden min-w-0 flex-1 items-center lg:flex">
+        {currentPageTitle ? (
+          <div className="min-w-0">
+            <p className="truncate text-base font-bold text-text-base transition-colors">{currentPageTitle}</p>
+          </div>
+        ) : null}
       </div>
 
       <div className="ml-auto flex items-center justify-end gap-2">

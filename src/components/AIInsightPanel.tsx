@@ -86,7 +86,13 @@ function createPayloadSignature(payloadText: string) {
   return `ai-${payloadText.length}-${(hash >>> 0).toString(36)}`;
 }
 
-function renderInsightContent(content: string) {
+function toSentenceCase(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return normalized;
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+}
+
+function renderInsightInlineContent(content: string) {
   const renderTextSegment = (text: string, keyPrefix: string, isBold = false) => (
     text.split(/(\d[\d.,]*(?:\s*%)?)/g).map((part, index) => {
       if (!part) return null;
@@ -119,6 +125,27 @@ function renderInsightContent(content: string) {
 
     return renderTextSegment(part, `plain-${index}`);
   });
+}
+
+function renderInsightContent(content: string) {
+  const paragraphs = content
+    .split(/\n\s*\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {paragraphs.map((paragraph, index) => (
+        <p key={`${paragraph.slice(0, 12)}-${index}`} className="whitespace-pre-line break-words text-sm font-medium leading-5 text-slate-950 dark:text-text-base">
+          {renderInsightInlineContent(paragraph)}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 export default function AIInsightPanel({
@@ -283,76 +310,56 @@ export default function AIInsightPanel({
   const insightContentClassName = expandContent || isStackedLayout
     ? 'overflow-visible'
     : 'max-h-28 overflow-y-auto pr-1';
+  const displayTitle = toSentenceCase(title);
 
   return (
-    <Card className={`group relative overflow-hidden p-3 md:p-4 ${className || ''}`}>
-      <div className={`relative flex gap-3 ${isStackedLayout ? 'items-stretch' : 'flex-col md:flex-row md:items-start'}`} ref={ref}>
-        <div className={isStackedLayout ? 'flex w-24 shrink-0 flex-col items-center justify-center self-stretch text-center' : 'hidden w-20 shrink-0 items-center justify-center md:flex'}>
-          <div className="relative h-16 w-16 rounded-lg bg-blue-50">
-            <div className="absolute bottom-3 left-3 h-7 w-2 rounded-sm bg-blue-300" />
-            <div className="absolute bottom-3 left-7 h-10 w-2 rounded-sm bg-blue-500" />
-            <div className="absolute bottom-3 left-11 h-5 w-2 rounded-sm bg-blue-200" />
-            <div className="absolute left-3 top-4 h-6 w-10 border-l-2 border-t-2 border-blue-600" />
-            <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-blue-600 bg-white">
-              <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+    <Card className={`group relative overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/70 p-4 shadow-sm shadow-blue-500/10 transition-colors dark:border-blue-900/40 dark:bg-blue-950/20 dark:shadow-black/20 ${className || ''}`}>
+      <div className="relative" ref={ref}>
+        <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900/40 dark:ring-blue-900/40">
+              <Sparkles className="h-4 w-4" />
             </div>
-          </div>
-          {isStackedLayout ? (
-            <h3 className="mt-2 text-xs font-bold uppercase tracking-wider text-blue-700">
-              {title}
-            </h3>
-          ) : null}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className={`mb-1 flex min-w-0 items-start justify-between gap-3 ${isStackedLayout ? 'md:min-h-8' : ''}`}>
-            {!isStackedLayout ? (
-              <div className="min-w-0">
-                <h3 className="text-sm font-bold uppercase tracking-wide text-blue-700">
-                  {title}
-                </h3>
-                {updatedLabel ? (
-                  <div className="mt-0.5 text-xs font-medium text-text-muted/80">{updatedLabel}</div>
-                ) : null}
-              </div>
-            ) : <div className="min-w-0 flex-1" />}
-            <button
-              type="button"
-              onClick={() => void generateInsight(true)}
-              disabled={!payloadText || isLoading}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-base bg-bg-surface px-2 py-1 text-xs font-semibold text-text-muted transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-              title={t('refresh')}
-              aria-label={t('refresh')}
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-
-          {isLoading ? (
-            <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
-              <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-              <span>{t('aiGeneratingInsight')}</span>
-            </div>
-          ) : error ? (
-            <div className="flex items-start gap-3 py-1 text-sm text-text-muted">
-              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <span>{error}</span>
-            </div>
-          ) : insight ? (
-            <div className={insightContentClassName}>
-              <p className="whitespace-pre-line break-words text-sm font-medium leading-6 text-slate-950 dark:text-text-base">
-                {renderInsightContent(insight)}
-              </p>
-              {isStackedLayout && updatedLabel ? (
-                <div className="mt-3 text-xs font-medium text-text-muted/80">{updatedLabel}</div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-text-base">
+                {displayTitle}
+              </h3>
+              {updatedLabel ? (
+                <div className="mt-0.5 text-xs font-medium text-text-muted/80">{updatedLabel}</div>
               ) : null}
             </div>
-          ) : (
-            <div className="py-1 text-sm text-text-muted">
-              {payloadText ? t('aiNoInsight') : t('noData')}
-            </div>
-          )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void generateInsight(true)}
+            disabled={!payloadText || isLoading}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-base bg-bg-surface px-2 py-1 text-xs font-semibold text-text-muted transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+            title={t('refresh')}
+            aria-label={t('refresh')}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
+            <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+            <span>{t('aiGeneratingInsight')}</span>
+          </div>
+        ) : error ? (
+          <div className="flex items-start gap-3 py-1 text-sm text-text-muted">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            <span>{error}</span>
+          </div>
+        ) : insight ? (
+          <div className={insightContentClassName}>
+            {renderInsightContent(insight)}
+          </div>
+        ) : (
+          <div className="py-1 text-sm text-text-muted">
+            {payloadText ? t('aiNoInsight') : t('noData')}
+          </div>
+        )}
       </div>
     </Card>
   );

@@ -411,28 +411,43 @@ export function BondFilterPanel({
   marketActionSlot,
   showFilterControls = true,
 }: BondFilterPanelProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const isMarketVariant = variant === 'market';
   const isMaturityVariant = variant === 'maturity';
   const showStandardToolbar = showFilterControls;
+  const quickPromptSuggestions = useMemo(() => (
+    language === 'en'
+      ? [
+          'High coupon bonds',
+          'Bonds maturing soonest',
+          'High listed value bonds',
+        ]
+      : [
+          'Lãi suất trên 8%',
+          'Ngân hàng dư nợ cao',
+          'Giá trị phát hành trên 1.000 tỷ',
+        ]
+  ), [language]);
 
   return (
     <section className="rounded-lg border border-border-base bg-bg-surface/95 p-4 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
       <div className="flex flex-col gap-2">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-          {isMarketVariant || isMaturityVariant ? null : (
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
-                <ListFilter className="h-4 w-4 text-blue-600" />
-                <span>{t('filterTab')}</span>
-              </div>
-              <h2 className="text-xl font-bold text-text-base">{title}</h2>
-              <p className="text-sm font-medium text-text-muted">
-                {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
-              </p>
+        {isMarketVariant || isMaturityVariant ? null : (
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+              <ListFilter className="h-4 w-4 text-blue-600" />
+              <span>{t('filterTab')}</span>
             </div>
-          )}
-          <div className={`flex flex-col gap-2 sm:flex-row ${isMarketVariant || isMaturityVariant || !showStandardToolbar ? 'hidden' : ''}`}>
+            <h2 className="text-xl font-bold text-text-base">{title}</h2>
+            <p className="text-sm font-medium text-text-muted">
+              {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
+            </p>
+          </div>
+        )}
+
+        <div className={`flex flex-col gap-2 sm:flex-row ${isMarketVariant || isMaturityVariant || !showStandardToolbar ? 'hidden' : 'justify-end'}`}>
+          <div className={isMarketVariant || isMaturityVariant ? 'hidden' : 'flex-1'} />
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
               onClick={onApply}
@@ -459,13 +474,18 @@ export function BondFilterPanel({
                 <Sparkles className="h-4 w-4" />
                 <span>{t('applyAIFilter')}</span>
               </span>
-              <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+              <div className="flex flex-col gap-2 xl:flex-row xl:items-stretch">
                 <div className="min-w-0 flex-1">
                   <textarea
-                    rows={2}
                     value={aiPrompt}
                     onChange={(event) => {
                       const nextPrompt = event.target.value;
+
+                      if (!nextPrompt.trim()) {
+                        onReset();
+                        return;
+                      }
+
                       setAiPrompt(nextPrompt);
 
                       if (aiSummary.length > 0) {
@@ -477,14 +497,14 @@ export function BondFilterPanel({
                       }
                     }}
                     placeholder={t('aiFilterPlaceholder')}
-                    className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+                    className="h-11 w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => void onApplyAI()}
                   disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   <span>{t('applyAIFilter')}</span>
@@ -493,8 +513,11 @@ export function BondFilterPanel({
             </div>
 
             {showPromptSuggestions && (
-              <div className="flex flex-wrap gap-1.5">
-                {aiPromptSuggestions.slice(0, AI_PROMPT_SUGGESTION_LIMIT).map((suggestion) => (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-widest text-blue-700">
+                  Gợi ý nhanh:
+                </span>
+                {quickPromptSuggestions.slice(0, AI_PROMPT_SUGGESTION_LIMIT).map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
@@ -503,7 +526,7 @@ export function BondFilterPanel({
                       setAiSummary([]);
                       setAiError(null);
                     }}
-                    className="rounded-full px-3 py-0.5 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-900"
+                    className="inline-flex h-7 items-center rounded-full border border-blue-100 bg-bg-surface px-3 text-left text-xs font-semibold whitespace-nowrap text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-900"
                   >
                     {suggestion}
                   </button>
@@ -545,13 +568,11 @@ export function BondFilterPanel({
             bondTypeOptions={bondTypeOptions}
             industryOptions={industryOptions}
             searchOptions={searchOptions}
-            resultCount={resultCount}
-            totalCount={totalCount}
-            onApply={onApply}
-            onReset={onReset}
-            marketActionSlot={marketActionSlot}
-            showFilterControls={showFilterControls}
-          />
+          resultCount={resultCount}
+          totalCount={totalCount}
+          marketActionSlot={marketActionSlot}
+          showFilterControls={showFilterControls}
+        />
         ) : isMaturityVariant ? (
           <MaturityFilterToolbar
             draftFilters={draftFilters}
@@ -748,17 +769,6 @@ function MaturityFilterToolbar({
           />
         </div>
 
-        <div className="flex w-full justify-end xl:w-36 xl:flex-none">
-          <ActionFilterButton
-            icon={RefreshCcw}
-            label={t('resetFilters')}
-            onClick={onReset}
-            variant="secondary"
-            className="w-36"
-          />
-        </div>
-      </div>
-
       <div className="flex flex-col gap-2 xl:flex-row xl:items-end">
         <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
           <RangeFilterChip
@@ -840,28 +850,18 @@ function MaturityFilterToolbar({
           />
         </div>
 
-        <div className="flex w-full justify-end xl:w-36 xl:flex-none">
-          <ActionFilterButton
-            icon={CheckCircle2}
-            label={t('applyFilters')}
-            onClick={onApply}
-            variant="primary"
-            className="w-36"
-          />
         </div>
       </div>
-        </>
-      ) : null}
 
       <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </div>
 
-        <div className="flex w-full justify-end xl:w-auto">
-          {marketActionSlot}
-        </div>
+        {marketActionSlot}
       </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -958,8 +958,6 @@ interface MarketFilterToolbarProps {
   searchOptions: string[];
   resultCount: number;
   totalCount: number;
-  onApply: () => void;
-  onReset: () => void;
   marketActionSlot?: ReactNode;
   showFilterControls?: boolean;
 }
@@ -974,8 +972,6 @@ function MarketFilterToolbar({
   searchOptions,
   resultCount,
   totalCount,
-  onApply,
-  onReset,
   marketActionSlot,
   showFilterControls = true,
 }: MarketFilterToolbarProps) {
@@ -1009,175 +1005,154 @@ function MarketFilterToolbar({
     <div ref={menuRef} className="space-y-3">
       {showFilterControls ? (
         <>
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-start">
-        <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
-          <SearchFilterField
-            value={draftFilters.searchTerm}
-            onChange={(value) => setDraftFilters((current) => ({ ...current, searchTerm: value }))}
-            suggestions={searchOptions}
-          />
-          <SelectFilterChip
-            icon={ListFilter}
-            label={t('industryLabel')}
-            value={draftFilters.industry}
-            options={industryOptions}
-            open={openMenu === 'industry'}
-            onToggle={() => setOpenMenu((current) => (current === 'industry' ? null : 'industry'))}
-            onChange={(value) => setDraftFilters((current) => ({ ...current, industry: value }))}
-            onClose={() => setOpenMenu(null)}
-            fullWidth
-          />
-          <SelectFilterChip
-            icon={Building2}
-            label={t('issuer')}
-            value={draftFilters.issuer}
-            options={issuerOptions}
-            open={openMenu === 'issuer'}
-            onToggle={() => setOpenMenu((current) => (current === 'issuer' ? null : 'issuer'))}
-            onChange={(value) => setDraftFilters((current) => ({ ...current, issuer: value }))}
-            onClose={() => setOpenMenu(null)}
-            fullWidth
-          />
-          <SelectFilterChip
-            icon={ListFilter}
-            label={t('bondTypeLabel')}
-            value={draftFilters.bondType}
-            options={bondTypeOptions}
-            open={openMenu === 'bondType'}
-            onToggle={() => setOpenMenu((current) => (current === 'bondType' ? null : 'bondType'))}
-            onChange={(value) => setDraftFilters((current) => ({ ...current, bondType: value }))}
-            onClose={() => setOpenMenu(null)}
-            fullWidth
-          />
-          <SelectFilterChip
-            icon={BadgePercent}
-            label={t('interestType')}
-            value={draftFilters.bondRateType}
-            options={rateTypeOptions}
-            open={openMenu === 'bondRateType'}
-            onToggle={() => setOpenMenu((current) => (current === 'bondRateType' ? null : 'bondRateType'))}
-            onChange={(value) => setDraftFilters((current) => ({ ...current, bondRateType: value }))}
-            onClose={() => setOpenMenu(null)}
-            fullWidth
-          />
-          <RangeFilterChip
-            icon={BadgePercent}
-            label={t('interestRate')}
-            minValue={draftFilters.bondRateMin}
-            maxValue={draftFilters.bondRateMax}
-            unit={t('unitPercentLabel')}
-            open={openMenu === 'bondRate'}
-            onToggle={() => setOpenMenu((current) => (current === 'bondRate' ? null : 'bondRate'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMin: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMax: value }))}
-            fullWidth
-          />
-        </div>
-        <div className="xl:ml-auto xl:flex xl:w-36 xl:flex-none xl:justify-end">
-          <ActionFilterButton
-            icon={RefreshCcw}
-            label={t('resetFilters')}
-            onClick={onReset}
-            variant="secondary"
-          />
-        </div>
-      </div>
+          <div className="grid gap-2 xl:grid-cols-6">
+            <SearchFilterField
+              value={draftFilters.searchTerm}
+              onChange={(value) => setDraftFilters((current) => ({ ...current, searchTerm: value }))}
+              suggestions={searchOptions}
+            />
+            <SelectFilterChip
+              icon={ListFilter}
+              label={t('industryLabel')}
+              value={draftFilters.industry}
+              options={industryOptions}
+              open={openMenu === 'industry'}
+              onToggle={() => setOpenMenu((current) => (current === 'industry' ? null : 'industry'))}
+              onChange={(value) => setDraftFilters((current) => ({ ...current, industry: value }))}
+              onClose={() => setOpenMenu(null)}
+              fullWidth
+            />
+            <SelectFilterChip
+              icon={Building2}
+              label={t('issuer')}
+              value={draftFilters.issuer}
+              options={issuerOptions}
+              open={openMenu === 'issuer'}
+              onToggle={() => setOpenMenu((current) => (current === 'issuer' ? null : 'issuer'))}
+              onChange={(value) => setDraftFilters((current) => ({ ...current, issuer: value }))}
+              onClose={() => setOpenMenu(null)}
+              fullWidth
+            />
+            <SelectFilterChip
+              icon={ListFilter}
+              label={t('bondTypeLabel')}
+              value={draftFilters.bondType}
+              options={bondTypeOptions}
+              open={openMenu === 'bondType'}
+              onToggle={() => setOpenMenu((current) => (current === 'bondType' ? null : 'bondType'))}
+              onChange={(value) => setDraftFilters((current) => ({ ...current, bondType: value }))}
+              onClose={() => setOpenMenu(null)}
+              fullWidth
+            />
+            <SelectFilterChip
+              icon={BadgePercent}
+              label={t('interestType')}
+              value={draftFilters.bondRateType}
+              options={rateTypeOptions}
+              open={openMenu === 'bondRateType'}
+              onToggle={() => setOpenMenu((current) => (current === 'bondRateType' ? null : 'bondRateType'))}
+              onChange={(value) => setDraftFilters((current) => ({ ...current, bondRateType: value }))}
+              onClose={() => setOpenMenu(null)}
+              fullWidth
+            />
+            <RangeFilterChip
+              icon={BadgePercent}
+              label={t('interestRate')}
+              minValue={draftFilters.bondRateMin}
+              maxValue={draftFilters.bondRateMax}
+              unit={t('unitPercentLabel')}
+              open={openMenu === 'bondRate'}
+              onToggle={() => setOpenMenu((current) => (current === 'bondRate' ? null : 'bondRate'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMin: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, bondRateMax: value }))}
+              fullWidth
+            />
+          </div>
 
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-end">
-        <div className="grid min-w-0 flex-1 gap-2 xl:grid-cols-6">
-          <RangeFilterChip
-            icon={ListFilter}
-            label={t('term')}
-            minValue={draftFilters.tenorMin}
-            maxValue={draftFilters.tenorMax}
-            unit={t('monthUnit')}
-            open={openMenu === 'tenor'}
-            onToggle={() => setOpenMenu((current) => (current === 'tenor' ? null : 'tenor'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, tenorMin: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, tenorMax: value }))}
-            fullWidth
-          />
-          <RangeFilterChip
-            icon={CalendarRange}
-            label={t('issueDate')}
-            minValue={draftFilters.issueDateFrom}
-            maxValue={draftFilters.issueDateTo}
-            inputType="date"
-            open={openMenu === 'issueDate'}
-            onToggle={() => setOpenMenu((current) => (current === 'issueDate' ? null : 'issueDate'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, issueDateFrom: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issueDateTo: value }))}
-            fullWidth
-          />
-          <RangeFilterChip
-            icon={CalendarRange}
-            label={t('maturityDate')}
-            minValue={draftFilters.maturityDateFrom}
-            maxValue={draftFilters.maturityDateTo}
-            inputType="date"
-            open={openMenu === 'maturityDate'}
-            onToggle={() => setOpenMenu((current) => (current === 'maturityDate' ? null : 'maturityDate'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateFrom: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateTo: value }))}
-            fullWidth
-          />
-          <RangeFilterChip
-            icon={ListFilter}
-            label={t('listedVolume')}
-            minValue={draftFilters.listedVolumeMin}
-            maxValue={draftFilters.listedVolumeMax}
-            open={openMenu === 'listedVolume'}
-            onToggle={() => setOpenMenu((current) => (current === 'listedVolume' ? null : 'listedVolume'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, listedVolumeMin: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, listedVolumeMax: value }))}
-            fullWidth
-          />
-          <RangeFilterChip
-            icon={Landmark}
-            label={t('issuedValue')}
-            minValue={draftFilters.issuedValueMin}
-            maxValue={draftFilters.issuedValueMax}
-            unit={t('unitBillionVND')}
-            open={openMenu === 'issuedValue'}
-            onToggle={() => setOpenMenu((current) => (current === 'issuedValue' ? null : 'issuedValue'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, issuedValueMin: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issuedValueMax: value }))}
-            fullWidth
-          />
-          <RangeFilterChip
-            icon={Landmark}
-            label={t('listedValue')}
-            minValue={draftFilters.listedValueMin}
-            maxValue={draftFilters.listedValueMax}
-            unit={t('unitBillionVND')}
-            open={openMenu === 'listedValue'}
-            onToggle={() => setOpenMenu((current) => (current === 'listedValue' ? null : 'listedValue'))}
-            onClose={() => setOpenMenu(null)}
-            onMinChange={(value) => setDraftFilters((current) => ({ ...current, listedValueMin: value }))}
-            onMaxChange={(value) => setDraftFilters((current) => ({ ...current, listedValueMax: value }))}
-            fullWidth
-          />
-        </div>
-
-        <div className="flex w-full flex-col gap-2 xl:w-36 xl:flex-none xl:justify-end">
-          <ActionFilterButton
-            icon={CheckCircle2}
-            label={t('applyFilters')}
-            onClick={onApply}
-            variant="primary"
-          />
-        </div>
-      </div>
+          <div className="grid gap-2 xl:grid-cols-6">
+            <RangeFilterChip
+              icon={ListFilter}
+              label={t('term')}
+              minValue={draftFilters.tenorMin}
+              maxValue={draftFilters.tenorMax}
+              unit={t('monthUnit')}
+              open={openMenu === 'tenor'}
+              onToggle={() => setOpenMenu((current) => (current === 'tenor' ? null : 'tenor'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, tenorMin: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, tenorMax: value }))}
+              fullWidth
+            />
+            <RangeFilterChip
+              icon={CalendarRange}
+              label={t('issueDate')}
+              minValue={draftFilters.issueDateFrom}
+              maxValue={draftFilters.issueDateTo}
+              inputType="date"
+              open={openMenu === 'issueDate'}
+              onToggle={() => setOpenMenu((current) => (current === 'issueDate' ? null : 'issueDate'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, issueDateFrom: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issueDateTo: value }))}
+              fullWidth
+            />
+            <RangeFilterChip
+              icon={CalendarRange}
+              label={t('maturityDate')}
+              minValue={draftFilters.maturityDateFrom}
+              maxValue={draftFilters.maturityDateTo}
+              inputType="date"
+              open={openMenu === 'maturityDate'}
+              onToggle={() => setOpenMenu((current) => (current === 'maturityDate' ? null : 'maturityDate'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateFrom: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, maturityDateTo: value }))}
+              fullWidth
+            />
+            <RangeFilterChip
+              icon={ListFilter}
+              label={t('listedVolume')}
+              minValue={draftFilters.listedVolumeMin}
+              maxValue={draftFilters.listedVolumeMax}
+              open={openMenu === 'listedVolume'}
+              onToggle={() => setOpenMenu((current) => (current === 'listedVolume' ? null : 'listedVolume'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, listedVolumeMin: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, listedVolumeMax: value }))}
+              fullWidth
+            />
+            <RangeFilterChip
+              icon={Landmark}
+              label={t('issuedValue')}
+              minValue={draftFilters.issuedValueMin}
+              maxValue={draftFilters.issuedValueMax}
+              unit={t('unitBillionVND')}
+              open={openMenu === 'issuedValue'}
+              onToggle={() => setOpenMenu((current) => (current === 'issuedValue' ? null : 'issuedValue'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, issuedValueMin: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, issuedValueMax: value }))}
+              fullWidth
+            />
+            <RangeFilterChip
+              icon={Landmark}
+              label={t('listedValue')}
+              minValue={draftFilters.listedValueMin}
+              maxValue={draftFilters.listedValueMax}
+              unit={t('unitBillionVND')}
+              open={openMenu === 'listedValue'}
+              onToggle={() => setOpenMenu((current) => (current === 'listedValue' ? null : 'listedValue'))}
+              onClose={() => setOpenMenu(null)}
+              onMinChange={(value) => setDraftFilters((current) => ({ ...current, listedValueMin: value }))}
+              onMaxChange={(value) => setDraftFilters((current) => ({ ...current, listedValueMax: value }))}
+              fullWidth
+            />
+          </div>
         </>
       ) : null}
 
-      <div className="flex items-center justify-between gap-2 pt-0.5">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <span className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </span>
@@ -1251,12 +1226,14 @@ export function ActionFilterButton({
   onClick,
   variant,
   className = '',
+  iconClassName = '',
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
   variant: 'primary' | 'secondary';
   className?: string;
+  iconClassName?: string;
 }) {
   return (
     <button
@@ -1266,9 +1243,9 @@ export function ActionFilterButton({
         variant === 'primary'
           ? 'bg-blue-600 text-white hover:bg-blue-500'
           : 'border border-border-base bg-bg-base text-text-base hover:border-blue-200 hover:text-text-highlight'
-      }`}
+        }`}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className={`h-4 w-4 ${iconClassName}`} />
       <span>{label}</span>
     </button>
   );

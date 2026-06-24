@@ -19,7 +19,7 @@ import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { Card, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
 import { useIndustryBaseDashboardQuery, useIndustryFullDashboardQuery } from '../query/dashboardQueries';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
-import { MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY, type IndustryData } from '../services/marketOverviewData';
+import { type IndustryData } from '../services/marketOverviewData';
 
 interface ProjectedCashFlowBucket {
   label: string;
@@ -831,34 +831,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     ? 'Số mã trái phiếu & Dư nợ còn lại của các doanh nghiệp'
     : 'Bond codes & remaining debt of companies';
   const industryPageTitle = `${t('marketTitle')} ${getIndustryLabel(industry)}`;
-  const industryMarketShare = useMemo(() => {
-    const overviewPayload = getCache('market_overview') as { industryData?: IndustryData[] } | null;
-    const overviewIndustries = (
-      getCache(MARKET_OVERVIEW_INDUSTRY_DATA_CACHE_KEY)
-      || overviewPayload?.industryData
-      || []
-    ) as IndustryData[];
-
-    if (!Array.isArray(overviewIndustries) || overviewIndustries.length === 0) return null;
-
-    const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
-    const currentLabel = normalize(getIndustryLabel(industry));
-    const matchedIndustry = overviewIndustries.find((item) => (
-      normalize(item.icbName) === normalize(industry)
-      || normalize(t(item.icbName as any)) === currentLabel
-    ));
-    const currentDebt = Number(matchedIndustry?.totalRemainingDebt || industryStats?.totalRemainingDebt || 0);
-    const totalDebt = overviewIndustries.reduce((sum, item) => sum + Number(item.totalRemainingDebt || 0), 0);
-
-    if (!Number.isFinite(currentDebt) || !Number.isFinite(totalDebt) || currentDebt <= 0 || totalDebt <= 0) {
-      return null;
-    }
-
-    return (currentDebt / totalDebt) * 100;
-  }, [industry, industryStats?.totalRemainingDebt, t]);
-  const industryMarketShareLabel = industryMarketShare == null
-    ? null
-    : `${formatNumber(industryMarketShare, 1)}% ${language === 'vi' ? 'thị phần' : 'share'}`;
   const industryInsightTitle = language === 'vi'
     ? `Nhận định ngành ${getIndustryLabel(industry)}`
     : `${getIndustryLabel(industry)} insight`;
@@ -1017,19 +989,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-4 transition-colors duration-300">
-      <div className="flex min-w-0 flex-col gap-2 pt-1 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 transition-colors dark:text-text-base md:text-3xl">{t('marketTitle')} {getIndustryLabel(industry)}</h1>
-            {industryMarketShareLabel ? (
-              <span className="inline-flex shrink-0 items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/20">
-                {industryMarketShareLabel}
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {isIndustrySummaryLoading
           ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
@@ -1045,7 +1004,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         sectionTitle={getIndustryLabel(industry)}
         payload={industryInsightPayload}
         expandContent
-        className="border-blue-100 bg-blue-50/70 shadow-blue-500/10 dark:border-blue-500/20 dark:bg-blue-500/10"
       />
 
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
