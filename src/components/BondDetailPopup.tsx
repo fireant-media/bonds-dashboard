@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowLeftRight, Activity, Bookmark, BookmarkCheck, Briefcase
 import ChartWithToolbar from './ChartWithToolbar';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
+import { getLocalizedBondStatus, getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { sendChat } from '../api/ai';
@@ -19,6 +20,7 @@ import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlist
 import { useAIStore } from '../store/aiStore';
 import { setCache, getCache } from '../utils/cache';
 import { Card } from './ui/Card';
+import AIInsightText from './ui/AIInsightText';
 
 interface BondDetailPopupProps {
   bond: Bond;
@@ -26,6 +28,7 @@ interface BondDetailPopupProps {
   onClose: () => void;
   onCompare?: () => void;
   sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded';
+  embedded?: boolean;
 }
 
 type BondCashFlow = {
@@ -118,6 +121,18 @@ const getRemainingTermMonths = (maturityDate?: string) => {
   return maturity.getDate() < today.getDate() ? months - 1 : months;
 };
 
+const getComparableTermMonths = (bondLike: any) =>
+  getRemainingTermMonths(bondLike?.maturityDate)
+  ?? parseTermMonths(bondLike?.term)
+  ?? parseTermMonths(bondLike?.tenorPeriod)
+  ?? null;
+
+const getTermGroupKey = (bondLike: any) => {
+  const months = getComparableTermMonths(bondLike);
+  if (months === null) return '';
+  return months < 36 ? 'short_term' : 'long_term';
+};
+
 const getRateTypeKey = (value: unknown) => {
   const text = normalizeAscii(value);
   if (!text) return '';
@@ -156,12 +171,25 @@ const percentile = (values: number[], p: number) => {
 
 const median = (values: number[]) => percentile(values, 50);
 
+let pendingBondDetailAIStatusRequest: Promise<void> | null = null;
+
+function ensureBondDetailAIStatus(refreshStatus: () => Promise<void>) {
+  if (!pendingBondDetailAIStatusRequest) {
+    pendingBondDetailAIStatusRequest = refreshStatus().finally(() => {
+      pendingBondDetailAIStatusRequest = null;
+    });
+  }
+
+  return pendingBondDetailAIStatusRequest;
+}
+
 export default function BondDetailPopup({
   bond,
   enterpriseName,
   onClose,
   onCompare,
   sidebarDisplayMode = 'none',
+  embedded = false,
 }: BondDetailPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
@@ -539,12 +567,14 @@ export default function BondDetailPopup({
   }, [resolvedIndustryId]);
 
   const industryInterestRateAssessment = useMemo(() => {
-    const rate = Number(currentBond.interestRate || 0);
-    const rateTypeKey = getBondRateTypeKey(currentBond);
-    const remainingTermMonths = getRemainingTermMonths(currentBond.maturityDate) ?? parseTermMonths(currentBond.term) ?? null;
+    const bondForAssessment = bondDetails || currentBond;
+    const rate = Number(bondForAssessment.interestRate || currentBond.interestRate || 0);
+    const rateTypeKey = getBondRateTypeKey(bondForAssessment);
+    const currentTermGroup = getTermGroupKey(bondForAssessment);
     const industryBonds = Array.isArray(industryBondGroup?.bonds) ? industryBondGroup.bonds : [];
+    const industryStats = industryBondGroup?.industryStats;
 
-    if (!resolvedIndustryId || !rateTypeKey || remainingTermMonths === null || rate <= 0) {
+    if (!resolvedIndustryId || rate <= 0) {
       return {
         level: 'unknown' as const,
         confidence: null as 'low' | null,
@@ -554,14 +584,12 @@ export default function BondDetailPopup({
     const sameRateTypePeers = industryBonds.filter((bondRow: any) => {
       const code = normalizeText(bondRow?.bondCode || bondRow?.code).toUpperCase();
       if (code && code === normalizeText(currentBond.code).toUpperCase()) return false;
-      return getBondRateTypeKey(bondRow) === rateTypeKey;
+      return rateTypeKey ? getBondRateTypeKey(bondRow) === rateTypeKey : true;
     });
 
-    const currentTermGroup = remainingTermMonths < 36 ? 'short_term' : 'long_term';
     const withTermGroup = sameRateTypePeers.filter((bondRow: any) => {
-      const peerTermMonths = getRemainingTermMonths(bondRow?.maturityDate);
-      if (peerTermMonths === null) return false;
-      return (peerTermMonths < 36 ? 'short_term' : 'long_term') === currentTermGroup;
+      if (!currentTermGroup) return false;
+      return getTermGroupKey(bondRow) === currentTermGroup;
     });
 
     const industryPeers = industryBonds.filter((bondRow: any) => {
@@ -570,9 +598,8 @@ export default function BondDetailPopup({
     });
 
     const industryWithTermGroup = industryPeers.filter((bondRow: any) => {
-      const peerTermMonths = getRemainingTermMonths(bondRow?.maturityDate);
-      if (peerTermMonths === null) return false;
-      return (peerTermMonths < 36 ? 'short_term' : 'long_term') === currentTermGroup;
+      if (!currentTermGroup) return false;
+      return getTermGroupKey(bondRow) === currentTermGroup;
     });
 
     const extractPeerRates = (rows: any[]) =>
@@ -596,9 +623,24 @@ export default function BondDetailPopup({
 
     const evaluateWithMedian = (values: number[]) => {
       const medianValue = median(values);
-      const epsilon = 0.0001;
+      const epsilon = Math.max(0.15, medianValue * 0.03);
       return {
         level: rate < medianValue - epsilon ? 'low' : rate > medianValue + epsilon ? 'high' : 'medium',
+        confidence: 'low' as const,
+      };
+    };
+
+    const evaluateWithBenchmark = (benchmark: number) => {
+      if (!Number.isFinite(benchmark) || benchmark <= 0) {
+        return {
+          level: 'unknown' as const,
+          confidence: null as 'low' | null,
+        };
+      }
+
+      const tolerance = Math.max(0.15, benchmark * 0.03);
+      return {
+        level: rate < benchmark - tolerance ? 'low' : rate > benchmark + tolerance ? 'high' : 'medium',
         confidence: 'low' as const,
       };
     };
@@ -608,20 +650,49 @@ export default function BondDetailPopup({
     if (industryTermGroupValues.length >= 5) return evaluateWithPercentiles(industryTermGroupValues);
     if (industryValues.length >= 5) return evaluateWithPercentiles(industryValues);
     if (industryValues.length >= 2) return evaluateWithMedian(industryValues);
+    if (industryValues.length >= 1) return evaluateWithMedian(industryValues);
+    if (rateTypeKey === 'floating' && Number(industryStats?.floatingRate) > 0) {
+      return evaluateWithBenchmark(Number(industryStats?.floatingRate));
+    }
+    if (Number(industryStats?.avgCouponRate) > 0) {
+      return evaluateWithBenchmark(Number(industryStats?.avgCouponRate));
+    }
+    if (Number(industryStats?.avgRate) > 0) {
+      return evaluateWithBenchmark(Number(industryStats?.avgRate));
+    }
+    if (rateTypeKey === 'fixed' || rateTypeKey === 'floating') {
+      return {
+        level: 'medium' as const,
+        confidence: 'low' as const,
+      };
+    }
 
     return {
-      level: 'unknown' as const,
-      confidence: null as 'low' | null,
+      level: 'medium' as const,
+      confidence: 'low' as const,
     };
-  }, [bondDetails?.bondRateType, currentBond.code, currentBond.interestRate, currentBond.interestType, currentBond.maturityDate, currentBond.term, industryBondGroup?.bonds, resolvedIndustryId]);
+  }, [
+    bondDetails,
+    currentBond,
+    industryBondGroup?.bonds,
+    industryBondGroup?.industryStats,
+    resolvedIndustryId,
+  ]);
 
   const quickAnalysis = useMemo(() => {
     const getLevelMeta = (level: 'high' | 'medium' | 'low' | 'large' | 'small' | 'unknown') => {
-      if (level === 'high') return { label: t('levelHigh'), className: 'text-rose-600 dark:text-rose-400' };
-      if (level === 'medium') return { label: t('levelMedium'), className: 'text-amber-600 dark:text-amber-400' };
-      if (level === 'small') return { label: t('levelSmall'), className: 'text-orange-500 dark:text-orange-300' };
-      if (level === 'low') return { label: t('levelLow'), className: 'text-emerald-600 dark:text-emerald-400' };
-      if (level === 'large') return { label: t('levelLarge'), className: 'text-blue-600 dark:text-blue-400' };
+      const fallbackLabels = {
+        high: language === 'vi' ? 'Cao' : 'High',
+        medium: language === 'vi' ? 'Trung bình' : 'Medium',
+        small: language === 'vi' ? 'Nhỏ' : 'Small',
+        low: language === 'vi' ? 'Thấp' : 'Low',
+        large: language === 'vi' ? 'Lớn' : 'Large',
+      };
+      if (level === 'high') return { label: t('levelHigh') === 'levelHigh' ? fallbackLabels.high : t('levelHigh'), className: 'text-rose-600 dark:text-rose-400' };
+      if (level === 'medium') return { label: t('levelMedium') === 'levelMedium' ? fallbackLabels.medium : t('levelMedium'), className: 'text-amber-600 dark:text-amber-400' };
+      if (level === 'small') return { label: t('levelSmall') === 'levelSmall' ? fallbackLabels.small : t('levelSmall'), className: 'text-orange-500 dark:text-orange-300' };
+      if (level === 'low') return { label: t('levelLow') === 'levelLow' ? fallbackLabels.low : t('levelLow'), className: 'text-emerald-600 dark:text-emerald-400' };
+      if (level === 'large') return { label: t('levelLarge') === 'levelLarge' ? fallbackLabels.large : t('levelLarge'), className: 'text-blue-600 dark:text-blue-400' };
       return { label: '-', className: 'text-text-muted' };
     };
 
@@ -653,7 +724,7 @@ export default function BondDetailPopup({
         confidence: null as 'low' | null,
       },
     ];
-  }, [currentBond.interestRate, currentBond.issuedValue, industryInterestRateAssessment.confidence, industryInterestRateAssessment.level, maturityInfo?.days, t]);
+  }, [currentBond.interestRate, currentBond.issuedValue, industryInterestRateAssessment.confidence, industryInterestRateAssessment.level, language, maturityInfo?.days, t]);
 
   const formatBondValue = (value: unknown) => {
     const numericValue = Number(value);
@@ -690,6 +761,25 @@ export default function BondDetailPopup({
     return `${formatNumber(numericValue / 1_000_000_000, 2)} ${t('unitBillionVND')}`;
   };
 
+  const formatLocalizedParValue = (value: unknown) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return '-';
+
+    if (numericValue >= 1_000_000_000) {
+      return `${formatNumber(numericValue / 1_000_000_000, 2)} ${t('unitBillionVND')}`;
+    }
+
+    if (numericValue >= 1_000_000) {
+      return `${formatNumber(numericValue / 1_000_000, 2)} ${language === 'en' ? 'Million VND' : 'Triệu VNĐ'}`;
+    }
+
+    if (numericValue >= 1_000) {
+      return `${formatNumber(numericValue / 1_000, 2)} ${language === 'en' ? 'Thousand VND' : 'Nghìn VNĐ'}`;
+    }
+
+    return `${formatNumber(numericValue, 0)} ${language === 'en' ? 'VND' : 'VNĐ'}`;
+  };
+
   const parseInterestPaymentDetails = (value: unknown) => {
     const rawValue = normalizeText(value);
     if (!rawValue) {
@@ -714,15 +804,46 @@ export default function BondDetailPopup({
       period = t('maturityPayment');
     }
 
+    const isPeriodicMethod =
+      normalized.includes('dinh ky')
+      || normalized.includes('periodic')
+      || normalized.includes('thanh toan lai dinh ky')
+      || normalized.includes('tra lai dinh ky')
+      || normalized.includes('hang thang')
+      || normalized.includes('hang quy')
+      || normalized.includes('hang nam')
+      || normalized.includes('monthly')
+      || normalized.includes('quarterly')
+      || normalized.includes('annually')
+      || normalized.includes('yearly');
+    const isMaturityMethod =
+      normalized.includes('dao han')
+      || normalized.includes('maturity')
+      || normalized.includes('cuoi ky')
+      || normalized.includes('bullet');
+    const isAdvanceMethod =
+      normalized.includes('tra truoc')
+      || normalized.includes('in advance')
+      || normalized.includes('advance')
+      || normalized.includes('prepaid')
+      || normalized.includes('prepay');
+    const isOneTimeMethod =
+      normalized.includes('mot lan')
+      || normalized.includes('one-time')
+      || normalized.includes('one time')
+      || normalized.includes('single payment');
+
     let method = rawValue;
-    if (normalized.includes('dinh ky') || normalized.includes('periodic')) {
+    if (isPeriodicMethod) {
       method = t('periodicPayment');
-    } else if (normalized.includes('dao han') || normalized.includes('maturity') || normalized.includes('cuoi ky')) {
+    } else if (isMaturityMethod) {
       method = t('maturityPayment');
-    } else if (normalized.includes('tra truoc') || normalized.includes('in advance')) {
+    } else if (isAdvanceMethod) {
       method = t('advancePayment');
-    } else if (normalized.includes('mot lan') || normalized.includes('one-time') || normalized.includes('one time')) {
+    } else if (isOneTimeMethod) {
       method = t('oneTimePayment');
+    } else if (period !== '-') {
+      method = t('periodicPayment');
     }
 
     return { period, method };
@@ -730,23 +851,31 @@ export default function BondDetailPopup({
 
   const resolveInterestTypeLabel = (value: unknown) => {
     const rawValue = normalizeText(value);
-    const normalized = normalizeAscii(rawValue);
     if (!rawValue) return '-';
-    if (normalized.includes('fixed') || normalized.includes('co dinh')) return t('fixed');
-    if (normalized.includes('floating') || normalized.includes('tha noi')) return t('floating');
-    return rawValue;
+    return getLocalizedInterestType(rawValue, t) || rawValue;
   };
 
   const issuerDisplayName = useMemo(
-    () =>
-      resolveIssuerDisplayName(
+    () => {
+      const resolvedName = resolveIssuerDisplayName(
         issuerProfile?.name,
         issuerProfile?.companyName,
         issuerProfile?.shortName,
         enterpriseName,
         currentBond.enterpriseId,
-      ),
-    [currentBond.enterpriseId, enterpriseName, issuerProfile],
+      );
+
+      if (language === 'en') {
+        return normalizeText(
+          issuerProfile?.internationalName
+          || t(resolvedName as any, issuerProfile?.symbol || issuerProfile?.ticker || currentBond.enterpriseId)
+          || resolvedName,
+        ) || '-';
+      }
+
+      return resolvedName;
+    },
+    [currentBond.enterpriseId, enterpriseName, issuerProfile, language, t],
   );
 
   const issuerStockCode = useMemo(
@@ -824,12 +953,12 @@ export default function BondDetailPopup({
   const bondInfoRows = useMemo(
     () => [
       { label: t('bondCode'), value: currentBond.code || '-' },
-      { label: t('bondTypeLabel'), value: normalizeText(currentBond.bondType) || '-' },
-      { label: t('status'), value: normalizeText(currentBond.status) || '-' },
+      { label: t('bondTypeLabel'), value: getLocalizedBondType(currentBond.bondType, language) || '-' },
+      { label: t('status'), value: getLocalizedBondStatus(currentBond.status, language, t) || '-' },
       { label: t('issueDate'), value: formatDate(currentBond.issueDate) },
       { label: t('maturityDate'), value: formatDate(currentBond.maturityDate) },
     ],
-    [currentBond.bondType, currentBond.code, currentBond.issueDate, currentBond.maturityDate, currentBond.status, t],
+    [currentBond.bondType, currentBond.code, currentBond.issueDate, currentBond.maturityDate, currentBond.status, language, t],
   );
 
   const issuerInfoRows = useMemo(
@@ -861,45 +990,121 @@ export default function BondDetailPopup({
       },
       {
         label: t('parValueLabel'),
-        value: formatIssueScaleParValue(bondDetails?.parValue || bondDetails?.faceValue),
+        value: formatLocalizedParValue(bondDetails?.parValue || bondDetails?.faceValue),
       },
       { label: t('issuedValue'), value: formatBondValue(currentBond.issuedValue) },
       { label: t('listedValueTitle'), value: formatBondValue(currentBond.listedValue) },
     ],
-    [bondDetails?.faceValue, bondDetails?.parValue, bondDetails?.totalIssuedVolume, currentBond.issuedValue, currentBond.listedValue, currentBond.listedVolume, t],
+    [bondDetails?.faceValue, bondDetails?.parValue, bondDetails?.totalIssuedVolume, currentBond.issuedValue, currentBond.listedValue, currentBond.listedVolume, language, t],
+  );
+
+  const isAiRemarkDataReady = useMemo(
+    () => !loading && !error && Boolean(currentBond.code) && Boolean(bondDetails),
+    [bondDetails, currentBond.code, error, loading],
   );
 
   const aiRemarkPayload = useMemo(
     () => ({
       bondCode: currentBond.code || '-',
-      issuerName: issuerDisplayName,
-      interestRate: formatInterestRate(Number(currentBond.interestRate || 0)),
-      interestType: resolveInterestTypeLabel(currentBond.interestType),
-      term: formatTerm(currentBond.term),
-      maturityDate: formatDate(currentBond.maturityDate),
-      issuedValue: formatBondValue(currentBond.issuedValue),
-      listedValue: formatBondValue(currentBond.listedValue),
+      issuer: {
+        name: issuerDisplayName,
+        ticker: issuerStockCode,
+        industry: issuerIndustry,
+        totalAssets: formatFinancialBillionValue(
+          issuerFinancial?.TotalAsset,
+          issuerFinancial?.TotalAssets,
+          issuerFinancial?.Assets,
+        ),
+        equity: formatFinancialBillionValue(
+          issuerFinancial?.TotalStockHolderEquity,
+          issuerFinancial?.StockHolderEquity,
+          issuerFinancial?.OwnerEquity,
+          issuerFinancial?.Equity,
+        ),
+      },
+      bondSummary: {
+        bondCode: currentBond.code || '-',
+        bondType: getLocalizedBondType(currentBond.bondType, language) || '-',
+        status: getLocalizedBondStatus(currentBond.status, language, t) || '-',
+        interestRate: `${formatInterestRate(Number(currentBond.interestRate || 0))}%`,
+        interestType: resolveInterestTypeLabel(currentBond.interestType),
+        term: formatTerm(currentBond.term),
+        issueDate: formatDate(currentBond.issueDate),
+        maturityDate: formatDate(currentBond.maturityDate),
+        issuedValue: formatBondValue(currentBond.issuedValue),
+        listedValue: formatBondValue(currentBond.listedValue),
+        listedVolume: formatNumber(Number(currentBond.listedVolume || 0), 0),
+      },
+      bondInfo: bondInfoRows,
+      issuerInfo: issuerInfoRows,
+      bondRateInfo: bondRateRows,
+      issueScaleInfo: issueScaleRows,
+      summaryCards: summaryCards.map((item) => ({
+        label: item.label,
+        value: item.value,
+      })),
+      industryRateComparison: {
+        assessment: quickAnalysis[1]?.meta.label || '-',
+        evidence: quickAnalysis[1]?.evidence || '-',
+        confidence: industryInterestRateAssessment.confidence || 'normal',
+      },
       summarySignals: quickAnalysis.map((item) => ({
         label: item.label,
         evidence: item.evidence,
         assessment: item.meta.label,
+        confidence: item.confidence || 'normal',
       })),
+      cashFlows: Array.isArray(bondDetails?.cashFlows)
+        ? bondDetails.cashFlows.map((cashFlow) => ({
+            paymentDate: formatDate(cashFlow.paymentDate),
+            interestAmount: formatBondValue(cashFlow.interestAmount),
+            principalAmount: formatBondValue(cashFlow.principalAmount),
+            totalCashflow: formatBondValue(cashFlow.totalCashflow),
+            bondRate: `${formatInterestRate(Number(cashFlow.bondRate || 0))}%`,
+          }))
+        : [],
     }),
     [
+      bondDetails?.cashFlows,
+      bondInfoRows,
+      bondRateRows,
       currentBond.code,
       currentBond.interestRate,
       currentBond.interestType,
+      currentBond.issueDate,
       currentBond.issuedValue,
       currentBond.listedValue,
+      currentBond.listedVolume,
       currentBond.maturityDate,
+      currentBond.status,
       currentBond.term,
+      currentBond.bondType,
+      formatBondValue,
+      formatFinancialBillionValue,
+      formatNumber,
+      formatTerm,
+      language,
+      industryInterestRateAssessment.confidence,
+      issueScaleRows,
       issuerDisplayName,
+      issuerFinancial,
+      issuerIndustry,
+      issuerInfoRows,
+      issuerStockCode,
       quickAnalysis,
+      summaryCards,
       t,
     ],
   );
 
-  const aiRemarkSignature = useMemo(() => JSON.stringify(aiRemarkPayload), [aiRemarkPayload]);
+  const aiRemarkSignature = useMemo(
+    () => (isAiRemarkDataReady ? JSON.stringify(aiRemarkPayload) : ''),
+    [aiRemarkPayload, isAiRemarkDataReady],
+  );
+  const localizedAiRemarkCacheKey = useMemo(
+    () => `${AI_INSIGHT_CACHE_KEY}-${language}`,
+    [language],
+  );
 
   const bondDetailChatDataset = useMemo(
     () => ({
@@ -924,8 +1129,8 @@ export default function BondDetailPopup({
       },
       bond: {
         code: currentBond.code || '-',
-        type: normalizeText(currentBond.bondType) || '-',
-        status: normalizeText(currentBond.status) || '-',
+        type: getLocalizedBondType(currentBond.bondType, language) || '-',
+        status: getLocalizedBondStatus(currentBond.status, language, t) || '-',
         term: formatTerm(currentBond.term),
         issueDate: formatDate(currentBond.issueDate),
         maturityDate: formatDate(currentBond.maturityDate),
@@ -982,6 +1187,7 @@ export default function BondDetailPopup({
       formatTerm,
       interestPaymentInfo.method,
       interestPaymentInfo.period,
+      language,
       issuerDisplayName,
       issuerFinancial,
       issuerIndustry,
@@ -1012,6 +1218,11 @@ export default function BondDetailPopup({
   }, [bondDetailChatDataset, currentBond.code, issuerDisplayName, issuerStockCode, t]);
 
   useEffect(() => {
+    if (!isAiRemarkDataReady || configured || baseUrl || isLoadingStatus || statusError) return;
+    void ensureBondDetailAIStatus(refreshStatus);
+  }, [baseUrl, configured, isAiRemarkDataReady, isLoadingStatus, refreshStatus, statusError]);
+
+  useEffect(() => {
     let isActive = true;
 
     if (!aiRemarkSignature) {
@@ -1023,7 +1234,7 @@ export default function BondDetailPopup({
       };
     }
 
-    const cachedRemark = readDailyAIInsight(AI_INSIGHT_CACHE_KEY, aiRemarkSignature);
+    const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature);
     if (cachedRemark) {
       setAiRemark(cachedRemark.text);
       setAiRemarkError(null);
@@ -1034,6 +1245,8 @@ export default function BondDetailPopup({
     }
 
     if (isLoadingStatus) {
+      setAiRemarkLoading(true);
+      setAiRemarkError(null);
       return () => {
         isActive = false;
       };
@@ -1041,8 +1254,8 @@ export default function BondDetailPopup({
 
     if (!configured && !baseUrl) {
       setAiRemark('');
-      setAiRemarkError(t('aiNotConfiguredShort'));
       setAiRemarkLoading(false);
+      setAiRemarkError(statusError ? t('aiNotConfiguredShort') : null);
       return () => {
         isActive = false;
       };
@@ -1067,25 +1280,25 @@ export default function BondDetailPopup({
         const model = selectedModel || defaultModel;
         const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
         const prompt = language === 'en'
-          ? 'You are a professional bond analyst. Use only the provided data. Write 3 to 4 short sentences in a concise, professional tone. Focus on the bond code, interest rate, maturity pressure, issue scale, and the main point to monitor. Do not mention APIs, JSON, code, or internal implementation details.'
-          : 'Ban la chuyen gia phan tich trai phieu. Chi su dung du lieu duoc cung cap. Hay viet 3 den 4 cau ngan, giu giong dieu chuyen nghiep. Tap trung vao ma trai phieu, lai suat, ap luc dao han, quy mo phat hanh va diem can theo doi. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
+          ? 'You are a professional bond analyst. Respond in English only. Use only the provided dataset for this specific bond. Read the full bond dataset, issuer information, rate structure, issue scale, industry-relative assessment, and cash-flow data when available. Write only 2 to 3 short sentences in a concise, professional tone. Keep the remark compact. The first sentence must surface the most important bond-specific numbers. Do not mention APIs, JSON, code, internal implementation details, or say that data is missing unless it is truly absent from the dataset.'
+          : 'Ban la chuyen gia phan tich trai phieu. Chi tra loi bang tieng Viet. Chi su dung bo du lieu duoc cung cap cho chinh ma trai phieu nay. Hay doc day du du lieu cua ma trai phieu, thong tin to chuc phat hanh, cau truc lai suat, quy mo phat hanh, danh gia tuong quan voi nganh va du lieu dong tien neu co. Chi viet 2 den 3 cau ngan, giong dieu chuyen nghiep va that suc tich. Cau dau phai neu bat cac so lieu quan trong nhat cua chinh ma trai phieu. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
 
         const response = await sendChat({
           model,
           systemPrompt: `${activeSystemPrompt ? `${activeSystemPrompt}\n\n` : ''}${prompt}`,
           userMessage: language === 'en'
-            ? `Write a short AI remark for bond "${aiRemarkPayload.bondCode}" using only the provided data.`
-            : `Hay viet nhan xet AI ngan cho trai phieu "${aiRemarkPayload.bondCode}" chi dua tren du lieu duoc cung cap.`,
+            ? `Write a short AI remark in English for bond "${aiRemarkPayload.bondCode}" based on the full provided dataset for that bond, not just the summary signals.`
+            : `Hay viet nhan xet AI ngan bang tieng Viet cho trai phieu "${aiRemarkPayload.bondCode}" dua tren toan bo bo du lieu cua ma trai phieu nay, khong chi dua vao cac tin hieu tom tat.`,
           pageContext: JSON.stringify(aiRemarkPayload),
         });
 
         if (!isActive || aiRequestIdRef.current !== requestId) return;
 
-        const nextRemark = sanitizeAIInsightText(String(response.text || ''));
+        const nextRemark = sanitizeAIInsightText(String(response.text || ''), language === 'en' ? 'en' : 'vi');
         setAiRemark(nextRemark);
         setAiRemarkLoading(false);
         setAiRemarkError(null);
-        writeDailyAIInsight(AI_INSIGHT_CACHE_KEY, {
+        writeDailyAIInsight(localizedAiRemarkCacheKey, {
           signature: aiRemarkSignature,
           text: nextRemark,
           model: response.model || model,
@@ -1112,9 +1325,13 @@ export default function BondDetailPopup({
     configured,
     defaultModel,
     defaultSystemPrompt,
+    isAiRemarkDataReady,
     isLoadingStatus,
     language,
+    localizedAiRemarkCacheKey,
+    refreshStatus,
     selectedModel,
+    statusError,
     systemPrompt,
     t,
   ]);
@@ -1269,18 +1486,26 @@ export default function BondDetailPopup({
 
   return (
     <div
-      className={`fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-bg-base animate-in fade-in duration-300 ${
-        sidebarDisplayMode === 'expanded'
-          ? 'lg:left-72'
-          : sidebarDisplayMode === 'collapsed'
-            ? 'lg:left-16'
-            : 'lg:left-0'
-      }`}
-      onClick={onClose}
+      className={
+        embedded
+          ? 'flex w-full justify-end bg-bg-base'
+          : `fixed inset-0 z-40 flex justify-end bg-bg-base animate-in fade-in duration-300 ${
+              sidebarDisplayMode === 'expanded'
+                ? 'lg:left-72'
+                : sidebarDisplayMode === 'collapsed'
+                  ? 'lg:left-16'
+                  : 'lg:left-0'
+            }`
+      }
+      onClick={embedded ? undefined : onClose}
     >
       <div
-        className="relative flex h-full w-screen flex-col overflow-hidden border-l border-border-base bg-bg-base animate-in slide-in-from-right duration-300"
-        onClick={(event) => event.stopPropagation()}
+        className={
+          embedded
+            ? 'relative flex min-h-full w-full flex-col bg-bg-base'
+            : 'relative flex h-full w-screen flex-col overflow-y-auto overflow-x-hidden border-l border-border-base bg-bg-base custom-scrollbar animate-in slide-in-from-right duration-300'
+        }
+        onClick={embedded ? undefined : (event) => event.stopPropagation()}
       >
         {watchlistNotice ? (
           <div
@@ -1296,7 +1521,7 @@ export default function BondDetailPopup({
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+        <div className="w-full">
           <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-6 px-4 py-4 md:px-6 lg:py-6">
             <div className="flex items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
@@ -1319,7 +1544,7 @@ export default function BondDetailPopup({
                 <button
                   type="button"
                   onClick={handleCompareBond}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border-base bg-white px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-base shadow-sm shadow-blue-950/10 transition-colors hover:border-blue-200 hover:bg-slate-50 hover:text-blue-600 hover:shadow-md dark:bg-surface-bright dark:text-text-base dark:hover:bg-surface-container-low"
                 >
                   <ArrowLeftRight className="h-4 w-4" />
                   <span>{t('compareBond')}</span>
@@ -1484,9 +1709,6 @@ export default function BondDetailPopup({
                       <div className="flex flex-col items-center text-center">
                         <p className="mt-2 text-sm font-medium text-text-muted">{item.evidence}</p>
                         <p className={`mt-3 text-sm font-bold ${item.meta.className}`}>{item.meta.label}</p>
-                        {item.confidence ? (
-                          <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-text-muted/80">{t('confidenceLow')}</p>
-                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -1505,9 +1727,13 @@ export default function BondDetailPopup({
                     ) : null}
                   </div>
 
-                  <p className="text-sm leading-6 text-text-base">
-                    {aiRemark || t('insightPlaceholder')}
-                  </p>
+                  {aiRemark ? (
+                    <AIInsightText
+                      content={aiRemark}
+                      containerClassName="space-y-0"
+                      paragraphClassName="whitespace-pre-line break-words text-sm leading-6 text-text-base"
+                    />
+                  ) : null}
                 </div>
               </div>
             </section>

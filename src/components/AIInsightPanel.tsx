@@ -6,6 +6,7 @@ import { useLanguage } from '../LanguageContext';
 import { useAIStore } from '../store/aiStore';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
 import { Card } from './ui/Card';
+import AIInsightText from './ui/AIInsightText';
 
 interface AIInsightPanelProps {
   cacheKey: string;
@@ -92,64 +93,6 @@ function toSentenceCase(value: string) {
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 }
 
-function renderInsightInlineContent(content: string) {
-  const emphasisClassName = 'font-bold text-blue-700 dark:text-blue-300';
-
-  const renderTextSegment = (text: string, keyPrefix: string, isBold = false) => (
-    text.split(/(\d[\d.,]*(?:\s*%)?)/g).map((part, index) => {
-      if (!part) return null;
-
-      if (/^\d[\d.,]*(?:\s*%)?$/.test(part.trim())) {
-        return (
-          <span
-            key={`${keyPrefix}-${part}-${index}`}
-            className={emphasisClassName}
-          >
-            {part}
-          </span>
-        );
-      }
-
-      return (
-        <span key={`${keyPrefix}-${part}-${index}`} className={isBold ? emphasisClassName : undefined}>
-          {part}
-        </span>
-      );
-    })
-  );
-
-  return content.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
-    if (!part) return null;
-
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return renderTextSegment(part.slice(2, -2), `bold-${index}`, true);
-    }
-
-    return renderTextSegment(part, `plain-${index}`);
-  });
-}
-
-function renderInsightContent(content: string) {
-  const paragraphs = content
-    .split(/\n\s*\n+/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-
-  if (paragraphs.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-1.5">
-      {paragraphs.map((paragraph, index) => (
-        <p key={`${paragraph.slice(0, 12)}-${index}`} className="whitespace-pre-line break-words text-sm font-medium leading-5 text-slate-950 dark:text-text-base">
-          {renderInsightInlineContent(paragraph)}
-        </p>
-      ))}
-    </div>
-  );
-}
-
 export default function AIInsightPanel({
   cacheKey,
   title,
@@ -199,9 +142,13 @@ export default function AIInsightPanel({
     () => (payloadText ? createPayloadSignature(payloadText) : ''),
     [payloadText],
   );
+  const localizedCacheKey = useMemo(
+    () => `${cacheKey}-${language}`,
+    [cacheKey, language],
+  );
   const cachedInsight = useMemo(
-    () => (payloadSignature ? readDailyAIInsight(cacheKey, payloadSignature) : null),
-    [cacheKey, payloadSignature],
+    () => (payloadSignature ? readDailyAIInsight(localizedCacheKey, payloadSignature) : null),
+    [localizedCacheKey, payloadSignature],
   );
 
   const updatedLabel = useMemo(() => {
@@ -253,7 +200,7 @@ export default function AIInsightPanel({
     }
 
     if (!force) {
-      const cachedInsight = readDailyAIInsight(cacheKey, payloadSignature);
+      const cachedInsight = readDailyAIInsight(localizedCacheKey, payloadSignature);
       if (cachedInsight) {
         setInsight(cachedInsight.text);
         setUpdatedAt(cachedInsight.updatedAt);
@@ -269,25 +216,25 @@ export default function AIInsightPanel({
 
     try {
       const analystPrompt = language === 'en'
-        ? 'You are a professional fixed-income analyst. Only use the provided data. Do not mention JSON, APIs, endpoints, variable names, functions, internal code structure, or implementation details. Write 3 to 4 short sentences in a concise professional tone. The first sentence must surface the most important figures. Prioritize concrete numbers, concentration, risk, and the next point to monitor.'
-        : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo cua he thong. Viet 3 den 4 cau ngan, giong chuyen nghiep. Cau dau phai lam noi bat cac so lieu quan trong nhat. Uu tien neu con so cu the, muc do tap trung, diem rui ro va yeu to can theo doi tiep theo.';
+        ? 'You are a professional fixed-income analyst. Respond in English only. Only use the provided data. Do not mention JSON, APIs, endpoints, variable names, functions, internal code structure, or implementation details. Write 3 to 4 short sentences in a concise professional tone. The first sentence must surface the most important figures. Prioritize concrete numbers, concentration, risk, and the next point to monitor.'
+        : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi tra loi bang tieng Viet. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo cua he thong. Viet 3 den 4 cau ngan, giong chuyen nghiep. Cau dau phai lam noi bat cac so lieu quan trong nhat. Uu tien neu con so cu the, muc do tap trung, diem rui ro va yeu to can theo doi tiep theo.';
 
       const response = await sendChat({
         model: activeModel,
         systemPrompt: `${activeSystemPrompt ? `${activeSystemPrompt}\n\n` : ''}${analystPrompt}`,
         userMessage: language === 'en'
-          ? `Write a short insight for the section "${sectionTitle}" on the page "${pageTitle}". Use only the provided data and present the analysis as a compact paragraph.`
-          : `Hay viet nhan dinh ngan cho muc "${sectionTitle}" tren trang "${pageTitle}". Chi dung du lieu da cung cap va trinh bay thanh doan phan tich ngan gon.`,
+          ? `Write a short insight in English for the section "${sectionTitle}" on the page "${pageTitle}". Use only the provided data and present the analysis as a compact paragraph.`
+          : `Hay viet nhan dinh ngan bang tieng Viet cho muc "${sectionTitle}" tren trang "${pageTitle}". Chi dung du lieu da cung cap va trinh bay thanh doan phan tich ngan gon.`,
         pageContext: payloadText,
       });
 
       if (requestIdRef.current !== requestId) return;
 
-      const nextInsight = sanitizeAIInsightText(String(response.text || ''));
+      const nextInsight = sanitizeAIInsightText(String(response.text || ''), language === 'en' ? 'en' : 'vi');
       const generatedAt = new Date().toISOString();
       setInsight(nextInsight);
       setUpdatedAt(generatedAt);
-      writeDailyAIInsight(cacheKey, {
+      writeDailyAIInsight(localizedCacheKey, {
         signature: payloadSignature,
         text: nextInsight,
         model: response.model || activeModel,
@@ -355,7 +302,7 @@ export default function AIInsightPanel({
           </div>
         ) : insight ? (
           <div className={insightContentClassName}>
-            {renderInsightContent(insight)}
+            <AIInsightText content={insight} />
           </div>
         ) : (
           <div className="py-1 text-sm text-text-muted">

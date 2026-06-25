@@ -113,6 +113,34 @@ const firstDefined = (...values: unknown[]) => {
   return undefined;
 };
 
+const firstPositiveNumber = (...values: unknown[]) => {
+  for (const value of values) {
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue) && numberValue > 0) return numberValue;
+  }
+  return undefined;
+};
+
+const resolveBondRateFromPayload = (payload: any, fallback?: unknown) => {
+  const detail = payload?.detail || payload || {};
+  const cashFlows = Array.isArray(payload?.cashFlows)
+    ? payload.cashFlows
+    : Array.isArray(detail?.cashFlows)
+      ? detail.cashFlows
+      : [];
+  const cashFlowRate = cashFlows.find((cashFlow: any) => Number(cashFlow?.bondRate) > 0)?.bondRate;
+  return toNumber(firstPositiveNumber(
+    detail?.bondRate,
+    detail?.BondRate,
+    detail?.interestRate,
+    detail?.InterestRate,
+    detail?.couponRate,
+    detail?.CouponRate,
+    cashFlowRate,
+    fallback,
+  ));
+};
+
 const normalizeDate = (value: unknown) => {
   const text = asString(value);
   return text ? text.split('T')[0] : '';
@@ -293,7 +321,7 @@ const normalizeBondRow = (row: any): BondDataRow => {
 };
 
 const shouldEnrichBondValueFields = (row: BondDataRow) =>
-  row.totalIssuedValue <= 0 || row.currentListedValue <= 0;
+  row.totalIssuedValue <= 0 || row.currentListedValue <= 0 || row.bondRate <= 0;
 
 const getBondDetailCacheKey = (code: string, baseTarget: FireantBaseTarget) =>
   `${BOND_DETAIL_CACHE_PREFIX}${baseTarget === 'beta' ? 'beta_' : ''}${code}`;
@@ -345,19 +373,38 @@ const mergeBondRowWithDetail = (row: BondDataRow, detailPayload: any): BondDataR
   const nextCurrentListedVolume = row.currentListedVolume > 0
     ? row.currentListedVolume
     : toNumber(firstDefined(detail?.currentListedVolume, detail?.CurrentListedVolume, historyItem?.volume));
+  const nextBondRate = row.bondRate > 0 ? row.bondRate : resolveBondRateFromPayload(detailPayload, row.bondRate);
+  const nextBondRateType = asString(firstDefined(
+    detail?.bondRateType,
+    detail?.BondRateType,
+    detail?.interestRateType,
+    detail?.InterestRateType,
+    detail?.couponRateType,
+    detail?.CouponRateType,
+    detail?.interestType,
+    row.bondRateType,
+  ));
 
   return {
     ...row,
     issuerName: nextIssuerName,
     bondType: nextBondType,
     industry: nextIndustry,
+    bondRate: nextBondRate,
+    bondRateType: nextBondRateType,
     currentListedVolume: nextCurrentListedVolume,
     currentListedValue: nextCurrentListedValue,
     totalIssuedValue: nextTotalIssuedValue,
     raw: {
       ...row.raw,
+      ...detailPayload,
+      ...detail,
       issuerName: nextIssuerName,
       bondType: nextBondType,
+      bondRate: nextBondRate,
+      bondRateType: nextBondRateType,
+      cashFlows: Array.isArray(detailPayload?.cashFlows) ? detailPayload.cashFlows : row.raw?.cashFlows,
+      interestPaymentMethod: detail?.interestPaymentMethod || detail?.paymentMethod || row.raw?.interestPaymentMethod,
       detail,
     },
   };
@@ -377,7 +424,7 @@ const normalizeBondDetailPayloadToRow = (detailPayload: any): BondDataRow | null
     issueDate: firstDefined(detail?.issueDate, detail?.IssueDate, detailPayload?.issueDate, detailPayload?.IssueDate),
     maturityDate: firstDefined(detail?.maturityDate, detail?.MaturityDate, detailPayload?.maturityDate, detailPayload?.MaturityDate),
     tenorPeriod: firstDefined(detail?.tenorPeriod, detail?.TenorPeriod, detailPayload?.tenorPeriod, detailPayload?.TenorPeriod),
-    bondRate: firstDefined(detail?.bondRate, detail?.BondRate, detail?.interestRate, detail?.InterestRate, detail?.couponRate, detail?.CouponRate),
+    bondRate: resolveBondRateFromPayload(detailPayload),
     bondRateType: firstDefined(
       detail?.bondRateType,
       detail?.BondRateType,

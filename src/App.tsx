@@ -12,6 +12,7 @@ import { buildAppApiUrl } from './api/config';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
 import { dashboardQueryClient } from './query/client';
 import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/dashboardQueries';
+import { recordLoginActivityOncePerSession, recordLogoutActivity } from './utils/activityLog';
 
 const MarketOverview = lazy(() => import('./components/MarketOverview'));
 const IndustryView = lazy(() => import('./components/IndustryView'));
@@ -34,6 +35,8 @@ const isBondCode = (s: string) => {
 };
 
 type SidebarDisplayMode = 'none' | 'collapsed' | 'expanded';
+type ProfileSection = 'info' | 'history';
+type HelpSection = 'manual' | 'faq' | 'report' | 'contact';
 
 type RouteContext = {
   activeTab: string;
@@ -41,6 +44,8 @@ type RouteContext = {
   ticker?: string | null;
   bondCode?: string | null;
   filterSubTab?: 'issuer' | 'bonds';
+  profileSection?: ProfileSection;
+  helpSection?: HelpSection;
 };
 
 const deriveRouteContext = (pathname: string, urlBondCode?: string | null): RouteContext => {
@@ -85,12 +90,16 @@ const deriveRouteContext = (pathname: string, urlBondCode?: string | null): Rout
     return { activeTab: 'watchlist', bondCode: urlBondCode || null };
   }
 
-  if (pathname === '/profile') {
-    return { activeTab: 'profile', bondCode: urlBondCode || null };
+  if (pathname.startsWith('/profile')) {
+    const profileSection = parts[1] === 'history' ? 'history' : 'info';
+    return { activeTab: 'profile', profileSection, bondCode: urlBondCode || null };
   }
 
-  if (pathname === '/help') {
-    return { activeTab: 'help', bondCode: urlBondCode || null };
+  if (pathname.startsWith('/help')) {
+    const helpSection = (['manual', 'faq', 'report', 'contact'].includes(parts[1])
+      ? parts[1]
+      : 'manual') as HelpSection;
+    return { activeTab: 'help', helpSection, bondCode: urlBondCode || null };
   }
 
   return { activeTab: 'overview', bondCode: urlBondCode || null };
@@ -137,6 +146,14 @@ export default function App() {
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   const [showBondComparison, setShowBondComparison] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const oidcProfile = (user?.profile || {}) as Record<string, unknown>;
+  const activityUserId = String(
+    oidcProfile.email ??
+    oidcProfile.preferred_username ??
+    oidcProfile.sub ??
+    oidcProfile.sid ??
+    ''
+  );
   
   const setActiveTab = (tab: string) => {
     switch (tab) {
@@ -148,8 +165,8 @@ export default function App() {
       case 'filter': navigate('/filter/issuer'); break;
       case 'news-list': navigate('/news'); break;
       case 'watchlist': navigate('/watchlist'); break;
-      case 'profile': navigate('/profile'); break;
-      case 'help': navigate('/help'); break;
+      case 'profile': navigate('/profile/info'); break;
+      case 'help': navigate('/help/manual'); break;
       default: navigate('/');
     }
   };
@@ -160,6 +177,14 @@ export default function App() {
 
   const setActiveFilterSubTab = (subTab: 'issuer' | 'bonds') => {
     navigate(subTab === 'bonds' ? '/filter/bonds' : '/filter/issuer');
+  };
+
+  const setActiveProfileSection = (section: ProfileSection) => {
+    navigate(`/profile/${section}`);
+  };
+
+  const setActiveHelpSection = (section: HelpSection) => {
+    navigate(`/help/${section}`);
   };
 
   const handleSetSelectedBond = (bond: Bond | null) => {
@@ -284,16 +309,17 @@ export default function App() {
       return;
     }
 
-    const profile = (user.profile || {}) as Record<string, unknown>;
+    void recordLoginActivityOncePerSession(activityUserId);
+
     fetch(buildAppApiUrl('/api/auth/login'), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userData: {
-          id: profile.sub ?? profile.sid ?? '',
-          email: profile.email ?? '',
-          name: profile.name ?? profile.preferred_username ?? profile.email ?? '',
+          id: oidcProfile.sub ?? oidcProfile.sid ?? '',
+          email: oidcProfile.email ?? '',
+          name: oidcProfile.name ?? oidcProfile.preferred_username ?? oidcProfile.email ?? '',
         },
       }),
     }).catch(console.error);
@@ -330,8 +356,7 @@ export default function App() {
     } else {
       void import('./components/MarketOverview');
     }
-
-  }, [user, authLoading, activeTab, activeIndustry, ticker, bondCode, filterSubTab]);
+  }, [user, authLoading, activeTab, activeIndustry, ticker, bondCode, filterSubTab, activityUserId]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -364,6 +389,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      await recordLogoutActivity(activityUserId);
       await signOut();
     } catch (error) {
       console.error('OIDC sign-out failed', error);
@@ -517,11 +543,15 @@ export default function App() {
     activeTab === 'overview' ||
     activeTab === 'industry' ||
     (activeTab === 'filter' && (filterSubTab === 'issuer' || filterSubTab === 'bonds')) ||
-    activeTab === 'watchlist';
-  const shouldShowDashboardSidebar = !isProfileMode && (isDashboardSidebarMode || activeTab === 'bond-detail');
+    activeTab === 'watchlist' ||
+    activeTab === 'profile' ||
+    activeTab === 'help';
+  const shouldShowDashboardSidebar = isDashboardSidebarMode || activeTab === 'bond-detail';
   const sidebarDisplayMode: SidebarDisplayMode = shouldShowDashboardSidebar
     ? (isSidebarCollapsed ? 'collapsed' : 'expanded')
     : 'none';
+  const isEmbeddedBondComparison = Boolean(selectedBond && showBondComparison);
+  const isEmbeddedBondDetail = Boolean(selectedBond && !showBondComparison);
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 lg:flex-row">
@@ -533,129 +563,133 @@ export default function App() {
           setActiveIndustry={setActiveIndustry}
           activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
           setActiveFilterSubTab={setActiveFilterSubTab}
+          activeProfileSection={navigationRouteContext.profileSection || 'info'}
+          setActiveProfileSection={setActiveProfileSection}
+          activeHelpSection={navigationRouteContext.helpSection || 'manual'}
+          setActiveHelpSection={setActiveHelpSection}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
         />
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <Header
-          onProfileClick={() => setActiveTab('profile')}
-          onHelpClick={() => setActiveTab('help')}
-          onLogoClick={() => setActiveTab('overview')}
-          onLogout={handleLogout}
-          onSearchSelect={handleSearchSelect}
-          activeTab={navigationRouteContext.activeTab}
-          setActiveTab={setActiveTab}
-          activeIndustry={navigationRouteContext.activeIndustry}
-          setActiveIndustry={setActiveIndustry}
-          activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
-          setActiveFilterSubTab={setActiveFilterSubTab}
-          showDesktopBrand={isProfileMode || !shouldShowDashboardSidebar}
-        />
+        <div
+          ref={scrollContainerRef}
+          className="flex h-full min-h-0 flex-col overflow-y-scroll overflow-x-hidden custom-scrollbar overscroll-contain"
+        >
+          <Header
+            onProfileClick={() => setActiveTab('profile')}
+            onHelpClick={() => setActiveTab('help')}
+            onLogoClick={() => setActiveTab('overview')}
+            onLogout={handleLogout}
+            onSearchSelect={handleSearchSelect}
+            activeTab={navigationRouteContext.activeTab}
+            setActiveTab={setActiveTab}
+            activeIndustry={navigationRouteContext.activeIndustry}
+            setActiveIndustry={setActiveIndustry}
+            activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
+            setActiveFilterSubTab={setActiveFilterSubTab}
+            showDesktopBrand={!shouldShowDashboardSidebar}
+            showPageTitle={!isProfileMode}
+          />
 
-      <div className="flex flex-1 min-h-0 flex-col relative items-stretch overflow-hidden">
-        <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
-          <div className={cn(
-            "flex h-full min-h-0 w-full items-stretch overflow-hidden transition-all duration-300",
-            !isProfileMode ? "bg-bg-base" : "h-full"
-          )}>
-            <main className="flex-1 min-h-0 min-w-0 overflow-hidden transition-all duration-300">
-              <div
-                ref={scrollContainerRef}
-                className={cn(
-                  "h-full min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar overscroll-contain",
-                  isProfileMode
-                    ? "w-full"
-                  : activeTab === 'overview'
-                  ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
-                    : activeTab === 'watchlist'
+          <div className="relative flex flex-1 min-h-0 flex-col items-stretch">
+            <div className="flex flex-1 min-h-0 min-w-0 transition-all duration-300">
+              <div className={cn(
+                "flex min-h-0 w-full items-stretch transition-all duration-300",
+                !isProfileMode ? "bg-bg-base" : "h-full"
+              )}>
+                <main className="flex-1 min-h-0 min-w-0 transition-all duration-300">
+                  <div
+                    className={cn(
+                      isProfileMode
+                        ? "w-full"
+                      : activeTab === 'overview'
                       ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
-                      : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
-                )}
-              >
-                <Suspense
-                  fallback={
-                    <div className="flex min-h-96 items-center justify-center">
-                      <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-                    </div>
-                  }
-                >
-                  <Routes location={location.state?.backgroundLocation || location}>
-                    <Route path="/" element={<MarketOverview />} />
-                    <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
-                    <Route path="/filter" element={<Navigate to="/filter/issuer" replace />} />
-                    <Route path="/filter/issuer/:ticker?" element={
-                      <FilterView
-                        activeSubTab="issuer"
-                        selectedEnterprise={selectedEnterprise}
-                        setSelectedEnterprise={handleSetSelectedEnterprise}
-                        setSelectedBond={handleSetSelectedBond}
-                        setBondEnterpriseName={setBondEnterpriseName}
-                      />
-                    } />
-                    <Route path="/filter/bonds" element={
-                      <FilterView
-                        activeSubTab="bonds"
-                        selectedEnterprise={selectedEnterprise}
-                        setSelectedEnterprise={handleSetSelectedEnterprise}
-                        setSelectedBond={handleSetSelectedBond}
-                        setBondEnterpriseName={setBondEnterpriseName}
-                      />
-                    } />
-                    <Route path="/enterprise" element={<LegacyEnterpriseRedirect />} />
-                    <Route path="/enterprise/:ticker" element={<LegacyEnterpriseRedirect />} />
-                    <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
-                    <Route path="/news/:id" element={<Navigate to="/news" replace />} />
-                    <Route path="/watchlist" element={
-                      <WatchlistView
-                        setSelectedBond={handleSetSelectedBond}
-                        setBondEnterpriseName={setBondEnterpriseName}
-                      />
-                    } />
-                    <Route path="/profile" element={
-                      <ProfileView onLogout={handleLogout} />
-                    } />
-                    <Route path="/settings" element={<Navigate to="/" replace />} />
-                    <Route path="/help" element={<HelpView onBack={() => navigate('/')} />} />
-                    <Route path="/:bondCode" element={<MarketOverview />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                </Suspense>
+                        : activeTab === 'watchlist'
+                          ? "w-full pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                          : "w-full pt-0 pb-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:pb-4 md:px-4 lg:pl-4 lg:pr-2 xl:pl-4 xl:pr-3"
+                    )}
+                  >
+                    <Suspense
+                      fallback={
+                        <div className="flex min-h-96 items-center justify-center">
+                          <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                        </div>
+                      }
+                    >
+                      {isEmbeddedBondComparison && selectedBond ? (
+                        <BondComparisonPopup
+                          primaryBond={selectedBond}
+                          primaryEnterpriseName={bondEnterpriseName}
+                          onBack={() => setShowBondComparison(false)}
+                          onClose={() => handleSetSelectedBond(null)}
+                          sidebarDisplayMode={sidebarDisplayMode}
+                          embedded
+                        />
+                      ) : isEmbeddedBondDetail && selectedBond ? (
+                        <BondDetailPopup 
+                          bond={selectedBond}
+                          enterpriseName={bondEnterpriseName}
+                          onClose={() => handleSetSelectedBond(null)}
+                          onCompare={() => setShowBondComparison(true)}
+                          sidebarDisplayMode={sidebarDisplayMode}
+                          embedded
+                        />
+                      ) : (
+                        <Routes location={location.state?.backgroundLocation || location}>
+                          <Route path="/" element={<MarketOverview />} />
+                          <Route path="/industry/:industryId?" element={<IndustryView industry={activeIndustry} />} />
+                          <Route path="/filter" element={<Navigate to="/filter/issuer" replace />} />
+                          <Route path="/filter/issuer/:ticker?" element={
+                            <FilterView
+                              activeSubTab="issuer"
+                              selectedEnterprise={selectedEnterprise}
+                              setSelectedEnterprise={handleSetSelectedEnterprise}
+                              setSelectedBond={handleSetSelectedBond}
+                              setBondEnterpriseName={setBondEnterpriseName}
+                            />
+                          } />
+                          <Route path="/filter/bonds" element={
+                            <FilterView
+                              activeSubTab="bonds"
+                              selectedEnterprise={selectedEnterprise}
+                              setSelectedEnterprise={handleSetSelectedEnterprise}
+                              setSelectedBond={handleSetSelectedBond}
+                              setBondEnterpriseName={setBondEnterpriseName}
+                            />
+                          } />
+                          <Route path="/enterprise" element={<LegacyEnterpriseRedirect />} />
+                          <Route path="/enterprise/:ticker" element={<LegacyEnterpriseRedirect />} />
+                          <Route path="/news" element={<NewsListView onSelectNews={handleSelectNews} />} />
+                          <Route path="/news/:id" element={<Navigate to="/news" replace />} />
+                          <Route path="/watchlist" element={
+                            <WatchlistView
+                              setSelectedBond={handleSetSelectedBond}
+                              setBondEnterpriseName={setBondEnterpriseName}
+                            />
+                          } />
+                          <Route path="/profile/:section?" element={
+                            <ProfileView section={navigationRouteContext.profileSection || 'info'} />
+                          } />
+                          <Route path="/settings" element={<Navigate to="/" replace />} />
+                          <Route path="/help/:section?" element={<HelpView section={navigationRouteContext.helpSection || 'manual'} />} />
+                          <Route path="/:bondCode" element={<MarketOverview />} />
+                          <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                      )}
+                    </Suspense>
+                  </div>
+                </main>
               </div>
-            </main>
+            </div>
           </div>
         </div>
-      </div>
       </div>
 
       <Suspense fallback={null}>
         <AIChatBot />
       </Suspense>
-
-      {selectedBond && (
-        <Suspense fallback={null}>
-          <BondDetailPopup 
-            bond={selectedBond}
-            enterpriseName={bondEnterpriseName}
-            onClose={() => handleSetSelectedBond(null)}
-            onCompare={() => setShowBondComparison(true)}
-            sidebarDisplayMode={sidebarDisplayMode}
-          />
-        </Suspense>
-      )}
-
-      {selectedBond && showBondComparison && (
-        <Suspense fallback={null}>
-          <BondComparisonPopup
-            primaryBond={selectedBond}
-            primaryEnterpriseName={bondEnterpriseName}
-            onBack={() => setShowBondComparison(false)}
-            onClose={() => handleSetSelectedBond(null)}
-            sidebarDisplayMode={sidebarDisplayMode}
-          />
-        </Suspense>
-      )}
     </div>
   );
 }

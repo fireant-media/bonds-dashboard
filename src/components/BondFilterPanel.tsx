@@ -853,8 +853,8 @@ function MaturityFilterToolbar({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        <div className="inline-flex w-fit items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+      <div className="flex items-center justify-between gap-2">
+        <div className="inline-flex w-fit shrink-0 items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </div>
 
@@ -1152,8 +1152,8 @@ function MarketFilterToolbar({
         </>
       ) : null}
 
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-        <span className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </span>
 
@@ -1183,7 +1183,7 @@ export function SearchFilterField({
     : [];
 
   return (
-    <div className="relative">
+    <div className={open ? 'relative z-40' : 'relative'}>
       <label className="relative block">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-600" />
         <input
@@ -1311,7 +1311,7 @@ export function FilterPopoverShell({ button, open, children, widthClass = 'w-72'
     <div ref={containerRef} className="relative">
       {button}
       {open ? (
-        <div className={`absolute left-0 top-full z-20 mt-2 ${widthClass} max-w-screen-sm rounded-lg border border-border-base bg-bg-surface p-3 shadow-xl shadow-blue-950/10`}>
+        <div className={`absolute left-0 top-full z-50 mt-2 ${widthClass} max-w-screen-sm rounded-lg border border-border-base bg-bg-surface p-3 shadow-xl shadow-blue-950/10`}>
           {children}
         </div>
       ) : null}

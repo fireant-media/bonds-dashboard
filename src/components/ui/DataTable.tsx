@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -38,6 +38,7 @@ interface DataTableProps<T> {
   className?: string;
   onVisibleRowsChange?: (rows: T[]) => void;
   onRowClick?: (row: T) => void;
+  hideEmptyStateRow?: boolean;
 }
 
 const compareValues = (
@@ -89,9 +90,13 @@ export function DataTable<T>({
   className,
   onVisibleRowsChange,
   onRowClick,
+  hideEmptyStateRow = false,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState(initialSort ?? null);
+  const headerViewportRef = useRef<HTMLDivElement | null>(null);
+  const headerTableRef = useRef<HTMLTableElement | null>(null);
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
   const visibleColumns = useMemo(
     () => columns.filter((column) => !hiddenColumnIds.includes(column.id)),
     [columns, hiddenColumnIds],
@@ -123,6 +128,29 @@ export function DataTable<T>({
     onVisibleRowsChange?.(visibleRows);
   }, [onVisibleRowsChange, visibleRows]);
 
+  useEffect(() => {
+    const headerViewportElement = headerViewportRef.current;
+    const headerTableElement = headerTableRef.current;
+    const bodyElement = bodyScrollRef.current;
+    if (!headerViewportElement || !headerTableElement || !bodyElement) return undefined;
+
+    const syncHeaderPosition = () => {
+      headerTableElement.style.transform = `translateX(-${bodyElement.scrollLeft}px)`;
+      headerTableElement.style.width = `${bodyElement.scrollWidth}px`;
+      headerViewportElement.scrollLeft = 0;
+    };
+
+    syncHeaderPosition();
+
+    bodyElement.addEventListener('scroll', syncHeaderPosition, { passive: true });
+    window.addEventListener('resize', syncHeaderPosition);
+
+    return () => {
+      bodyElement.removeEventListener('scroll', syncHeaderPosition);
+      window.removeEventListener('resize', syncHeaderPosition);
+    };
+  }, [visibleColumns.length]);
+
   const handleSort = (column: DataTableColumn<T>) => {
     if (!column.sortable || !column.accessor) return;
 
@@ -139,65 +167,79 @@ export function DataTable<T>({
     });
   };
 
+  const renderHeaderCell = (column: DataTableColumn<T>) => {
+    const isSorted = sort?.columnId === column.id;
+    const SortIcon = !isSorted ? ArrowUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown;
+
+    return (
+      <th
+        key={column.id}
+        className={cn(
+          "bg-blue-600 px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center",
+          column.stickyHeaderClassName,
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => handleSort(column)}
+          disabled={!column.sortable || !column.accessor}
+          className={cn(
+            "w-full text-center disabled:cursor-default",
+            column.unit
+              ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center justify-center gap-x-1"
+              : "inline-flex items-center justify-center gap-1",
+          )}
+        >
+          <span className={cn(
+            "leading-none",
+            column.unit ? "col-start-1 row-start-1" : "block",
+          )}>
+            {column.header}
+          </span>
+          {column.unit ? (
+            <span className="col-start-1 row-start-2 block text-xs font-semibold tracking-wider text-white/80 normal-case leading-none">
+              {column.unit}
+            </span>
+          ) : null}
+          {column.sortable ? (
+            <span className={cn(
+              "flex h-4 w-4 shrink-0 items-center justify-center",
+              column.unit ? "col-start-2 row-span-2 self-center" : "",
+            )}>
+              <SortIcon className="h-3.5 w-3.5 text-white/90" />
+            </span>
+          ) : null}
+        </button>
+      </th>
+    );
+  };
+
   return (
-    <div className={cn("overflow-hidden rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
-      <div className="overflow-x-auto">
+    <div className={cn("overflow-visible rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
+      {visibleColumns.length > 0 ? (
+        <div ref={headerViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
+          <table ref={headerTableRef} className="min-w-full table-fixed text-left will-change-transform">
+            <colgroup>
+              {visibleColumns.map((column) => (
+                <col key={column.id} className={column.widthClassName} />
+              ))}
+            </colgroup>
+            <thead>
+              <tr>
+                {visibleColumns.map(renderHeaderCell)}
+              </tr>
+            </thead>
+          </table>
+        </div>
+      ) : null}
+
+      <div ref={bodyScrollRef} className="overflow-x-auto">
         <table className="w-full min-w-full table-fixed text-left">
           <colgroup>
             {visibleColumns.map((column) => (
               <col key={column.id} className={column.widthClassName} />
             ))}
           </colgroup>
-          <thead className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
-            <tr>
-              {visibleColumns.map((column) => {
-                const isSorted = sort?.columnId === column.id;
-                const SortIcon = !isSorted ? ArrowUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown;
-
-                return (
-                  <th
-                    key={column.id}
-                    className={cn(
-                      "px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center",
-                      column.stickyHeaderClassName,
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleSort(column)}
-                      disabled={!column.sortable || !column.accessor}
-                      className={cn(
-                        "w-full text-center disabled:cursor-default",
-                        column.unit
-                          ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center justify-center gap-x-1"
-                          : "inline-flex items-center justify-center gap-1",
-                      )}
-                    >
-                      <span className={cn(
-                        "leading-none",
-                        column.unit ? "col-start-1 row-start-1" : "block",
-                      )}>
-                        {column.header}
-                      </span>
-                      {column.unit ? (
-                        <span className="col-start-1 row-start-2 block text-xs font-semibold tracking-wider text-white/80 normal-case leading-none">
-                          {column.unit}
-                        </span>
-                      ) : null}
-                      {column.sortable ? (
-                        <span className={cn(
-                          "flex h-4 w-4 shrink-0 items-center justify-center",
-                          column.unit ? "col-start-2 row-span-2 self-center" : "",
-                        )}>
-                          <SortIcon className="h-3.5 w-3.5 text-white/90" />
-                        </span>
-                      ) : null}
-                    </button>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
           <tbody className="divide-y divide-border-base">
             {visibleColumns.length === 0 ? (
               <tr>
@@ -239,7 +281,7 @@ export function DataTable<T>({
                   ))}
                 </tr>
               ))
-            ) : (
+            ) : hideEmptyStateRow ? null : (
               <tr>
                 <td className="px-4 py-10 text-center text-sm font-medium text-text-muted" colSpan={Math.max(1, visibleColumns.length)}>
                   {emptyState || 'No data'}

@@ -60,6 +60,7 @@ interface HeaderProps {
   activeFilterSubTab: 'issuer' | 'bonds';
   setActiveFilterSubTab: (subTab: 'issuer' | 'bonds') => void;
   showDesktopBrand?: boolean;
+  showPageTitle?: boolean;
 }
 
 type HeaderMenu = 'dashboard' | null;
@@ -77,6 +78,7 @@ export default function Header({
   activeFilterSubTab,
   setActiveFilterSubTab,
   showDesktopBrand = true,
+  showPageTitle = true,
 }: HeaderProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -451,10 +453,8 @@ export default function Header({
   ];
 
   const closeMobileNav = () => {
-    setMobileDashboardOpen(false);
     setMobileIndustryOpen(false);
     setMobileBondListOpen(false);
-    setMobileAccountOpen(false);
     setMobileNavOpen(false);
   };
 
@@ -573,7 +573,7 @@ export default function Header({
         >
           <div
             className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm"
-            onClick={() => setMobileNavOpen(false)}
+            onClick={closeMobileNav}
             aria-hidden="true"
           />
           <aside className="relative flex h-full w-full max-w-sm flex-col overflow-hidden border-r border-border-base bg-surface-bright shadow-2xl shadow-blue-950/20">
@@ -689,7 +689,7 @@ export default function Header({
                       type="button"
                       onClick={() => {
                         onProfileClick();
-                        setMobileNavOpen(false);
+                        closeMobileNav();
                       }}
                       className={mobileSectionItemClassName(activeTab === 'profile')}
                     >
@@ -711,7 +711,7 @@ export default function Header({
                             type="button"
                             onClick={() => {
                               setLanguage('en');
-                              setMobileNavOpen(false);
+                              closeMobileNav();
                             }}
                             className={cn(
                               'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
@@ -726,7 +726,7 @@ export default function Header({
                             type="button"
                             onClick={() => {
                               setLanguage('vi');
-                              setMobileNavOpen(false);
+                              closeMobileNav();
                             }}
                             className={cn(
                               'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
@@ -752,7 +752,7 @@ export default function Header({
                             type="button"
                             onClick={() => {
                               setTheme('light');
-                              setMobileNavOpen(false);
+                              closeMobileNav();
                             }}
                             className={cn(
                               'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
@@ -767,7 +767,7 @@ export default function Header({
                             type="button"
                             onClick={() => {
                               setTheme('dark');
-                              setMobileNavOpen(false);
+                              closeMobileNav();
                             }}
                             className={cn(
                               'min-w-16 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
@@ -786,7 +786,7 @@ export default function Header({
                       type="button"
                       onClick={() => {
                         onHelpClick();
-                        setMobileNavOpen(false);
+                        closeMobileNav();
                       }}
                       className={mobileSectionItemClassName(activeTab === 'help')}
                     >
@@ -800,7 +800,7 @@ export default function Header({
                     <button
                       type="button"
                       onClick={() => {
-                        setMobileNavOpen(false);
+                        closeMobileNav();
                         onLogout();
                       }}
                       className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
@@ -820,7 +820,7 @@ export default function Header({
 
   return (
     <>
-      <header ref={headerRef} className="relative sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-bg-base/90 px-3 py-2 backdrop-blur transition-colors duration-300 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
+      <header ref={headerRef} className="relative z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-bg-base/90 px-3 py-2 backdrop-blur transition-colors duration-300 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
       <div className={cn('flex min-w-0 shrink-0 items-center gap-2', showDesktopBrand ? 'lg:min-w-72 lg:pr-3' : 'lg:min-w-0 lg:pr-0')}>
         <button
           type="button"
@@ -847,7 +847,7 @@ export default function Header({
       </div>
 
       <div className="hidden min-w-0 flex-1 items-center lg:flex">
-        {currentPageTitle ? (
+        {showPageTitle && currentPageTitle ? (
           <div className="min-w-0">
             <p className="truncate text-lg font-bold text-text-base transition-colors lg:text-xl">{currentPageTitle}</p>
           </div>

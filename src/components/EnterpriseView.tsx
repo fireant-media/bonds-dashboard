@@ -60,7 +60,7 @@ const roundMetric = (value: number, digits = 2) => {
 };
 
 const INDUSTRY_BADGE_CLASSES: Array<{ keywords: string[]; className: string }> = [
-  { keywords: ['bank', 'ngân hàng', 'tài chính'], className: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300' },
+  { keywords: ['bank', 'ngân hàng', 'tài chính'], className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' },
   { keywords: ['real estate', 'bất động sản', 'property'], className: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' },
   { keywords: ['industrial', 'công nghiệp', 'manufacturing', 'sản xuất'], className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' },
   { keywords: ['securities', 'chứng khoán'], className: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-500/10 dark:text-fuchsia-300' },
@@ -303,6 +303,9 @@ export default function EnterpriseView({
   const [enterpriseColumnVisibilityDraft, setEnterpriseColumnVisibilityDraft] = useState<string[]>([]);
   const [enterpriseColumnVisibilityOpen, setEnterpriseColumnVisibilityOpen] = useState(false);
   const enterpriseColumnVisibilityRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseHeaderViewportRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseHeaderTableRef = useRef<HTMLTableElement | null>(null);
+  const enterpriseBodyScrollRef = useRef<HTMLDivElement | null>(null);
   const enterprisesPerPage = 10;
 
   const chartColors = CHART_PALETTE;
@@ -585,60 +588,71 @@ export default function EnterpriseView({
     label: string,
     unit?: string,
     labelClassName = '',
-    inlineIcon = false,
   ) => {
     const isActive = enterpriseAppliedSortField === field;
-
-    if (unit && inlineIcon) {
-      return (
-        <button
-          type="button"
-          onClick={() => handleEnterpriseTableSort(field)}
-          className="flex w-full flex-col items-center justify-center gap-0.5 text-center transition-opacity hover:opacity-90"
-        >
-          <span className="inline-flex items-center justify-center gap-1 whitespace-nowrap leading-none">
-            <span className={labelClassName}>{label}</span>
-            <ArrowUpDown className={`h-3.5 w-3.5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
-          </span>
-          <span className="whitespace-nowrap leading-none normal-case">
-            ({unit})
-          </span>
-        </button>
-      );
-    }
 
     return (
       <button
         type="button"
         onClick={() => handleEnterpriseTableSort(field)}
-        className={cn(
-          "w-full text-center transition-opacity hover:opacity-90",
-          unit
-            ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center justify-center gap-x-1"
-            : "inline-flex items-center justify-center gap-1",
-        )}
+        className="inline-flex w-full items-center justify-center gap-1.5 text-center transition-opacity hover:opacity-90"
       >
-        <span className={cn(
-          "leading-none",
-          unit ? "col-start-1 row-start-1" : "whitespace-nowrap",
-          labelClassName,
-        )}>
-          {label}
-        </span>
-        {unit ? (
-          <span className="col-start-1 row-start-2 whitespace-nowrap leading-none normal-case">
-            ({unit})
+        <span className="flex min-w-0 flex-col items-center justify-center gap-0.5">
+          <span className={cn("whitespace-nowrap leading-none", labelClassName)}>
+            {label}
           </span>
-        ) : null}
-        <span className={cn(
-          "flex h-4 w-4 shrink-0 items-center justify-center",
-          unit ? "col-start-2 row-span-2 self-center" : "",
-        )}>
+          {unit ? (
+            <span className="whitespace-nowrap leading-none normal-case">
+              ({unit})
+            </span>
+          ) : null}
+        </span>
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center self-center">
           <ArrowUpDown className={`h-3.5 w-3.5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
         </span>
       </button>
     );
   };
+
+  const renderEnterpriseTableHeaderCells = () => (
+    <>
+      <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <span className="flex items-center justify-center">
+          <ListOrdered className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </th>
+      {showEnterpriseIssuerNameColumn ? (
+        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+          {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
+        </th>
+      ) : null}
+      {showEnterpriseTickerColumn ? (
+        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+          {renderEnterpriseSortHeader('ticker', t('ticker'))}
+        </th>
+      ) : null}
+      {showEnterpriseIndustryColumn ? (
+        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+          {renderEnterpriseSortHeader('industry', t('industryLabel'))}
+        </th>
+      ) : null}
+      {showEnterpriseBondCountColumn ? (
+        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+          {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
+        </th>
+      ) : null}
+      {showEnterpriseIssuedValueColumn ? (
+        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+          {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}
+        </th>
+      ) : null}
+      {showEnterpriseRemainingDebtColumn ? (
+        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+          {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'))}
+        </th>
+      ) : null}
+    </>
+  );
 
   const enterpriseColumnOptions = useMemo(() => ([
     { id: 'issuerName', label: t('issuerName') },
@@ -1022,6 +1036,36 @@ export default function EnterpriseView({
     () => sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage),
     [enterprisePage, sortedEnterprises]
   );
+
+  useEffect(() => {
+    const headerViewportElement = enterpriseHeaderViewportRef.current;
+    const headerTableElement = enterpriseHeaderTableRef.current;
+    const bodyElement = enterpriseBodyScrollRef.current;
+    if (!headerViewportElement || !headerTableElement || !bodyElement) return undefined;
+
+    const syncHeaderPosition = () => {
+      headerTableElement.style.transform = `translateX(-${bodyElement.scrollLeft}px)`;
+      headerTableElement.style.width = `${bodyElement.scrollWidth}px`;
+      headerViewportElement.scrollLeft = 0;
+    };
+
+    syncHeaderPosition();
+
+    bodyElement.addEventListener('scroll', syncHeaderPosition, { passive: true });
+    window.addEventListener('resize', syncHeaderPosition);
+
+    return () => {
+      bodyElement.removeEventListener('scroll', syncHeaderPosition);
+      window.removeEventListener('resize', syncHeaderPosition);
+    };
+  }, [
+    showEnterpriseIssuerNameColumn,
+    showEnterpriseTickerColumn,
+    showEnterpriseIndustryColumn,
+    showEnterpriseBondCountColumn,
+    showEnterpriseIssuedValueColumn,
+    showEnterpriseRemainingDebtColumn,
+  ]);
 
   const enterpriseBonds = selectedEnterprise 
     ? (issuerBonds.length > 0 ? issuerBonds : [])
@@ -1649,13 +1693,13 @@ export default function EnterpriseView({
       }
     },
     legend: {
-      bottom: 0,
+      bottom: 20,
       left: 'center',
       itemWidth: 10,
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '12%', bottom: '28%', left: '10%', right: '8%', containLabel: true },
+    grid: { top: '12%', bottom: '24%', left: '10%', right: '8%', containLabel: true },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -1674,7 +1718,7 @@ export default function EnterpriseView({
         type: 'slider',
         xAxisIndex: 0,
         height: 18,
-        bottom: 24,
+        bottom: 0,
         filterMode: 'none',
         brushSelect: false,
         textStyle: axisLabelStyle,
@@ -2151,8 +2195,8 @@ export default function EnterpriseView({
   }
 
   return (
-    <div className="min-w-0 space-y-2 transition-colors duration-300">
-      <div className="flex flex-col gap-2 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
+    <div className="min-w-0 space-y-2 pt-2 transition-colors duration-300 md:pt-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
         <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-2.5 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
           <div className="space-y-1">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
@@ -2291,54 +2335,58 @@ export default function EnterpriseView({
           </div>
         ) : null}
 
-        <div className="flex flex-col gap-2 pt-0.5 xl:flex-row xl:items-center xl:justify-between">
-          <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
             {t('filterResults')}: {formatNumber(sortedEnterprises.length, 0)} / {formatNumber(enterprises.length, 0)}
           </div>
 
-          <div ref={enterpriseColumnVisibilityRef} className="relative flex flex-wrap items-center gap-2">
+          <div ref={enterpriseColumnVisibilityRef} className={enterpriseColumnVisibilityOpen ? 'relative z-40 ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2' : 'relative ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2'}>
             <button
               type="button"
               onClick={handleApplyEnterpriseFilters}
-              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              aria-label={t('applyFilters')}
+              title={t('applyFilters')}
             >
               <Search className="h-4 w-4 shrink-0 text-blue-600" />
-              <span>Áp dụng</span>
+              <span className="hidden xl:inline">{t('applyFilters')}</span>
             </button>
             <button
               type="button"
               onClick={handleResetEnterpriseFilters}
-              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              aria-label={t('reset')}
+              title={t('reset')}
             >
               <RotateCcw className="h-4 w-4 shrink-0 text-blue-600" />
-              <span>{t('reset')}</span>
+              <span className="hidden xl:inline">{t('reset')}</span>
             </button>
             <button
               type="button"
               onClick={() => setIsFilterControlsVisible((current) => !current)}
-              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
               aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
             >
               {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
-              <span>{t('filterTab')}</span>
+              <span className="hidden xl:inline">{t('filterTab')}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setEnterpriseColumnVisibilityOpen((current) => !current)}
-              className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
               aria-haspopup="dialog"
               aria-expanded={enterpriseColumnVisibilityOpen}
               aria-label={t('hideColumns')}
               title={t('hideColumns')}
             >
               <EyeOff className="h-4 w-4 text-blue-600" />
-              <span>{t('hideColumns')}</span>
+              <span className="hidden xl:inline">{t('hideColumns')}</span>
             </button>
 
             {enterpriseColumnVisibilityOpen ? (
-              <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+              <div className="absolute right-0 top-full z-50 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
                 <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
                   <EyeOff className="h-4 w-4 text-blue-600" />
                   <span>{t('hideColumns')}</span>
@@ -2401,7 +2449,7 @@ export default function EnterpriseView({
       </div>
 
       {/* Enterprise Table */}
-      <div className="overflow-hidden rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+      <div className="overflow-visible rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
         <div className="hidden divide-y divide-border-base">
           {enterpriseTableLoading ? (
             <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</div>
@@ -2448,7 +2496,26 @@ export default function EnterpriseView({
           )}
         </div>
 
-        <div className="overflow-x-auto">
+        <div ref={enterpriseHeaderViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
+          <table ref={enterpriseHeaderTableRef} className="min-w-full table-fixed text-left will-change-transform">
+            <colgroup>
+              <col className="w-14" />
+              {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
+              {showEnterpriseTickerColumn ? <col className="w-28" /> : null}
+              {showEnterpriseIndustryColumn ? <col className="w-44" /> : null}
+              {showEnterpriseBondCountColumn ? <col className="w-32" /> : null}
+              {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
+              {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
+            </colgroup>
+            <thead>
+              <tr>
+                {renderEnterpriseTableHeaderCells()}
+              </tr>
+            </thead>
+          </table>
+        </div>
+
+        <div ref={enterpriseBodyScrollRef} className="overflow-x-auto">
           <table className="w-full min-w-full table-fixed text-left">
             <colgroup>
               <col className="w-14" />
@@ -2459,45 +2526,6 @@ export default function EnterpriseView({
               {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
               {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
             </colgroup>
-            <thead className="border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
-              <tr>
-                <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                  <span className="flex items-center justify-center">
-                    <ListOrdered className="h-4 w-4" aria-hidden="true" />
-                  </span>
-                </th>
-                {showEnterpriseIssuerNameColumn ? (
-                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
-                  </th>
-                ) : null}
-                {showEnterpriseTickerColumn ? (
-                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('ticker', t('ticker'))}
-                  </th>
-                ) : null}
-                {showEnterpriseIndustryColumn ? (
-                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('industry', t('industryLabel'))}
-                  </th>
-                ) : null}
-                {showEnterpriseBondCountColumn ? (
-                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
-                  </th>
-                ) : null}
-                {showEnterpriseIssuedValueColumn ? (
-                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'), '', true)}
-                  </th>
-                ) : null}
-                {showEnterpriseRemainingDebtColumn ? (
-                  <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
-                    {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'), '', true)}
-                  </th>
-                ) : null}
-              </tr>
-            </thead>
             <tbody className="divide-y divide-border-base">
               {enterpriseTableLoading ? (
                 <tr>
@@ -2531,7 +2559,7 @@ export default function EnterpriseView({
                   ) : null}
                   {showEnterpriseTickerColumn ? (
                     <td className="px-4 py-3 text-center whitespace-nowrap">
-                      <span className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold leading-none text-blue-700 transition-colors group-hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:group-hover:bg-blue-500/20">
+                      <span className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold leading-none text-blue-700 transition-colors group-hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:group-hover:bg-blue-500/20">
                         <span className="truncate">{enterprise.ticker}</span>
                       </span>
                     </td>
@@ -2572,7 +2600,7 @@ export default function EnterpriseView({
 
         {/* Enterprise Pagination Controls */}
         {totalEnterprisePages > 1 && (
-          <div className="flex items-center justify-end border-t border-border-base bg-surface-container-low/70 px-4 py-4 pr-20 transition-colors sm:pr-24 lg:pr-28">
+          <div className="flex items-center justify-end border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6 lg:pr-8 xl:pr-12">
             <div className="flex gap-2">
               <button 
                 onClick={() => setEnterprisePage(prev => Math.max(1, prev - 1))}

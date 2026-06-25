@@ -12,6 +12,7 @@ import { loadDedupedIndustrySymbols } from '../services/industryBondData';
 import { getCache, getCacheEntryAllowExpired, setCache } from '../utils/cache';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
+import { getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
 import {
   buildIndustrySymbolLookup,
   resolveIndustryKeyFromCandidates,
@@ -265,6 +266,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
   useEffect(() => {
     enterpriseNamesENRef.current = enterpriseNamesEN;
   }, [enterpriseNamesEN]);
+
+  const getDisplayedIssuerName = (row: MaturityRow) => {
+    const fallbackName = row.issuerName || row.issuerSymbol || t('none');
+    return String(t(fallbackName as any, row.issuerSymbol) || fallbackName).trim();
+  };
 
   const rateTypeOptions = useMemo(() => {
     return Array.from(new Set(rows.map((row) => String(row.bondRateType || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
@@ -551,10 +557,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
       if (!searchTerm) return true;
       const haystack = [
         row.bondCode,
-        row.issuerName,
+        getDisplayedIssuerName(row),
         row.issuerSymbol,
-        row.bondType,
-        row.industry,
+        getLocalizedBondType(row.bondType, language),
+        getLocalizedInterestType(row.bondRateType, t),
+        row.industry ? (t(row.industry as any) || row.industry) : '',
       ]
         .filter(Boolean)
         .join(' ')
@@ -570,7 +577,9 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     appliedFilters.maturityWindowDays,
     appliedFilters.remainingDaysMax,
     appliedFilters.remainingDaysMin,
+    language,
     rows,
+    t,
   ]);
 
   const tableInitialSort = useMemo(
@@ -650,11 +659,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     {
       id: 'issuerName',
       header: t('enterprise'),
-      accessor: (row) => row.issuerName || row.issuerSymbol || '',
+      accessor: (row) => getDisplayedIssuerName(row),
       sortable: true,
       widthClassName: 'w-60',
       cell: (row) => {
-        const issuerName = row.issuerName || row.issuerSymbol || t('none');
+        const issuerName = getDisplayedIssuerName(row);
         const industry = row.industry ? (t(row.industry as any) || row.industry) : '';
 
         return (
@@ -672,10 +681,10 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     {
       id: 'bondType',
       header: t('bondTypeLabel'),
-      accessor: (row) => row.bondType || '',
+      accessor: (row) => getLocalizedBondType(row.bondType, language),
       sortable: true,
       widthClassName: 'w-40',
-      cell: (row) => row.bondType || t('none'),
+      cell: (row) => getLocalizedBondType(row.bondType, language) || t('none'),
     },
     {
       id: 'tenorPeriod',
@@ -728,11 +737,11 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
     {
       id: 'bondRateType',
       header: t('interestType'),
-      accessor: (row) => row.bondRateType || '',
+      accessor: (row) => getLocalizedInterestType(row.bondRateType, t),
       sortable: true,
       align: 'center',
       widthClassName: 'w-32',
-      cell: (row) => row.bondRateType || t('none'),
+      cell: (row) => getLocalizedInterestType(row.bondRateType, t) || t('none'),
     },
     {
       id: 'currentListedVolume',
@@ -780,7 +789,7 @@ export default function MaturityListView({ setSelectedBond, setBondEnterpriseNam
         );
       },
     },
-  ]), [setBondEnterpriseName, setSelectedBond, t, watchlistVersion]);
+  ]), [language, setBondEnterpriseName, setSelectedBond, t, watchlistVersion]);
 
   const columnVisibilityOptions = useMemo(
     () => columns

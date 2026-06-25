@@ -8,6 +8,8 @@ export interface DailyAIInsightEntry {
   updatedAt: string;
 }
 
+type InsightLanguage = 'vi' | 'en';
+
 const DAILY_AI_INSIGHT_PREFIX = 'sentinel_ai_daily_insight_v1_';
 const AI_INSIGHT_MAX_LENGTH = 16_000;
 const AI_INSIGHT_TIMEZONE = 'Asia/Saigon';
@@ -18,25 +20,50 @@ export const getAIInsightDayKey = () => (
   new Intl.DateTimeFormat('en-CA', { timeZone: AI_INSIGHT_TIMEZONE }).format(new Date())
 );
 
-export const sanitizeAIInsightText = (content: string) => {
+export const sanitizeAIInsightText = (content: string, language: InsightLanguage = 'vi') => {
   if (!content.trim()) return content;
 
+  const replacements = language === 'en'
+    ? {
+        basedOnData: 'Based on the data',
+        pageData: 'current data',
+        dataSource: 'current data source',
+        aggregateDataSource: 'aggregated data source',
+        dataContext: 'data context',
+        data: 'data',
+        metrics: 'metrics',
+        internalProcessing: 'internal processing',
+        internalData: 'internal data',
+      }
+    : {
+        basedOnData: 'Theo du lieu',
+        pageData: 'du lieu hien tai',
+        dataSource: 'nguon du lieu hien tai',
+        aggregateDataSource: 'nguon du lieu tong hop',
+        dataContext: 'ngu canh du lieu',
+        data: 'du lieu',
+        metrics: 'chi tieu',
+        internalProcessing: 'xu ly noi bo',
+        internalData: 'du lieu noi bo',
+      };
+
   return content
-    .replace(/Theo dữ liệu([^:\n]*?)trong\s+`?PAGE_DATA`?\s*:?/gi, 'Theo dữ liệu$1')
-    .replace(/Theo du lieu([^:\n]*?)trong\s+`?PAGE_DATA`?\s*:?/gi, 'Theo dữ liệu$1')
+    .replace(/Based on the data([^:\n]*?)in\s+`?PAGE_DATA`?\s*:?/gi, `${replacements.basedOnData}$1`)
+    .replace(/Theo d(?:u|ữ) li(?:e|ệ)u([^:\n]*?)trong\s+`?PAGE_DATA`?\s*:?/gi, `${replacements.basedOnData}$1`)
     .replace(/\s+trong\s+`?PAGE_DATA`?/gi, '')
-    .replace(/\s+từ\s+`?PAGE_DATA`?/gi, '')
-    .replace(/`?PAGE_DATA`?/gi, 'dữ liệu hiện tại')
-    .replace(/\/api\/[^\s)`]*/gi, 'nguồn dữ liệu hiện tại')
-    .replace(/\bJSON\b/gi, 'dữ liệu')
-    .replace(/\bAPI\b/gi, 'nguồn dữ liệu')
-    .replace(/\bendpoint(s)?\b/gi, 'nguồn dữ liệu')
-    .replace(/`?apiCatalog`?/gi, 'nguồn dữ liệu tổng hợp')
-    .replace(/`?pageContext`?/gi, 'ngữ cảnh dữ liệu')
-    .replace(/`?datasets?`?/gi, 'dữ liệu')
-    .replace(/\bfield(s)?\b/gi, 'chỉ tiêu')
-    .replace(/\bfunction(s)?\b/gi, 'xử lý nội bộ')
-    .replace(/\bvariable(s)?\b/gi, 'dữ liệu nội bộ')
+    .replace(/\s+t(?:u|ừ)\s+`?PAGE_DATA`?/gi, '')
+    .replace(/\s+from\s+`?PAGE_DATA`?/gi, '')
+    .replace(/`?PAGE_DATA`?/gi, replacements.pageData)
+    .replace(/\/api\/[^\s)`]*/gi, replacements.dataSource)
+    .replace(/\bJSON\b/gi, replacements.data)
+    .replace(/\bAPI\b/gi, replacements.dataSource)
+    .replace(/\bendpoint(s)?\b/gi, replacements.dataSource)
+    .replace(/`?apiCatalog`?/gi, replacements.aggregateDataSource)
+    .replace(/`?pageContext`?/gi, replacements.dataContext)
+    .replace(/`?datasets?`?/gi, replacements.data)
+    .replace(/\bfield(s)?\b/gi, replacements.metrics)
+    .replace(/\bfunction(s)?\b/gi, replacements.internalProcessing)
+    .replace(/\bvariable(s)?\b/gi, replacements.internalData)
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

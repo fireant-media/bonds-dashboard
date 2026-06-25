@@ -63,7 +63,6 @@ interface IndustryMetricCardProps {
 }
 
 const chartCardClassName = 'col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4';
-const topChartCardClassName = 'flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4';
 
 const metricToneClasses: Record<IndustryMetricTone, { card: string; icon: string; glow: string; value: string; sparkline: string }> = {
   blue: {
@@ -586,7 +585,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       series: [{
         name: t('marketShare'),
         type: 'pie',
-        radius: ['46%', '74%'],
+        radius: ['36%', '64%'],
         center: ['34%', '52%'],
         avoidLabelOverlap: false,
         itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
@@ -1049,7 +1048,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   }
 
   return (
-    <div className="min-w-0 space-y-4 transition-colors duration-300">
+    <div className="min-w-0 space-y-4 py-3 transition-colors duration-300">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {isIndustrySummaryLoading
           ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
@@ -1065,86 +1064,82 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {isIndustryChartsLoading ? (
-          <SectionCardSkeleton className="h-80 md:h-96" />
-        ) : (
-          <div className={`${topChartCardClassName} h-80 md:h-96`}>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ChartWithToolbar
-                option={marketShareOptions}
-                style={{ height: '100%', width: '100%' }}
-                notMerge
-                title={t('marketShare')}
-                titleIcon={PieChart}
-                onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
-                zoomConfig={{
-                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                  chartStyle: { height: '100%', width: '100%' },
-                  option: {
-                    color: marketSharePalette,
-                    legend: {
-                      show: true,
-                      orient: 'vertical',
-                      right: '4%',
-                      top: 'middle',
-                      itemWidth: 10,
-                      itemHeight: 10,
-                      icon: 'circle',
-                      textStyle: legendStyle,
-                    },
-                    series: [
-                      {
-                        center: ['34%', '52%'],
-                        radius: ['46%', '74%'],
-                        label: {
-                          show: false,
-                        },
-                        labelLine: {
-                          show: false,
-                        },
-                        emphasis: {
-                          label: {
-                            show: false,
-                          }
-                        },
-                      },
-                    ],
-                  },
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        <AIInsightPanel
-          cacheKey={`industry-insight-${industry}`}
-          title={industryInsightTitle}
-          pageTitle={industryPageTitle}
-          sectionTitle={getIndustryLabel(industry)}
-          payload={industryInsightPayload}
-          expandContent
-          className="h-80 min-w-0 w-full md:h-96"
-        />
-      </div>
+      <AIInsightPanel
+        cacheKey={`industry-insight-${industry}`}
+        title={industryInsightTitle}
+        pageTitle={industryPageTitle}
+        sectionTitle={getIndustryLabel(industry)}
+        payload={industryInsightPayload}
+        expandContent
+        layout="stacked"
+        className="min-w-0 w-full"
+      />
 
       <div className="grid grid-cols-12 gap-3 lg:items-stretch">
         {isIndustryChartsLoading ? (
           <>
-            <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
-            <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+            <SectionCardSkeleton className="col-span-12 lg:col-span-4" />
+            <SectionCardSkeleton className="col-span-12 lg:col-span-4" />
+            <SectionCardSkeleton className="col-span-12 lg:col-span-4" />
           </>
         ) : (
           <>
-            <div className={`${chartCardClassName} lg:col-span-6`}>
-              <div className="h-80 overflow-hidden md:h-96">
+            <div className={`${chartCardClassName} lg:col-span-4`}>
+              <div className="h-72 overflow-hidden md:h-80">
+                <ChartWithToolbar
+                  option={marketShareOptions}
+                  style={{ height: '100%', width: '100%' }}
+                  notMerge
+                  title={t('marketShare')}
+                  titleIcon={PieChart}
+                  onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
+                  zoomConfig={{
+                    shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                    chartStyle: { height: '100%', width: '100%' },
+                    option: {
+                      color: marketSharePalette,
+                      legend: {
+                        show: true,
+                        orient: 'vertical',
+                        right: '4%',
+                        top: 'middle',
+                        itemWidth: 10,
+                        itemHeight: 10,
+                        icon: 'circle',
+                        textStyle: legendStyle,
+                      },
+                      series: [
+                        {
+                          center: ['34%', '52%'],
+                          radius: ['46%', '74%'],
+                          label: {
+                            show: false,
+                          },
+                          labelLine: {
+                            show: false,
+                          },
+                          emphasis: {
+                            label: {
+                              show: false,
+                            }
+                          },
+                        },
+                      ],
+                    },
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className={`${chartCardClassName} lg:col-span-4`}>
+              <div className="h-72 overflow-hidden md:h-80">
                 <ChartWithToolbar option={interestOptions} style={{ height: '100%', width: '100%' }} allowMagicType title={t('industryInterest')} titleIcon={Percent} />
               </div>
             </div>
 
-            <div className={`${chartCardClassName} lg:col-span-6`}>
+            <div className={`${chartCardClassName} lg:col-span-4`}>
               {issuedValueTreemapData.length > 0 ? (
-                <div className="h-80 overflow-hidden md:h-96">
+                <div className="h-72 overflow-hidden md:h-80">
                   <ChartWithToolbar
                     option={issuedValueTreemapOptions}
                     style={{ height: '100%', width: '100%' }}
@@ -1196,95 +1191,103 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                   />
                 </div>
               ) : (
-                <div className="flex min-h-80 items-center justify-center">
+                <div className="flex h-72 items-center justify-center md:h-80">
                   <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
                 </div>
               )}
             </div>
           </>
         )}
+      </div>
 
-        <div className={`${chartCardClassName} lg:col-span-6`}>
-          <div className="h-80 overflow-hidden md:h-96">
-            <ChartWithToolbar
-              option={combinedOptions}
-              style={{ height: '100%', width: '100%' }}
-              allowMagicType
-              title={combinedChartTitle}
-              titleIcon={BarChart3}
-              onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
-            />
+      <div className="grid grid-cols-12 gap-3 lg:items-stretch">
+        {isIndustryChartsLoading ? (
+          <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
+        ) : (
+          <div className={`${chartCardClassName} lg:col-span-6`}>
+            <div className="h-72 overflow-hidden md:h-80">
+              <ChartWithToolbar
+                option={combinedOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={combinedChartTitle}
+                titleIcon={BarChart3}
+                onDataViewCategoryClick={handleIndustryDataViewCategoryClick}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <div ref={projectedCashFlowSectionRef} className={`${chartCardClassName} lg:col-span-6`}>
-          {isIndustryCashFlowPending ? (
-            <div className="min-h-80">
-              <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
-            </div>
-          ) : isIndustryCashFlowLoading ? (
-            <div className="flex min-h-80 flex-col items-center justify-center gap-3">
-              <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
-              <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
-            </div>
-          ) : hasProjectedCashFlowData ? (
-            <ChartWithToolbar
-              option={projectedCashFlowOptions}
-              style={{ height: '100%', width: '100%' }}
-              allowMagicType
-              title={projectedCashFlowTitle}
-              titleIcon={TrendingUp}
-              showDataZoomSliderOnHover
-              zoomConfig={{
-                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                chartStyle: { height: '100%', width: '100%' },
-                option: {
-                  grid: { bottom: '22%' },
-                  legend: {
-                    bottom: 8,
+          <div className="h-72 overflow-hidden md:h-80">
+            {isIndustryCashFlowPending ? (
+              <div className="h-full">
+                <SectionCardSkeleton className="h-full border-0 bg-transparent p-0 shadow-none" />
+              </div>
+            ) : isIndustryCashFlowLoading ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3">
+                <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
+                <p className="text-xs font-semibold uppercase text-text-muted/80">{t('loadingCashFlow')}</p>
+              </div>
+            ) : hasProjectedCashFlowData ? (
+              <ChartWithToolbar
+                option={projectedCashFlowOptions}
+                style={{ height: '100%', width: '100%' }}
+                allowMagicType
+                title={projectedCashFlowTitle}
+                titleIcon={TrendingUp}
+                showDataZoomSliderOnHover
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    grid: { bottom: '22%' },
+                    legend: {
+                      bottom: 8,
+                    },
+                    dataZoom: [
+                      {
+                        type: 'inside',
+                        xAxisIndex: 0,
+                        filterMode: 'none',
+                      },
+                      {
+                        type: 'slider',
+                        xAxisIndex: 0,
+                        height: 18,
+                        bottom: 44,
+                        filterMode: 'none',
+                        brushSelect: false,
+                        textStyle: valueLabelStyle,
+                      },
+                    ],
                   },
-                  dataZoom: [
-                    {
-                      type: 'inside',
-                      xAxisIndex: 0,
-                      filterMode: 'none',
-                    },
-                    {
-                      type: 'slider',
-                      xAxisIndex: 0,
-                      height: 18,
-                      bottom: 44,
-                      filterMode: 'none',
-                      brushSelect: false,
-                      textStyle: valueLabelStyle,
-                    },
-                  ],
-                },
-              }}
-              actions={(
-                <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
-                  {(['month', 'year'] as const).map((period) => (
-                    <button
-                      key={period}
-                      type="button"
-                      onClick={() => setCashFlowPeriod(period)}
-                      className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
-                        cashFlowPeriod === period
-                          ? 'bg-action-accent text-slate-950'
-                          : 'text-text-muted hover:text-text-base'
-                      }`}
-                    >
-                      {period === 'month' ? t('month') : t('year')}
-                    </button>
-                  ))}
-                </div>
-              )}
-            />
-          ) : (
-            <div className="flex min-h-80 items-center justify-center">
-              <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
-            </div>
-          )}
+                }}
+                actions={(
+                  <div className="flex rounded-lg border border-border-base bg-surface-container-low p-1">
+                    {(['month', 'year'] as const).map((period) => (
+                      <button
+                        key={period}
+                        type="button"
+                        onClick={() => setCashFlowPeriod(period)}
+                        className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
+                          cashFlowPeriod === period
+                            ? 'bg-action-accent text-slate-950'
+                            : 'text-text-muted hover:text-text-base'
+                        }`}
+                      >
+                        {period === 'month' ? t('month') : t('year')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-sm font-medium text-text-muted">{t('noData')}</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

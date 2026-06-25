@@ -4,6 +4,7 @@ import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2, Bookmark, Activi
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import { formatNumber, formatInterestRate, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
+import { getLocalizedBondStatus, getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
@@ -66,6 +67,7 @@ interface BondComparisonPopupProps {
   onClose: () => void;
   onBack: () => void;
   sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded';
+  embedded?: boolean;
 }
 
 function BondComparisonPopup({
@@ -74,6 +76,7 @@ function BondComparisonPopup({
   onClose,
   onBack,
   sidebarDisplayMode = 'none',
+  embedded = false,
 }: BondComparisonPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
@@ -723,7 +726,7 @@ function BondComparisonPopup({
           bond,
           timestamp,
           date,
-          issuerName: (bond as any).issuerName || (bond as any).enterpriseName || bond.enterpriseId || primaryEnterpriseName || '',
+          issuerName: getDisplayIssuerName(bond),
           maturityLabel: formatDate(bond.maturityDate),
           highlight: isUpcoming,
           statusAccent,
@@ -812,7 +815,7 @@ function BondComparisonPopup({
     const timelineStartYearLabel = `${minDate.getUTCFullYear()}`;
     return (
       <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
-        <div className="mb-5 flex items-center gap-3">
+        <div className="mb-4 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
             <Activity className="h-5 w-5" />
           </div>
@@ -859,7 +862,7 @@ function BondComparisonPopup({
                     {item.bond.code}
                     <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-56 -translate-x-1/2 rounded-xl border border-border-base bg-bg-surface p-3 text-left shadow-2xl group-hover:block">
                       <p className="text-sm font-bold text-text-base">{item.bond.code}</p>
-                      <p className="mt-1 text-xs font-medium text-text-muted">Ngày đáo hạn: {item.maturityLabel}</p>
+                      <p className="mt-1 text-xs font-medium text-text-muted">{t('maturityDate')}: {item.maturityLabel}</p>
                     </div>
                   </div>
 
@@ -1078,6 +1081,27 @@ function BondComparisonPopup({
     return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
   };
 
+  const getDisplayIssuerName = (bond: Bond) => {
+    const fallbackName = String(
+      (bond as any).issuerName
+      || (bond as any).enterpriseName
+      || (bond.code === primaryBond.code ? primaryEnterpriseName : '')
+      || bond.enterpriseId
+      || '-',
+    ).trim() || '-';
+
+    return String(t(fallbackName as any, bond.enterpriseId) || fallbackName).trim() || '-';
+  };
+
+  const getDisplayBondType = (bond: Bond) =>
+    getLocalizedBondType((bond as Bond & { bondType?: string }).bondType, language) || '-';
+
+  const getDisplayInterestType = (bond: Bond) =>
+    getLocalizedInterestType(bond.interestType, t) || '-';
+
+  const getDisplayStatus = (bond: Bond) =>
+    getLocalizedBondStatus(bond.status, language, t) || '-';
+
   const detailRows = [
     {
       key: 'code',
@@ -1087,11 +1111,11 @@ function BondComparisonPopup({
     {
       key: 'issuerName',
       label: formatComparisonLabel(t('issuer')),
-      value: (bond: Bond) => (bond as any).issuerName || (bond as any).enterpriseName || (bond.code === primaryBond.code ? primaryEnterpriseName : '') || bond.enterpriseId || '-',
+      value: (bond: Bond) => getDisplayIssuerName(bond),
     },
     {
       key: 'term',
-      label: `${formatComparisonLabel(t('term'))} (tháng)`,
+      label: `${formatComparisonLabel(t('term'))} (${t('monthUnit')})`,
       value: (bond: Bond) => bond.term.replace(/[^0-9]/g, '') || '-',
     },
     {
@@ -1116,12 +1140,12 @@ function BondComparisonPopup({
     },
     {
       key: 'issuedValue',
-      label: `${formatComparisonLabel(t('issuedValue'))} (tỷ VNĐ)`,
+      label: `${formatComparisonLabel(t('issuedValue'))} (${t('unitBillionVND')})`,
       value: (bond: Bond) => formatComparisonValue(bond.issuedValue),
     },
     {
       key: 'listedValue',
-      label: `${formatComparisonLabel(t('listedValue'))} (tỷ VNĐ)`,
+      label: `${formatComparisonLabel(t('listedValue'))} (${t('unitBillionVND')})`,
       value: (bond: Bond) => formatComparisonValue(bond.listedValue),
     },
   ];
@@ -1130,18 +1154,10 @@ function BondComparisonPopup({
     if (selectedBonds.length === 0) return;
 
     const bonds = selectedBonds.map((bond) => {
-      const issuerName = String(
-        (bond as any).issuerName ||
-        (bond as any).enterpriseName ||
-        (bond.code === primaryBond.code ? primaryEnterpriseName : '') ||
-        bond.enterpriseId ||
-        '-',
-      ).trim() || '-';
-
       return {
         code: bond.code,
         issuerSymbol: bond.enterpriseId || '',
-        issuerName,
+        issuerName: getDisplayIssuerName(bond),
         termMonths: bond.term.replace(/[^0-9]/g, '') || '-',
         interestRate: `${formatInterestRate(Number(bond.interestRate || 0))}%`,
         issueDate: formatDate(bond.issueDate),
@@ -1149,9 +1165,9 @@ function BondComparisonPopup({
         listedVolume: formatValue(Number(bond.listedVolume || 0)),
         issuedValueBillion: formatComparisonValue(bond.issuedValue),
         listedValueBillion: formatComparisonValue(bond.listedValue),
-        interestType: String(bond.interestType || '-'),
-        bondType: String((bond as Bond & { bondType?: string }).bondType || '-'),
-        status: String(bond.status || '-'),
+        interestType: getDisplayInterestType(bond),
+        bondType: getDisplayBondType(bond),
+        status: getDisplayStatus(bond),
       };
     });
 
@@ -1316,18 +1332,26 @@ function BondComparisonPopup({
 
   return (
     <div 
-      className={`fixed inset-x-0 top-16 bottom-0 z-40 flex justify-end bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300 ${
-        sidebarDisplayMode === 'expanded'
-          ? 'lg:left-72'
-          : sidebarDisplayMode === 'collapsed'
-            ? 'lg:left-16'
-            : 'lg:left-0'
-      }`}
-      onClick={onClose}
+      className={
+        embedded
+          ? 'flex w-full justify-end bg-bg-base'
+          : `fixed inset-0 z-40 flex justify-end bg-bg-base animate-in fade-in duration-300 ${
+              sidebarDisplayMode === 'expanded'
+                ? 'lg:left-72'
+                : sidebarDisplayMode === 'collapsed'
+                  ? 'lg:left-16'
+                  : 'lg:left-0'
+            }`
+      }
+      onClick={embedded ? undefined : onClose}
     >
       <div 
-        className="relative flex h-full w-screen flex-col overflow-hidden border-l border-border-base bg-bg-base shadow-2xl transition-colors animate-in slide-in-from-right duration-300"
-        onClick={(e) => e.stopPropagation()}
+        className={
+          embedded
+            ? 'relative flex min-h-full w-full flex-col bg-bg-base transition-colors'
+            : 'relative flex h-full w-screen flex-col overflow-y-auto overflow-x-hidden border-l border-border-base bg-bg-base custom-scrollbar transition-colors animate-in slide-in-from-right duration-300'
+        }
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
       >
         {watchlistNotice && (
           <div
@@ -1343,45 +1367,45 @@ function BondComparisonPopup({
           </div>
         )}
 
-        <div className="sticky top-0 z-20 border-b border-border-base bg-bg-surface/95 backdrop-blur">
-          <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-4 px-4 py-4 md:px-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <button 
-                onClick={onBack}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                <span>{t('back')}</span>
-              </button>
-              <div className="min-w-0">
-                <h3 className="truncate text-lg font-bold leading-tight text-text-base transition-colors md:text-xl">
-                  {t('bondComparisonTitle')}
-                </h3>
+        <div className="w-full">
+          <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-6 px-4 py-4 transition-colors md:px-6 md:py-5">
+            <div className="bg-transparent">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <button
+                    onClick={onBack}
+                    aria-label={t('back')}
+                    title={t('back')}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-lg font-bold leading-tight text-text-base transition-colors md:text-xl">
+                      {t('bondComparisonTitle')}
+                    </h3>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={handleReset}
+                    className="inline-flex items-center gap-2 rounded-full border border-border-base bg-white px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-base shadow-sm shadow-blue-950/10 transition-colors hover:border-blue-200 hover:bg-slate-50 hover:text-blue-600 hover:shadow-md dark:bg-surface-bright dark:text-text-base dark:hover:bg-surface-container-low"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    <span>{t('reset')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenWatchlistPicker}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700"
+                  >
+                    <Bookmark className="h-4 w-4" />
+                    {t('follow')}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-3">
-              <button 
-                onClick={handleReset}
-                className="inline-flex items-center gap-2 rounded-xl border border-border-base bg-bg-base px-3 py-2 text-xs font-bold uppercase tracking-wide text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
-              >
-                <RotateCcw className="h-4 w-4" />
-                <span>{t('reset')}</span>
-              </button>
-              <button 
-                type="button"
-                onClick={handleOpenWatchlistPicker}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700"
-              >
-                <Bookmark className="h-4 w-4" />
-                {t('follow')}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-          <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-10 px-4 py-4 transition-colors md:px-6 md:py-6">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               {selectedBonds.map((b) => (
                 <div 
                   key={b.id}
@@ -1470,7 +1494,7 @@ function BondComparisonPopup({
 
             {renderBondTimeline()}
 
-            <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               {renderChartCard(
                 () => getScaleOptions(),
                 formatComparisonLabel(t('issueScale')),
@@ -1488,7 +1512,7 @@ function BondComparisonPopup({
             </div>
 
             <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
-              <div className="mb-5 flex items-center gap-3">
+              <div className="mb-4 flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
                   <Info className="h-5 w-5" />
                 </div>

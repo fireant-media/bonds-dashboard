@@ -830,11 +830,25 @@ export default function MarketOverview() {
         minAngle: 4,
         label: {
           show: true,
-          color: chartTheme.text,
+          color: chartTheme.subText,
           fontSize: 11,
-          fontWeight: 700,
+          fontWeight: 600,
           lineHeight: 15,
-          formatter: (params: any) => `${params.name}\n${formatNumber(params.percent || 0, 1)}%`,
+          formatter: (params: any) => `{name|${params.name}}\n{value|${formatNumber(params.percent || 0, 1)}%}`,
+          rich: {
+            name: {
+              color: chartTheme.subText,
+              fontWeight: 500,
+              fontSize: 11,
+              lineHeight: 15,
+            },
+            value: {
+              color: chartTheme.text,
+              fontWeight: 700,
+              fontSize: 11,
+              lineHeight: 15,
+            },
+          },
         },
         labelLine: {
           show: true,
@@ -1107,6 +1121,7 @@ export default function MarketOverview() {
   const isTopInterestSectionLoading = topInterestQuery.isLoading && topInterestRankingItems.length === 0;
   const isIndustryChartSectionLoading = industryDataQuery.isLoading && industryData.length === 0;
   const isProjectedCashFlowPending = !projectedCashFlowSectionVisible && !hasProjectedCashFlowData && Object.keys(projectedCashFlowBuckets).length === 0;
+  const shouldShowCashFlowInsight = !isProjectedCashFlowPending && !loadingCashFlows;
 
   if (errorMessage && !hasAnyOverviewData) {
     return (
@@ -1349,27 +1364,27 @@ export default function MarketOverview() {
                       <button
                         key={`${item.bondCode}-${item.rank}`}
                         type="button"
-                        className="flex items-center gap-3 border-b border-border-base/60 px-1.5 py-2 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 cursor-pointer"
+                        className="grid grid-cols-12 items-center gap-3 border-b border-border-base/60 px-1.5 py-2 text-left transition-colors last:border-b-0 hover:bg-blue-50/40 dark:hover:bg-blue-500/10 cursor-pointer"
                         onClick={() => navigate(`/${encodeURIComponent(item.bondCode)}`)}
                       >
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm shadow-blue-500/10 dark:bg-blue-500/10 dark:text-blue-300">
+                        <div className="col-span-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700 shadow-sm shadow-blue-500/10 dark:bg-blue-500/10 dark:text-blue-300">
                           {item.rank}
                         </div>
-                        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-text-base">
+                        <div className="col-span-3 min-w-0 truncate text-sm font-semibold text-text-base">
                           {item.bondCode}
                         </div>
-                        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+                        <div className="col-span-3 flex min-w-0 justify-center">
                           <div className="inline-flex min-w-16 items-center justify-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-500/10 dark:text-blue-300 sm:min-w-20 sm:px-2.5 sm:text-sm">
                             {formatInterestRate(item.bondRate)} %
                           </div>
-                          <div className="flex items-center justify-end gap-1">
-                            {Array.from({ length: 10 }, (_, index) => (
-                              <span
-                                key={`${item.bondCode}-dot-${index}`}
-                                className={`${index < filledDots ? 'bg-blue-500' : 'bg-surface-container-low'} h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2`}
-                              />
-                            ))}
-                          </div>
+                        </div>
+                        <div className="col-span-4 flex items-center justify-end gap-1 sm:gap-1.5">
+                          {Array.from({ length: 10 }, (_, index) => (
+                            <span
+                              key={`${item.bondCode}-dot-${index}`}
+                              className={`${index < filledDots ? 'bg-blue-500' : 'bg-surface-container-low'} h-1.5 w-1.5 rounded-full sm:h-2 sm:w-2`}
+                            />
+                          ))}
                         </div>
                       </button>
                     );
@@ -1452,15 +1467,17 @@ export default function MarketOverview() {
             )}
           </div>
 
-          <AIInsightPanel
-            cacheKey="market-overview-cash-flow-insight"
-            title={cashFlowInsightTitle}
-            pageTitle={t('marketOverview')}
-            sectionTitle={cashFlowInsightTitle}
-            payload={cashFlowInsightPayload}
-            expandContent
-            layout="stacked"
-          />
+          {shouldShowCashFlowInsight ? (
+            <AIInsightPanel
+              cacheKey="market-overview-cash-flow-insight"
+              title={cashFlowInsightTitle}
+              pageTitle={t('marketOverview')}
+              sectionTitle={cashFlowInsightTitle}
+              payload={cashFlowInsightPayload}
+              expandContent
+              layout="stacked"
+            />
+          ) : null}
         </div>
       </div>
 

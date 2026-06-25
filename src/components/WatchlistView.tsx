@@ -3,6 +3,7 @@ import { BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, Plus, RefreshCcw, 
 import { useNavigate } from 'react-router-dom';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
+import { getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
 import { useLanguage } from '../LanguageContext';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItem, type WatchlistItem } from '../utils/watchlist';
 import { loadBondDetail, type BondDataRow } from '../services/bondData';
@@ -84,7 +85,7 @@ function toWatchlistBond(item: WatchlistItem): WatchlistBond | null {
 }
 
 export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }: WatchlistViewProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [bonds, setBonds] = useState<WatchlistBond[]>([]);
   const enrichingRef = useRef(false);
@@ -148,12 +149,14 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     const manuallyFilteredRows = filterBondRowsByCriteria(watchlistFilterRows, appliedCriteria).filter((row) => {
       const searchTerm = appliedFilters.searchTerm.trim().toLowerCase();
       if (searchTerm) {
+        const issuerName = String(t((row.issuerName || row.issuerSymbol || '') as any, row.issuerSymbol) || row.issuerName || row.issuerSymbol || '').trim();
         const haystack = [
           row.bondCode,
-          row.issuerName,
+          issuerName,
           row.issuerSymbol,
-          row.bondType,
-          row.industry,
+          getLocalizedBondType(row.bondType, language),
+          getLocalizedInterestType(row.bondRateType, t),
+          row.industry ? (t(row.industry as any) || row.industry) : '',
         ]
           .filter(Boolean)
           .join(' ')
@@ -168,7 +171,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     });
 
     return sortBondRowsByCriteria(manuallyFilteredRows, appliedCriteria);
-  }, [appliedCriteria, appliedFilters.searchTerm, watchlistFilterRows]);
+  }, [appliedCriteria, appliedFilters.searchTerm, language, t, watchlistFilterRows]);
 
   const filteredBonds = useMemo(() => {
     const bondByCode = new Map(bonds.map((bond) => [bond.code, bond] as const));
@@ -300,11 +303,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     {
       id: 'issuerName',
       header: t('issuer'),
-      accessor: (row) => row.issuerName || row.ticker,
+      accessor: (row) => String(t((row.issuerName || row.ticker || '') as any, row.ticker) || row.issuerName || row.ticker || ''),
       sortable: true,
       widthClassName: 'w-96',
       cell: (row) => {
-        const issuerName = row.issuerName || row.ticker || t('none');
+        const issuerName = String(t((row.issuerName || row.ticker || t('none')) as any, row.ticker) || row.issuerName || row.ticker || t('none'));
         const industry = row.industry ? t(row.industry as any) : '';
 
         return (
@@ -318,12 +321,12 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     {
       id: 'bondType',
       header: t('bondTypeLabel'),
-      accessor: (row) => row.bondType || '',
+      accessor: (row) => getLocalizedBondType(row.bondType, language),
       sortable: true,
       widthClassName: 'w-60',
       cell: (row) => (
         <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
-          {row.bondType || t('none')}
+          {getLocalizedBondType(row.bondType, language) || t('none')}
         </div>
       ),
     },
@@ -371,10 +374,10 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     {
       id: 'bondRateType',
       header: t('interestType'),
-      accessor: (row) => row.interestType,
+      accessor: (row) => getLocalizedInterestType(row.interestType, t),
       sortable: true,
       widthClassName: 'w-32',
-      cell: (row) => row.interestType || t('none'),
+      cell: (row) => getLocalizedInterestType(row.interestType, t) || t('none'),
     },
     {
       id: 'currentListedVolume',
@@ -426,7 +429,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
         </button>
       ),
     },
-  ]), [t]);
+  ]), [language, t]);
 
   const watchlistColumnOptions = useMemo(
     () => columns.filter((column) => column.id !== 'order').map((column) => ({
@@ -463,8 +466,9 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   }, [watchlistColumnVisibilityOpen, watchlistHiddenColumnIds]);
 
   const emptyState = (
-    <div className="flex flex-col items-center gap-3 py-10 text-center">
-      <p className="text-sm font-bold text-text-base">Chưa có mã trái phiếu đang theo dõi</p>
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <p className="text-base font-bold text-text-base">Bạn chưa có mã nào trong danh sách theo dõi</p>
+      <p className="text-sm font-medium text-text-muted">Thêm mã trái phiếu để theo dõi nhanh</p>
       <button
         type="button"
         onClick={() => navigate('/filter/bonds')}
@@ -476,9 +480,19 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     </div>
   );
 
+  const hasWatchlistBonds = bonds.length > 0;
+
+  if (!hasWatchlistBonds) {
+    return (
+      <div className="min-w-0 pt-2 transition-colors duration-300 md:pt-3">
+        {emptyState}
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 transition-colors duration-300">
-      <div className="space-y-2">
+      <div className="space-y-2 pt-2 md:pt-3">
         <BondFilterPanel
           title={t('watchList')}
           resultCount={filteredBonds.length}
@@ -506,49 +520,53 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           searchOptions={bonds.map((bond) => bond.code)}
           showFilterControls={isWatchlistFilterControlsVisible}
           marketActionSlot={(
-            <div ref={watchlistColumnVisibilityRef} className="relative flex flex-wrap items-center gap-2">
+            <div ref={watchlistColumnVisibilityRef} className={watchlistColumnVisibilityOpen ? 'relative z-40 ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2' : 'relative ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2'}>
               <button
                 type="button"
                 onClick={applyDraftFilters}
-                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+                className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+                aria-label={t('applyFilters')}
+                title={t('applyFilters')}
               >
                 <Search className="h-4 w-4 shrink-0 text-blue-600" />
-                <span>Áp dụng</span>
+                <span className="hidden xl:inline">{t('applyFilters')}</span>
               </button>
               <button
                 type="button"
                 onClick={resetFilters}
-                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+                className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+                aria-label={t('reset')}
+                title={t('reset')}
               >
                 <RefreshCcw className="h-4 w-4 shrink-0 text-blue-600" />
-                <span>{t('reset')}</span>
+                <span className="hidden xl:inline">{t('reset')}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setIsWatchlistFilterControlsVisible((current) => !current)}
-                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+                className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
                 aria-label={isWatchlistFilterControlsVisible ? t('hideFilters') : t('showFilters')}
                 title={isWatchlistFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               >
                 {isWatchlistFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
-                <span>{t('filterTab')}</span>
+                <span className="hidden xl:inline">{t('filterTab')}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setWatchlistColumnVisibilityOpen((current) => !current)}
-                className="inline-flex h-11 w-28 flex-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-3 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight"
+                className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
                 aria-haspopup="dialog"
                 aria-expanded={watchlistColumnVisibilityOpen}
                 aria-label={t('hideColumns')}
                 title={t('hideColumns')}
               >
                 <EyeOff className="h-4 w-4 text-blue-600" />
-                <span>{t('hideColumns')}</span>
+                <span className="hidden xl:inline">{t('hideColumns')}</span>
               </button>
 
               {watchlistColumnVisibilityOpen ? (
-                <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+                <div className="absolute right-0 top-full z-50 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
                   <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
                     <EyeOff className="h-4 w-4 text-blue-600" />
                     <span>{t('hideColumns')}</span>
@@ -615,24 +633,22 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           columns={columns}
           getRowKey={(row) => row.code}
           pageSize={15}
-          emptyState={emptyState}
           onRowClick={handleOpenBond}
           hiddenColumnIds={watchlistHiddenColumnIds}
+          hideEmptyStateRow
         />
       </div>
 
-      {filteredBonds.length > 0 ? (
-        <div className="mt-4 flex justify-center">
-          <button
-            type="button"
-            onClick={() => navigate('/filter/bonds')}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
-          >
-            <Plus className="h-4 w-4" />
-            <span>{t('addBond')}</span>
-          </button>
-        </div>
-      ) : null}
+      <div className="mt-4 flex justify-center">
+        <button
+          type="button"
+          onClick={() => navigate('/filter/bonds')}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+        >
+          <Plus className="h-4 w-4" />
+          <span>{t('addBond')}</span>
+        </button>
+      </div>
     </div>
   );
 }

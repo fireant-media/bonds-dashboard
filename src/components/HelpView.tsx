@@ -1,9 +1,9 @@
 import { 
   BookOpen, 
+  ChevronRight,
   HelpCircle, 
   AlertTriangle, 
   Headphones, 
-  ChevronRight, 
   Play, 
   FileText, 
   Search, 
@@ -12,12 +12,10 @@ import {
   MessageSquare,
   ArrowRight
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
-import SentinelFooter from './SentinelFooter';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,74 +24,17 @@ function cn(...inputs: ClassValue[]) {
 type HelpTab = 'manual' | 'faq' | 'report' | 'contact';
 
 interface HelpViewProps {
-  onBack?: () => void;
+  section: HelpTab;
 }
 
-export default function HelpView({ onBack }: HelpViewProps) {
-  const { effectiveTheme } = useTheme();
-  const { t } = useLanguage();
-  const isDark = effectiveTheme === 'dark';
-  const [activeTab, setActiveTab] = useState<HelpTab>('manual');
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: 0, behavior: 'instant' });
-    }
-  }, [activeTab]);
-
-  const tabs = [
-    { id: 'manual', label: t('supportManual'), icon: BookOpen },
-    { id: 'faq', label: t('faqTitle'), icon: HelpCircle },
-    { id: 'report', label: t('systemReport'), icon: AlertTriangle },
-    { id: 'contact', label: t('contactSupport'), icon: Headphones },
-  ];
-
+export default function HelpView({ section }: HelpViewProps) {
   return (
-    <div className="flex min-h-dvh flex-col bg-bg-base transition-colors lg:flex-row">
-      <div className="border-b border-border-base bg-bg-surface px-4 py-4 transition-colors lg:w-80 lg:flex-shrink-0 lg:border-b-0 lg:border-r lg:px-5 lg:py-8">
-        <div className="mb-4 px-1 lg:mb-10 lg:px-3">
-          <h2 className="text-xl font-bold tracking-tight text-blue-600 transition-colors">{t('helpCenter')}</h2>
-          <p className="mt-1 text-sm font-medium text-text-muted transition-colors">{t('helpSubtitle')}</p>
-        </div>
-
-        <nav className="grid grid-cols-2 gap-2 lg:block lg:space-y-2 lg:px-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as HelpTab)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left transition-all group lg:gap-4 lg:py-4",
-                  isActive 
-                    ? "bg-blue-600/10 text-blue-600" 
-                    : "text-text-muted hover:bg-bg-base"
-                )}
-              >
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <Icon className={cn("h-5 w-5 transition-colors shrink-0", isActive ? "text-blue-600" : "text-text-muted group-hover:text-text-base")} />
-                  <span className={cn("hidden text-sm tracking-tight transition-colors whitespace-nowrap sm:inline", isActive ? "text-blue-600 font-bold" : "text-text-muted font-medium group-hover:text-text-base")}>
-                    {tab.label}
-                  </span>
-                </div>
-                {isActive && <ChevronRight className="ml-auto h-4 w-4 text-blue-600" />}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-10 custom-scrollbar transition-colors">
-        <div className="mx-auto max-w-5xl">
-          {activeTab === 'manual' && <UserManualView />}
-          {activeTab === 'faq' && <FAQView />}
-          {activeTab === 'report' && <ErrorReportView />}
-          {activeTab === 'contact' && <ContactSupportView />}
-
-          <SentinelFooter />
-        </div>
+    <div className="bg-bg-base px-4 py-6 transition-colors sm:px-6 lg:px-8 lg:py-10">
+      <div className="mx-auto max-w-5xl">
+        {section === 'manual' && <UserManualView />}
+        {section === 'faq' && <FAQView />}
+        {section === 'report' && <ErrorReportView />}
+        {section === 'contact' && <ContactSupportView />}
       </div>
     </div>
   );
