@@ -1,10 +1,8 @@
 import { 
-  BookOpen, 
   ChevronRight,
   HelpCircle, 
   AlertTriangle, 
   Headphones, 
-  Play, 
   FileText, 
   Search, 
   Filter, 
@@ -42,7 +40,7 @@ export default function HelpView({ section }: HelpViewProps) {
 
 function UserManualView() {
   const [selectedGuide, setSelectedGuide] = useState<string | null>(null);
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
 
   const guides = [
     {
@@ -177,19 +175,6 @@ function UserManualView() {
               </div>
             ))}
           </div>
-
-          <div className="rounded-3xl border border-blue-600/10 bg-blue-600/10 p-6 transition-colors sm:p-8">
-            <div className="flex items-center gap-3 mb-4">
-              <Play className="h-5 w-5 text-blue-600 fill-blue-600" />
-              <h4 className="font-bold text-blue-600 transition-colors">{t('watchIllustrationVideoLabel')}</h4>
-            </div>
-            <p className="text-sm text-text-muted mb-6 transition-colors">
-              {t('videoInstructionDetail').replace('{title}', guide.title)}
-            </p>
-            <button className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl text-xs uppercase tracking-widest hover:opacity-90 transition-all">
-              {t('startWatchingVideo')}
-            </button>
-          </div>
         </div>
       );
     }
@@ -221,39 +206,12 @@ function UserManualView() {
           </div>
         ))}
       </div>
-
-      {/* Video Section */}
-      <div className="group relative flex flex-col overflow-hidden rounded-3xl bg-blue-600 shadow-2xl shadow-blue-600/20 transition-colors md:flex-row">
-        <div className="relative z-10 flex flex-col justify-center p-6 sm:p-8 md:w-1/2 lg:p-10">
-          <span className="text-xs font-semibold tracking-widest text-white/50 uppercase mb-4 transition-colors">{t('videoInstruction')}</span>
-          <h2 className="text-3xl font-bold text-white mb-6 leading-tight transition-colors">{t('gettingStartedVideoTitle')}</h2>
-          <p className="text-white/70 text-sm mb-8 leading-relaxed font-medium transition-colors">
-            {t('gettingStartedVideoDesc')}
-          </p>
-          <button className="flex items-center justify-center gap-3 bg-white text-blue-600 px-8 py-4 rounded-xl font-bold text-sm hover:bg-gray-100 transition-all w-fit shadow-lg active:scale-95">
-            <Play className="h-4 w-4 fill-current" /> {t('watchNow')}
-          </button>
-        </div>
-        <div className="relative h-56 sm:h-72 md:h-auto md:w-1/2">
-          <img 
-            src="https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?q=80&w=2070&auto=format&fit=crop" 
-            alt="Dashboard Preview" 
-            className="w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-transparent transition-colors"></div>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="h-20 w-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border border-white/30 group-hover:scale-110 transition-transform">
-                <Play className="h-8 w-8 text-white fill-current ml-1" />
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
 
 function FAQView() {
-  const { language, t } = useLanguage();
+  const { t } = useLanguage();
   const faqs = [
     {
       q: t('faqQ1'),
@@ -307,7 +265,7 @@ function FAQView() {
 }
 
 function ErrorReportView() {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
       <div className="mb-12">
@@ -365,7 +323,6 @@ function ContactSupportView() {
           </div>
           <h4 className="font-bold text-text-base mb-2 transition-colors">{t('supportHotline')}</h4>
           <p className="text-sm text-text-muted mb-4 transition-colors">{t('supportHours')}</p>
-          <p className="text-lg font-bold text-blue-600 tracking-tight transition-colors">1900 6000</p>
         </div>
 
         <div className="bg-bg-surface p-8 rounded-2xl border border-border-base shadow-sm flex flex-col items-center text-center group transition-colors">
@@ -385,7 +342,6 @@ function ContactSupportView() {
           </div>
           <h4 className="font-bold text-text-base mb-2 transition-colors">{t('supportEmail')}</h4>
           <p className="text-sm text-text-muted mb-4 transition-colors">{t('responseWithin24h')}</p>
-          <p className="cursor-pointer text-sm font-bold text-blue-600 transition-colors hover:underline">support@sentinel.vn</p>
         </div>
       </div>
 

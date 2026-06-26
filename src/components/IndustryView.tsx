@@ -1,11 +1,11 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import ChartWithToolbar from './ChartWithToolbar';
 import AIInsightPanel from './AIInsightPanel';
 import { IndustryType } from '../types';
 import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BadgeDollarSign, BarChart3, Boxes, GalleryVerticalEnd, Landmark, LayoutGrid, Percent, PieChart, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
+import { BadgeDollarSign, BarChart3, Boxes, GalleryVerticalEnd, Landmark, LayoutGrid, Percent, PieChart, TrendingUp, Wallet } from 'lucide-react';
 
 interface IndustryViewProps {
   industry: IndustryType;
@@ -52,125 +52,7 @@ interface IndustryBondItem {
   [key: string]: unknown;
 }
 
-type IndustryMetricTone = 'blue' | 'purple' | 'green' | 'cyan' | 'indigo' | 'orange';
-
-interface IndustryMetricCardProps {
-  label: string;
-  value: string;
-  unit: string;
-  icon: LucideIcon;
-  tone: IndustryMetricTone;
-}
-
-const chartCardClassName = 'col-span-12 flex min-h-0 flex-col rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4';
-
-const metricToneClasses: Record<IndustryMetricTone, { card: string; icon: string; glow: string; value: string; sparkline: string }> = {
-  blue: {
-    card: 'hover:border-blue-200 hover:shadow-blue-500/10',
-    icon: 'from-blue-500 to-blue-400 shadow-blue-500/25',
-    glow: 'from-blue-50/90 dark:from-blue-500/10',
-    value: 'group-hover:text-blue-700',
-    sparkline: 'text-blue-500',
-  },
-  purple: {
-    card: 'hover:border-violet-200 hover:shadow-violet-500/10',
-    icon: 'from-violet-500 to-violet-400 shadow-violet-500/25',
-    glow: 'from-violet-50/90 dark:from-violet-500/10',
-    value: 'group-hover:text-violet-700',
-    sparkline: 'text-violet-500',
-  },
-  green: {
-    card: 'hover:border-emerald-200 hover:shadow-emerald-500/10',
-    icon: 'from-emerald-500 to-emerald-400 shadow-emerald-500/25',
-    glow: 'from-emerald-50/90 dark:from-emerald-500/10',
-    value: 'group-hover:text-emerald-700',
-    sparkline: 'text-emerald-500',
-  },
-  cyan: {
-    card: 'hover:border-cyan-200 hover:shadow-cyan-500/10',
-    icon: 'from-cyan-500 to-cyan-300 shadow-cyan-500/25',
-    glow: 'from-cyan-50/90 dark:from-cyan-500/10',
-    value: 'group-hover:text-cyan-700',
-    sparkline: 'text-cyan-500',
-  },
-  indigo: {
-    card: 'hover:border-indigo-200 hover:shadow-indigo-500/10',
-    icon: 'from-indigo-500 to-blue-400 shadow-indigo-500/25',
-    glow: 'from-indigo-50/90 dark:from-indigo-500/10',
-    value: 'group-hover:text-indigo-700',
-    sparkline: 'text-indigo-500',
-  },
-  orange: {
-    card: 'hover:border-orange-200 hover:shadow-orange-500/10',
-    icon: 'from-orange-500 to-amber-400 shadow-orange-500/25',
-    glow: 'from-orange-50/90 dark:from-orange-500/10',
-    value: 'group-hover:text-orange-700',
-    sparkline: 'text-orange-500',
-  },
-};
-
-const decorativeMetricLines: Record<IndustryMetricTone, { line: string; area: string }> = {
-  blue: {
-    line: '0,26 14,22 28,24 42,16 56,18 70,10 84,14 98,8 112,12 120,6',
-    area: '0,28 0,26 14,22 28,24 42,16 56,18 70,10 84,14 98,8 112,12 120,6 120,28',
-  },
-  purple: {
-    line: '0,20 16,24 30,18 46,22 60,12 74,16 88,10 102,14 114,8 120,11',
-    area: '0,28 0,20 16,24 30,18 46,22 60,12 74,16 88,10 102,14 114,8 120,11 120,28',
-  },
-  green: {
-    line: '0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7',
-    area: '0,28 0,24 12,18 26,20 40,12 54,16 68,8 82,10 96,6 110,10 120,7 120,28',
-  },
-  cyan: {
-    line: '0,22 14,18 28,20 42,12 56,14 70,8 84,10 98,6 112,9 120,5',
-    area: '0,28 0,22 14,18 28,20 42,12 56,14 70,8 84,10 98,6 112,9 120,5 120,28',
-  },
-  indigo: {
-    line: '0,24 12,22 24,24 38,18 52,20 66,12 80,14 94,8 108,10 120,6',
-    area: '0,28 0,24 12,22 24,24 38,18 52,20 66,12 80,14 94,8 108,10 120,6 120,28',
-  },
-  orange: {
-    line: '0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9',
-    area: '0,28 0,22 14,26 28,18 44,20 58,11 72,15 86,9 100,13 114,7 120,9 120,28',
-  },
-};
-
-function IndustryMetricCard({ label, value, unit, icon: Icon, tone }: IndustryMetricCardProps) {
-  const toneClass = metricToneClasses[tone];
-  const decorativeLine = decorativeMetricLines[tone];
-
-  return (
-    <Card className={`group relative p-3 transition-all duration-200 hover:shadow-lg ${toneClass.card}`}>
-      <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t to-transparent opacity-80 ${toneClass.glow}`} />
-      <div className="pointer-events-none absolute inset-x-3 bottom-2">
-        <svg viewBox="0 0 120 28" preserveAspectRatio="none" className={`h-9 w-full ${toneClass.sparkline}`} aria-hidden="true">
-          <polygon points={decorativeLine.area} fill="currentColor" opacity="0.06" />
-          <polyline points={decorativeLine.line} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.32" />
-        </svg>
-      </div>
-      <div className="relative flex min-h-28 min-w-0 flex-col gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-lg transition-colors duration-200 ${toneClass.icon}`}>
-            <Icon className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1 self-center">
-            <p className="break-words text-xs font-bold uppercase leading-snug tracking-wider text-slate-950 transition-colors dark:text-text-base">
-              {label}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center text-center">
-          <p className={`break-words text-2xl font-bold leading-tight text-slate-950 transition-colors duration-200 dark:text-text-base md:text-3xl ${toneClass.value}`}>
-            {value}
-          </p>
-          <p className="mt-1 break-words text-xs font-semibold uppercase leading-snug text-text-muted">{unit}</p>
-        </div>
-        <div className="h-4" aria-hidden="true" />
-      </div>
-    </Card>
-  );
-}
+const chartCardClassName = 'group relative col-span-12 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4';
 
 const hasMeaningfulIndustryData = (value: unknown) => {
   const data = value as { bonds?: unknown[]; issuerSummaries?: unknown[]; symbols?: unknown[]; industryStats?: { bondCount?: number } } | null | undefined;
@@ -207,6 +89,7 @@ const roundMetric = (value: number, digits = 2) => {
 
 export default function IndustryView({ industry }: IndustryViewProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
@@ -447,14 +330,14 @@ export default function IndustryView({ industry }: IndustryViewProps) {
           value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2), 
           unit: t('unitBillionVND'),
           icon: BadgeDollarSign,
-          tone: 'blue' as const,
+          tone: 'green' as const,
         },
         { 
           label: industryInitialDebtLabel, 
           value: formatNumber(industryStats.totalDebtFull / 1000000000, 2), 
           unit: t('unitBillionVND'),
           icon: Landmark,
-          tone: 'green' as const,
+          tone: 'blue' as const,
         },
         { 
           label: t('listedVolume'), 
@@ -773,7 +656,15 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const handleIndustryDataViewCategoryClick = (ticker: string) => {
     const normalizedTicker = String(ticker || '').trim();
     if (!normalizedTicker) return;
-    navigate(`/filter/issuer/${encodeURIComponent(normalizedTicker)}`);
+    navigate(`/filter/issuer/${encodeURIComponent(normalizedTicker)}`, {
+      state: {
+        from: {
+          pathname: location.pathname,
+          search: location.search,
+          hash: location.hash,
+        },
+      },
+    });
   };
 
   const getCombinedOptions = () => {
@@ -958,7 +849,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '8%', bottom: '24%', left: '10%', right: '8%' },
+    grid: { top: '8%', bottom: '34%', left: '10%', right: '8%' },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,
@@ -1049,7 +940,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-4 py-3 transition-colors duration-300">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {isIndustrySummaryLoading
           ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
           : kpis.map((kpi, idx) => (
@@ -1272,7 +1163,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
                         onClick={() => setCashFlowPeriod(period)}
                         className={`rounded-md px-3 py-1 text-xs font-semibold transition-all active:scale-95 ${
                           cashFlowPeriod === period
-                            ? 'bg-action-accent text-slate-950'
+                            ? 'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20'
                             : 'text-text-muted hover:text-text-base'
                         }`}
                       >

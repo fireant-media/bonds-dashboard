@@ -1394,11 +1394,11 @@ function BondComparisonPopup({
                     <RotateCcw className="h-4 w-4" />
                     <span>{t('reset')}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleOpenWatchlistPicker}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700"
-                  >
+                <button
+                  type="button"
+                  onClick={handleOpenWatchlistPicker}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
+                >
                     <Bookmark className="h-4 w-4" />
                     {t('follow')}
                   </button>
@@ -1411,7 +1411,7 @@ function BondComparisonPopup({
                   key={b.id}
                   className={`flex items-center gap-2 rounded-full border px-4 py-2 transition-all ${
                     b.code === primaryBond.code 
-                      ? 'border-blue-600 bg-blue-600 text-white' 
+                      ? 'border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
                       : 'border-border-base bg-bg-base text-text-base'
                   }`}
                 >
@@ -1600,7 +1600,7 @@ function BondComparisonPopup({
                   type="button"
                   onClick={handleSaveWatchlist}
                   disabled={selectedWatchlistCount === 0}
-                  className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-5 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {t('save')}
                 </button>

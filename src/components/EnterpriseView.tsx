@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
-import { ArrowUpDown, ChevronRight, ChevronLeft, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowUpDown, ChevronRight, ChevronLeft, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -253,6 +253,7 @@ export default function EnterpriseView({
   breadcrumbTitle,
 }: EnterpriseViewProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const { isLoadingStatus } = useAIStore();
@@ -271,6 +272,7 @@ export default function EnterpriseView({
   const [appliedEnterpriseIssuedValueMax, setAppliedEnterpriseIssuedValueMax] = useState('');
   const [appliedEnterpriseRemainingDebtMin, setAppliedEnterpriseRemainingDebtMin] = useState('');
   const [appliedEnterpriseRemainingDebtMax, setAppliedEnterpriseRemainingDebtMax] = useState('');
+  const previousRoute = (location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
   const [enterpriseAIPrompt, setEnterpriseAIPrompt] = useState('');
   const [enterpriseAISummary, setEnterpriseAISummary] = useState<string[]>([]);
   const [enterpriseAIError, setEnterpriseAIError] = useState<string | null>(null);
@@ -595,7 +597,7 @@ export default function EnterpriseView({
       <button
         type="button"
         onClick={() => handleEnterpriseTableSort(field)}
-        className="inline-flex w-full items-center justify-center gap-1.5 text-center transition-opacity hover:opacity-90"
+        className="inline-flex w-full items-center justify-center gap-1.5 text-center text-white transition-opacity hover:opacity-90"
       >
         <span className="flex min-w-0 flex-col items-center justify-center gap-0.5">
           <span className={cn("whitespace-nowrap leading-none", labelClassName)}>
@@ -616,38 +618,38 @@ export default function EnterpriseView({
 
   const renderEnterpriseTableHeaderCells = () => (
     <>
-      <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+      <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
         <span className="flex items-center justify-center">
           <ListOrdered className="h-4 w-4" aria-hidden="true" />
         </span>
       </th>
       {showEnterpriseIssuerNameColumn ? (
-        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
           {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
         </th>
       ) : null}
       {showEnterpriseTickerColumn ? (
-        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
           {renderEnterpriseSortHeader('ticker', t('ticker'))}
         </th>
       ) : null}
       {showEnterpriseIndustryColumn ? (
-        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
           {renderEnterpriseSortHeader('industry', t('industryLabel'))}
         </th>
       ) : null}
       {showEnterpriseBondCountColumn ? (
-        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
           {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
         </th>
       ) : null}
       {showEnterpriseIssuedValueColumn ? (
-        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
           {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}
         </th>
       ) : null}
       {showEnterpriseRemainingDebtColumn ? (
-        <th className="bg-blue-600 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
           {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'))}
         </th>
       ) : null}
@@ -1752,6 +1754,35 @@ export default function EnterpriseView({
     ]
   };
 
+  const handleBack = () => {
+    const currentRoute = `${location.pathname}${location.search || ''}${location.hash || ''}`;
+    const previousRouteTarget = previousRoute?.pathname
+      ? `${previousRoute.pathname}${previousRoute.search || ''}${previousRoute.hash || ''}`
+      : '';
+
+    if (previousRouteTarget && previousRouteTarget !== currentRoute && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    if (previousRouteTarget && previousRouteTarget !== currentRoute) {
+      navigate(previousRouteTarget, { replace: true });
+      return;
+    }
+
+    if (location.pathname.startsWith('/filter/issuer/')) {
+      navigate('/filter/issuer');
+      return;
+    }
+
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate('/filter/issuer');
+  };
+
   if (loading) {
     return (
       <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
@@ -1788,19 +1819,32 @@ export default function EnterpriseView({
       <div className="min-w-0 space-y-3 py-2 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
         <div className="min-w-0 space-y-3">
           <div className="min-w-0 space-y-3">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="min-w-0 break-words text-2xl font-bold leading-tight text-text-base md:text-3xl">
-                {language === 'en' && enterpriseProfile?.internationalName
-                  ? enterpriseProfile.internationalName
-                  : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
-              </h2>
-              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
-                <CheckCircle2 className="h-4 w-4" />
-              </span>
+            <div className="flex min-w-0 items-start gap-2">
+              <button
+                type="button"
+                onClick={handleBack}
+                aria-label={t('back')}
+                title={t('back')}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="min-w-0 break-words text-2xl font-bold leading-tight text-text-base md:text-3xl">
+                    {language === 'en' && enterpriseProfile?.internationalName
+                      ? enterpriseProfile.internationalName
+                      : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
+                  </h2>
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </span>
+                </div>
+              </div>
             </div>
             
             {/* Financial Badges Section */}
-            <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2">
+            <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2 pl-12">
               {!loadingFinancial ? (() => {
                 const ind = selectedEnterprise.industry ? t(selectedEnterprise.industry as any).toLowerCase() : '';
                 const type = (financialData?.__companyType || '').toLowerCase();
@@ -1983,7 +2027,7 @@ export default function EnterpriseView({
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-4">
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
             <ChartWithToolbar
               option={pieOptions}
               style={{ height: '320px' }}
@@ -2026,7 +2070,7 @@ export default function EnterpriseView({
               }}
             />
           </div>
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-4">
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
             <ChartWithToolbar
               option={interestTypePieOptions}
               style={{ height: '300px' }}
@@ -2093,7 +2137,7 @@ export default function EnterpriseView({
             expandContent
             layout="stacked"
           />
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-6">
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <ChartWithToolbar
               option={bubbleOptions}
               style={{ height: '320px' }}
@@ -2101,7 +2145,7 @@ export default function EnterpriseView({
               onDataViewCategoryClick={handleEnterpriseBondDataViewCategoryClick}
             />
           </div>
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-6">
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <ChartWithToolbar option={columnOptions} style={{ height: '320px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
           </div>
           <AIInsightPanel
@@ -2114,7 +2158,7 @@ export default function EnterpriseView({
             expandContent
             layout="stacked"
           />
-          <div className="rounded-lg border border-border-base bg-bg-surface p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4 xl:col-span-6">
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             {loadingCashFlows && !hasProjectedCashFlowData ? (
               <div className="flex h-72 items-center justify-center">
                 <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
@@ -2162,7 +2206,7 @@ export default function EnterpriseView({
                       onClick={() => setCashFlowPeriod('month')}
                       className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
                         cashFlowPeriod === 'month'
-                          ? 'bg-action-accent text-slate-950 shadow-sm'
+                          ? 'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20'
                           : 'text-text-muted hover:text-text-base'
                       }`}
                     >
@@ -2173,7 +2217,7 @@ export default function EnterpriseView({
                       onClick={() => setCashFlowPeriod('year')}
                       className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
                         cashFlowPeriod === 'year'
-                          ? 'bg-action-accent text-slate-950 shadow-sm'
+                          ? 'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20'
                           : 'text-text-muted hover:text-text-base'
                       }`}
                     >
@@ -2197,7 +2241,7 @@ export default function EnterpriseView({
   return (
     <div className="min-w-0 space-y-2 pt-2 transition-colors duration-300 md:pt-3">
       <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
-        <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-2.5 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
+        <div className="rounded-lg border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-2.5 transition-colors dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
           <div className="space-y-1">
             <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
               <BadgeDollarSign className="h-4 w-4" />
@@ -2228,7 +2272,7 @@ export default function EnterpriseView({
                 type="button"
                 onClick={() => void handleApplyEnterpriseAIFilter()}
                 disabled={!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter || isLoadingStatus}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <BadgeDollarSign className={`h-4 w-4 ${isApplyingEnterpriseAIFilter ? 'animate-pulse' : ''}`} />
                 <span>{t('applyAIFilter')}</span>
@@ -2336,7 +2380,7 @@ export default function EnterpriseView({
         ) : null}
 
         <div className="flex items-center justify-between gap-2 pt-0.5">
-          <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
+          <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100/80 bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
             {t('filterResults')}: {formatNumber(sortedEnterprises.length, 0)} / {formatNumber(enterprises.length, 0)}
           </div>
 
@@ -2496,7 +2540,7 @@ export default function EnterpriseView({
           )}
         </div>
 
-        <div ref={enterpriseHeaderViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
+        <div ref={enterpriseHeaderViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 transition-colors">
           <table ref={enterpriseHeaderTableRef} className="min-w-full table-fixed text-left will-change-transform">
             <colgroup>
               <col className="w-14" />
@@ -2617,7 +2661,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(i + 1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === i + 1 
-                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -2630,7 +2674,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 1 
-                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -2640,7 +2684,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(2)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 2 
-                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -2653,7 +2697,7 @@ export default function EnterpriseView({
                         onClick={() => setEnterprisePage(3)}
                         className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                           enterprisePage === 3 
-                            ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
+                            ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                             : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                         }`}
                       >
@@ -2667,7 +2711,7 @@ export default function EnterpriseView({
                       {enterprisePage < totalEnterprisePages && (
                         <>
                           <button
-                            className="px-3 py-1 text-xs font-bold rounded-lg bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
+                            className="px-3 py-1 text-xs font-bold rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                           >
                             {enterprisePage}
                           </button>
@@ -2681,7 +2725,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(totalEnterprisePages)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === totalEnterprisePages 
-                        ? "bg-action-accent text-slate-950 border-transparent shadow-md shadow-cyan-500/20"
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -2705,5 +2749,3 @@ export default function EnterpriseView({
     </div>
   );
 }
-
-

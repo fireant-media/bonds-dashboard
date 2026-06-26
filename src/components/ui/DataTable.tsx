@@ -175,7 +175,7 @@ export function DataTable<T>({
       <th
         key={column.id}
         className={cn(
-          "bg-blue-600 px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center",
+          "bg-transparent px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center text-white",
           column.stickyHeaderClassName,
         )}
       >
@@ -197,7 +197,7 @@ export function DataTable<T>({
             {column.header}
           </span>
           {column.unit ? (
-            <span className="col-start-1 row-start-2 block text-xs font-semibold tracking-wider text-white/80 normal-case leading-none">
+            <span className="col-start-1 row-start-2 block text-xs font-bold tracking-wider text-white/80 normal-case leading-none">
               {column.unit}
             </span>
           ) : null}
@@ -206,7 +206,7 @@ export function DataTable<T>({
               "flex h-4 w-4 shrink-0 items-center justify-center",
               column.unit ? "col-start-2 row-span-2 self-center" : "",
             )}>
-              <SortIcon className="h-3.5 w-3.5 text-white/90" />
+              <SortIcon className="h-3.5 w-3.5 text-white/80" />
             </span>
           ) : null}
         </button>
@@ -217,7 +217,7 @@ export function DataTable<T>({
   return (
     <div className={cn("overflow-visible rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20", className)}>
       {visibleColumns.length > 0 ? (
-        <div ref={headerViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-blue-500/30 bg-blue-600 text-white transition-colors">
+        <div ref={headerViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 transition-colors">
           <table ref={headerTableRef} className="min-w-full table-fixed text-left will-change-transform">
             <colgroup>
               {visibleColumns.map((column) => (
@@ -339,7 +339,7 @@ export function DataTable<T>({
                       className={cn(
                         "rounded-lg border px-3 py-1 text-xs font-bold transition-colors",
                         safePage === item
-                          ? "border-transparent bg-action-accent text-slate-950 shadow-md shadow-cyan-500/20"
+                          ? "border-transparent bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-none"
                           : "border-border-base bg-bg-base text-text-base hover:bg-bg-surface",
                       )}
                     >

@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState, useEffect, useRef } from 'react';
-import { Routes, Route, useNavigate, useLocation, Navigate, useParams } from 'react-router-dom';
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { Routes, Route, useNavigate, useLocation, Navigate, useNavigationType, useParams } from 'react-router-dom';
 import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import LoginView from './components/LoginView';
@@ -35,7 +35,7 @@ const isBondCode = (s: string) => {
 };
 
 type SidebarDisplayMode = 'none' | 'collapsed' | 'expanded';
-type ProfileSection = 'info' | 'history';
+type ProfileSection = 'info';
 type HelpSection = 'manual' | 'faq' | 'report' | 'contact';
 
 type RouteContext = {
@@ -91,8 +91,7 @@ const deriveRouteContext = (pathname: string, urlBondCode?: string | null): Rout
   }
 
   if (pathname.startsWith('/profile')) {
-    const profileSection = parts[1] === 'history' ? 'history' : 'info';
-    return { activeTab: 'profile', profileSection, bondCode: urlBondCode || null };
+    return { activeTab: 'profile', profileSection: 'info', bondCode: urlBondCode || null };
   }
 
   if (pathname.startsWith('/help')) {
@@ -108,6 +107,7 @@ const deriveRouteContext = (pathname: string, urlBondCode?: string | null): Rout
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const { user, isLoading: authLoading, signIn, signOut } = useOidcAuth();
   
   // Derive activeTab from location.pathname
@@ -179,8 +179,8 @@ export default function App() {
     navigate(subTab === 'bonds' ? '/filter/bonds' : '/filter/issuer');
   };
 
-  const setActiveProfileSection = (section: ProfileSection) => {
-    navigate(`/profile/${section}`);
+  const setActiveProfileSection = (_section: ProfileSection) => {
+    navigate('/profile/info');
   };
 
   const setActiveHelpSection = (section: HelpSection) => {
@@ -206,18 +206,47 @@ export default function App() {
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const previousLocationKeyRef = useRef(location.key);
+  const scrollPositionsRef = useRef<Map<string, number>>(new Map());
 
-  useEffect(() => {
-    // Reset scroll position only when the main logical view changes
-    // Opening a modal (bond popup) should not reset the scroll of the background content
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    const previousKey = previousLocationKeyRef.current;
+    if (container && previousKey) {
+      scrollPositionsRef.current.set(previousKey, container.scrollTop);
     }
-  }, [activeTab, activeIndustry, ticker, filterSubTab]);
+    previousLocationKeyRef.current = location.key;
+  }, [location.key]);
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    if (location.state?.backgroundLocation) {
+      return;
+    }
+
+    const savedScrollTop = scrollPositionsRef.current.get(location.key);
+
+    if (navigationType === 'POP' && typeof savedScrollTop === 'number') {
+      container.scrollTo({ top: savedScrollTop, behavior: 'instant' });
+      return;
+    }
+
+    container.scrollTo({ top: 0, behavior: 'instant' });
+  }, [activeTab, activeIndustry, filterSubTab, location.key, navigationType, ticker, location.state]);
 
   const handleSetSelectedEnterprise = (enterprise: Enterprise | null) => {
     if (enterprise) {
-      navigate(`/filter/issuer/${enterprise.ticker}`);
+      navigate(`/filter/issuer/${enterprise.ticker}`, {
+        state: {
+          from: {
+            pathname: location.pathname,
+            search: location.search,
+            hash: location.hash,
+          },
+        },
+      });
     } else {
       navigate('/filter/issuer');
     }
@@ -410,7 +439,15 @@ export default function App() {
         initialDebt: cached?.initialDebt || 0,
         remainingDebt: cached?.remainingDebt || 0,
       };
-      navigate(`/filter/issuer/${selection.ticker}`);
+      navigate(`/filter/issuer/${selection.ticker}`, {
+        state: {
+          from: {
+            pathname: location.pathname,
+            search: location.search,
+            hash: location.hash,
+          },
+        },
+      });
       setSelectedBond(null);
       setBondEnterpriseName('');
       return;

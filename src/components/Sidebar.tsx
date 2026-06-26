@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Headphones,
   HelpCircle,
-  History,
   LayoutDashboard,
   PanelLeft,
   PanelRight,
@@ -36,8 +35,8 @@ interface SidebarProps {
   setActiveIndustry: (industry: string) => void;
   activeFilterSubTab: 'issuer' | 'bonds';
   setActiveFilterSubTab: (subTab: 'issuer' | 'bonds') => void;
-  activeProfileSection: 'info' | 'history';
-  setActiveProfileSection: (section: 'info' | 'history') => void;
+  activeProfileSection: 'info';
+  setActiveProfileSection: (section: 'info') => void;
   activeHelpSection: 'manual' | 'faq' | 'report' | 'contact';
   setActiveHelpSection: (section: 'manual' | 'faq' | 'report' | 'contact') => void;
   isCollapsed: boolean;
@@ -60,6 +59,8 @@ export default function Sidebar({
 }: SidebarProps) {
   const { t, language } = useLanguage();
   const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
+  const activeSidebarItemClassName =
+    'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20';
   const [isIndustryOpen, setIsIndustryOpen] = useState(activeTab === 'industry');
   const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
     () => getCache('sidebar_industry_issued_values_v2')
@@ -118,12 +119,8 @@ export default function Sidebar({
     },
   ];
 
-  const profileItems = [
-    { id: 'info', label: t('personalInfo'), icon: User },
-    { id: 'history', label: t('activityLog'), icon: History },
-  ] as const;
-
-  const helpItems = [
+  const contextItems = [
+    { id: 'profile', label: t('personalProfile'), icon: User },
     { id: 'manual', label: t('supportManual'), icon: BookOpen },
     { id: 'faq', label: t('faqTitle'), icon: HelpCircle },
     { id: 'report', label: t('systemReport'), icon: AlertTriangle },
@@ -133,9 +130,6 @@ export default function Sidebar({
   const isProfileSidebar = activeTab === 'profile';
   const isHelpSidebar = activeTab === 'help';
   const isContextSidebar = isProfileSidebar || isHelpSidebar;
-  const contextTitle = isProfileSidebar ? t('profileUser') : t('helpCenter');
-  const contextSubtitle = isProfileSidebar ? t('manageAccount') : t('helpSubtitle');
-  const contextItems = isProfileSidebar ? profileItems : helpItems;
 
   return (
     <aside
@@ -144,7 +138,7 @@ export default function Sidebar({
         isCollapsed ? 'w-16' : 'w-72'
       )}
     >
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 lg:p-4', isCollapsed && 'p-2')}>
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 lg:p-4', isCollapsed && 'overflow-visible p-2')}>
         <div className={cn('mb-5 flex h-10 items-center justify-between gap-2', isCollapsed && 'justify-center')}>
           {!isCollapsed ? (
             <button
@@ -162,7 +156,7 @@ export default function Sidebar({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar">
+        <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar', isCollapsed && 'overflow-x-visible pr-0')}>
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -173,38 +167,32 @@ export default function Sidebar({
             {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
           </button>
 
-          {!isCollapsed && isContextSidebar ? (
-            <div className="mb-4 rounded-2xl border border-border-base bg-bg-base px-4 py-4">
-              <h2 className="text-base font-bold tracking-tight text-blue-600 transition-colors">{contextTitle}</h2>
-              <p className="mt-1 text-sm font-medium text-text-muted transition-colors">{contextSubtitle}</p>
-            </div>
-          ) : null}
-
           {isCollapsed ? null : isContextSidebar ? (
             <nav className="space-y-1">
               {contextItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = isProfileSidebar
-                  ? activeProfileSection === item.id
-                  : activeHelpSection === item.id;
+                const isActive =
+                  item.id === 'profile'
+                    ? isProfileSidebar && activeProfileSection === 'info'
+                    : isHelpSidebar && activeHelpSection === item.id;
 
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => {
-                      if (isProfileSidebar && (item.id === 'info' || item.id === 'history')) {
-                        setActiveProfileSection(item.id);
+                      if (item.id === 'profile') {
+                        setActiveProfileSection('info');
                         return;
                       }
-                      if (!isProfileSidebar && (item.id === 'manual' || item.id === 'faq' || item.id === 'report' || item.id === 'contact')) {
+                      if (item.id === 'manual' || item.id === 'faq' || item.id === 'report' || item.id === 'contact') {
                         setActiveHelpSection(item.id);
                       }
                     }}
                     className={cn(
                       'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
                       isActive
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                        ? activeSidebarItemClassName
                         : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                     )}
                   >
@@ -246,7 +234,7 @@ export default function Sidebar({
                       className={cn(
                         'group flex w-full items-center rounded-lg px-3 py-2.5 transition-colors cursor-pointer',
                         isActive
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                          ? activeSidebarItemClassName
                           : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                       )}
                     >
@@ -283,7 +271,7 @@ export default function Sidebar({
                               className={cn(
                                 'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
                                 isIndustryActive
-                                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                                  ? activeSidebarItemClassName
                                   : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                               )}
                             >
@@ -313,7 +301,7 @@ export default function Sidebar({
                     className={cn(
                       'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
                       item.isActive
-                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                        ? activeSidebarItemClassName
                         : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                     )}
                   >
@@ -329,32 +317,33 @@ export default function Sidebar({
           ) : null}
 
           {isCollapsed ? (
-            <div className="mt-3 flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center gap-2 px-1">
               {isContextSidebar
                 ? contextItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = isProfileSidebar
-                      ? activeProfileSection === item.id
-                      : activeHelpSection === item.id;
+                    const isActive =
+                      item.id === 'profile'
+                        ? isProfileSidebar && activeProfileSection === 'info'
+                        : isHelpSidebar && activeHelpSection === item.id;
 
                     return (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => {
-                          if (isProfileSidebar && (item.id === 'info' || item.id === 'history')) {
-                            setActiveProfileSection(item.id);
+                          if (item.id === 'profile') {
+                            setActiveProfileSection('info');
                             return;
                           }
-                          if (!isProfileSidebar && (item.id === 'manual' || item.id === 'faq' || item.id === 'report' || item.id === 'contact')) {
+                          if (item.id === 'manual' || item.id === 'faq' || item.id === 'report' || item.id === 'contact') {
                             setActiveHelpSection(item.id);
                           }
                         }}
-                        className={cn(
-                          'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
-                          isActive
-                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                            : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                          className={cn(
+                           'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                           isActive
+                             ? activeSidebarItemClassName
+                             : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                         )}
                         aria-label={item.label}
                         title={item.label}
@@ -390,11 +379,11 @@ export default function Sidebar({
                             }
                             setActiveFilterSubTab('issuer');
                           }}
-                          className={cn(
-                            'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
-                            isActive
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                              : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                           className={cn(
+                             'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                             isActive
+                               ? activeSidebarItemClassName
+                               : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                           )}
                           aria-label={item.label}
                           title={item.label}
@@ -411,11 +400,11 @@ export default function Sidebar({
                           key={item.id}
                           type="button"
                           onClick={item.onClick}
-                          className={cn(
-                            'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
-                            item.isActive
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                              : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                           className={cn(
+                             'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                             item.isActive
+                               ? activeSidebarItemClassName
+                               : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                           )}
                           aria-label={item.label}
                           title={item.label}
@@ -436,7 +425,7 @@ export default function Sidebar({
             onClick={onToggleCollapse}
             className={cn(
               'flex w-full items-center rounded-lg px-3 py-2.5 text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600',
-              isCollapsed ? 'h-10 justify-center px-0' : 'justify-start gap-3'
+              isCollapsed ? 'h-9 justify-center rounded-xl px-0' : 'justify-start gap-3'
             )}
             aria-label={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}
             title={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}

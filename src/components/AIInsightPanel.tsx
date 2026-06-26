@@ -17,6 +17,7 @@ interface AIInsightPanelProps {
   className?: string;
   expandContent?: boolean;
   layout?: 'default' | 'stacked';
+  contentChrome?: 'boxed' | 'plain';
 }
 
 let pendingAIStatusRequest: Promise<void> | null = null;
@@ -102,6 +103,7 @@ export default function AIInsightPanel({
   className,
   expandContent = false,
   layout = 'default',
+  contentChrome = 'boxed',
 }: AIInsightPanelProps) {
   const { t, language } = useLanguage();
   const { ref, isVisible } = useVisibleOnce<HTMLDivElement>();
@@ -259,14 +261,17 @@ export default function AIInsightPanel({
   const insightContentClassName = expandContent || isStackedLayout
     ? 'overflow-visible'
     : 'max-h-28 overflow-y-auto pr-1';
+  const boxedContentClassName = 'rounded-xl bg-bg-surface/70 px-4 py-3 shadow-sm ring-1 ring-blue-100/70 dark:bg-slate-900/20 dark:ring-blue-900/30';
+  const plainContentClassName = 'px-1 py-1';
+  const contentClassName = contentChrome === 'plain' ? plainContentClassName : boxedContentClassName;
   const displayTitle = toSentenceCase(title);
 
   return (
-    <Card className={`group relative flex h-full flex-col overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/70 p-4 shadow-sm shadow-blue-500/10 transition-colors dark:border-blue-900/40 dark:bg-blue-950/20 dark:shadow-black/20 ${className || ''}`}>
+    <Card className={`group relative flex h-full flex-col overflow-hidden rounded-xl border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-4 shadow-sm shadow-blue-500/10 transition-all duration-300 dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:shadow-black/20 ${className || ''}`}>
       <div className="relative flex h-full min-h-0 flex-col" ref={ref}>
-        <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+        <div className="mb-4 flex min-w-0 items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900/40 dark:ring-blue-900/40">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-6 motion-reduce:transform-none dark:bg-slate-900/40 dark:ring-blue-900/40">
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="min-w-0">
@@ -282,7 +287,7 @@ export default function AIInsightPanel({
             type="button"
             onClick={() => void generateInsight(true)}
             disabled={!payloadText || isLoading}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border-base bg-bg-surface px-2 py-1 text-xs font-semibold text-text-muted transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border-base bg-bg-surface px-2.5 py-1.5 text-xs font-semibold text-text-muted transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:hover:translate-y-0"
             title={t('refresh')}
             aria-label={t('refresh')}
           >
@@ -291,21 +296,21 @@ export default function AIInsightPanel({
         </div>
 
         {isLoading ? (
-          <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
+          <div className="flex items-center gap-3 rounded-xl bg-bg-surface/70 px-4 py-3 text-sm font-semibold text-text-muted shadow-sm ring-1 ring-blue-100/70 dark:bg-slate-900/20 dark:ring-blue-900/30">
             <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
             <span>{t('aiGeneratingInsight')}</span>
           </div>
         ) : error ? (
-          <div className="flex items-start gap-3 py-1 text-sm text-text-muted">
+          <div className="flex items-start gap-3 rounded-xl bg-bg-surface/70 px-4 py-3 text-sm text-text-muted shadow-sm ring-1 ring-amber-200/80 dark:bg-slate-900/20 dark:ring-amber-500/20">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <span>{error}</span>
           </div>
         ) : insight ? (
-          <div className={insightContentClassName}>
+          <div className={`${contentClassName} ${insightContentClassName}`}>
             <AIInsightText content={insight} />
           </div>
         ) : (
-          <div className="py-1 text-sm text-text-muted">
+          <div className={`${contentClassName} text-sm text-text-muted`}>
             {payloadText ? t('aiNoInsight') : t('noData')}
           </div>
         )}

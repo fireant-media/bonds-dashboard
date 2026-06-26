@@ -172,7 +172,7 @@ export function ChartDataViewModal({
 
           <div className="flex w-full flex-col gap-3">
             <div className={cn('text-center', showBackButton ? 'px-14' : 'px-14')}>
-              <h3 className="text-base font-bold leading-snug break-words text-text-base md:text-lg">
+              <h3 className="text-base font-bold leading-snug break-words text-black md:text-lg">
                 {resolvedTitle}
               </h3>
               {subtitle ? (
@@ -188,7 +188,7 @@ export function ChartDataViewModal({
         <div className="flex-1 min-h-0 overflow-auto p-4">
             <div className="w-full overflow-x-auto rounded-lg border border-border-base bg-bg-surface shadow-md shadow-blue-950/5 dark:shadow-black/20">
             <table className="w-full min-w-max border-collapse text-left">
-              <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
+              <thead className="border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white">
                 <tr>
                   {columns.map((column, index) => (
                     <th
@@ -210,7 +210,7 @@ export function ChartDataViewModal({
                         <span className="inline-flex min-w-0 flex-col">
                           <span className="block leading-none">{column.label}</span>
                           {column.unit ? (
-                            <span className="mt-1 block leading-none text-xs font-semibold uppercase tracking-wider text-white/80">
+                            <span className="mt-1 block leading-none text-xs font-bold uppercase tracking-wider text-white/80">
                               ({column.unit})
                             </span>
                           ) : null}
@@ -218,9 +218,9 @@ export function ChartDataViewModal({
                         <span className="shrink-0">
                           {sortState?.columnIndex === index ? (
                             sortState.direction === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-white/90" />
+                              <ArrowUp className="h-3.5 w-3.5 text-white/80" />
                             ) : (
-                              <ArrowDown className="h-3.5 w-3.5 text-white/90" />
+                              <ArrowDown className="h-3.5 w-3.5 text-white/80" />
                             )
                           ) : (
                             <ArrowUpDown className="h-3.5 w-3.5 text-white/70" />

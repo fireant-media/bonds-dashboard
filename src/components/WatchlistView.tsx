@@ -472,7 +472,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       <button
         type="button"
         onClick={() => navigate('/filter/bonds')}
-        className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+        className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
       >
         <Plus className="h-4 w-4" />
         <span>{t('addBond')}</span>
@@ -640,11 +640,11 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       </div>
 
       <div className="mt-4 flex justify-center">
-        <button
-          type="button"
-          onClick={() => navigate('/filter/bonds')}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
-        >
+      <button
+        type="button"
+        onClick={() => navigate('/filter/bonds')}
+        className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
+      >
           <Plus className="h-4 w-4" />
           <span>{t('addBond')}</span>
         </button>

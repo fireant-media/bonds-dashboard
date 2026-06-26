@@ -1,4 +1,4 @@
-import { User, ShieldCheck, History, HelpCircle, LogOut, Camera, CheckCircle2, Monitor, Smartphone, Globe, ChevronLeft, ExternalLink, Clock, Sun, Moon, Bell, AlertCircle } from 'lucide-react';
+import { User, ShieldCheck, Camera, CheckCircle2, Monitor, Smartphone, ChevronLeft, Clock, AlertCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -13,10 +13,8 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type ProfileTab = 'info' | 'security' | 'history';
-
 interface ProfileViewProps {
-  section: 'info' | 'history';
+  section: 'info';
 }
 
 export default function ProfileView({ section }: ProfileViewProps) {
@@ -26,7 +24,6 @@ export default function ProfileView({ section }: ProfileViewProps) {
     <div className="bg-bg-base p-4 transition-colors sm:p-6 md:p-10">
       <div className="mx-auto w-full min-w-0 max-w-6xl">
         {section === 'info' && <PersonalInfoView user={user} />}
-        {section === 'history' && <ActivityLogView />}
       </div>
     </div>
   );
@@ -64,7 +61,7 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
 
   return (
     <div className="mx-auto w-full max-w-5xl animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-      <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('personalInfo')}</h1>
+      <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('personalProfile')}</h1>
 
       {isGoogleUser && (
       <div className="mb-6 flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs font-bold text-blue-600 transition-colors dark:border-blue-900 dark:bg-blue-900/20">
@@ -171,7 +168,9 @@ function PersonalInfoView({ user }: { user: UserAccount | null }) {
           </div>
         </div>
       </div>
-
+      <div className="mt-6">
+        <ActivityLogTable />
+      </div>
     </div>
   );
 }
@@ -374,11 +373,11 @@ function SecuritySettingsView() {
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[560px]">
                          <thead>
-                             <tr className="text-xs font-bold text-text-muted uppercase tracking-widest border-b border-border-base pb-4 transition-colors">
-                                 <th className="text-left py-4 px-2">{t('browserDevice')}</th>
-                                 <th className="text-left py-4 px-2">{t('location')}</th>
-                                 <th className="text-left py-4 px-2">{t('time')}</th>
-                                 <th className="text-right py-4 px-2">{t('status')}</th>
+                             <tr className="border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 pb-4 text-xs font-bold uppercase tracking-widest text-white transition-colors">
+                                 <th className="px-2 py-4 text-left">{t('browserDevice')}</th>
+                                 <th className="px-2 py-4 text-left">{t('location')}</th>
+                                 <th className="px-2 py-4 text-left">{t('time')}</th>
+                                 <th className="px-2 py-4 text-right">{t('status')}</th>
                              </tr>
                          </thead>
                          <tbody className="divide-y divide-border-base">
@@ -414,7 +413,7 @@ function SecuritySettingsView() {
   );
 }
 
-function ActivityLogView() {
+function ActivityLogTable() {
   const user = useAuthUser();
   const { t, language } = useLanguage();
   const [activityExportLoading, setActivityExportLoading] = useState(false);
@@ -423,8 +422,6 @@ function ActivityLogView() {
     user?.profile?.name ||
     '';
   const activities = getActivityLogEntries(activityUserId);
-  const uniqueDevicesCount = new Set(activities.map((item) => item.device)).size;
-  const latestLocation = activities[0]?.location || t('noData');
 
   const formatActivityTime = (timestamp: string) => {
     const value = new Date(timestamp);
@@ -467,33 +464,15 @@ function ActivityLogView() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-      <h1 className="text-2xl font-bold text-text-base tracking-tight mb-8 transition-colors">{t('activityLog')}</h1>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        <div className="bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm flex items-center gap-4 transition-colors">
-            <div className="h-12 w-12 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex items-center justify-center transition-colors">
-                <Smartphone className="h-6 w-6 text-emerald-600 dark:text-emerald-500" />
-            </div>
-            <div>
-                <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('devices')}</p>
-                <p className="text-base font-bold text-text-base transition-colors">{uniqueDevicesCount || 0}</p>
-            </div>
-        </div>
-        <div className="bg-bg-surface p-6 rounded-2xl border border-border-base shadow-sm flex items-center gap-4 transition-colors">
-            <div className="h-12 w-12 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center justify-center transition-colors">
-                <Globe className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-                <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('locations')}</p>
-                <p className="text-base font-bold text-text-base transition-colors">{latestLocation}</p>
-            </div>
-        </div>
-      </div>
-
-      <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+      <div className="overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-sm transition-colors">
         <div className="flex flex-col gap-3 px-4 py-4 md:px-8 md:py-6 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-xl font-bold text-blue-600 transition-colors">{t('activityLog')}</h3>
+          <div>
+            <h2 className="text-lg font-bold text-text-base transition-colors">{t('activityLog')}</h2>
+            <p className="mt-1 text-sm font-medium text-text-muted transition-colors">
+              {t('showingLogs').replace('{count}', String(activities.length)).replace('{total}', String(activities.length))}
+            </p>
+          </div>
           <button
             type="button"
             onClick={handleExportActivities}
@@ -504,20 +483,19 @@ function ActivityLogView() {
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
+          <table className="w-full min-w-full">
             <thead>
-              <tr className="bg-bg-base/50 border-b border-border-base transition-colors">
-                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('time')}</th>
-                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('activities')}</th>
-                <th className="text-left py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('location')}</th>
-                <th className="text-right py-6 px-8 text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">{t('devices')}</th>
+              <tr className="border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 transition-colors">
+                <th className="whitespace-nowrap px-8 py-6 text-left text-xs font-bold uppercase tracking-widest text-white transition-colors">{t('time')}</th>
+                <th className="whitespace-nowrap px-8 py-6 text-left text-xs font-bold uppercase tracking-widest text-white transition-colors">{t('activities')}</th>
+                <th className="whitespace-nowrap px-8 py-6 text-right text-xs font-bold uppercase tracking-widest text-white transition-colors">{t('devices')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-base">
               {activities.length > 0 ? (
                 activities.map((item) => (
                   <tr key={item.id} className="hover:bg-bg-base/50 transition-colors">
-                    <td className="py-6 px-8 text-sm text-text-muted transition-colors">{formatActivityTime(item.timestamp)}</td>
+                    <td className="whitespace-nowrap px-8 py-6 text-sm text-text-muted transition-colors">{formatActivityTime(item.timestamp)}</td>
                     <td className="py-6 px-8">
                       <div className="flex items-center gap-3">
                         <div className={cn(
@@ -527,20 +505,19 @@ function ActivityLogView() {
                         <span className="text-sm font-medium text-text-base transition-colors">{getActivityLabel(item.action)}</span>
                       </div>
                     </td>
-                    <td className="py-6 px-8 text-sm text-text-muted transition-colors">{item.location}</td>
                     <td className="py-6 px-8 text-right">
-                      <div className="inline-flex items-center gap-3 bg-bg-base px-4 py-2 rounded-lg group transition-colors">
+                      <div className="inline-flex items-center gap-3 rounded-lg bg-bg-base px-4 py-2 transition-colors">
                         {item.device.includes('iPhone') || item.device.includes('Android') || item.device.includes('iPad')
                           ? <Smartphone className="h-4 w-4 text-text-muted" />
                           : <Monitor className="h-4 w-4 text-text-muted" />}
-                        <span className="text-xs font-bold text-text-muted uppercase transition-all">{item.device}</span>
+                        <span className="text-xs font-bold uppercase text-text-muted transition-colors">{item.device}</span>
                       </div>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} className="px-8 py-10 text-center text-sm font-medium text-text-muted transition-colors">
+                  <td colSpan={3} className="px-8 py-10 text-center text-sm font-medium text-text-muted transition-colors">
                     {t('noData')}
                   </td>
                 </tr>
@@ -548,10 +525,10 @@ function ActivityLogView() {
             </tbody>
           </table>
         </div>
-        <div className="py-4 px-4 md:py-6 md:px-8 bg-bg-base/50 border-t border-border-base flex items-center justify-between gap-4 transition-colors">
-            <p className="text-xs font-bold text-text-muted uppercase tracking-widest transition-colors">
-              {t('showingLogs').replace('{count}', String(activities.length)).replace('{total}', String(activities.length))}
-            </p>
+        <div className="flex items-center justify-between gap-4 border-t border-border-base bg-bg-base/50 px-4 py-4 transition-colors md:px-8 md:py-5">
+          <p className="text-xs font-bold uppercase tracking-widest text-text-muted transition-colors">
+            {t('showingLogs').replace('{count}', String(activities.length)).replace('{total}', String(activities.length))}
+          </p>
         </div>
       </div>
     </div>

@@ -996,7 +996,7 @@ export default function Header({
             <div className="text-right hidden sm:block">
               <p className="text-xs font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-action-accent font-bold text-slate-950 shadow-md shadow-cyan-500/20">
+            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
               {getInitials(authUser?.profile?.name || '')}
             </div>
           </button>

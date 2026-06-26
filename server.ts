@@ -168,7 +168,7 @@ async function fetchAvailableModels(apiKey: string, force = false): Promise<Fetc
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   const isAllowedLocalOrigin = (origin?: string) => {
     if (!origin) return false;

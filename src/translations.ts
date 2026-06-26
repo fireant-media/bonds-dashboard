@@ -337,7 +337,7 @@ export const translations = {
     languageName: 'Tiếng Việt',
     adminUser: 'Người dùng Quản trị',
     adminRole: 'Quản trị viên',
-    sentinelOrg: 'Sentinel Institutional',
+    sentinelOrg: 'FireAnt',
     googleAuth: 'Google',
     appleAuth: 'Apple',
     
@@ -1250,7 +1250,7 @@ export const translations = {
     languageName: 'English',
     adminUser: 'Admin User',
     adminRole: 'Admin',
-    sentinelOrg: 'Sentinel Institutional',
+    sentinelOrg: 'FireAnt',
     googleAuth: 'Google',
     appleAuth: 'Apple',
     

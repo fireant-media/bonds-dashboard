@@ -468,7 +468,7 @@ export function BondFilterPanel({
         </div>
 
         <div className="py-0.5">
-          <div className="flex flex-col gap-1.5 rounded-lg border border-blue-100 bg-blue-50/80 p-2.5 transition-colors dark:border-blue-400/20 dark:bg-blue-500/10">
+          <div className="flex flex-col gap-1.5 rounded-lg border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-2.5 transition-colors dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
             <div className="space-y-0.5">
               <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
                 <Sparkles className="h-4 w-4" />
@@ -504,7 +504,7 @@ export function BondFilterPanel({
                   type="button"
                   onClick={() => void onApplyAI()}
                   disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   <span>{t('applyAIFilter')}</span>
@@ -854,7 +854,7 @@ function MaturityFilterToolbar({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <div className="inline-flex w-fit shrink-0 items-center rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
+        <div className="inline-flex w-fit shrink-0 items-center rounded-full border border-blue-100/80 bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </div>
 
@@ -1153,7 +1153,7 @@ function MarketFilterToolbar({
       ) : null}
 
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
+        <span className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100/80 bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
           {t('filterResults')}: {resultCount.toLocaleString()} / {totalCount.toLocaleString()}
         </span>
 

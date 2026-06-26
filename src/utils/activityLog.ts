@@ -58,59 +58,8 @@ const getApproximateLocation = () => {
   return locale || LOCATION_FALLBACK;
 };
 
-const getCoordinateLocation = (latitude: number, longitude: number) =>
-  `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-
-const getPrecisePosition = (): Promise<GeolocationPosition | null> => {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) {
-    return Promise.resolve(null);
-  }
-
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve(position),
-      () => resolve(null),
-      {
-        enableHighAccuracy: true,
-        timeout: 4000,
-        maximumAge: 5 * 60 * 1000,
-      }
-    );
-  });
-};
-
-const reverseGeocode = async (latitude: number, longitude: number): Promise<string | null> => {
-  if (typeof fetch === 'undefined') return null;
-
-  try {
-    const response = await fetch(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-    );
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = await response.json();
-    const parts = [
-      typeof data.city === 'string' ? data.city : '',
-      typeof data.principalSubdivision === 'string' ? data.principalSubdivision : '',
-      typeof data.countryName === 'string' ? data.countryName : '',
-    ].filter(Boolean);
-
-    return parts.length > 0 ? parts.join(', ') : null;
-  } catch {
-    return null;
-  }
-};
-
 const resolveBestLocation = async (): Promise<string> => {
-  const position = await getPrecisePosition();
-  if (!position) return getApproximateLocation();
-
-  const { latitude, longitude } = position.coords;
-  const resolved = await reverseGeocode(latitude, longitude);
-  return resolved || getCoordinateLocation(latitude, longitude);
+  return getApproximateLocation();
 };
 
 const detectPlatform = () => {

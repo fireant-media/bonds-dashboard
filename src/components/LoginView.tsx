@@ -22,7 +22,7 @@ import {
   useIndustryBaseDashboardQuery,
   useMarketOverviewIndustryDataQuery,
 } from '../query/dashboardQueries';
-import { applyChartTheme, CHART_PALETTE, getChartTheme, splitLegendItems } from '../utils/chart';
+import { applyChartTheme, getChartTheme, splitLegendItems } from '../utils/chart';
 import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { loadMarketOverviewTopInterestData } from '../services/marketOverviewData';
 
@@ -89,7 +89,45 @@ interface BankingIssuerSummary {
 }
 
 const LOGIN_PREVIEW_ROW_COUNT = 6;
-const LOGIN_CARD_SURFACE_CLASSNAME = 'rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20';
+const LOGIN_COLOR_SYSTEM = {
+  page: '#F8FAFC',
+  pageMuted: '#F1F5F9',
+  card: '#FFFFFF',
+  heroTitle: '#0F172A',
+  cardTitle: '#1E293B',
+  bodyText: '#64748B',
+  ctaStart: '#4F46E5',
+  ctaEnd: '#06B6D4',
+  tableHeader: '#475569',
+  bondLink: '#3B82F6',
+} as const;
+const LOGIN_CARD_SURFACE_CLASSNAME =
+  'rounded-3xl border border-slate-200/80 bg-white shadow-sm shadow-slate-900/5 ring-1 ring-white/80 transition-all duration-300 dark:border-slate-800/80 dark:bg-slate-900/95 dark:ring-slate-800/80 dark:shadow-black/20';
+const LOGIN_PREVIEW_PANEL_CLASSNAME =
+  'mt-4 min-h-0 flex-1 overflow-hidden rounded-3xl bg-slate-50/90 ring-1 ring-slate-200/70 dark:bg-slate-950/40 dark:ring-slate-800/70';
+const LOGIN_CTA_WRAPPER_CLASSNAME =
+  'inline-flex rounded-full bg-white/90 p-1 shadow-sm shadow-slate-900/10 ring-1 ring-slate-200/80 backdrop-blur dark:bg-slate-900/90 dark:ring-slate-700/80';
+const LOGIN_CTA_BUTTON_CLASSNAME =
+  'group relative inline-flex items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-cyan-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-950';
+const LOGIN_HEADER_BUTTON_CLASSNAME =
+  'group relative inline-flex items-center justify-center overflow-hidden rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-cyan-500/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:focus-visible:ring-offset-slate-950';
+const LOGIN_PIE_PALETTE = ['#1E293B', '#334155', '#0F766E', '#0F9BA8', '#06B6D4', '#38BDF8', '#7DD3FC', '#99F6E4', '#CFFAFE', '#E2E8F0'];
+const LOGIN_BAR_GRADIENTS = [
+  ['#2563EB', '#67E8F9'],
+  ['#0EA5E9', '#5EEAD4'],
+] as const;
+
+const createLinearGradient = (start: string, end: string, horizontal = false) => ({
+  type: 'linear' as const,
+  x: 0,
+  y: 0,
+  x2: horizontal ? 1 : 0,
+  y2: horizontal ? 0 : 1,
+  colorStops: [
+    { offset: 0, color: start },
+    { offset: 1, color: end },
+  ],
+});
 
 const getCurrentLanguageLabel = (language: Language) => (language === 'vi' ? 'VI' : 'EN');
 
@@ -121,9 +159,9 @@ function PreviewLoadingState() {
   return (
     <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
       <div className="flex h-6 items-center">
-        <div className="h-4 w-2/3 animate-pulse rounded-full bg-surface-container-low" />
+        <div className="h-4 w-2/3 animate-pulse rounded-full bg-slate-200 dark:bg-slate-800" />
       </div>
-      <div className="mt-3 min-h-0 flex-1 animate-pulse rounded-2xl bg-bg-base" />
+      <div className={`${LOGIN_PREVIEW_PANEL_CLASSNAME} animate-pulse`} />
     </div>
   );
 }
@@ -132,9 +170,9 @@ function PreviewEmptyState({ title, message }: { title: string; message: string 
   return (
     <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
       <div className="flex h-6 items-center">
-        {title ? <p className="text-sm font-semibold text-text-base">{title}</p> : <span className="invisible text-sm font-semibold">.</span>}
+        {title ? <p className="text-xs font-bold uppercase tracking-wider text-slate-950">{title}</p> : <span className="invisible text-sm font-bold">.</span>}
       </div>
-      <div className="mt-3 flex min-h-0 flex-1 items-center justify-center rounded-2xl bg-bg-base px-4 text-center text-sm font-medium text-text-muted">
+      <div className={`${LOGIN_PREVIEW_PANEL_CLASSNAME} flex items-center justify-center px-4 text-center text-sm font-medium text-slate-500 dark:text-slate-400`}>
         {message}
       </div>
     </div>
@@ -164,9 +202,9 @@ function FeaturePreview({
     return (
       <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
         <div className="flex h-6 items-center">
-          <p className="truncate text-sm font-semibold text-text-base">{previewTitle || ' '}</p>
+          <p className="truncate text-xs font-bold uppercase tracking-wider text-slate-950 dark:text-slate-300">{previewTitle || ' '}</p>
         </div>
-        <div className="mt-3 min-h-0 flex-1">
+        <div className={`${LOGIN_PREVIEW_PANEL_CLASSNAME} p-2`}>
           <ReactECharts option={chartOption} style={{ height: '100%', width: '100%' }} notMerge lazyUpdate />
         </div>
       </div>
@@ -176,29 +214,34 @@ function FeaturePreview({
   if (tableColumns && tableRows && tableRows.length > 0) {
     return (
       <div className={`flex h-80 flex-col p-4 ${LOGIN_CARD_SURFACE_CLASSNAME}`}>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl">
+        <div className={LOGIN_PREVIEW_PANEL_CLASSNAME}>
           <table className="h-full w-full table-fixed">
-            <thead className="border-b border-blue-500/30 bg-blue-600 text-white">
+            <thead className="border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white">
               <tr>
                 {tableColumns.map((column) => (
                   <th
                     key={column.title}
-                    className={`px-2 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${
+                    className={`px-2 py-2 text-xs font-bold uppercase tracking-normal whitespace-nowrap leading-none ${
                       column.widthClassName || ''
                     } ${column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'}`}
                   >
-                    <span className="block whitespace-nowrap">{column.title}</span>
-                    {column.unit ? <span className="mt-1 block text-xs font-semibold text-white/80">{column.unit}</span> : null}
+                    <span className="block origin-center whitespace-nowrap scale-90">{column.title}</span>
+                    {column.unit ? <span className="mt-1 block origin-center scale-90 text-xs font-bold text-white/80">{column.unit}</span> : null}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border-base">
-              {tableRows.map((row) => (
-                <tr key={row.code} className="text-xs font-medium text-text-base">
-                  <td className="whitespace-nowrap px-2 py-2.5 font-bold text-text-highlight">{row.code}</td>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+              {tableRows.map((row, index) => (
+                <tr
+                  key={row.code}
+                  className={`text-xs font-medium text-slate-700 transition-colors dark:text-slate-200 ${
+                    index % 2 === 0 ? 'bg-slate-50/80 dark:bg-slate-950/40' : 'bg-white dark:bg-slate-900'
+                  }`}
+                >
+                  <td className="whitespace-nowrap px-2 py-2.5 font-bold text-blue-500 dark:text-cyan-400">{row.code}</td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-right">{row.rate}</td>
-                  <td className="whitespace-nowrap px-1 py-2.5 text-center">{row.maturity}</td>
+                  <td className="whitespace-nowrap px-1 py-2.5 text-center text-slate-500 dark:text-slate-400">{row.maturity}</td>
                   <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums">{row.value}</td>
                 </tr>
               ))}
@@ -447,7 +490,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
 
     return applyChartTheme(
       {
-        color: CHART_PALETTE,
+        color: LOGIN_BAR_GRADIENTS.map(([start]) => start),
         tooltip: {
           show: false,
         },
@@ -481,7 +524,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
           nameGap: 10,
           nameTextStyle: {
             fontSize: 10,
-            color: chartTheme.text,
+            color: isDark ? chartTheme.text : LOGIN_COLOR_SYSTEM.cardTitle,
             fontWeight: 'bold',
             fontFamily: 'Manrope',
           },
@@ -501,6 +544,9 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
             barWidth: '28%',
             itemStyle: {
               borderRadius: [6, 6, 0, 0],
+              color: createLinearGradient(LOGIN_BAR_GRADIENTS[0][0], LOGIN_BAR_GRADIENTS[0][1]),
+              shadowBlur: 12,
+              shadowColor: 'rgba(37,99,235,0.18)',
             },
           },
           {
@@ -510,6 +556,9 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
             barWidth: '28%',
             itemStyle: {
               borderRadius: [6, 6, 0, 0],
+              color: createLinearGradient(LOGIN_BAR_GRADIENTS[1][0], LOGIN_BAR_GRADIENTS[1][1]),
+              shadowBlur: 12,
+              shadowColor: 'rgba(6,182,212,0.16)',
             },
           },
         ],
@@ -533,7 +582,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
       value: Number(item.totalRemainingDebt || 0),
       name: item.issuerSymbol || '',
       itemStyle: {
-        color: CHART_PALETTE[index % CHART_PALETTE.length],
+        color: LOGIN_PIE_PALETTE[index % LOGIN_PIE_PALETTE.length],
       },
     }));
 
@@ -542,7 +591,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         value: othersDebt,
         name: t('others'),
         itemStyle: {
-          color: CHART_PALETTE[9 % CHART_PALETTE.length],
+          color: LOGIN_PIE_PALETTE[9 % LOGIN_PIE_PALETTE.length],
         },
       });
     }
@@ -577,7 +626,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
 
     return applyChartTheme(
       {
-        color: CHART_PALETTE,
+        color: LOGIN_PIE_PALETTE,
         tooltip: {
           show: false,
         },
@@ -628,9 +677,17 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
   };
 
   return (
-    <div className="min-h-dvh bg-bg-base text-text-base">
+    <div className="relative min-h-dvh overflow-hidden bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-50">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-slate-100 to-white dark:from-slate-950 dark:via-slate-950 dark:to-slate-900" />
+        <div className="absolute inset-x-0 top-0 h-80 bg-gradient-to-b from-cyan-100/70 via-indigo-50/40 to-transparent dark:from-cyan-500/10 dark:via-indigo-500/10 dark:to-transparent" />
+        <div className="absolute -left-12 top-20 h-72 w-72 rounded-full bg-cyan-200/40 blur-3xl dark:bg-cyan-500/10" />
+        <div className="absolute right-0 top-16 h-80 w-80 rounded-full bg-indigo-100/60 blur-3xl dark:bg-indigo-500/10" />
+        <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-sky-100/60 blur-3xl dark:bg-sky-500/10" />
+      </div>
+
       <div className="relative z-10">
-        <header className="border-b border-border-base bg-surface-bright/95 backdrop-blur">
+        <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur-xl dark:border-slate-800/80 dark:bg-slate-950/80">
           <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 py-4 lg:px-6">
             <Logo />
 
@@ -638,7 +695,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
               <button
                 type="button"
                 onClick={() => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')}
-                className="flex h-10 w-10 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm shadow-slate-900/5 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
                 title={effectiveTheme === 'dark' ? 'Light mode' : 'Dark mode'}
                 aria-label={effectiveTheme === 'dark' ? 'Light mode' : 'Dark mode'}
               >
@@ -647,7 +704,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
               <button
                 type="button"
                 onClick={() => setLanguage((isVietnamese ? 'en' : 'vi') as Language)}
-                className="flex h-10 items-center gap-2 rounded-lg border border-border-base bg-bg-surface px-3 text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500 shadow-sm shadow-slate-900/5 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
                 title="Language"
                 aria-label="Language"
               >
@@ -658,9 +715,17 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                 type="button"
                 onClick={() => void handleLogin()}
                 disabled={isSigningIn}
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-action-accent px-4 text-sm font-semibold text-slate-950 shadow-md shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className={`${LOGIN_HEADER_BUTTON_CLASSNAME} h-10 px-4 text-sm`}
               >
-                {copy.signIn}
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-x-0 top-0 h-1/2 rounded-lg bg-gradient-to-b from-white/35 to-transparent opacity-90 transition-opacity duration-200 group-hover:opacity-100"
+                />
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0 rounded-lg ring-1 ring-white/20"
+                />
+                <span className="relative z-10">{copy.signIn}</span>
               </button>
             </div>
           </div>
@@ -668,7 +733,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
 
         {loginError ? (
           <div className="mx-auto max-w-screen-2xl px-4 pt-4 lg:px-6">
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <div className="rounded-3xl border border-red-200 bg-white p-4 shadow-sm shadow-red-100 dark:border-red-900/60 dark:bg-slate-900">
               <div className="flex items-start gap-3">
                 <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
                 <div>
@@ -682,7 +747,7 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
         ) : null}
 
         <main>
-          <section className="bg-bg-base px-4 py-12 lg:px-6 lg:py-16">
+          <section className="px-4 py-12 lg:px-6 lg:py-16">
             <div className="mx-auto max-w-screen-2xl">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -690,21 +755,33 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                 transition={{ duration: 0.45 }}
                 className="mx-auto max-w-3xl text-center"
               >
-                <h1 className="text-4xl font-bold leading-tight text-text-base sm:text-5xl">
+                <h1 className="mt-6 text-4xl font-bold leading-tight text-slate-950 sm:text-5xl dark:text-slate-50">
                   {copy.section2Title}
                 </h1>
-                <p className="mt-5 text-base font-medium leading-8 text-text-muted sm:text-lg">
+                <p className="mt-5 text-base font-medium leading-8 text-slate-500 sm:text-lg dark:text-slate-300">
                   {copy.section2Subtitle}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => void handleLogin()}
-                  disabled={isSigningIn}
-                  className="mt-8 inline-flex items-center justify-center gap-2 rounded-lg bg-action-accent px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {copy.getStarted}
-                  <ArrowRight className="h-4 w-4" />
-                </button>
+                <div className={`${LOGIN_CTA_WRAPPER_CLASSNAME} mt-8`}>
+                  <button
+                    type="button"
+                    onClick={() => void handleLogin()}
+                    disabled={isSigningIn}
+                    className={`${LOGIN_CTA_BUTTON_CLASSNAME} px-6 py-3.5 text-sm`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-x-0 top-0 h-1/2 rounded-full bg-gradient-to-b from-white/35 to-transparent opacity-90 transition-opacity duration-200 group-hover:opacity-100"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-0 rounded-full ring-1 ring-white/20"
+                    />
+                    <span className="relative z-10 inline-flex items-center gap-2">
+                      {copy.getStarted}
+                      <ArrowRight className="h-4 w-4" />
+                    </span>
+                  </button>
+                </div>
               </motion.div>
 
               <div className="mt-12 grid gap-6 xl:grid-cols-3">
@@ -740,12 +817,12 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                       />
                       <div className="mt-5 flex-1">
                         <div className="flex items-center gap-3">
-                          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+                          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-50 to-cyan-100 text-indigo-600 ring-1 ring-indigo-100 dark:from-indigo-500/15 dark:to-cyan-500/15 dark:text-cyan-300 dark:ring-indigo-900/40">
                             <card.icon className="h-6 w-6" />
                           </div>
-                          <h2 className="text-xl font-bold text-text-base">{card.title}</h2>
+                          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{card.title}</h2>
                         </div>
-                        <p className="mt-3 text-sm font-medium leading-7 text-text-muted">
+                        <p className="mt-3 text-sm font-medium leading-7 text-slate-500 dark:text-slate-300">
                           {card.description}
                         </p>
                       </div>
@@ -756,10 +833,10 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
             </div>
           </section>
 
-          <section className="border-t border-border-base bg-bg-base px-4 py-16 lg:px-6">
+          <section className="border-t border-slate-200/80 bg-slate-100/70 px-4 py-16 dark:border-slate-800/80 dark:bg-slate-950/60 lg:px-6">
             <div className="mx-auto max-w-screen-2xl">
               <div className="mx-auto max-w-2xl text-center">
-                <h2 className="text-3xl font-bold text-text-base">{copy.section4Title}</h2>
+                <h2 className="text-3xl font-bold text-slate-950 dark:text-slate-50">{copy.section4Title}</h2>
               </div>
 
               <div className="mt-8 grid gap-6 md:grid-cols-2">
@@ -773,12 +850,12 @@ export default function LoginView({ onSignIn, isSigningIn = false }: LoginViewPr
                     className={`p-5 ${LOGIN_CARD_SURFACE_CLASSNAME}`}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-50 to-cyan-100 text-indigo-600 ring-1 ring-indigo-100 dark:from-indigo-500/15 dark:to-cyan-500/15 dark:text-cyan-300 dark:ring-indigo-900/40">
                         <card.icon className="h-6 w-6" />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-xl font-bold text-text-base">{card.title}</h3>
-                        <p className="mt-2 text-sm font-medium leading-7 text-text-muted">{card.description}</p>
+                        <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">{card.title}</h3>
+                        <p className="mt-2 text-sm font-medium leading-7 text-slate-500 dark:text-slate-300">{card.description}</p>
                       </div>
                     </div>
                   </motion.article>

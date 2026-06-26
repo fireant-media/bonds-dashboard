@@ -19,7 +19,7 @@ import { clearBondDetailChatContext, setBondDetailChatContext } from '../utils/b
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { useAIStore } from '../store/aiStore';
 import { setCache, getCache } from '../utils/cache';
-import { Card } from './ui/Card';
+import { Card, MetricCard } from './ui/Card';
 import AIInsightText from './ui/AIInsightText';
 
 interface BondDetailPopupProps {
@@ -212,6 +212,7 @@ export default function BondDetailPopup({
   const [bondIndustryId, setBondIndustryId] = useState<string | null>(null);
   const [industryBondGroup, setIndustryBondGroup] = useState<IndustryBondGroupData | null>(null);
   const [aiRemark, setAiRemark] = useState<string>('');
+  const [aiRemarkUpdatedAt, setAiRemarkUpdatedAt] = useState('');
   const [aiRemarkLoading, setAiRemarkLoading] = useState(false);
   const [aiRemarkError, setAiRemarkError] = useState<string | null>(null);
 
@@ -937,15 +938,15 @@ export default function BondDetailPopup({
 
   const summaryCards = useMemo(
     () => [
-      { label: t('interestRate'), value: `${formatInterestRate(Number(currentBond.interestRate || 0))}%`, icon: TrendingUp },
-      { label: t('term'), value: formatTerm(currentBond.term), icon: Calendar },
+      { label: t('interestRate'), value: `${formatInterestRate(Number(currentBond.interestRate || 0))}%`, icon: TrendingUp, tone: 'blue' as const },
+      { label: t('term'), value: formatTerm(currentBond.term), icon: Calendar, tone: 'purple' as const },
       {
         label: t('maturityDate'),
         value: formatDate(currentBond.maturityDate),
         icon: Calendar,
-        accent: maturityInfo?.isNear ? 'text-rose-600 dark:text-rose-400' : 'text-text-base',
+        tone: maturityInfo?.isNear ? ('orange' as const) : ('cyan' as const),
       },
-      { label: t('listedValueTitle'), value: formatBondValue(currentBond.listedValue), icon: Landmark },
+      { label: t('listedValueTitle'), value: formatBondValue(currentBond.listedValue), icon: Landmark, tone: 'green' as const },
     ],
     [currentBond.interestRate, currentBond.listedValue, currentBond.maturityDate, currentBond.term, maturityInfo?.isNear, t],
   );
@@ -1105,6 +1106,20 @@ export default function BondDetailPopup({
     () => `${AI_INSIGHT_CACHE_KEY}-${language}`,
     [language],
   );
+  const aiRemarkUpdatedLabel = useMemo(() => {
+    if (!aiRemarkUpdatedAt) return '';
+
+    const date = new Date(aiRemarkUpdatedAt);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return `${t('updated')}: ${new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : 'vi-VN', {
+      timeZone: 'Asia/Saigon',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date)}`;
+  }, [aiRemarkUpdatedAt, language, t]);
 
   const bondDetailChatDataset = useMemo(
     () => ({
@@ -1227,6 +1242,7 @@ export default function BondDetailPopup({
 
     if (!aiRemarkSignature) {
       setAiRemark('');
+      setAiRemarkUpdatedAt('');
       setAiRemarkError(null);
       setAiRemarkLoading(false);
       return () => {
@@ -1237,6 +1253,7 @@ export default function BondDetailPopup({
     const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature);
     if (cachedRemark) {
       setAiRemark(cachedRemark.text);
+      setAiRemarkUpdatedAt(cachedRemark.updatedAt);
       setAiRemarkError(null);
       setAiRemarkLoading(false);
       return () => {
@@ -1245,6 +1262,7 @@ export default function BondDetailPopup({
     }
 
     if (isLoadingStatus) {
+      setAiRemarkUpdatedAt('');
       setAiRemarkLoading(true);
       setAiRemarkError(null);
       return () => {
@@ -1254,6 +1272,7 @@ export default function BondDetailPopup({
 
     if (!configured && !baseUrl) {
       setAiRemark('');
+      setAiRemarkUpdatedAt('');
       setAiRemarkLoading(false);
       setAiRemarkError(statusError ? t('aiNotConfiguredShort') : null);
       return () => {
@@ -1271,6 +1290,7 @@ export default function BondDetailPopup({
         if (!configured) {
           if (isActive) {
             setAiRemark('');
+            setAiRemarkUpdatedAt('');
             setAiRemarkError(t('aiNotConfiguredShort'));
             setAiRemarkLoading(false);
           }
@@ -1295,19 +1315,22 @@ export default function BondDetailPopup({
         if (!isActive || aiRequestIdRef.current !== requestId) return;
 
         const nextRemark = sanitizeAIInsightText(String(response.text || ''), language === 'en' ? 'en' : 'vi');
+        const generatedAt = new Date().toISOString();
         setAiRemark(nextRemark);
+        setAiRemarkUpdatedAt(generatedAt);
         setAiRemarkLoading(false);
         setAiRemarkError(null);
         writeDailyAIInsight(localizedAiRemarkCacheKey, {
           signature: aiRemarkSignature,
           text: nextRemark,
           model: response.model || model,
-          updatedAt: new Date().toISOString(),
+          updatedAt: generatedAt,
         });
       } catch (remarkError) {
         if (!isActive || aiRequestIdRef.current !== requestId) return;
         console.error('Error generating bond detail AI remark:', remarkError);
         setAiRemark('');
+        setAiRemarkUpdatedAt('');
         setAiRemarkLoading(false);
         setAiRemarkError(t('aiError'));
       }
@@ -1555,7 +1578,7 @@ export default function BondDetailPopup({
                   className={
                     isTracked
                       ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-emerald-600 transition-colors'
-                      : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white transition-colors hover:bg-blue-700'
+                      : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95'
                   }
                 >
                   {isTracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
@@ -1565,31 +1588,16 @@ export default function BondDetailPopup({
             </div>
 
             <section className="grid gap-4 lg:grid-cols-4">
-              {summaryCards.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Card key={item.label} className="group relative p-3 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/25 hover:shadow-lg hover:shadow-blue-500/10">
-                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600" />
-                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-100/80 via-blue-50/50 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:from-blue-500/15 dark:via-blue-500/5" />
-                    <div className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full bg-blue-200/30 blur-2xl opacity-0 transition-opacity duration-200 group-hover:opacity-100 dark:bg-blue-500/10" />
-                    <div className="relative flex min-h-28 flex-col gap-4">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 transition-all duration-200 group-hover:scale-110 group-hover:bg-blue-500/15 group-hover:text-blue-700">
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <p className="min-w-0 flex-1 break-words text-left text-xs font-semibold uppercase leading-snug tracking-wider text-text-muted/80 transition-colors group-hover:text-text-muted">
-                          {item.label}
-                        </p>
-                      </div>
-                      <div className="flex flex-1 items-center justify-center">
-                        <p className={`break-words text-center text-2xl font-bold leading-tight transition-all duration-200 group-hover:scale-105 md:text-3xl ${item.accent || 'text-text-base'}`}>
-                          {item.value}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
+              {summaryCards.map((item) => (
+                <MetricCard
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  icon={item.icon}
+                  tone={item.tone}
+                  className="hover:-translate-y-1"
+                />
+              ))}
             </section>
 
             <section className="grid gap-6 xl:grid-cols-2">
@@ -1669,7 +1677,7 @@ export default function BondDetailPopup({
                             onClick={() => setCashFlowPeriod(period)}
                             className={
                               cashFlowPeriod === period
-                                ? 'rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors'
+                                ? 'rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg shadow-cyan-500/20 transition-colors'
                                 : 'rounded-lg px-3 py-1.5 text-xs font-semibold text-text-muted transition-colors hover:bg-bg-surface hover:text-text-base'
                             }
                           >
@@ -1714,26 +1722,30 @@ export default function BondDetailPopup({
                   ))}
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 shadow-sm dark:border-blue-900/40 dark:bg-blue-950/20">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-blue-600" />
+                <div className="mt-4 rounded-2xl border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-4 shadow-sm dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
+                  <div className="mb-3 flex items-start gap-2">
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                    <div className="min-w-0">
                       <p className="text-sm font-bold text-text-base">{t('aiInsightTitle')}</p>
+                      {aiRemarkUpdatedLabel ? (
+                        <div className="mt-0.5 text-xs font-medium text-text-muted/80">{aiRemarkUpdatedLabel}</div>
+                      ) : null}
                     </div>
-                    {aiRemarkLoading ? (
-                      <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t('aiAnalyzing')}</p>
-                    ) : aiRemarkError ? (
-                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">{aiRemarkError}</p>
-                    ) : null}
                   </div>
 
-                  {aiRemark ? (
+                  {aiRemarkLoading ? (
+                    <p className="text-sm font-semibold text-text-muted">{t('aiGeneratingInsight')}</p>
+                  ) : aiRemarkError ? (
+                    <p className="text-sm font-medium text-amber-600">{aiRemarkError}</p>
+                  ) : aiRemark ? (
                     <AIInsightText
                       content={aiRemark}
                       containerClassName="space-y-0"
                       paragraphClassName="whitespace-pre-line break-words text-sm leading-6 text-text-base"
                     />
-                  ) : null}
+                  ) : (
+                    <p className="text-sm text-text-muted">{t('aiNoInsight')}</p>
+                  )}
                 </div>
               </div>
             </section>
