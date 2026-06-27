@@ -1185,7 +1185,7 @@ export default function MarketBondFilterView({
         rows={filteredRows}
         columns={columns}
         getRowKey={(row) => row.bondCode}
-        pageSize={15}
+        pageSize={10}
         initialSort={tableInitialSort}
         emptyState={t('noData')}
         noColumnsState={t('noColumnsSelected')}

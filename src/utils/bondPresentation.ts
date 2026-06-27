@@ -12,12 +12,16 @@ export const getLocalizedBondType = (value: unknown, language: Language) => {
 
   const normalized = normalizeAscii(text);
 
-  if (normalized.includes('doanh nghiep rieng le') || normalized.includes('private placement')) {
+  if (normalized.includes('rieng le') || normalized.includes('private placement')) {
     return language === 'en' ? 'Private placement corporate bond' : 'Trái phiếu doanh nghiệp riêng lẻ';
   }
 
-  if (normalized.includes('doanh nghiep cong chung') || normalized.includes('public corporate')) {
-    return language === 'en' ? 'Public corporate bond' : 'Trái phiếu doanh nghiệp công chúng';
+  if (
+    (normalized.includes('doanh nghiep') && normalized.includes('cong chung'))
+    || normalized.includes('public corporate')
+    || normalized.includes('publicly')
+  ) {
+    return language === 'en' ? 'Publicly issued corporate bond' : 'Trái phiếu doanh nghiệp phát hành ra công chúng';
   }
 
   if (normalized.includes('chinh quyen dia phuong') || normalized.includes('local authority')) {

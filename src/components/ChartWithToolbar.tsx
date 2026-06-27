@@ -6,6 +6,7 @@ import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { applyChartTheme, downloadChartImage, getChartTheme } from '../utils/chart';
 import { ChartDataViewModal, type ChartDataTableColumn } from './ui/ChartDataViewModal';
+import { Portal } from './ui/Portal';
 
 interface ChartTableHeader {
   label: string;
@@ -879,6 +880,7 @@ export default function ChartWithToolbar({
       />
 
       {showZoom && (
+        <Portal>
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
           onClick={() => setShowZoom(false)}
@@ -955,6 +957,7 @@ export default function ChartWithToolbar({
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

@@ -5,7 +5,7 @@ import AIInsightPanel from './AIInsightPanel';
 import { IndustryType } from '../types';
 import { formatBondVolumeByThreshold, formatInterestRate, formatNumber } from '../utils/format';
 import { useTheme } from '../ThemeContext';
-import { BadgeDollarSign, BarChart3, Boxes, GalleryVerticalEnd, Landmark, LayoutGrid, Percent, PieChart, TrendingUp, Wallet } from 'lucide-react';
+import { BadgeDollarSign, BarChart3, Boxes, LayoutGrid, Percent, PieChart, TrendingUp, Wallet } from 'lucide-react';
 
 interface IndustryViewProps {
   industry: IndustryType;
@@ -286,7 +286,6 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     fontFamily: 'Manrope',
   };
   const industryIssuedValueLabel = language === 'vi' ? 'Giá trị phát hành' : 'Issued Value';
-  const industryInitialDebtLabel = language === 'vi' ? 'Dư nợ ban đầu' : 'Initial Debt';
   const industryIssuedValueTreemapLabel = language === 'vi'
     ? 'Giá trị phát hành của các doanh nghiệp trong ngành'
     : 'Issued Value of companies in the industry';
@@ -315,47 +314,32 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const getKpis = () => {
     if (industryStats) {
       const issuedVolume = formatBondVolumeByThreshold(industryStats.totalIssuedVolume);
-      const listedVolume = formatBondVolumeByThreshold(industryStats.totalCurrentListedVolume);
 
       return [
-        { 
-          label: t('issuedVolumeTitle'), 
+        {
+          label: t('issuedVolumeTitle'),
           value: issuedVolume.value,
           unit: getBondVolumeUnitLabel(issuedVolume.unitScale),
           icon: Boxes,
           tone: 'purple' as const,
         },
-        { 
-          label: industryIssuedValueLabel, 
-          value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2), 
+        {
+          label: industryIssuedValueLabel,
+          value: formatNumber(industryStats.totalIssuedValue / 1000000000, 2),
           unit: t('unitBillionVND'),
           icon: BadgeDollarSign,
           tone: 'green' as const,
         },
-        { 
-          label: industryInitialDebtLabel, 
-          value: formatNumber(industryStats.totalDebtFull / 1000000000, 2), 
-          unit: t('unitBillionVND'),
-          icon: Landmark,
-          tone: 'blue' as const,
-        },
-        { 
-          label: t('listedVolume'), 
-          value: listedVolume.value,
-          unit: getBondVolumeUnitLabel(listedVolume.unitScale),
-          icon: GalleryVerticalEnd,
-          tone: 'cyan' as const,
-        },
-        { 
-          label: t('listedValueTitle'), 
-          value: formatNumber(industryStats.totalCurrentListedValue / 1000000000, 2), 
+        {
+          label: t('listedValueTitle'),
+          value: formatNumber(industryStats.totalCurrentListedValue / 1000000000, 2),
           unit: t('unitBillionVND'),
           icon: BadgeDollarSign,
           tone: 'indigo' as const,
         },
-        { 
-          label: t('remainingDebtTitle'), 
-          value: formatNumber(industryStats.totalRemainingDebt / 1000000000, 2), 
+        {
+          label: t('remainingDebtTitle'),
+          value: formatNumber(industryStats.totalRemainingDebt / 1000000000, 2),
           unit: t('unitBillionVND'),
           icon: Wallet,
           tone: 'orange' as const,
@@ -940,9 +924,9 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   return (
     <div className="min-w-0 space-y-4 py-3 transition-colors duration-300">
-      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {isIndustrySummaryLoading
-          ? Array.from({ length: 6 }, (_, index) => <MetricCardSkeleton key={index} />)
+          ? Array.from({ length: 4 }, (_, index) => <MetricCardSkeleton key={index} />)
           : kpis.map((kpi, idx) => (
             <MetricCard
               key={`${kpi.label}-${idx}`}
@@ -963,6 +947,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         payload={industryInsightPayload}
         expandContent
         layout="stacked"
+        contentChrome="plain"
         className="min-w-0 w-full"
       />
 

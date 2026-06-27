@@ -2136,6 +2136,7 @@ export default function EnterpriseView({
             className="xl:col-span-4"
             expandContent
             layout="stacked"
+            contentChrome="plain"
           />
           <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <ChartWithToolbar
@@ -2157,6 +2158,7 @@ export default function EnterpriseView({
             className="xl:col-span-6"
             expandContent
             layout="stacked"
+            contentChrome="plain"
           />
           <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             {loadingCashFlows && !hasProjectedCashFlowData ? (

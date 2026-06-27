@@ -296,7 +296,7 @@ export default function AIInsightPanel({
         </div>
 
         {isLoading ? (
-          <div className="flex items-center gap-3 rounded-xl bg-bg-surface/70 px-4 py-3 text-sm font-semibold text-text-muted shadow-sm ring-1 ring-blue-100/70 dark:bg-slate-900/20 dark:ring-blue-900/30">
+          <div className="flex items-center gap-3 px-1 py-2 text-sm font-semibold text-text-muted">
             <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
             <span>{t('aiGeneratingInsight')}</span>
           </div>

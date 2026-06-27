@@ -4,6 +4,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, X } from 'lucide-react';
 import { useLanguage } from '../../LanguageContext';
 import { exportRowsToExcel } from '../../utils/excel';
 import { twMerge } from 'tailwind-merge';
+import { Portal } from './Portal';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -140,6 +141,7 @@ export function ChartDataViewModal({
   const resolvedTitle = typeof title === 'string' || typeof title === 'number' ? title : t('dataView');
 
   return (
+    <Portal>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
       onClick={onClose}
@@ -278,5 +280,6 @@ export function ChartDataViewModal({
         </div>
       </div>
     </div>
+    </Portal>
   );
 }

@@ -7,10 +7,14 @@ import {
   ChevronRight,
   Headphones,
   HelpCircle,
+  Languages,
   LayoutDashboard,
+  LogOut,
+  Moon,
   PanelLeft,
-  PanelRight,
+  Search,
   SlidersHorizontal,
+  Sun,
   User,
   UserCircle,
 } from 'lucide-react';
@@ -18,11 +22,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
+import { useTheme } from '../ThemeContext';
+import { useAuthUser } from '../auth/authStore';
 import { getCache } from '../utils/cache';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
 import Logo from './Logo';
+import GlobalSearch from './GlobalSearch';
+import type { SearchSuggestion } from '../hooks/useGlobalSearch';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -41,6 +49,10 @@ interface SidebarProps {
   setActiveHelpSection: (section: 'manual' | 'faq' | 'report' | 'contact') => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onSearchSelect: (suggestion: SearchSuggestion) => void;
+  onProfileClick: () => void;
+  onHelpClick: () => void;
+  onLogout: () => void;
 }
 
 export default function Sidebar({
@@ -56,9 +68,19 @@ export default function Sidebar({
   setActiveHelpSection,
   isCollapsed,
   onToggleCollapse,
+  onSearchSelect,
+  onProfileClick,
+  onHelpClick,
+  onLogout,
 }: SidebarProps) {
-  const { t, language } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
+  const { setTheme, effectiveTheme } = useTheme();
+  const authUser = useAuthUser();
   const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
+  const userName = authUser?.profile?.name || 'Admin User';
+  const userInitial = (userName.charAt(0) || 'A').toUpperCase();
+  const toggleTheme = () => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
+  const toggleLanguage = () => setLanguage(language === 'vi' ? 'en' : 'vi');
   const activeSidebarItemClassName =
     'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20';
   const [isIndustryOpen, setIsIndustryOpen] = useState(activeTab === 'industry');
@@ -139,33 +161,57 @@ export default function Sidebar({
       )}
     >
       <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 lg:p-4', isCollapsed && 'overflow-visible p-2')}>
-        <div className={cn('mb-5 flex h-10 items-center justify-between gap-2', isCollapsed && 'justify-center')}>
+        <div className={cn('mb-4 flex h-10 items-center justify-between gap-2', isCollapsed && 'justify-center')}>
           {!isCollapsed ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('overview')}
+                className="min-w-0 overflow-hidden rounded-lg transition-opacity hover:opacity-90"
+                aria-label="FireAnt Bonds"
+              >
+                <Logo />
+              </button>
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                aria-label={language === 'vi' ? 'Thu gọn' : 'Collapse'}
+                title={language === 'vi' ? 'Thu gọn' : 'Collapse'}
+              >
+                <PanelLeft className="h-5 w-5" />
+              </button>
+            </>
+          ) : (
             <button
               type="button"
-              onClick={() => setActiveTab('overview')}
-              className="min-w-0 overflow-hidden rounded-lg transition-opacity hover:opacity-90"
-              aria-label="FireAnt Bonds"
+              onClick={onToggleCollapse}
+              className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg transition-opacity hover:opacity-90"
+              aria-label={language === 'vi' ? 'Mở rộng' : 'Expand'}
+              title={language === 'vi' ? 'Mở rộng' : 'Expand'}
             >
-              <Logo />
+              <Logo iconOnly />
             </button>
-          ) : (
-            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg bg-blue-50 text-blue-600">
-              <LayoutDashboard className="h-5 w-5" />
-            </div>
           )}
         </div>
 
-        <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar', isCollapsed && 'overflow-x-visible pr-0')}>
+        {!isCollapsed ? (
+          <div className="mb-4">
+            <GlobalSearch onSearchSelect={onSearchSelect} />
+          </div>
+        ) : (
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="sr-only"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}
-            title={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}
+            className="mb-4 flex h-9 w-9 items-center justify-center self-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+            aria-label={t('searchPlaceholder')}
+            title={t('searchPlaceholder')}
           >
-            {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+            <Search className="h-5 w-5" />
           </button>
+        )}
+
+        <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar', isCollapsed && 'flex flex-col items-center overflow-x-visible pr-0')}>
 
           {isCollapsed ? null : isContextSidebar ? (
             <nav className="space-y-1">
@@ -419,20 +465,112 @@ export default function Sidebar({
           ) : null}
         </div>
 
-        <div className="mt-4 border-t border-border-base pt-4">
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            className={cn(
-              'flex w-full items-center rounded-lg px-3 py-2.5 text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600',
-              isCollapsed ? 'h-9 justify-center rounded-xl px-0' : 'justify-start gap-3'
-            )}
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}
-            title={isCollapsed ? 'Expand sidebar' : 'Hide sidebar'}
-          >
-            {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-            {!isCollapsed ? <span className="truncate text-sm font-semibold">{language === 'vi' ? 'Thu gọn' : 'Collapse'}</span> : null}
-          </button>
+        <div className={cn('mt-4 border-t border-border-base pt-4', isCollapsed ? 'flex flex-col items-center gap-2' : 'space-y-2')}>
+          {!isCollapsed ? (
+            <>
+              <button
+                type="button"
+                onClick={onProfileClick}
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+                  isProfileSidebar
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                    : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                )}
+                aria-label={t('profile')}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
+                  {userInitial}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-text-base">{userName}</span>
+                  <span className="block truncate text-xs font-medium text-text-muted">{t('profile')}</span>
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                  title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+                  aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+                >
+                  {effectiveTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleLanguage}
+                  className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                  title={t('uiLanguage')}
+                  aria-label={t('uiLanguage')}
+                >
+                  <Languages className="h-4 w-4" />
+                  <span className="text-xs font-bold uppercase">{language}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onHelpClick}
+                  className={cn(
+                    'flex h-9 flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-surface transition-colors hover:border-blue-200 hover:text-blue-600',
+                    isHelpSidebar ? 'text-blue-600' : 'text-text-muted'
+                  )}
+                  title={t('help')}
+                  aria-label={t('help')}
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="flex h-9 flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-red-200 hover:text-red-600"
+                  title={t('logout')}
+                  aria-label={t('logout')}
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={onProfileClick}
+                className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20"
+                aria-label={t('profile')}
+                title={userName}
+              >
+                {userInitial}
+              </button>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+                aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+              >
+                {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </button>
+              <button
+                type="button"
+                onClick={toggleLanguage}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                title={t('uiLanguage')}
+                aria-label={t('uiLanguage')}
+              >
+                <Languages className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+                title={t('logout')}
+                aria-label={t('logout')}
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
     </aside>

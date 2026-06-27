@@ -3,7 +3,6 @@ import {
   LogOut,
   HelpCircle,
   UserCircle,
-  Moon,
   Sun,
   Languages,
   X,
@@ -18,34 +17,19 @@ import {
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLanguage } from '../LanguageContext';
-import { getCache, setCache } from '../utils/cache';
+import { getCache } from '../utils/cache';
 import { useAuthUser } from '../auth/authStore';
 import Logo from './Logo';
 import { useTheme } from '../ThemeContext';
-import { Language } from '../translations';
 import { INDUSTRY_LABEL_KEYS, INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
-import { ENTERPRISE_LIST_DATA_CACHE_KEY, loadEnterpriseListByIssuerSymbol } from '../services/enterpriseListData';
-import { loadBondDetail, loadMaturingBonds } from '../services/bondData';
-import { fireantApi } from '../api/fireant';
+import GlobalSearch from './GlobalSearch';
+import type { SearchSuggestion } from '../hooks/useGlobalSearch';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-const readEnterpriseCache = (primaryKey: string) => {
-  const primary = getCache(primaryKey);
-  return Array.isArray(primary) && primary.length > 0 ? primary : null;
-};
-
-export type SearchSuggestion = {
-  id: string;
-  type: 'enterprise' | 'bond';
-  title: string;
-  subtitle: string;
-  code?: string;
-  ticker?: string;
-  enterpriseName?: string;
-};
+export type { SearchSuggestion };
 
 interface HeaderProps {
   onProfileClick: () => void;
@@ -80,11 +64,6 @@ export default function Header({
   showDesktopBrand = true,
   showPageTitle = true,
 }: HeaderProps) {
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showDropdown, setShowDropdown] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<HeaderMenu>(null);
   const [activeDashboardSubmenu, setActiveDashboardSubmenu] = useState<'industry' | null>(null);
@@ -97,10 +76,7 @@ export default function Header({
   const { t, language, setLanguage } = useLanguage();
   const { setTheme, effectiveTheme } = useTheme();
   const headerRef = useRef<HTMLElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
-  const mobileSearchInputRef = useRef<HTMLInputElement | null>(null);
   const dashboardMenuCloseTimerRef = useRef<number | null>(null);
   const [mobileNavOffset, setMobileNavOffset] = useState(0);
   const authUser = useAuthUser();
@@ -114,12 +90,6 @@ export default function Header({
   useEffect(() => {
     const handler = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (containerRef.current && !containerRef.current.contains(target)) {
-        setShowDropdown(false);
-      }
-      if (userMenuRef.current && !userMenuRef.current.contains(target)) {
-        setShowUserMenu(false);
-      }
       if (navMenuRef.current && !navMenuRef.current.contains(target)) {
         setActiveMenu(null);
       }
@@ -195,187 +165,6 @@ export default function Header({
     }
   }, []);
 
-  useEffect(() => {
-      const loadSearchCaches = async () => {
-      const enterpriseCache = readEnterpriseCache(ENTERPRISE_LIST_DATA_CACHE_KEY);
-      const bondCache = getCache('comparison_pool_bonds');
-
-      if (!enterpriseCache) {
-        try {
-            const mappedEnterprises = await loadEnterpriseListByIssuerSymbol();
-            if (Array.isArray(mappedEnterprises)) {
-              setCache('enterprise_list', mappedEnterprises);
-            }
-        } catch (error) {
-          console.warn('Header failed to preload enterprise list', error);
-        }
-      }
-
-      if (!bondCache) {
-        try {
-            const bonds = await loadMaturingBonds(3650);
-            if (Array.isArray(bonds)) {
-              const mappedBonds = bonds.map((bond: any) => ({
-                id: String(bond.bondCode || bond.code || ''),
-                code: String(bond.bondCode || bond.code || ''),
-                enterpriseId: String(bond.issuerSymbol || bond.companyCode || ''),
-                enterpriseName: String(bond.issuerName || bond.companyName || ''),
-              })).filter((bond: any) => bond.code);
-              if (mappedBonds.length > 0) {
-                setCache('comparison_pool_bonds', mappedBonds);
-              }
-            }
-        } catch (error) {
-          console.warn('Header failed to preload bond pool', error);
-        }
-      }
-    };
-    loadSearchCaches();
-  }, []);
-
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (!trimmed) {
-      setSuggestions([]);
-      setIsSearching(false);
-      return;
-    }
-
-    let active = true;
-    const loadSuggestions = async () => {
-      setIsSearching(true);
-      const normalized = trimmed.toLowerCase();
-
-      const suggestionMap = new Map<string, SearchSuggestion>();
-      const addSuggestion = (suggestion: SearchSuggestion) => {
-        const key = `${suggestion.type}:${suggestion.id}`;
-        if (!suggestionMap.has(key)) {
-          suggestionMap.set(key, suggestion);
-        }
-      };
-
-      const cachedEnterprises = (getCache('enterprise_list') || []) as any[];
-      cachedEnterprises.forEach((enterprise) => {
-        const name = String(enterprise.name || '');
-        const ticker = String(enterprise.ticker || enterprise.id || '');
-        if (name.toLowerCase().includes(normalized) || ticker.toLowerCase().includes(normalized)) {
-          addSuggestion({
-            id: ticker,
-            type: 'enterprise',
-            title: name,
-            subtitle: ticker,
-            ticker,
-            enterpriseName: name
-          });
-        }
-      });
-
-      const cachedBonds = (getCache('comparison_pool_bonds') || []) as any[];
-      cachedBonds.forEach((bond) => {
-        const code = String(bond.code || bond.id || '');
-        if (!code) return;
-        if (code.toLowerCase().includes(normalized) || String(bond.enterpriseId || '').toLowerCase().includes(normalized)) {
-          addSuggestion({
-            id: code,
-            type: 'bond',
-            title: code,
-            subtitle: String(bond.enterpriseName || bond.enterpriseId || t('bond')),
-            code,
-            enterpriseName: String(bond.enterpriseName || bond.enterpriseId || '')
-          });
-        }
-      });
-
-      try {
-          const data = await fireantApi.searchSymbols(trimmed);
-          const items = Array.isArray(data)
-            ? data
-            : Array.isArray(data?.data)
-              ? data.data
-              : Array.isArray(data?.items)
-                ? data.items
-                : [];
-
-          items.forEach((item: any) => {
-            const symbol = String(item.symbol || item.ticker || '');
-            if (!symbol) return;
-
-            const name = String(item.name || item.fullName || item.companyName || item.issuerName || '');
-            const symbolType = String(item.symbolType || item?.type || '').toLowerCase();
-            
-            // Stricter classification to avoid warrants (cw) or other types
-            const isBondType = symbolType.includes('bond') || symbolType === '3'; // Type 3 is often bonds in some Fireant APIs
-            const isStockType = symbolType.includes('stock') || symbolType.includes('enterprise') || symbolType === '1';
-            
-            // Only add if it's clearly a bond or enterprise, and avoid warrants
-            if (isBondType || isStockType) {
-              const type = isBondType ? 'bond' : 'enterprise';
-              const title = isBondType ? symbol : (name || symbol);
-              const subtitle = isBondType ? (name || item.symbolType || '') : symbol;
-              
-              const suggestion: SearchSuggestion = {
-                id: symbol,
-                type: type,
-                title,
-                subtitle,
-                code: isBondType ? symbol : undefined,
-                ticker: !isBondType ? symbol : undefined,
-                enterpriseName: !isBondType ? name || symbol : undefined
-              };
-              addSuggestion(suggestion);
-            }
-          });
-      } catch (error) {
-        console.warn('Header search symbol lookup failed', error);
-      }
-
-      const normalizedCode = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const maybeBond = normalizedCode.length >= 3 && /[0-9]/.test(normalizedCode);
-      if (maybeBond && !Array.from(suggestionMap.values()).some(s => s.type === 'bond' && s.code?.toUpperCase() === normalizedCode)) {
-        try {
-            const bondData = await loadBondDetail(normalizedCode);
-            const issuerName = String(bondData?.issuerName || bondData?.issuerSymbol || '');
-            addSuggestion({
-              id: normalizedCode,
-              type: 'bond',
-              title: normalizedCode,
-              subtitle: issuerName || t('bond'),
-              code: normalizedCode,
-              enterpriseName: issuerName
-            });
-        } catch (error) {
-          console.warn('Header exact bond lookup failed', error);
-        }
-      }
-
-      if (!active) return;
-      const results = Array.from(suggestionMap.values());
-      setSuggestions(results);
-      setIsSearching(false);
-    };
-
-    const timer = window.setTimeout(loadSuggestions, 240);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [searchQuery, t]);
-
-  const handleSelectSuggestion = (suggestion: SearchSuggestion) => {
-    setSearchQuery('');
-    setSuggestions([]);
-    setShowDropdown(false);
-    setMobileSearchOpen(false);
-    onSearchSelect(suggestion);
-  };
-
-  const toggleTheme = () => {
-    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
-  };
-
-  const toggleLanguage = () => {
-    setLanguage((language === 'vi' ? 'en' : 'vi') as Language);
-  };
 
   const getIndustryHeaderLabel = (value?: string) => {
     const normalized = String(value || '').trim();
@@ -826,7 +615,6 @@ export default function Header({
           type="button"
           onClick={() => {
             setMobileSearchOpen(false);
-            setShowDropdown(false);
             setMobileNavOpen((current) => !current);
           }}
           className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
@@ -854,186 +642,28 @@ export default function Header({
         ) : null}
       </div>
 
-      <div className="ml-auto flex items-center justify-end gap-2">
+      <div className="ml-auto flex items-center justify-end gap-2 lg:hidden">
         <button
           type="button"
-          onClick={() => {
-            setMobileSearchOpen(true);
-            setShowDropdown(true);
-            window.setTimeout(() => mobileSearchInputRef.current?.focus(), 0);
-          }}
-          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
+          onClick={() => setMobileSearchOpen((current) => !current)}
+          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95"
           aria-label={t('searchPlaceholder')}
           title={t('searchPlaceholder')}
         >
           <Search className="h-5 w-5" />
         </button>
 
-        <div ref={containerRef} className="relative hidden w-80 min-w-0 max-w-sm lg:block">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-text-muted" />
-          </div>
-          <input
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setShowDropdown(true);
-            }}
-            onFocus={() => setShowDropdown(true)}
-            type="text"
-            aria-label={t('searchPlaceholder')}
-            className="block w-full rounded-lg border border-border-base bg-bg-surface py-2 pl-10 pr-3 text-sm font-medium text-text-base placeholder-text-muted shadow-sm shadow-blue-950/5 transition-colors focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400/20"
-            placeholder={t('searchPlaceholder')}
-          />
-
-          {showDropdown && (suggestions.length > 0 || isSearching) && (
-            <div className="absolute left-0 right-0 mt-2 z-50 max-h-80 overflow-y-auto rounded-lg border border-border-base bg-surface-bright shadow-xl shadow-blue-950/10 md:max-h-96 dark:shadow-black/30">
-              {isSearching && (
-                <div className="px-4 py-3 text-sm text-text-muted">{t('loading')}...</div>
-              )}
-              {!isSearching && suggestions.length === 0 && searchQuery.trim().length > 0 && (
-                <div className="px-4 py-3 text-sm text-text-muted">{t('noResults')}</div>
-              )}
-              {suggestions.map((suggestion) => (
-                <button
-                  key={`${suggestion.type}:${suggestion.id}`}
-                  onClick={() => handleSelectSuggestion(suggestion)}
-                  className="w-full px-4 py-3 text-left transition-colors hover:bg-surface-container-low cursor-pointer"
-                >
-                  <div className="text-sm font-semibold text-text-base">{suggestion.title}</div>
-                  <div className="text-xs font-medium text-text-muted">{suggestion.subtitle || (suggestion.type === 'bond' ? t('bond') : t('enterprise'))}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         {mobileSearchOpen && (
           <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-xl shadow-blue-950/10 lg:hidden">
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-4 w-4 text-text-muted" />
-              </div>
-              <input
-                ref={mobileSearchInputRef}
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowDropdown(true);
-                }}
-                onFocus={() => setShowDropdown(true)}
-                type="text"
-                aria-label={t('searchPlaceholder')}
-                className="block w-full rounded-lg border border-border-base bg-bg-surface py-3 pl-10 pr-10 text-sm font-medium text-text-base placeholder-text-muted transition-colors focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400/20"
-                placeholder={t('searchPlaceholder')}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileSearchOpen(false);
-                  setShowDropdown(false);
-                }}
-                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-text-muted transition-colors hover:text-blue-600"
-                aria-label="Close search"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {showDropdown && (suggestions.length > 0 || isSearching) && (
-              <div className="mt-2 max-h-80 overflow-y-auto rounded-lg border border-border-base bg-surface-bright shadow-xl shadow-blue-950/10">
-                {isSearching && (
-                  <div className="px-4 py-3 text-sm text-text-muted">{t('loading')}...</div>
-                )}
-                {!isSearching && suggestions.length === 0 && searchQuery.trim().length > 0 && (
-                  <div className="px-4 py-3 text-sm text-text-muted">{t('noResults')}</div>
-                )}
-                {suggestions.map((suggestion) => (
-                  <button
-                    key={`${suggestion.type}:${suggestion.id}`}
-                    onClick={() => handleSelectSuggestion(suggestion)}
-                    className="w-full text-left px-4 py-3 hover:bg-surface-container-low transition-colors cursor-pointer"
-                  >
-                    <div className="text-sm font-semibold text-text-base">{suggestion.title}</div>
-                    <div className="text-xs font-medium text-text-muted">{suggestion.subtitle || (suggestion.type === 'bond' ? t('bond') : t('enterprise'))}</div>
-                  </button>
-                ))}
-              </div>
-            )}
+            <GlobalSearch
+              onSearchSelect={onSearchSelect}
+              autoFocus
+              showCloseButton
+              onClose={() => setMobileSearchOpen(false)}
+              onAfterSelect={() => setMobileSearchOpen(false)}
+            />
           </div>
         )}
-
-        <div className="hidden items-center gap-1 lg:flex">
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="shrink-0 rounded-lg border border-transparent p-2 text-slate-950 transition-all hover:border-border-base hover:bg-bg-surface hover:text-text-highlight active:scale-95 dark:text-text-muted"
-            title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-            aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
-          >
-            {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={toggleLanguage}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-transparent p-2 text-slate-950 transition-all hover:border-border-base hover:bg-bg-surface hover:text-text-highlight active:scale-95 sm:px-2.5 dark:text-text-muted"
-            title={t('uiLanguage')}
-            aria-label={t('uiLanguage')}
-          >
-            <Languages className="h-5 w-5" />
-            <span className="text-xs font-bold uppercase">{language}</span>
-          </button>
-        </div>
-
-        <div ref={userMenuRef} className="relative hidden lg:block">
-          <button 
-            type="button"
-            onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex shrink-0 items-center gap-3 rounded-lg p-1.5 transition-all hover:bg-bg-surface active:scale-95"
-            aria-label={t('profile')}
-          >
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-semibold text-text-base leading-none">{authUser?.profile?.name || 'Admin User'}</p>
-            </div>
-            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
-              {getInitials(authUser?.profile?.name || '')}
-            </div>
-          </button>
-
-          {showUserMenu && (
-            <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg border border-border-base bg-surface-bright py-2 shadow-xl shadow-blue-950/10 dark:shadow-black/30">
-              <button 
-                onClick={() => {
-                  onProfileClick();
-                  setShowUserMenu(false);
-                }}
-                className="w-full px-4 py-2 text-sm text-text-base hover:bg-bg-base flex items-center gap-3 transition-colors"
-              >
-                <UserCircle className="h-4 w-4" /> {t('profile')}
-              </button>
-              <button 
-                onClick={() => {
-                  onHelpClick();
-                  setShowUserMenu(false);
-                }}
-                className="w-full px-4 py-2 text-sm text-text-base hover:bg-bg-base flex items-center gap-3 transition-colors"
-              >
-                <HelpCircle className="h-4 w-4" /> {t('help')}
-              </button>
-              <hr className="my-1 border-border-base" />
-              <button 
-                onClick={() => {
-                  onLogout();
-                  setShowUserMenu(false);
-                }}
-                className="w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-3 transition-colors"
-              >
-                <LogOut className="h-4 w-4" /> {t('logout')}
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       </header>

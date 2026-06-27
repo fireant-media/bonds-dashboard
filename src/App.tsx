@@ -606,6 +606,10 @@ export default function App() {
           setActiveHelpSection={setActiveHelpSection}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
+          onSearchSelect={handleSearchSelect}
+          onProfileClick={() => setActiveTab('profile')}
+          onHelpClick={() => setActiveTab('help')}
+          onLogout={handleLogout}
         />
       )}
 

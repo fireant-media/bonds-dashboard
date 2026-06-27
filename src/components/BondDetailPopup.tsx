@@ -1417,7 +1417,7 @@ export default function BondDetailPopup({
         itemHeight: 10,
         textStyle: { fontSize: 11 },
       },
-      grid: { left: '3%', right: '4%', bottom: '16%', containLabel: true },
+      grid: { left: '3%', right: '4%', top: '8%', bottom: '16%', containLabel: true },
       xAxis: {
         type: 'category',
         data: chartData.map((item) => item.label),
@@ -1426,6 +1426,7 @@ export default function BondDetailPopup({
       yAxis: {
         name: t('unitBillionVND'),
         type: 'value',
+        splitLine: { show: false },
         axisLabel: {
           fontSize: 11,
           formatter: (value: number) => formatNumber(value, 0),
@@ -1596,6 +1597,7 @@ export default function BondDetailPopup({
                   icon={item.icon}
                   tone={item.tone}
                   className="hover:-translate-y-1"
+                  valueClassName="text-xl md:text-2xl"
                 />
               ))}
             </section>
@@ -1695,59 +1697,33 @@ export default function BondDetailPopup({
                 )}
               </div>
 
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <Card className="group flex flex-col rounded-2xl border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-5 shadow-sm shadow-blue-500/10 transition-all duration-300 dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:shadow-black/20">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
-                    <ShieldCheck className="h-5 w-5" />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-6 motion-reduce:transform-none dark:bg-slate-900/40 dark:ring-blue-900/40">
+                    <Sparkles className="h-5 w-5" />
                   </div>
-                  <h2 className="text-base font-bold text-text-base">{t('quickAnalysisTitle')}</h2>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  {quickAnalysis.map((item) => (
-                    <div key={item.label} className="rounded-2xl border border-border-base bg-bg-base/50 p-4">
-                      <div className="mb-3 flex items-center gap-2">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600">
-                          <item.icon className="h-4 w-4" />
-                        </div>
-                        <p className="min-w-0 flex-1 text-sm font-semibold text-text-base">
-                          {item.label}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-center text-center">
-                        <p className="mt-2 text-sm font-medium text-text-muted">{item.evidence}</p>
-                        <p className={`mt-3 text-sm font-bold ${item.meta.className}`}>{item.meta.label}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-4 shadow-sm dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
-                  <div className="mb-3 flex items-start gap-2">
-                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-text-base">{t('aiInsightTitle')}</p>
-                      {aiRemarkUpdatedLabel ? (
-                        <div className="mt-0.5 text-xs font-medium text-text-muted/80">{aiRemarkUpdatedLabel}</div>
-                      ) : null}
-                    </div>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-bold text-text-base">{t('aiInsightTitle')}</h2>
+                    {aiRemarkUpdatedLabel ? (
+                      <div className="mt-0.5 text-xs font-medium text-text-muted/80">{aiRemarkUpdatedLabel}</div>
+                    ) : null}
                   </div>
-
-                  {aiRemarkLoading ? (
-                    <p className="text-sm font-semibold text-text-muted">{t('aiGeneratingInsight')}</p>
-                  ) : aiRemarkError ? (
-                    <p className="text-sm font-medium text-amber-600">{aiRemarkError}</p>
-                  ) : aiRemark ? (
-                    <AIInsightText
-                      content={aiRemark}
-                      containerClassName="space-y-0"
-                      paragraphClassName="whitespace-pre-line break-words text-sm leading-6 text-text-base"
-                    />
-                  ) : (
-                    <p className="text-sm text-text-muted">{t('aiNoInsight')}</p>
-                  )}
                 </div>
-              </div>
+
+                {aiRemarkLoading ? (
+                  <p className="text-sm font-semibold text-text-muted">{t('aiGeneratingInsight')}</p>
+                ) : aiRemarkError ? (
+                  <p className="text-sm font-medium text-amber-600">{aiRemarkError}</p>
+                ) : aiRemark ? (
+                  <AIInsightText
+                    content={aiRemark}
+                    containerClassName="space-y-0"
+                    paragraphClassName="whitespace-pre-line break-words text-sm leading-6 text-text-base"
+                  />
+                ) : (
+                  <p className="text-sm text-text-muted">{t('aiNoInsight')}</p>
+                )}
+              </Card>
             </section>
           </div>
         </div>

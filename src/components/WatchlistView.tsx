@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
@@ -10,6 +9,7 @@ import { loadBondDetail, type BondDataRow } from '../services/bondData';
 import { DataTable, type DataTableColumn } from './ui/DataTable';
 import { BondFilterPanel, useBondFilterController } from './BondFilterPanel';
 import { filterBondRowsByCriteria, sortBondRowsByCriteria } from '../services/aiBondFilter';
+import WatchlistAddBondModal from './WatchlistAddBondModal';
 
 interface WatchlistBond extends WatchlistItem {
   daysLeft: number;
@@ -86,13 +86,13 @@ function toWatchlistBond(item: WatchlistItem): WatchlistBond | null {
 
 export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }: WatchlistViewProps) {
   const { t, language } = useLanguage();
-  const navigate = useNavigate();
   const [bonds, setBonds] = useState<WatchlistBond[]>([]);
   const enrichingRef = useRef(false);
   const [isWatchlistFilterControlsVisible, setIsWatchlistFilterControlsVisible] = useState(false);
   const [watchlistHiddenColumnIds, setWatchlistHiddenColumnIds] = useState<string[]>([]);
   const [watchlistColumnVisibilityDraft, setWatchlistColumnVisibilityDraft] = useState<string[]>([]);
   const [watchlistColumnVisibilityOpen, setWatchlistColumnVisibilityOpen] = useState(false);
+  const [isAddBondModalOpen, setIsAddBondModalOpen] = useState(false);
   const watchlistColumnVisibilityRef = useRef<HTMLDivElement | null>(null);
 
   const watchlistFilterRows = useMemo(
@@ -471,7 +471,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       <p className="text-sm font-medium text-text-muted">Thêm mã trái phiếu để theo dõi nhanh</p>
       <button
         type="button"
-        onClick={() => navigate('/filter/bonds')}
+        onClick={() => setIsAddBondModalOpen(true)}
         className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
       >
         <Plus className="h-4 w-4" />
@@ -486,6 +486,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
     return (
       <div className="min-w-0 pt-2 transition-colors duration-300 md:pt-3">
         {emptyState}
+        <WatchlistAddBondModal isOpen={isAddBondModalOpen} onClose={() => setIsAddBondModalOpen(false)} />
       </div>
     );
   }
@@ -642,13 +643,15 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       <div className="mt-4 flex justify-center">
       <button
         type="button"
-        onClick={() => navigate('/filter/bonds')}
+        onClick={() => setIsAddBondModalOpen(true)}
         className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
       >
           <Plus className="h-4 w-4" />
           <span>{t('addBond')}</span>
         </button>
       </div>
+
+      <WatchlistAddBondModal isOpen={isAddBondModalOpen} onClose={() => setIsAddBondModalOpen(false)} />
     </div>
   );
 }
