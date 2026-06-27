@@ -1,20 +1,30 @@
-import { useState, useRef, useEffect, Component, ReactNode } from 'react';
-import ReactECharts from 'echarts-for-react';
-import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2 } from 'lucide-react';
+﻿import { useState, useRef, useEffect, Component, ReactNode } from 'react';
+import ChartWithToolbar from './ChartWithToolbar';
+import { X, ArrowLeft, RotateCcw, Plus, Check, Search, Loader2, Bookmark, Activity, Landmark, TrendingUp, Info } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
-import { formatNumber, formatInterestRate, formatDate, normalizeInterestType } from '../utils/format';
+import { formatNumber, formatInterestRate, formatDate, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
+import { getLocalizedBondStatus, getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
 import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
+import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { readJsonResponse } from '../utils/http';
+import { buildFireantUrl, fireantApi } from '../api/fireant';
+import { exportRowsToExcel } from '../utils/excel';
+import { upsertWatchlistItemWithStatus } from '../utils/watchlist';
+import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, loadMaturingBonds } from '../services/bondData';
+import { clearBondChatContext, setBondChatContext } from '../utils/bondDetailChatContext';
+
+const MAX_SELECTED_BONDS = 10;
 
 // Error Boundary for this component
 class BondComparisonErrorBoundary extends Component<
-  { children: ReactNode },
+  { children: ReactNode; sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded' },
   { hasError: boolean; error: Error | null }
 > {
-  constructor(props: { children: ReactNode }) {
+  constructor(props: { children: ReactNode; sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded' }) {
     super(props);
     this.state = { hasError: false, error: null };
   }
@@ -29,12 +39,19 @@ class BondComparisonErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
+      const sidebarOffsetClass =
+        this.props.sidebarDisplayMode === 'expanded'
+          ? 'lg:left-72'
+          : this.props.sidebarDisplayMode === 'collapsed'
+            ? 'lg:left-16'
+            : 'lg:left-0';
+
       return (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+        <div className={`fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm ${sidebarOffsetClass}`}>
           <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-8 max-w-md text-center">
-            <p className="text-red-400 font-bold mb-2">Lỗi hiển thị So sánh</p>
+            <p className="text-red-400 font-bold mb-2">Display Error</p>
             <p className="text-red-300 text-sm mb-4">{this.state.error?.message}</p>
-            <p className="text-red-300 text-xs">Vui lòng F5 để làm mới trang</p>
+            <p className="text-red-300 text-xs">Please refresh the page (F5)</p>
           </div>
         </div>
       );
@@ -46,14 +63,27 @@ class BondComparisonErrorBoundary extends Component<
 
 interface BondComparisonPopupProps {
   primaryBond: Bond;
+  primaryEnterpriseName?: string;
   onClose: () => void;
   onBack: () => void;
+  sidebarDisplayMode?: 'none' | 'collapsed' | 'expanded';
+  embedded?: boolean;
 }
 
-function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPopupProps) {
+function BondComparisonPopup({
+  primaryBond,
+  primaryEnterpriseName,
+  onClose,
+  onBack,
+  sidebarDisplayMode = 'none',
+  embedded = false,
+}: BondComparisonPopupProps) {
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
   const isDark = effectiveTheme === 'dark';
+
+  const chartPalette = CHART_PALETTE;
+
   const [comparisonBonds, setComparisonBonds] = useState<Bond[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,13 +91,19 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
   const [searching, setSearching] = useState(false);
   const [allBondsPool, setAllBondsPool] = useState<Bond[]>([]);
   const [renderError, setRenderError] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [showWatchlistPicker, setShowWatchlistPicker] = useState(false);
+  const [watchlistSelections, setWatchlistSelections] = useState<Record<string, boolean>>({});
+  const [watchlistNotice, setWatchlistNotice] = useState<{
+    tone: 'success' | 'warning' | 'error';
+    text: string;
+  } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Validate selectedBonds to prevent render errors
   const validateBond = (bond: Bond): boolean => {
     if (!bond || !bond.code) return false;
-    const maturityDate = new Date(bond.maturityDate);
-    return !isNaN(maturityDate.getTime());
+    return parseDateToTimestamp(bond.maturityDate) !== null;
   };
 
   const isMissingInterestType = (value: any) => {
@@ -77,6 +113,10 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   const validatedComparisonBonds = comparisonBonds.filter(validateBond);
   const selectedBonds = [primaryBond, ...validatedComparisonBonds].filter(validateBond);
+  const canAddMoreBonds = selectedBonds.length < MAX_SELECTED_BONDS;
+  const selectedWatchlistCount = selectedBonds.filter((bond) => watchlistSelections[bond.code]).length;
+  const allWatchlistSelected = selectedBonds.length > 0 && selectedWatchlistCount === selectedBonds.length;
+  const selectedBondsSignature = selectedBonds.map((bond) => bond.code).join('|');
   
   useEffect(() => {
     // Log any invalid bonds that were filtered out
@@ -92,6 +132,33 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       searchInputRef.current.focus();
     }
   }, [isSearching]);
+
+  useEffect(() => {
+    if (!canAddMoreBonds && isSearching) {
+      setIsSearching(false);
+      setSearchTerm('');
+      setSuggestions([]);
+    }
+  }, [canAddMoreBonds, isSearching]);
+
+  useEffect(() => {
+    if (!showWatchlistPicker) return;
+
+    setWatchlistSelections((prev) => {
+      const next: Record<string, boolean> = {};
+      selectedBonds.forEach((bond) => {
+        next[bond.code] = prev[bond.code] ?? true;
+      });
+      return next;
+    });
+  }, [showWatchlistPicker, selectedBondsSignature]);
+
+  useEffect(() => {
+    if (!watchlistNotice) return;
+
+    const timeout = window.setTimeout(() => setWatchlistNotice(null), 2500);
+    return () => window.clearTimeout(timeout);
+  }, [watchlistNotice]);
 
   // Load initial pool of bonds from cache or fetch if empty
   useEffect(() => {
@@ -128,57 +195,34 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             const headers: Record<string, string> = { 'Accept': 'application/json' };
             if (cleanToken) headers['Authorization'] = `Bearer ${cleanToken}`;
 
-            // Fetch a larger window to get more symbols into the pool
-            const response = await fetch('/api/fireant/bonds/stats/bonds/maturing-soon?days=3650', { headers });
-            if (response.ok) {
-              const data = await response.json();
-              if (Array.isArray(data)) {
-                const fetchedBonds: Bond[] = data.map((b: any) => {
-                  const normalizeVal = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 1000000) return val / 1000000000;
-                    return val;
-                  };
-                  const normalizeVol = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 100000) return val / 10000;
-                    return val;
-                  };
+            const data = await loadMaturingBonds(3650);
+            if (Array.isArray(data)) {
+              const fetchedBonds: Bond[] = data.map((b: any) => ({
+                id: b.bondCode,
+                code: b.bondCode,
+                enterpriseId: b.issuerSymbol || '',
+                term: String(b.tenorPeriod || 'N/A'),
+                interestRate: b.bondRate || 0,
+                listedVolume: b.currentListedVolume || 0,
+                issuedValue: b.totalIssuedValue || 0,
+                listedValue: b.currentListedValue || 0,
+                issueDate: b.issueDate?.split('T')[0] || '',
+                maturityDate: b.maturityDate?.split('T')[0] || '',
+                bondType: b.bondType || b.BondType || '',
+                interestType: normalizeInterestType(
+                  b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
+                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+                  []
+                ) || 'N/A',
+                status: b.status || t('active')
+              }));
 
-                  const issueValue = b.totalIssuedValue 
-                    ? normalizeVal(b.totalIssuedValue)
-                    : normalizeVol(b.currentListedVolume);
-                  const listedValue = b.currentListedValue 
-                    ? normalizeVal(b.currentListedValue)
-                    : normalizeVol(b.currentListedVolume);
-
-                  return {
-                    id: b.bondCode,
-                    code: b.bondCode,
-                    enterpriseId: b.issuerSymbol || '',
-                    term: String(b.tenorPeriod || 'N/A'),
-                    interestRate: b.bondRate || 0,
-                    listedVolume: normalizeVol(b.currentListedVolume),
-                    issuedValue: issueValue,
-                    listedValue: listedValue,
-                    issueDate: b.issueDate?.split('T')[0] || '',
-                    maturityDate: b.maturityDate?.split('T')[0] || '',
-                    interestType: normalizeInterestType(
-                      b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
-                      b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                      []
-                    ) || 'N/A',
-                    status: b.status || 'Hiệu lực'
-                  };
-                });
-                
-                setAllBondsPool(prev => {
-                  const combined = [...prev, ...fetchedBonds];
-                  const final = Array.from(new Map(combined.map(b => [b.code, b])).values());
-                  setCache('comparison_pool_bonds', final);
-                  return final;
-                });
-              }
+              setAllBondsPool(prev => {
+                const combined = [...prev, ...fetchedBonds];
+                const final = Array.from(new Map(combined.map(b => [b.code, b])).values());
+                setCache('comparison_pool_bonds', final);
+                return final;
+              });
             }
           } catch (e) {
             console.error("Failed to fetch background pool", e);
@@ -218,72 +262,56 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
         // try to fetch all bonds for that issuer to get the full list (e.g., 174 bonds for BID)
         if (normalizedSearch.length >= 2 && normalizedSearch.length <= 5) {
           try {
-            // Try different endpoints for issuer bonds
-            const issuerRes = await fetch(`/api/fireant/bonds/get-bonds-by-issuer?issuerSymbol=${normalizedSearch}`, { headers });
-            if (issuerRes.ok) {
-              const data = await issuerRes.json();
-              const issuerBonds = Array.isArray(data) ? data : (data.items || []);
-              if (Array.isArray(issuerBonds)) {
-                const mappedIssuerBonds = issuerBonds.map((b: any) => {
-                  const normalizeVal = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 1000000) return val / 1000000000;
-                    return val;
-                  };
-                  const normalizeVol = (val: number | undefined | null) => {
-                    if (!val) return 0;
-                    if (val > 100000) return val / 10000;
-                    return val;
-                  };
-
-                  const issueValue = b.totalIssuedValue 
-                    ? normalizeVal(b.totalIssuedValue)
-                    : normalizeVol(b.currentListedVolume);
-                  const listedValue = b.currentListedValue 
-                    ? normalizeVal(b.currentListedValue)
-                    : normalizeVol(b.currentListedVolume);
-
-                  return {
-                    id: b.bondCode,
-                    code: b.bondCode,
-                    enterpriseId: b.issuerSymbol || normalizedSearch,
-                    term: String(b.tenorPeriod || 'N/A'),
-                    interestRate: b.bondRate || 0,
-                    listedVolume: normalizeVol(b.currentListedVolume),
-                    issuedValue: issueValue,
-                    listedValue: listedValue,
-                    issueDate: b.issueDate?.split('T')[0] || '',
-                    maturityDate: b.maturityDate?.split('T')[0] || '',
-                    interestType: normalizeInterestType(
-                      b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
-                      b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                      []
-                    ) || 'N/A',
-                    status: b.status || 'Hiệu lực'
-                  };
-                });
-                apiMatches = [...apiMatches, ...mappedIssuerBonds];
-              }
+            const issuerBonds = await loadIssuerBondsByFilter(normalizedSearch);
+            if (Array.isArray(issuerBonds)) {
+              const mappedIssuerBonds = issuerBonds.map((b: any) => ({
+                id: b.bondCode,
+                code: b.bondCode,
+                enterpriseId: b.issuerSymbol || normalizedSearch,
+                term: String(b.tenorPeriod || 'N/A'),
+                interestRate: b.bondRate || 0,
+                listedVolume: b.currentListedVolume || 0,
+                issuedValue: b.totalIssuedValue || 0,
+                listedValue: b.currentListedValue || 0,
+                issueDate: b.issueDate?.split('T')[0] || '',
+                maturityDate: b.maturityDate?.split('T')[0] || '',
+                bondType: b.bondType || b.BondType || '',
+                interestType: normalizeInterestType(
+                  b.bondRateType || b.interestRateType || b.couponRateType || b.interestType || '',
+                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
+                  []
+                ) || 'N/A',
+                status: b.status || t('active')
+              }));
+              apiMatches = [...apiMatches, ...mappedIssuerBonds];
             }
           } catch (e) {
             console.error("Failed to fetch issuer specific bonds during search", e);
           }
         }
 
-        const response = await fetch(`/api/fireant/symbols/search?q=${encodeURIComponent(searchTerm)}`, {
+        const response = await fetch(buildFireantUrl('symbols/search', { q: searchTerm }), {
+          cache: 'no-store',
           headers
         });
 
         if (response.ok) {
-          const data = await response.json();
+          const data = await readJsonResponse<any[]>(response, `Symbol search ${searchTerm}`);
           if (data && Array.isArray(data)) {
-            const searchApiMatches = data.filter((s: any) => 
-              // Include anything that looks like a bond or matches search well
-              (s.symbolType?.toLowerCase() === 'bond' || s.symbol.length >= 6 || s.symbol.toUpperCase().includes(normalizedSearch)) &&
-              !selectedBonds.some(sb => sb.code === s.symbol) &&
-              !poolMatches.some(pm => pm.code === s.symbol) &&
-              !apiMatches.some(am => am.code === s.symbol)
-            ).map((s: any) => ({
+            const searchApiMatches = data.filter((s: any) => {
+              const symType = String(s.symbolType || s.type || '').toLowerCase();
+              const symbol = String(s.symbol || s.ticker || '');
+              
+              // Only include if explicitly a bond or matches pre-cached bond patterns
+              // Avoid warrants (cw) or other types
+              const isBondType = symType.includes('bond') || symType === '3';
+              const looksLikeBond = symbol.length >= 6 && /\d/.test(symbol) && !symType.includes('cw') && !symType.includes('warrant');
+              
+              return (isBondType || looksLikeBond) &&
+                !selectedBonds.some(sb => sb.code === symbol) &&
+                !poolMatches.some(pm => pm.code === symbol) &&
+                !apiMatches.some(am => am.code === symbol);
+            }).map((s: any) => ({
               id: s.symbol,
               code: s.symbol,
               enterpriseId: '',
@@ -294,8 +322,9 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
               listedValue: 0,
               issueDate: '',
               maturityDate: new Date().toISOString().split('T')[0],
+              bondType: s.bondType || s.bondName || '',
               interestType: '',
-              status: 'Hiệu lực'
+              status: t('active')
             }));
             apiMatches = [...apiMatches, ...searchApiMatches];
           }
@@ -321,23 +350,69 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   const handleAddBond = async (bond: Bond) => {
     console.log('[BondComparisonPopup] Attempting to add bond:', bond.code, bond);
+
+    if (!canAddMoreBonds) {
+      setIsSearching(false);
+      setSearchTerm('');
+      setSuggestions([]);
+      return;
+    }
+
+    const addComparisonBond = (nextBond: Bond) => {
+      setComparisonBonds(prev => {
+        const current = [primaryBond, ...prev].filter(validateBond);
+        if (current.length >= MAX_SELECTED_BONDS || current.some(item => item.code === nextBond.code)) {
+          return prev;
+        }
+        return [...prev, nextBond];
+      });
+    };
+
+    const fallbackBond: Bond = {
+      ...bond,
+      term: bond.term || 'N/A',
+      interestRate: Number(bond.interestRate || 0),
+      listedVolume: Number(bond.listedVolume || 0),
+      issuedValue: scaleBondValue(bond.issuedValue),
+      listedValue: scaleBondValue(bond.listedValue),
+      issueDate: bond.issueDate || '',
+      maturityDate: parseDateToTimestamp(bond.maturityDate) !== null
+        ? bond.maturityDate
+        : new Date().toISOString().split('T')[0],
+      bondType: (bond as Bond & { bondType?: string }).bondType || '',
+      interestType: bond.interestType || '',
+      status: bond.status || t('active'),
+    };
     
     try {
-      // If the bond is from pool, it already has data
-      if (bond.term !== 'N/A' && bond.term !== undefined && bond.term !== '' && !isMissingInterestType(bond.interestType)) {
+      const hasCompleteComparisonData =
+        Boolean(bond.term && bond.term !== 'N/A') &&
+        Number(bond.interestRate || 0) > 0 &&
+        Boolean(bond.issueDate) &&
+        Boolean(bond.maturityDate) &&
+        Number(bond.issuedValue || 0) > 0 &&
+        Number(bond.listedValue || 0) > 0 &&
+        Number(bond.listedVolume || 0) >= 0 &&
+        !isMissingInterestType(bond.interestType);
+
+      // If the bond is already complete, keep it after normalizing scales.
+      if (hasCompleteComparisonData) {
         console.log('[BondComparisonPopup] Bond from pool, adding directly:', bond.code);
         // Validate maturityDate before adding
-        const date = new Date(bond.maturityDate);
-        if (!isNaN(date.getTime())) {
-          setComparisonBonds(prev => [...prev, bond]);
+        if (parseDateToTimestamp(bond.maturityDate) !== null) {
+          addComparisonBond({
+            ...fallbackBond,
+            issuedValue: scaleBondValue(bond.issuedValue),
+            listedValue: scaleBondValue(bond.listedValue),
+          });
         } else {
           // Fallback to today if date is invalid
           const validBond = {
-            ...bond,
+            ...fallbackBond,
             maturityDate: new Date().toISOString().split('T')[0]
           };
           console.log('[BondComparisonPopup] Fixed invalid date:', validBond);
-          setComparisonBonds(prev => [...prev, validBond]);
+          addComparisonBond(validBond);
         }
         setIsSearching(false);
         setSearchTerm('');
@@ -352,12 +427,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       const token = getFireantToken();
       if (!token) {
         console.log('[BondComparisonPopup] No token, adding bond with fallback data');
-        // Ensure valid maturityDate for fallback bond
-        const validBond = {
-          ...bond,
-          maturityDate: new Date().toISOString().split('T')[0]
-        };
-        setComparisonBonds(prev => [...prev, validBond]);
+        addComparisonBond(fallbackBond);
         setIsSearching(false);
         setSearchTerm('');
         setSuggestions([]);
@@ -365,95 +435,67 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       }
       
       const cleanToken = cleanTokenString(token);
-      
-      const detailRes = await fetch(`/api/fireant/bonds/${bond.code}`, {
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${cleanToken}`
+      void cleanToken;
+
+      try {
+        const data = await loadBondDetail(bond.code);
+        if (!data) {
+          throw new Error('Missing bond detail data');
         }
-      });
 
-      console.log('[BondComparisonPopup] Fetch response status:', detailRes.status);
+        const b = data.detail || data;
+        const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
+        const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+        const issuerSymbol = String(b.issuerSymbol || bond.enterpriseId || '').trim();
+        const profile = issuerSymbol ? await loadIssuerProfile(issuerSymbol) : null;
 
-      if (detailRes.ok) {
-        try {
-          const data = await detailRes.json();
-          console.log('[BondComparisonPopup] API response data:', data);
-          
-          const b = data.detail || data;
-          if (!b) {
-            throw new Error('No bond data in response');
-          }
-          
-          const historyItem = Array.isArray(data.history) ? data.history[0] : undefined;
-          const cashFlowRate = Array.isArray(data.cashFlows) ? data.cashFlows[0]?.bondRate : undefined;
+        const issueValue = b.totalIssuedValue
+          ? scaleBondValue(b.totalIssuedValue)
+          : scaleBondValue(bond.issuedValue);
+        const listedValue = b.currentListedValue
+          ? scaleBondValue(b.currentListedValue)
+          : scaleBondValue(bond.listedValue);
+        const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
+        const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
+        const interestType = deriveInterestType(b, data.cashFlows);
 
-          const issueValue = b.totalIssuedValue
-            ? b.totalIssuedValue / 1000000000
-            : historyItem?.value
-              ? historyItem.value / 1000000000
-              : 0;
-          const listedValue = b.currentListedValue
-            ? b.currentListedValue / 1000000000
-            : historyItem?.value
-              ? historyItem.value / 1000000000
-              : issueValue;
-          const listedVolume = b.currentListedVolume || historyItem?.volume || 0;
-          const interestRate = b.bondRate || b.interestRate || b.couponRate || cashFlowRate || 0;
-          const interestType = deriveInterestType(b, data.cashFlows);
+        let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
+        if (parseDateToTimestamp(maturityDate) === null) {
+          maturityDate = new Date().toISOString().split('T')[0];
+        }
 
-          let maturityDate = b.maturityDate?.split('T')[0] || new Date().toISOString().split('T')[0];
-          // Validate the maturityDate
-          const dateCheck = new Date(maturityDate);
-          if (isNaN(dateCheck.getTime())) {
-            console.log('[BondComparisonPopup] Invalid maturity date, using today');
-            maturityDate = new Date().toISOString().split('T')[0];
-          }
-
-          const fullBond: Bond = {
+        const fullBond = buildComparisonBond(
+          {
+            ...fallbackBond,
             id: b.bondCode || bond.id,
             code: b.bondCode || bond.code,
-            enterpriseId: b.issuerSymbol || '', 
-            term: String(b.tenorPeriod || 'N/A'),
-            interestRate: Number(interestRate) || 0,
-            listedVolume: Number(listedVolume) || 0,
-            issuedValue: Number(issueValue) || 0,
-            listedValue: Number(listedValue) || 0,
-            issueDate: b.issueDate?.split('T')[0] || '',
+            enterpriseId: issuerSymbol,
+            term: String(b.tenorPeriod || fallbackBond.term || 'N/A'),
+            interestRate: Number(interestRate) || fallbackBond.interestRate,
+            listedVolume: Number(listedVolume) || fallbackBond.listedVolume,
+            issuedValue: Number(issueValue) || fallbackBond.issuedValue,
+            listedValue: Number(listedValue) || fallbackBond.listedValue,
+            issueDate: b.issueDate?.split('T')[0] || fallbackBond.issueDate,
             maturityDate,
+            bondType: b.bondType || b.BondType || (bond as Bond & { bondType?: string }).bondType || '',
             interestType,
-            status: b.status || 'Hiệu lực'
-          };
-          
-          console.log('[BondComparisonPopup] Adding full bond:', fullBond);
-          setComparisonBonds(prev => [...prev, fullBond]);
-        } catch (parseError) {
-          console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
-          // Ensure valid date for fallback
-          const validBond = {
-            ...bond,
-            maturityDate: new Date().toISOString().split('T')[0]
-          };
-          console.log('[BondComparisonPopup] Adding fallback bond after parse error:', validBond);
-          setComparisonBonds(prev => [...prev, validBond]);
-        }
-      } else {
-        console.warn('[BondComparisonPopup] Fetch failed with status:', detailRes.status);
-        // Ensure valid date for error fallback
-        const validBond = {
-          ...bond,
-          maturityDate: new Date().toISOString().split('T')[0]
-        };
-        setComparisonBonds(prev => [...prev, validBond]);
+            status: b.status || t('active'),
+            issuerName: String(profile?.internationalName || b.issuerName || bond.enterpriseId || fallbackBond.enterpriseId || ''),
+          } as Bond,
+          b,
+          historyItem,
+          profile,
+          data.cashFlows,
+        );
+
+        addComparisonBond(fullBond);
+      } catch (parseError) {
+        console.error('[BondComparisonPopup] Error parsing bond details:', parseError);
+        addComparisonBond(fallbackBond);
       }
     } catch (e) {
       console.error('[BondComparisonPopup] Error in handleAddBond:', e);
-      // Ensure valid date for outer catch fallback
-      const validBond = {
-        ...bond,
-        maturityDate: new Date().toISOString().split('T')[0]
-      };
-      setComparisonBonds(prev => [...prev, validBond]);
+      addComparisonBond(fallbackBond);
     } finally {
       setIsSearching(false);
       setSearchTerm('');
@@ -473,139 +515,387 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     return normalizeInterestType(rawInterestType, paymentMethod, cashFlows);
   };
 
+  const scaleBondValue = (value: unknown) => {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return 0;
+    return Math.abs(numericValue) >= 1_000_000 ? numericValue / 1_000_000_000 : numericValue;
+  };
+
+  const formatComparisonValue = (value: unknown) => {
+    const scaledValue = scaleBondValue(value);
+    return scaledValue > 0 ? formatValue(scaledValue) : '-';
+  };
+
+  const buildComparisonBond = (
+    baseBond: Bond,
+    detail?: any,
+    historyItem?: any,
+    profile?: any,
+    cashFlows: any[] = [],
+  ): Bond => {
+    const detailBond = detail || {};
+    const issueValue = detailBond.totalIssuedValue !== undefined && detailBond.totalIssuedValue !== null
+      ? scaleBondValue(detailBond.totalIssuedValue)
+      : scaleBondValue(baseBond.issuedValue);
+    const listedValue = detailBond.currentListedValue !== undefined && detailBond.currentListedValue !== null
+      ? scaleBondValue(detailBond.currentListedValue)
+      : scaleBondValue(baseBond.listedValue);
+    const listedVolume = Number(
+      detailBond.currentListedVolume
+      || historyItem?.volume
+      || baseBond.listedVolume
+      || 0,
+    );
+    const interestRate = Number(
+      detailBond.bondRate
+      || detailBond.interestRate
+      || detailBond.couponRate
+      || cashFlows?.[0]?.bondRate
+      || baseBond.interestRate
+      || 0,
+    );
+    const termMonths = String(detailBond.tenorPeriod || baseBond.term || 'N/A');
+    const issueDate = String(detailBond.issueDate || baseBond.issueDate || '').split('T')[0];
+    const maturityDate = String(detailBond.maturityDate || baseBond.maturityDate || '').split('T')[0];
+    const issuerSymbol = String(detailBond.issuerSymbol || baseBond.enterpriseId || '').trim();
+    const issuerName = String(profile?.internationalName || profile?.name || detailBond.issuerName || (baseBond as Bond & { issuerName?: string }).issuerName || baseBond.enterpriseId || '').trim();
+    const bondType = String(detailBond.bondType || detailBond.BondType || (baseBond as Bond & { bondType?: string }).bondType || '').trim();
+
+    return {
+      ...baseBond,
+      enterpriseId: issuerSymbol,
+      term: termMonths,
+      interestRate: Number.isFinite(interestRate) ? interestRate : baseBond.interestRate,
+      listedVolume,
+      issuedValue: issueValue,
+      listedValue,
+      issueDate,
+      maturityDate: maturityDate || baseBond.maturityDate,
+      bondType,
+      interestType: deriveInterestType(detailBond, cashFlows) || baseBond.interestType,
+      status: String(detailBond.status || baseBond.status || t('active')),
+      cashFlows: Array.isArray(cashFlows)
+        ? cashFlows.map((cf: any) => ({
+            paymentDate: cf.paymentDate,
+            interestAmount: (cf.interestAmount || 0) / 1000000000,
+            principalAmount: (cf.principalAmount || 0) / 1000000000,
+            totalCashflow: (cf.totalCashflow || 0) / 1000000000,
+            bondRate: cf.bondRate || 0,
+          }))
+        : baseBond.cashFlows,
+      ...(issuerName ? { issuerName } : {}),
+    };
+  };
+
   const handleReset = () => {
     setComparisonBonds([]);
     setIsSearching(false);
     setSearchTerm('');
   };
 
+  const saveSelectedBondsToWatchlist = (bondsToSave: Bond[]) => {
+    if (bondsToSave.length === 0) {
+      setWatchlistNotice({
+        tone: 'error',
+        text: t('watchlistSaveFailed'),
+      });
+      return;
+    }
+
+    const results = bondsToSave.map((bond) => upsertWatchlistItemWithStatus({
+      ...bond,
+      issuerName: bond.enterpriseId || bond.code,
+      ticker: bond.enterpriseId || '',
+      bondType: (bond as Bond & { bondType?: string }).bondType || '',
+    }));
+
+    const hasHardFailure = results.some((result) => !result.persistedToLocalStorage && !result.usedFallback);
+    const hasFallbackOnly = results.some((result) => !result.persistedToLocalStorage && result.usedFallback);
+
+    if (hasHardFailure) {
+      setWatchlistNotice({
+        tone: 'error',
+        text: t('watchlistSaveFailed'),
+      });
+      return;
+    }
+
+    if (hasFallbackOnly) {
+      setWatchlistNotice({
+        tone: 'warning',
+        text: t('watchlistSavedTemporary'),
+      });
+      return;
+    }
+
+    setWatchlistNotice({
+      tone: 'success',
+      text: t('addToWatchlistSuccess'),
+    });
+  };
+
+  const handleOpenWatchlistPicker = () => {
+    if (selectedBonds.length <= 1) {
+      saveSelectedBondsToWatchlist(selectedBonds);
+      return;
+    }
+
+    setWatchlistSelections(
+      selectedBonds.reduce<Record<string, boolean>>((acc, bond) => {
+        acc[bond.code] = true;
+        return acc;
+      }, {})
+    );
+    setShowWatchlistPicker(true);
+  };
+
+  const handleToggleAllWatchlist = () => {
+    const nextChecked = !allWatchlistSelected;
+    setWatchlistSelections(
+      selectedBonds.reduce<Record<string, boolean>>((acc, bond) => {
+        acc[bond.code] = nextChecked;
+        return acc;
+      }, {})
+    );
+  };
+
+  const handleSaveWatchlist = () => {
+    const bondsToSave = selectedBonds.filter((bond) => watchlistSelections[bond.code]);
+    saveSelectedBondsToWatchlist(bondsToSave);
+    setShowWatchlistPicker(false);
+  };
+
   const chartColors = {
-    primary: isDark ? '#5c6bc0' : '#3634B3',
-    secondary: isDark ? '#ff8a65' : '#ff7043',
-    tertiary: isDark ? '#4db6ac' : '#00897b',
+    primary: isDark ? '#3b82f6' : '#2563eb',
+    secondary: isDark ? '#94a3b8' : '#64748b',
+    tertiary: isDark ? '#10b981' : '#059669',
     quaternary: isDark ? '#444' : '#ccc'
   };
 
   const legendStyle = {
     fontSize: 10,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
 
   const axisLabelStyle = {
     fontSize: 10,
     color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
     fontWeight: 'bold'
   };
 
-  const getTimelineOptions = () => {
-    if (!selectedBonds || selectedBonds.length === 0) {
-      throw new Error('No bonds available for timeline');
-    }
-    
-    // Validate and parse years, filtering out invalid dates
-    const years = selectedBonds
-      .filter(b => b && b.maturityDate)
-      .map(b => {
-        try {
-          const date = new Date(b.maturityDate);
-          const year = date.getFullYear();
-          return isNaN(year) ? null : year;
-        } catch (e) {
-          console.warn('[getTimelineOptions] Failed to parse date for bond:', b.code, e);
-          return null;
-        }
-      })
-      .filter((y): y is number => y !== null)
-      .sort((a, b) => a - b);
-    
-    // Fallback if no valid years
-    if (years.length === 0) {
-      const currentYear = new Date().getFullYear();
-      years.push(currentYear, currentYear + 1);
-    }
-    
-    const minYear = Math.min(...years) - 1;
-    const maxYear = Math.max(...years) + 1;
-    
-    // Group by year to handle overlapping
-    const yearGroups: Record<number, number> = {};
-    const data = selectedBonds.map(b => {
-      const date = new Date(b.maturityDate);
-      const yr = date.getFullYear();
-      if (isNaN(yr)) {
-        return {
-          name: b.code,
-          value: [new Date().getFullYear(), 0],
-          isPrimary: b.code === primaryBond.code,
-          labelOffset: -12,
-          labelPosition: 'top' as const
-        };
-      }
-      const count = yearGroups[yr] || 0;
-      yearGroups[yr] = count + 1;
-      
-      return {
-        name: b.code,
-        value: [yr, 0],
-        isPrimary: b.code === primaryBond.code,
-        // Alternate position for overlapping years
-        labelOffset: count % 2 === 0 ? -12 : 12,
-        labelPosition: count % 2 === 0 ? 'top' : 'bottom'
-      };
-    });
+  const tooltipTextStyle = { ...getChartTooltip(isDark).textStyle, fontSize: 10 };
+  const chartTooltip = getChartTooltip(isDark);
 
-    return {
-      grid: { top: 60, bottom: 60, left: 50, right: 50 },
-      xAxis: {
-        type: 'value',
-        min: minYear,
-        max: maxYear,
-        interval: 1,
-        axisLine: { lineStyle: { color: isDark ? '#333' : '#eee' } },
-        splitLine: { show: false },
-        axisLabel: { 
-          formatter: '{value}',
-          color: isDark ? '#888' : '#333',
-          fontWeight: 'bold',
-          margin: 15,
-          fontFamily: 'Inter'
+  const renderBondTimeline = () => {
+    const bonds = selectedBonds
+      .map((bond, sourceIndex) => {
+        const timestamp = parseDateToTimestamp(bond.maturityDate);
+        if (timestamp === null) return null;
+        const date = new Date(timestamp);
+        const todayUtc = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
+        const diffDays = Math.ceil((timestamp - todayUtc) / (1000 * 60 * 60 * 24));
+        const isUpcoming = diffDays <= 180;
+        const statusAccent =
+          diffDays < 30
+            ? {
+                chip: 'border-red-100 bg-red-50 text-red-600 dark:border-red-400/30 dark:bg-red-900/20 dark:text-red-400',
+                connector: 'bg-red-200 dark:bg-red-400/50',
+                marker: 'border-red-500 bg-red-500 shadow-sm shadow-red-200 dark:border-red-400 dark:bg-red-400',
+                date: 'text-red-600 dark:text-red-400',
+              }
+            : diffDays <= 90
+              ? {
+                  chip: 'border-orange-100 bg-orange-50 text-orange-600 dark:border-orange-400/30 dark:bg-orange-900/20 dark:text-orange-400',
+                  connector: 'bg-orange-200 dark:bg-orange-400/50',
+                  marker: 'border-orange-500 bg-orange-400 shadow-sm shadow-orange-200 dark:border-orange-400 dark:bg-orange-400',
+                  date: 'text-orange-600 dark:text-orange-400',
+                }
+              : diffDays <= 180
+                ? {
+                    chip: 'border-yellow-100 bg-yellow-50 text-yellow-700 dark:border-yellow-400/30 dark:bg-yellow-900/20 dark:text-yellow-300',
+                    connector: 'bg-yellow-200 dark:bg-yellow-400/50',
+                    marker: 'border-yellow-500 bg-yellow-400 shadow-sm shadow-yellow-200 dark:border-yellow-400 dark:bg-yellow-400',
+                    date: 'text-yellow-700 dark:text-yellow-300',
+                  }
+                : null;
+        const codeLabelWidth = Math.min(132, Math.max(72, bond.code.length * 10 + 24));
+
+        return {
+          bond,
+          timestamp,
+          date,
+          issuerName: getDisplayIssuerName(bond),
+          maturityLabel: formatDate(bond.maturityDate),
+          highlight: isUpcoming,
+          statusAccent,
+          codeLabelWidth,
+          sourceIndex,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    if (bonds.length === 0) {
+      return (
+        <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+          <div className="flex h-56 items-center justify-center rounded-xl border border-dashed border-border-base bg-bg-base/40 text-sm font-medium text-text-muted">
+            {t('noData')}
+          </div>
+        </div>
+      );
+    }
+
+    const sortedByTime = [...bonds].sort((left, right) => left.timestamp - right.timestamp);
+    const now = new Date();
+    const currentMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const maxBondTimestamp = sortedByTime[sortedByTime.length - 1].timestamp;
+    const currentTime = currentMonthStart.getTime();
+    const currentYearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    const maxBondYear = new Date(maxBondTimestamp).getUTCFullYear();
+    const endYear = Math.max(currentYearStart.getUTCFullYear() + 1, maxBondYear + 1);
+    const endTime = Date.UTC(endYear, 0, 1);
+
+    const minDate = currentMonthStart;
+    const maxDate = new Date(endTime);
+    const minYear = minDate.getUTCFullYear();
+    const maxYear = maxDate.getUTCFullYear();
+    const yearCount = Math.max(1, maxYear - minYear + 1);
+    const axisPadding = 72;
+    const width = Math.max(bonds.length <= 2 ? 880 : 1200, yearCount * 260, bonds.length * 220);
+    const plotWidth = width - axisPadding * 2;
+    const scale = plotWidth / Math.max(1, maxDate.getTime() - minDate.getTime());
+    const labelGap = 18;
+    const codeRowSpacing = 48;
+    const dateRowSpacing = 22;
+    const codeRows: Array<Array<{ start: number; end: number }>> = [];
+    const dateRows: Array<Array<{ start: number; end: number }>> = [];
+
+    const placeInRows = (
+      rows: Array<Array<{ start: number; end: number }>>,
+      start: number,
+      end: number,
+    ) => {
+      let rowIndex = 0;
+      while (true) {
+        const row = rows[rowIndex] ?? [];
+        const hasCollision = row.some(
+          (interval) => end > interval.start - labelGap && start < interval.end + labelGap,
+        );
+        if (!hasCollision) {
+          row.push({ start, end });
+          rows[rowIndex] = row;
+          return rowIndex;
         }
-      },
-      yAxis: { show: false, min: -1, max: 1 },
-      series: [
-        {
-          type: 'line',
-          data: [[minYear, 0], [maxYear, 0]],
-          lineStyle: { color: isDark ? '#333' : '#eee', width: 2 },
-          symbol: 'none',
-          silent: true
-        },
-        {
-          type: 'scatter',
-          data: data.map(d => ({
-            ...d,
-            itemStyle: { color: d.isPrimary ? '#3634B3' : (isDark ? '#444' : '#ccc') },
-            label: {
-              show: true,
-              position: d.labelPosition,
-              formatter: '{b}',
-              fontWeight: 'bold',
-              fontSize: 10,
-              fontFamily: 'Inter',
-              backgroundColor: d.isPrimary ? '#3634B3' : (isDark ? '#222' : '#f0f0f0'),
-              color: d.isPrimary ? '#fff' : (isDark ? '#eee' : '#555'),
-              padding: [4, 8],
-              borderRadius: 4,
-              offset: [0, d.labelOffset]
-            }
-          })),
-          symbolSize: 12,
-          emphasis: { scale: 1.2 }
-        }
-      ]
+        rowIndex += 1;
+      }
     };
+
+    const timelineItems = bonds.map((item) => {
+      const markerLeft = axisPadding + (item.timestamp - minDate.getTime()) * scale;
+      const codeRowIndex = placeInRows(
+        codeRows,
+        markerLeft - item.codeLabelWidth / 2,
+        markerLeft + item.codeLabelWidth / 2,
+      );
+      const markerDateLabel = `T${item.date.getUTCMonth() + 1}/${item.date.getUTCFullYear()}`;
+      const dateLabelWidth = Math.max(48, markerDateLabel.length * 8);
+      const dateRowIndex = placeInRows(
+        dateRows,
+        markerLeft - dateLabelWidth / 2,
+        markerLeft + dateLabelWidth / 2,
+      );
+
+      return { ...item, markerLeft, codeRowIndex, dateRowIndex, markerDateLabel };
+    });
+    const maxCodeRowIndex = Math.max(...timelineItems.map((item) => item.codeRowIndex));
+    const maxDateRowIndex = Math.max(...timelineItems.map((item) => item.dateRowIndex));
+    const axisTop = 96 + maxCodeRowIndex * codeRowSpacing;
+    const height = axisTop + 88 + maxDateRowIndex * dateRowSpacing;
+    const timelineStartYearLabel = `${minDate.getUTCFullYear()}`;
+    return (
+      <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+            <Activity className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-text-base md:text-lg">{t('maturityTimeline')}</h2>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto overflow-y-visible custom-scrollbar">
+          <div className="relative mx-auto" style={{ width: `${width}px`, height: `${height}px` }}>
+            <div
+              className="absolute border-t-2 border-blue-200 dark:border-blue-500/40"
+              style={{ left: `${axisPadding}px`, right: `${axisPadding}px`, top: `${axisTop}px` }}
+            />
+
+            <div className="absolute" style={{ left: `${axisPadding}px`, top: `${axisTop}px` }}>
+              <div className="h-3 w-px -translate-x-1/2 bg-border-base/80" />
+              <div className="mt-2 -translate-x-1/2 whitespace-nowrap text-xs font-bold text-text-base">
+                {timelineStartYearLabel}
+              </div>
+            </div>
+
+            {timelineItems.map((item) => {
+              const codeTop = axisTop - 34 - item.codeRowIndex * codeRowSpacing;
+              const connectorTop = codeTop + 30;
+              const connectorHeight = Math.max(14, axisTop - connectorTop);
+              const dateTop = axisTop + 18 + item.dateRowIndex * dateRowSpacing;
+              const isDecemberLabel = item.date.getUTCMonth() === 11;
+              const isNearTimelineEnd = item.markerLeft > width - axisPadding - 120;
+              const dateShiftLeft = isDecemberLabel && isNearTimelineEnd ? 14 : 0;
+
+              return (
+                <div
+                  key={`${item.bond.code}-${item.sourceIndex}`}
+                  className="absolute inset-y-0 z-0 hover:z-50"
+                  style={{ left: `${item.markerLeft}px` }}
+                >
+                  <div
+                    className={`group absolute left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap rounded-lg border px-3 py-1 text-center text-xs font-bold shadow-sm ${
+                      item.statusAccent?.chip ?? 'border-border-base bg-bg-base text-text-base'
+                    }`}
+                    style={{ top: `${codeTop}px`, minWidth: `${item.codeLabelWidth}px` }}
+                  >
+                    {item.bond.code}
+                    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 hidden w-56 -translate-x-1/2 rounded-xl border border-border-base bg-bg-surface p-3 text-left shadow-2xl group-hover:block">
+                      <p className="text-sm font-bold text-text-base">{item.bond.code}</p>
+                      <p className="mt-1 text-xs font-medium text-text-muted">{t('maturityDate')}: {item.maturityLabel}</p>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`absolute left-1/2 w-px -translate-x-1/2 ${
+                      item.statusAccent?.connector ?? 'bg-blue-200 dark:bg-blue-500/40'
+                    }`}
+                    style={{ top: `${connectorTop}px`, height: `${connectorHeight}px` }}
+                  />
+
+                  <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ top: `${axisTop}px` }}>
+                    <div
+                      className={`h-3 w-3 rounded-full border-2 ${
+                        item.statusAccent?.marker ?? 'border-blue-500 bg-bg-surface'
+                      }`}
+                    />
+                  </div>
+
+                  <div
+                    className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-semibold ${
+                      item.statusAccent?.date ?? 'text-text-muted'
+                    }`}
+                    style={{ top: `${dateTop}px`, marginLeft: `${-dateShiftLeft}px` }}
+                  >
+                    {item.markerDateLabel}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const getScaleOptions = () => {
@@ -614,27 +904,29 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     }
     
     const labels = {
-      volume: t('issuedVolume'),
+      volume: t('listedVolume'),
       value: t('issuedValue'),
       listed: t('listedValue')
     };
     
     return {
+      color: chartPalette,
       tooltip: { 
-        trigger: 'axis', 
+        ...chartTooltip,
+        trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        backgroundColor: isDark ? '#1e293b' : '#fff',
+        confine: true,
         borderColor: isDark ? '#334155' : '#e2e8f0',
-        textStyle: { color: isDark ? '#f1f5f9' : '#1e293b', fontFamily: 'Inter', fontSize: 12 },
+        textStyle: tooltipTextStyle,
         formatter: (params: any) => {
           let res = `<div style="font-weight: bold; margin-bottom: 4px;">${params[0].name}</div>`;
           params.forEach((p: any) => {
             let unit = '';
 
             if (p.seriesName === labels.value || p.seriesName === labels.listed) {
-              unit = ` ${t('unitBillionVND')}`; // tỷ VNĐ
+              unit = ` ${t('unitBillionVND')}`; // tá»· VNÄ
             } else if (p.seriesName === labels.volume) {
-              unit = ` ${t('bondunits')}`; // trái phiếu
+              unit = ` ${t('bondunits')}`; // trÃ¡i phiáº¿u
             }
 
             res += `
@@ -643,8 +935,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
                   <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${p.color};"></span>
                   <span style="font-size: 11px;">${p.seriesName}</span>
                 </span>
-                <span style="font-weight: bold; font-family: 'JetBrains Mono';">
-                  ${formatValue(p.value)}${unit}
+                <span style="font-weight: bold; font-family: 'Manrope';">
+                  ${highlightChartTooltipValue(formatValue(p.value), unit)}
                 </span>
               </div>`;
           });
@@ -671,6 +963,10 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           type: 'value',
           splitLine: { lineStyle: { color: isDark ? '#333' : '#eee', type: 'dashed' } },
           axisLabel: { ...axisLabelStyle, formatter: (val: number) => formatNumber(val, 2) },
+          name: t('unitBillionVND'),
+          nameLocation: 'end',
+          nameGap: 14,
+          nameTextStyle: { ...axisLabelStyle, fontWeight: 'bold' },
           axisLine: { show: false }
         },
         { 
@@ -685,15 +981,15 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           name: labels.value,
           type: 'bar',
           barWidth: 15,
-          data: selectedBonds.map(b => b.issuedValue),
-          itemStyle: { color: isDark ? '#5c6bc0' : '#3634B3', borderRadius: [2, 2, 0, 0] }
+          data: selectedBonds.map(b => scaleBondValue(b.issuedValue)),
+          itemStyle: { borderRadius: [2, 2, 0, 0] }
         },
         {
           name: labels.listed,
           type: 'bar',
           barWidth: 15,
-          data: selectedBonds.map(b => b.listedValue),
-          itemStyle: { color: isDark ? '#ff8a65' : '#ff7043', borderRadius: [2, 2, 0, 0] }
+          data: selectedBonds.map(b => scaleBondValue(b.listedValue)),
+          itemStyle: { borderRadius: [2, 2, 0, 0] }
         },
         {
           name: labels.volume,
@@ -702,8 +998,8 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
           data: selectedBonds.map(b => b.listedVolume),
           symbol: 'circle',
           symbolSize: 8,
-          lineStyle: { width: 3, color: isDark ? '#4db6ac' : '#00897b' },
-          itemStyle: { color: isDark ? '#4db6ac' : '#00897b' }
+          lineStyle: { width: 3 },
+          itemStyle: { }
         }
       ]
     };
@@ -715,13 +1011,15 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     }
     
     return {
+      color: chartPalette,
       tooltip: { 
-        trigger: 'axis', 
+        ...chartTooltip,
+        trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        backgroundColor: isDark ? '#1e293b' : '#fff',
+        confine: true,
         borderColor: isDark ? '#334155' : '#e2e8f0',
-        textStyle: { color: isDark ? '#f1f5f9' : '#1e293b', fontFamily: 'Inter', fontSize: 12 },
-        formatter: (params: any) => `${params[0].name}: <b>${formatInterestRate(params[0].value)}%</b>`
+        textStyle: tooltipTextStyle,
+        formatter: (params: any) => `${params[0].name}: ${highlightChartTooltipValue(formatInterestRate(params[0].value), '%')}`
       },
       grid: { left: '3%', right: '4%', bottom: '15%', top: '10%', containLabel: true },
       xAxis: {
@@ -734,17 +1032,20 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       yAxis: { 
         type: 'value', 
         splitLine: { lineStyle: { color: isDark ? '#333' : '#eee', type: 'dashed' } },
-        axisLabel: { ...axisLabelStyle, formatter: '{value}%' },
+        axisLabel: { ...axisLabelStyle, formatter: '{value}' },
+        name: '%',
+        nameLocation: 'end',
+        nameGap: 14,
+        nameTextStyle: { ...axisLabelStyle, fontWeight: 'bold' },
         axisLine: { show: false }
       },
       series: [
         {
-          name: 'Lãi suất',
+          name: t('interestRate'),
           type: 'bar',
           barWidth: 30,
           data: selectedBonds.map(b => b.interestRate),
           itemStyle: { 
-            color: isDark ? '#5c6bc0' : '#3634B3',
             borderRadius: [4, 4, 0, 0] 
           },
           label: {
@@ -752,7 +1053,7 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
             position: 'top',
             formatter: (params: any) => `${formatInterestRate(params.value)}%`,
             fontWeight: 'bold',
-            fontFamily: 'JetBrains Mono',
+            fontFamily: 'Manrope',
             fontSize: 11,
             color: isDark ? '#9ca3af' : '#64748b'
           }
@@ -774,14 +1075,206 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
     return formatted;
   };
 
+  const formatComparisonLabel = (value: string) => {
+    const text = String(value || '').trim();
+    if (!text) return '-';
+    return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+  };
+
+  const getDisplayIssuerName = (bond: Bond) => {
+    const fallbackName = String(
+      (bond as any).issuerName
+      || (bond as any).enterpriseName
+      || (bond.code === primaryBond.code ? primaryEnterpriseName : '')
+      || bond.enterpriseId
+      || '-',
+    ).trim() || '-';
+
+    return String(t(fallbackName as any, bond.enterpriseId) || fallbackName).trim() || '-';
+  };
+
+  const getDisplayBondType = (bond: Bond) =>
+    getLocalizedBondType((bond as Bond & { bondType?: string }).bondType, language) || '-';
+
+  const getDisplayInterestType = (bond: Bond) =>
+    getLocalizedInterestType(bond.interestType, t) || '-';
+
+  const getDisplayStatus = (bond: Bond) =>
+    getLocalizedBondStatus(bond.status, language, t) || '-';
+
+  const detailRows = [
+    {
+      key: 'code',
+      label: formatComparisonLabel(t('bondCode')),
+      value: (bond: Bond) => bond.code,
+    },
+    {
+      key: 'issuerName',
+      label: formatComparisonLabel(t('issuer')),
+      value: (bond: Bond) => getDisplayIssuerName(bond),
+    },
+    {
+      key: 'term',
+      label: `${formatComparisonLabel(t('term'))} (${t('monthUnit')})`,
+      value: (bond: Bond) => bond.term.replace(/[^0-9]/g, '') || '-',
+    },
+    {
+      key: 'interestRate',
+      label: `${formatComparisonLabel(t('interestRate'))} (%)`,
+      value: (bond: Bond) => formatNumber(bond.interestRate, 2),
+    },
+    {
+      key: 'issueDate',
+      label: formatComparisonLabel(t('issueDate')),
+      value: (bond: Bond) => formatDate(bond.issueDate),
+    },
+    {
+      key: 'maturityDate',
+      label: formatComparisonLabel(t('maturityDate')),
+      value: (bond: Bond) => formatDate(bond.maturityDate),
+    },
+    {
+      key: 'listedVolume',
+      label: formatComparisonLabel(t('listedVolume')),
+      value: (bond: Bond) => formatValue(bond.listedVolume),
+    },
+    {
+      key: 'issuedValue',
+      label: `${formatComparisonLabel(t('issuedValue'))} (${t('unitBillionVND')})`,
+      value: (bond: Bond) => formatComparisonValue(bond.issuedValue),
+    },
+    {
+      key: 'listedValue',
+      label: `${formatComparisonLabel(t('listedValue'))} (${t('unitBillionVND')})`,
+      value: (bond: Bond) => formatComparisonValue(bond.listedValue),
+    },
+  ];
+
+  useEffect(() => {
+    if (selectedBonds.length === 0) return;
+
+    const bonds = selectedBonds.map((bond) => {
+      return {
+        code: bond.code,
+        issuerSymbol: bond.enterpriseId || '',
+        issuerName: getDisplayIssuerName(bond),
+        termMonths: bond.term.replace(/[^0-9]/g, '') || '-',
+        interestRate: `${formatInterestRate(Number(bond.interestRate || 0))}%`,
+        issueDate: formatDate(bond.issueDate),
+        maturityDate: formatDate(bond.maturityDate),
+        listedVolume: formatValue(Number(bond.listedVolume || 0)),
+        issuedValueBillion: formatComparisonValue(bond.issuedValue),
+        listedValueBillion: formatComparisonValue(bond.listedValue),
+        interestType: getDisplayInterestType(bond),
+        bondType: getDisplayBondType(bond),
+        status: getDisplayStatus(bond),
+      };
+    });
+
+    const byInterestRate = [...selectedBonds].sort(
+      (left, right) => Number(right.interestRate || 0) - Number(left.interestRate || 0),
+    );
+    const byMaturity = [...selectedBonds].sort((left, right) => {
+      const leftTs = parseDateToTimestamp(left.maturityDate) ?? Number.MAX_SAFE_INTEGER;
+      const rightTs = parseDateToTimestamp(right.maturityDate) ?? Number.MAX_SAFE_INTEGER;
+      return leftTs - rightTs;
+    });
+    const byIssuedValue = [...selectedBonds].sort(
+      (left, right) => scaleBondValue(right.issuedValue) - scaleBondValue(left.issuedValue),
+    );
+
+    setBondChatContext({
+      kind: 'bond-comparison',
+      routePathname: `/${primaryBond.code}`,
+      label: t('bondComparisonTitle'),
+      bondCodes: selectedBonds.map((bond) => bond.code),
+      issuerSymbols: Array.from(
+        new Set(selectedBonds.map((bond) => String(bond.enterpriseId || '').trim()).filter(Boolean)),
+      ),
+      dataset: {
+        route: `/${primaryBond.code || ''}`,
+        page: 'bond-comparison',
+        title: t('bondComparisonTitle'),
+        bondCodes: selectedBonds.map((bond) => bond.code),
+        totalBonds: selectedBonds.length,
+        primaryBondCode: primaryBond.code,
+        comparisonSummary: {
+          highestInterestRateBond: byInterestRate[0]
+            ? {
+                code: byInterestRate[0].code,
+                interestRate: `${formatInterestRate(Number(byInterestRate[0].interestRate || 0))}%`,
+              }
+            : null,
+          earliestMaturityBond: byMaturity[0]
+            ? {
+                code: byMaturity[0].code,
+                maturityDate: formatDate(byMaturity[0].maturityDate),
+              }
+            : null,
+          largestIssuedValueBond: byIssuedValue[0]
+            ? {
+                code: byIssuedValue[0].code,
+                issuedValueBillion: formatComparisonValue(byIssuedValue[0].issuedValue),
+              }
+            : null,
+        },
+        bonds,
+        detailTable: detailRows.map((row) => ({
+          label: row.label,
+          values: selectedBonds.map((bond) => ({
+            code: bond.code,
+            value: row.value(bond),
+          })),
+        })),
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    return () => {
+      clearBondChatContext(selectedBonds.map((bond) => bond.code));
+    };
+  }, [detailRows, primaryBond.code, primaryEnterpriseName, selectedBonds, t]);
+
+  const handleExportComparison = async () => {
+    if (selectedBonds.length === 0) return;
+
+    setExportLoading(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+        exportRowsToExcel({
+        fileNameBase: 'Bond_Comparison',
+        sheetName: t('bondComparisonTitle'),
+        rows: detailRows,
+        columns: [
+          { header: t('information'), value: (row) => row.label },
+          ...selectedBonds.map((bond) => ({
+            header: bond.code,
+            value: (row: (typeof detailRows)[number]) => row.value(bond),
+          })),
+        ],
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   // Safe wrapper for chart rendering with error boundary
-  const safeRenderChart = (optionsGetter: () => any, fallbackMessage: string = 'Lỗi hiển thị biểu đồ') => {
+  const safeRenderChart = (
+    optionsGetter: () => any,
+    fallbackMessage: string = 'Display Error',
+    allowMagicType = false
+  ) => {
     try {
       console.log(`[safeRenderChart] Rendering ${fallbackMessage}`);
       const options = optionsGetter();
       if (!options) throw new Error('Options generator returned null');
       return (
-        <ReactECharts option={options} style={{ height: '100%', width: '100%' }} />
+        <ChartWithToolbar
+          option={options}
+          style={{ height: '100%', width: '100%' }}
+          allowMagicType={allowMagicType}
+        />
       );
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -789,7 +1282,49 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
       return (
         <div className="w-full h-full flex items-center justify-center flex-col gap-2 text-text-muted text-xs p-4">
           <span className="font-bold">{fallbackMessage}</span>
-          <span className="text-[10px] text-text-muted/60">{errorMsg}</span>
+          <span className="text-xs text-text-muted/60">{errorMsg}</span>
+        </div>
+      );
+    }
+  };
+
+  const renderChartCard = (
+    optionsGetter: () => any,
+    title: string,
+    titleIcon: any,
+    heightClass: string = 'h-[420px]',
+    allowMagicType = false,
+    showToolbar = true,
+  ) => {
+    try {
+      const options = optionsGetter();
+      if (!options) throw new Error('Options generator returned null');
+
+      return (
+        <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+          <div className={heightClass}>
+            <ChartWithToolbar
+              option={options}
+              style={{ height: '100%', width: '100%' }}
+              allowMagicType={allowMagicType}
+              showToolbar={showToolbar}
+              title={title}
+              titleIcon={titleIcon}
+            />
+          </div>
+        </div>
+      );
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[renderChartCard] ${title}:`, errorMsg, error);
+      return (
+        <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+          <div className="flex h-[280px] items-center justify-center rounded-xl border border-dashed border-border-base bg-bg-base/40 text-center">
+            <div>
+              <p className="text-sm font-bold text-text-base">{title}</p>
+              <p className="mt-1 text-xs text-text-muted">{errorMsg}</p>
+            </div>
+          </div>
         </div>
       );
     }
@@ -797,211 +1332,294 @@ function BondComparisonPopup({ primaryBond, onClose, onBack }: BondComparisonPop
 
   return (
     <div 
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-300"
-      onClick={onClose}
+      className={
+        embedded
+          ? 'flex w-full justify-end bg-bg-base'
+          : `fixed inset-0 z-40 flex justify-end bg-bg-base animate-in fade-in duration-300 ${
+              sidebarDisplayMode === 'expanded'
+                ? 'lg:left-72'
+                : sidebarDisplayMode === 'collapsed'
+                  ? 'lg:left-16'
+                  : 'lg:left-0'
+            }`
+      }
+      onClick={embedded ? undefined : onClose}
     >
       <div 
-        className="bg-bg-surface w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col transition-colors"
-        onClick={(e) => e.stopPropagation()}
+        className={
+          embedded
+            ? 'relative flex min-h-full w-full flex-col bg-bg-base transition-colors'
+            : 'relative flex h-full w-screen flex-col overflow-y-auto overflow-x-hidden border-l border-border-base bg-bg-base custom-scrollbar transition-colors animate-in slide-in-from-right duration-300'
+        }
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="p-6 border-b border-border-base flex items-center justify-between transition-colors">
-          <div className="flex items-center gap-6">
-            <button 
-              onClick={onBack}
-              className="flex items-center gap-2 text-text-muted hover:text-text-base transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="text-sm font-bold">{t('back')}</span>
-            </button>
-            <div>
-              <h3 className="text-xl font-bold text-text-base leading-tight transition-colors">{t('bondComparisonTitle')}</h3>
-              <p className="text-xs text-text-muted transition-colors">{t('bondComparisonSubtitle')}</p>
-            </div>
+        {watchlistNotice && (
+          <div
+            className={
+              watchlistNotice.tone === 'success'
+                ? 'absolute right-6 top-20 z-40 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-lg'
+                : watchlistNotice.tone === 'warning'
+                  ? 'absolute right-6 top-20 z-40 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 shadow-lg'
+                  : 'absolute right-6 top-20 z-40 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-lg'
+            }
+          >
+            {watchlistNotice.text}
           </div>
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={handleReset}
-              className="flex items-center gap-2 text-text-muted hover:text-text-base transition-colors"
-            >
-              <RotateCcw className="h-4 w-4" />
-              <span className="text-sm font-bold">{t('reset')}</span>
-            </button>
-            <button 
-              onClick={onClose}
-              className="p-2 hover:bg-bg-base rounded-full transition-colors text-text-muted hover:text-text-base"
-            >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-        </div>
+        )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-12 transition-colors">
-          {/* Selected Pills */}
-          <div className="flex flex-wrap gap-3 items-center">
-            {selectedBonds.map((b) => (
-              <div 
-                key={b.id}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
-                  b.code === primaryBond.code 
-                    ? 'bg-[#3634B3] border-[#3634B3] text-white' 
-                    : 'bg-bg-base border-border-base text-text-base'
-                }`}
-              >
-                <span className="text-sm font-bold tracking-tight">{b.code}</span>
-                {b.code === primaryBond.code ? (
-                  <Check className="h-3 w-3" />
-                ) : (
-                  <button 
-                    onClick={() => handleRemoveBond(b.id)}
-                    className="hover:text-rose-500 transition-colors"
+        <div className="w-full">
+          <div className="mx-auto flex w-full max-w-screen-2xl flex-col gap-6 px-4 py-4 transition-colors md:px-6 md:py-5">
+            <div className="bg-transparent">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <button
+                    onClick={onBack}
+                    aria-label={t('back')}
+                    title={t('back')}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
                   >
-                    <X className="h-3 w-3" />
+                    <ArrowLeft className="h-4 w-4" />
                   </button>
-                )}
-              </div>
-            ))}
-            
-            {!isSearching ? (
-              <button 
-                onClick={() => setIsSearching(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-transparent border border-dashed border-border-base text-text-muted rounded-full hover:border-[#3634B3] hover:text-[#3634B3] transition-all"
-              >
-                <Plus className="h-4 w-4" />
-                <span className="text-sm font-bold">{t('addBond')}</span>
-              </button>
-            ) : (
-              <div className="relative">
-                <div className="flex items-center gap-2 px-4 py-1.5 bg-bg-base border border-[#3634B3] rounded-full">
-                  <Search className="h-3.5 w-3.5 text-text-muted" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('searchBondPlaceholder') || "Nhập mã..."}
-                    className="bg-transparent border-none outline-none text-sm font-bold w-32 md:w-48 text-text-base"
-                  />
-                  {searching && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
-                  <button onClick={() => {
-                    setIsSearching(false);
-                    setSearchTerm('');
-                    setSuggestions([]);
-                  }}>
-                    <X className="h-3.5 w-3.5 text-text-muted hover:text-text-base" />
+                  <div className="min-w-0">
+                    <h3 className="truncate text-lg font-bold leading-tight text-text-base transition-colors md:text-xl">
+                      {t('bondComparisonTitle')}
+                    </h3>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={handleReset}
+                    className="inline-flex items-center gap-2 rounded-full border border-border-base bg-white px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-base shadow-sm shadow-blue-950/10 transition-colors hover:border-blue-200 hover:bg-slate-50 hover:text-blue-600 hover:shadow-md dark:bg-surface-bright dark:text-text-base dark:hover:bg-surface-container-low"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    <span>{t('reset')}</span>
+                  </button>
+                <button
+                  type="button"
+                  onClick={handleOpenWatchlistPicker}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
+                >
+                    <Bookmark className="h-4 w-4" />
+                    {t('follow')}
                   </button>
                 </div>
-                
-                {suggestions.length > 0 && (
-                  <div className="absolute top-full left-0 mt-2 w-full min-w-[240px] bg-bg-surface border border-border-base rounded-2xl shadow-2xl z-20 max-h-64 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
-                    <div className="p-2 border-b border-border-base bg-bg-base/30">
-                      <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider px-2">{t('searchResult') || "Kết quả tìm kiếm"}</span>
-                    </div>
-                    {suggestions.map(bond => (
-                      <button
-                        key={bond.id}
-                        onClick={() => handleAddBond(bond)}
-                        className="w-full text-left px-4 py-3 hover:bg-bg-base flex items-center justify-between border-b border-border-base last:border-none group transition-colors"
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold text-text-base group-hover:text-[#3634B3] transition-colors">{bond.code}</span>
-                          <span className="text-[10px] text-text-muted font-bold uppercase">{t('bond').toUpperCase()}</span>
-                        </div>
-                        <Plus className="h-4 w-4 text-text-muted group-hover:text-[#3634B3] transition-all" />
-                      </button>
-                    ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedBonds.map((b) => (
+                <div 
+                  key={b.id}
+                  className={`flex items-center gap-2 rounded-full border px-4 py-2 transition-all ${
+                    b.code === primaryBond.code 
+                      ? 'border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20' 
+                      : 'border-border-base bg-bg-base text-text-base'
+                  }`}
+                >
+                  <span className="text-sm font-bold tracking-tight">{b.code}</span>
+                  {b.code === primaryBond.code ? (
+                    <Check className="h-3 w-3" />
+                  ) : (
+                    <button 
+                      onClick={() => handleRemoveBond(b.id)}
+                      className="transition-colors hover:text-rose-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              
+              {!isSearching ? (
+                <button 
+                  onClick={() => canAddMoreBonds && setIsSearching(true)}
+                  disabled={!canAddMoreBonds}
+                  className="flex items-center gap-2 rounded-full border border-dashed border-border-base bg-transparent px-4 py-2 text-text-muted transition-all hover:border-blue-600 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border-base disabled:hover:text-text-muted"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="text-sm font-bold">{canAddMoreBonds ? t('addBond') : t('maxTenBonds')}</span>
+                </button>
+              ) : (
+                <div className="relative">
+                  <div className="flex items-center gap-2 rounded-full border border-blue-600 bg-bg-base px-4 py-1.5">
+                    <Search className="h-3.5 w-3.5 text-text-muted" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder={t('searchBondPlaceholder') || "Enter code..."}
+                      className="w-28 border-none bg-transparent text-sm font-bold text-text-base outline-none sm:w-40 md:w-48"
+                    />
+                    {searching && <Loader2 className="h-3 w-3 animate-spin text-text-muted" />}
+                    <button
+                      onClick={() => {
+                        setIsSearching(false);
+                        setSearchTerm('');
+                        setSuggestions([]);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5 text-text-muted hover:text-text-base" />
+                    </button>
                   </div>
-                )}
-                
-                {searchTerm.length >= 2 && suggestions.length === 0 && !searching && (
-                   <div className="absolute top-full left-0 mt-2 w-full min-w-[240px] bg-bg-surface border border-border-base rounded-2xl shadow-xl z-20 p-4 text-center">
-                     <p className="text-xs font-bold text-text-muted italic">{t('noResults') || "Không tìm thấy mã phù hợp"}</p>
-                   </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Timeline */}
-          <div className="space-y-6">
-            <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase">{t('maturityTimeline')}</h4>
-            <div className="h-[120px] bg-bg-base/20 rounded-2xl p-4 transition-colors">
-              {safeRenderChart(() => getTimelineOptions(), 'Lỗi hiển thị Timeline')}
-            </div>
-          </div>
-
-          {/* Issue Scale & Coupon */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-            <div className="space-y-6">
-              <div className="flex items-baseline justify-between border-b border-border-base pb-2">
-                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase">{t('issueScale')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">{t('unitBillionVND')}</span>
-              </div>
-              <div className="h-[250px] transition-colors">
-                {safeRenderChart(() => getScaleOptions(), t('errorIssueScale'))}
-              </div>
-            </div>
-            <div className="space-y-6">
-              <div className="flex items-baseline justify-between border-b border-border-base pb-2">
-                <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase uppercase">{t('interestRate')}</h4>
-                <span className="text-[10px] text-text-muted font-bold tracking-tighter">%</span>
-              </div>
-              <div className="h-[250px] transition-colors">
-                {safeRenderChart(() => getCouponOptions(), t('errorInterestRate'))}
-              </div>
-            </div>
-          </div>
-
-          {/* Detail Table */}
-          <div className="space-y-6">
-            <h4 className="text-sm font-bold text-text-base tracking-widest transition-colors uppercase uppercase">{t('detailedSpecs')}</h4>
-            <div className="rounded-2xl border border-border-base bg-bg-surface overflow-hidden shadow-sm transition-colors overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[600px]">
-                <tbody>
-                  {[
-                    { label: t('bondCode'), key: 'code' },
-                    { label: t('termMonths'), key: 'term', isTerm: true },
-                    { label: t('interestRate'), key: 'interestRate', isRate: true },
-                    { label: t('interestType'), key: 'interestType', isInterestType: true },
-                    { label: t('issueDate'), key: 'issueDate', isDate: true },
-                    { label: t('maturityDate'), key: 'maturityDate', isDate: true },
-                    { label: t('issuedValue'), key: 'issuedValue', isValue: true }
-                  ].map((row, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
-                      <td className="px-6 py-4 text-[10px] font-bold text-text-muted uppercase tracking-wider transition-colors w-[20%]">{row.label}</td>
-                      {selectedBonds.map((b) => (
-                        <td key={b.id} className="px-6 py-4 text-sm font-bold text-text-base transition-colors">
-                          {row.isRate ? formatNumber(b.interestRate, 2) : 
-                           row.isValue ? formatValue(b.issuedValue) :
-                           row.isTerm ? b.term.replace(/[^0-9]/g, '') :
-                           row.isDate ? formatDate((b as any)[row.key]) :
-                           row.isInterestType 
-                            ? (['Fixed', 'Cố định'].includes(b.interestType) 
-                                ? t('fixed') 
-                                : ['Floating', 'Thả nổi', 'Thả Nổi'].includes(b.interestType) 
-                                ? t('floating') 
-                                : b.interestType) :
-                           (b as any)[row.key]}
-                        </td>
+                  
+                  {suggestions.length > 0 && (
+                    <div className="absolute left-0 top-full z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-2xl border border-border-base bg-bg-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200 sm:min-w-0">
+                      <div className="border-b border-border-base bg-bg-base/30 p-2">
+                        <span className="text-[10px] px-2 font-bold uppercase tracking-wider text-text-muted">{t('searchResult') || "Search Results"}</span>
+                      </div>
+                      {suggestions.map((bond) => (
+                        <button
+                          key={bond.id}
+                          onClick={() => handleAddBond(bond)}
+                          className="group flex w-full items-center justify-between border-b border-border-base px-4 py-3 text-left transition-colors hover:bg-bg-base last:border-none"
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold text-text-base transition-colors group-hover:text-blue-600">{bond.code}</span>
+                            <span className="text-[10px] font-bold uppercase text-text-muted">{t('bond').toUpperCase()}</span>
+                          </div>
+                          <Plus className="h-4 w-4 text-text-muted transition-all group-hover:text-blue-600" />
+                        </button>
                       ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    </div>
+                  )}
+                  
+                  {searchTerm.length >= 2 && suggestions.length === 0 && !searching && (
+                    <div className="absolute left-0 top-full z-20 mt-2 w-full rounded-2xl border border-border-base bg-bg-surface p-4 text-center shadow-xl sm:min-w-0">
+                      <p className="text-xs font-bold italic text-text-muted">{t('noResults') || "No results found"}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {renderBondTimeline()}
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {renderChartCard(
+                () => getScaleOptions(),
+                formatComparisonLabel(t('issueScale')),
+                Landmark,
+                'h-[420px]',
+                true,
+              )}
+              {renderChartCard(
+                () => getCouponOptions(),
+                formatComparisonLabel(t('interestRate')),
+                TrendingUp,
+                'h-[420px]',
+                true,
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                  <Info className="h-5 w-5" />
+                </div>
+                <h2 className="text-base font-bold text-text-base md:text-lg">{formatComparisonLabel(t('detailedSpecs'))}</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-[900px] w-full border-collapse text-left">
+                  <tbody>
+                    {detailRows.map((row, idx) => (
+                      <tr key={row.key} className={idx % 2 === 0 ? 'bg-bg-base/10' : ''}>
+                        <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-text-muted">
+                          {row.label}
+                        </td>
+                        {selectedBonds.map((bond) => (
+                          <td key={bond.code} className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-text-base">
+                            {row.value(bond)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
+
+        {showWatchlistPicker && (
+          <div
+            className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+            onClick={() => setShowWatchlistPicker(false)}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl border border-border-base bg-bg-surface p-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h4 className="text-base font-bold text-text-base">{t('selectBondsToWatch')}</h4>
+                <button
+                  type="button"
+                  onClick={() => setShowWatchlistPicker(false)}
+                  className="rounded-full p-2 text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                  aria-label={t('close')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold text-text-base transition-colors hover:bg-bg-base">
+                  <input
+                    type="checkbox"
+                    checked={allWatchlistSelected}
+                    onChange={handleToggleAllWatchlist}
+                    className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>{t('selectAll')}</span>
+                </label>
+
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {selectedBonds.map((bond) => (
+                    <label
+                      key={bond.code}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-2 text-sm font-semibold text-text-base transition-colors hover:bg-bg-base"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(watchlistSelections[bond.code])}
+                        onChange={() => {
+                          setWatchlistSelections((prev) => ({
+                            ...prev,
+                            [bond.code]: !prev[bond.code],
+                          }));
+                        }}
+                        className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{bond.code}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveWatchlist}
+                  disabled={selectedWatchlistCount === 0}
+                  className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-5 py-2 text-xs font-bold uppercase tracking-wider text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('save')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // Export wrapped with error boundary
-export default function BondComparisonPopupWrapper(props: any) {
+export default function BondComparisonPopupWrapper(props: BondComparisonPopupProps) {
   return (
-    <BondComparisonErrorBoundary>
+    <BondComparisonErrorBoundary sidebarDisplayMode={props.sidebarDisplayMode}>
       <BondComparisonPopup {...props} />
     </BondComparisonErrorBoundary>
   );
 }
+
+
