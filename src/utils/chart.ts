@@ -10,19 +10,19 @@ export const CHART_BASE_PALETTE = [
 
 export const CHART_PALETTE = [...CHART_BASE_PALETTE];
 
-// Pie slices ramp through the sidebar-tab gradient: indigo (#4F46E5) →
-// blue (#006FEB) → cyan (#06B6D4), ending on a light cyan for the last slice.
+// Pie slices use a blue-only ramp: the first slice is the primary blue and later
+// slices progressively become lighter shades of blue.
 export const PIE_PALETTE = [
-  '#4F46E5',
-  '#3554E7',
-  '#1B61E9',
-  '#006FEB',
-  '#0287E3',
-  '#049FDC',
-  '#06B6D4',
-  '#36C4DD',
-  '#66D2E6',
-  '#96E1F0',
+  '#2563EB',
+  '#3B82F6',
+  '#60A5FA',
+  '#93C5FD',
+  '#BFDBFE',
+  '#DBEAFE',
+  '#EAF2FF',
+  '#F3F8FF',
+  '#F8FBFF',
+  '#FFFFFF',
 ];
 
 export type ChartThemeMode = 'light' | 'dark';
@@ -108,8 +108,8 @@ export const getChartAreaGradient = (isDark: boolean, index = 0) => {
   return verticalGradient(stops[0], stops[1]);
 };
 
-// Bars use a 3-stop gradient: indigo → blue → cyan.
-const BAR_GRADIENT_STOPS = ['#4F46E5', '#006FEB', '#06B6D4'] as const;
+// Bars use a blue-dominant gradient with only a subtle cyan accent.
+const BAR_GRADIENT_STOPS = ['#2563EB', '#3B82F6', '#0EA5E9'] as const;
 
 const multiStopGradient = (colors: readonly string[], horizontal: boolean): LinearGradient => ({
   type: 'linear',

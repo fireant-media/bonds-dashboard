@@ -381,27 +381,25 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const getMarketShareOptions = () => {
     const hasData = deferredRankingData.length > 0;
     let chartData: { value: number; name: string; itemStyle: { color: string } }[] = [];
-    const totalRemainingDebt = deferredRankingData.reduce((sum, item) => sum + (item.totalRemainingDebt || 0), 0);
 
     if (hasData) {
-      const totalDebt = totalRemainingDebt;
-      const top9 = deferredRankingData.slice(0, 9);
-      const top9Debt = top9.reduce((sum, item) => sum + item.totalRemainingDebt, 0);
-      const othersDebt = totalDebt - top9Debt;
-      
-      chartData = top9.map((item, idx) => {
-        return {
-          value: item.totalRemainingDebt,
-          name: item.issuerSymbol || '',
-          itemStyle: { color: marketSharePalette[idx % marketSharePalette.length] }
-        };
-      });
+      const sortedItems = [...deferredRankingData]
+        .filter((item) => (item.totalRemainingDebt || 0) > 0)
+        .sort((left, right) => (right.totalRemainingDebt || 0) - (left.totalRemainingDebt || 0));
+      const top5 = sortedItems.slice(0, 5);
+      const othersValue = sortedItems.slice(5).reduce((sum, item) => sum + (item.totalRemainingDebt || 0), 0);
 
-      if (othersDebt > 0) {
+      chartData = top5.map((item, idx) => ({
+        value: item.totalRemainingDebt,
+        name: item.issuerSymbol || '',
+        itemStyle: { color: marketSharePalette[idx % marketSharePalette.length] }
+      }));
+
+      if (othersValue > 0) {
         chartData.push({
-          value: othersDebt,
+          value: othersValue,
           name: t('others'),
-          itemStyle: { color: marketSharePalette[9 % marketSharePalette.length] }
+          itemStyle: { color: marketSharePalette[Math.min(5, marketSharePalette.length - 1)] }
         });
       }
     }

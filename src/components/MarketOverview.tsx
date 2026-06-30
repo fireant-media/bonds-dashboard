@@ -399,15 +399,27 @@ export default function MarketOverview() {
     '#7279F5',
     '#94D926',
   ];
-  // Palette for the remaining-debt composition pie (blue → cyan ramp).
+  // Palette for the remaining-debt composition pie, starting from the main blue and fading lighter for later slices.
   const industryPieColors = [
-    '#3554E7',
-    '#006FEB',
-    '#0287E3',
-    '#049FDC',
-    '#36C4DD',
-    '#66D2E6',
+    '#2563EB',
+    '#3B82F6',
+    '#60A5FA',
+    '#93C5FD',
+    '#BFDBFE',
+    '#DBEAFE',
   ];
+  const topIssuerBarColors = ['#1D4ED8', '#93C5FD'] as const;
+  const topIssuerBarGradient = {
+    type: 'linear' as const,
+    x: 0,
+    y: 0,
+    x2: 1,
+    y2: 0,
+    colorStops: [
+      { offset: 0, color: topIssuerBarColors[0] },
+      { offset: 1, color: topIssuerBarColors[1] },
+    ],
+  };
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);
@@ -850,7 +862,6 @@ export default function MarketOverview() {
     }
   }, [industryCompositionMetric, language]);
   const industryCompositionData = useMemo(() => {
-    // Chỉ hiển thị 5 ngành cấp 1 chính, phần còn lại gộp vào "Khác".
     const namedIndustryCodes = new Set(['30', '35', '40', '45', '50']);
     const named: { name: string; value: number }[] = [];
     let othersValue = 0;
@@ -868,11 +879,15 @@ export default function MarketOverview() {
 
     named.sort((left, right) => right.value - left.value);
 
-    if (othersValue > 0) {
-      named.push({ name: language === 'vi' ? 'Khác' : 'Others', value: othersValue });
+    const top5 = named.slice(0, 5);
+    const remainingValue = named.slice(5).reduce((sum, item) => sum + item.value, 0) + othersValue;
+
+    const result = [...top5];
+    if (remainingValue > 0) {
+      result.push({ name: language === 'vi' ? 'Khác' : 'Others', value: remainingValue });
     }
 
-    return named;
+    return result;
   }, [deferredIndustryData, industryCompositionConfig.selectorKey, language, t]);
   const industryVolumeCategories = useMemo(
     () => (industryData.length > 0 ? industryData.map((item) => t(item.icbName as any)) : []),
@@ -1319,7 +1334,10 @@ export default function MarketOverview() {
         data: topIssuerBarData.map((issuer) => topIssuerMetric === 'issuedValue'
           ? roundMetric(toNumber(issuer.totalIssuedValue) / 1_000_000_000, 0)
           : roundMetric(toNumber(issuer.totalRemainingDebt) / 1_000_000_000, 0)),
-        itemStyle: { borderRadius: [0, 4, 4, 0] },
+        itemStyle: {
+          color: topIssuerBarGradient,
+          borderRadius: [0, 4, 4, 0],
+        },
         barWidth: '50%',
       },
     ],
@@ -1530,14 +1548,20 @@ export default function MarketOverview() {
           name: t('issuedVolumeTitle'),
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalIssuedVolume / 1_000_000) : [],
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          itemStyle: {
+            color: topIssuerBarColors[0],
+            borderRadius: [4, 4, 0, 0],
+          },
           barWidth: '30%'
         },
         {
           name: t('listedVolume'),
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalCurrentListedVolume / 1_000_000) : [],
-          itemStyle: { borderRadius: [4, 4, 0, 0] },
+          itemStyle: {
+            color: topIssuerBarColors[1],
+            borderRadius: [4, 4, 0, 0],
+          },
           barWidth: '30%'
         }
     ]

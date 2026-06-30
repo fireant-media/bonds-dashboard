@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Bookmark, BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, RefreshCcw, Search } from 'lucide-react';
+import { EyeOff, Filter, FilterX, ListOrdered, RefreshCcw, Search } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
@@ -35,7 +35,7 @@ import {
 } from './BondFilterPanel';
 import { DataTable, DataTableColumn } from './ui/DataTable';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
-import { createWatchlistItemFromBond, isBondTracked, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItemWithStatus } from '../utils/watchlist';
+import { onWatchlistUpdated } from '../utils/watchlist';
 import { clearViewChatContext, setViewChatContext } from '../utils/viewChatContext';
 
 const MARKET_BOND_FETCH_FALLBACK_LIMIT = 10000;
@@ -828,46 +828,6 @@ export default function MarketBondFilterView({
       widthClassName: 'w-36',
       cell: (row) => (
         <div className="flex min-w-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (isBondTracked(row.bondCode)) {
-                removeWatchlistItemWithStatus(row.bondCode);
-                return;
-              }
-
-              upsertWatchlistItemWithStatus(
-                createWatchlistItemFromBond({
-                  code: row.bondCode,
-                  enterpriseId: row.issuerSymbol,
-                  ticker: row.issuerSymbol,
-                  issuerName: row.issuerName || row.issuerSymbol || row.bondCode,
-                  term: row.tenorPeriod,
-                  interestRate: row.bondRate,
-                  listedVolume: row.currentListedVolume,
-                  issuedValue: row.totalIssuedValue,
-                  listedValue: row.currentListedValue,
-                  issueDate: row.issueDate,
-                  maturityDate: row.maturityDate,
-                  interestType: normalizeBondRateType(row),
-                  bondType: row.bondType,
-                  status: row.status,
-                }),
-                { preserveAddedAt: true },
-              );
-            }}
-            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center transition-colors ${
-              isBondTracked(row.bondCode)
-                ? 'text-amber-500'
-                : 'text-text-muted hover:text-blue-600'
-            }`}
-            aria-label={`${isBondTracked(row.bondCode) ? t('trackedBond') : t('trackBond')} ${row.bondCode}`}
-            title={`${isBondTracked(row.bondCode) ? t('trackedBond') : t('trackBond')} ${row.bondCode}`}
-          >
-            {isBondTracked(row.bondCode) ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
-          </button>
           <button
             type="button"
             onClick={() => {

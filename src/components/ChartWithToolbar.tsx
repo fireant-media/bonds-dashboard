@@ -808,7 +808,7 @@ export default function ChartWithToolbar({
                         }`}
                       >
                         <TitleIcon className="h-4 w-4 shrink-0 text-blue-600 transition-colors duration-200 group-hover:text-blue-700" />
-                        <div className="break-words text-base font-bold leading-snug text-black transition-colors duration-200 group-hover:text-blue-600">
+                        <div className={`break-words text-base font-bold leading-snug transition-colors duration-200 group-hover:text-blue-600 ${isDark ? 'text-white' : 'text-black'}`}>
                           {title}
                         </div>
                       </div>
@@ -899,13 +899,13 @@ export default function ChartWithToolbar({
                       <div className="min-w-0 text-left">
                         <div className="inline-flex max-w-full items-center gap-2 transition-colors duration-200">
                           <TitleIcon className="h-5 w-5 shrink-0 text-blue-600 transition-colors duration-200 group-hover:text-blue-700" />
-                          <div className="line-clamp-2 text-lg font-bold leading-snug text-black transition-colors duration-200 group-hover:text-blue-600 md:text-2xl">
+                          <div className={`line-clamp-2 text-lg font-bold leading-snug transition-colors duration-200 group-hover:text-blue-600 md:text-2xl ${isDark ? 'text-white' : 'text-black'}`}>
                             {title}
                           </div>
                         </div>
                       </div>
                     ) : (
-                      <h3 className="line-clamp-2 text-left text-sm font-bold leading-snug text-black">
+                      <h3 className={`line-clamp-2 text-left text-sm font-bold leading-snug ${isDark ? 'text-white' : 'text-black'}`}>
                         {t('zoom')}
                       </h3>
                     )}

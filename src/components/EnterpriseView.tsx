@@ -1220,7 +1220,7 @@ export default function EnterpriseView({
       const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
       return (order[a[0]] || 99) - (order[b[0]] || 99);
     })
-    .map(([name, data]) => ({
+    .map(([name, data], index) => ({
       name,
       data,
       type: 'scatter',
@@ -1228,9 +1228,10 @@ export default function EnterpriseView({
         const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
         return Math.max(8, size);
       },
-      itemStyle: { 
-        opacity: 0.7 
-      }
+      itemStyle: {
+        color: index === 0 ? '#1D4ED8' : index === 1 ? '#93C5FD' : '#1D4ED8',
+        opacity: 0.7,
+      },
     }));
 
   const maturityYearData = enterpriseBonds.reduce((acc: any, bond) => {
@@ -1523,7 +1524,7 @@ export default function EnterpriseView({
   }, [enterpriseChatContext, location.pathname]);
 
   const pieOptions = {
-    color: PIE_PALETTE,
+    color: ['#1E3A8A', '#2563EB', '#3B82F6', '#60A5FA', '#93C5FD', '#BFDBFE', '#DBEAFE', '#E0F2FE'],
     __dataView: {
       columns: [
         { label: t('term'), align: 'left', kind: 'text' },
@@ -1562,7 +1563,7 @@ export default function EnterpriseView({
   };
 
   const interestTypePieOptions = {
-    color: PIE_PALETTE,
+    color: ['#1D4ED8', '#93C5FD', '#1D4ED8'],
     __dataView: {
       columns: [
         { label: t('interestType'), align: 'left', kind: 'text' },
@@ -1592,7 +1593,7 @@ export default function EnterpriseView({
   };
 
   const bubbleOptions = {
-    color: chartPalette,
+    color: ['#1D4ED8', '#93C5FD'],
     __dataView: {
       columns: [
         { label: t('bondCode'), align: 'left', kind: 'text' },
