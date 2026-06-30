@@ -1,12 +1,29 @@
+// Monochrome blue scheme. The primary tone (#006FEB) matches the selected
+// sidebar-tab background; secondary series use lighter/darker blue shades.
 export const CHART_BASE_PALETTE = [
-  '#0E87F7',
-  '#68D7F0',
-  '#0B3D91',
-  '#7DDCF4',
-  '#2CBCE8',
+  '#006FEB',
+  '#4D9BF3',
+  '#0B4EA2',
+  '#80B8F7',
+  '#1E63C9',
 ];
 
 export const CHART_PALETTE = [...CHART_BASE_PALETTE];
+
+// Pie slices ramp through the sidebar-tab gradient: indigo (#4F46E5) →
+// blue (#006FEB) → cyan (#06B6D4), ending on a light cyan for the last slice.
+export const PIE_PALETTE = [
+  '#4F46E5',
+  '#3554E7',
+  '#1B61E9',
+  '#006FEB',
+  '#0287E3',
+  '#049FDC',
+  '#06B6D4',
+  '#36C4DD',
+  '#66D2E6',
+  '#96E1F0',
+];
 
 export type ChartThemeMode = 'light' | 'dark';
 
@@ -24,13 +41,13 @@ export const chartThemes = {
     pieBorder: '#FFFFFF',
     lineWidth: 3,
     lineShadowBlur: 0,
-    lineShadowColor: 'rgba(14,135,247,0)',
+    lineShadowColor: 'rgba(0,111,235,0)',
     barShadowBlur: 10,
-    barShadowColor: 'rgba(14,135,247,0.18)',
+    barShadowColor: 'rgba(0,111,235,0.18)',
     gradientStops: {
-      blue: ['rgba(14,135,247,0.34)', 'rgba(14,135,247,0.02)'],
-      green: ['rgba(104,215,240,0.28)', 'rgba(104,215,240,0.02)'],
-      purple: ['rgba(11,61,145,0.18)', 'rgba(11,61,145,0.01)'],
+      blue: ['rgba(0,111,235,0.34)', 'rgba(0,111,235,0.02)'],
+      green: ['rgba(77,155,243,0.28)', 'rgba(77,155,243,0.02)'],
+      purple: ['rgba(11,78,162,0.18)', 'rgba(11,78,162,0.01)'],
     },
   },
   dark: {
@@ -46,13 +63,13 @@ export const chartThemes = {
     pieBorder: '#0F172A',
     lineWidth: 4,
     lineShadowBlur: 12,
-    lineShadowColor: 'rgba(14,135,247,0.35)',
+    lineShadowColor: 'rgba(0,111,235,0.35)',
     barShadowBlur: 14,
-    barShadowColor: 'rgba(14,135,247,0.25)',
+    barShadowColor: 'rgba(0,111,235,0.25)',
     gradientStops: {
-      blue: ['rgba(14,135,247,0.65)', 'rgba(14,135,247,0.02)'],
-      green: ['rgba(104,215,240,0.55)', 'rgba(104,215,240,0.02)'],
-      purple: ['rgba(11,61,145,0.45)', 'rgba(11,61,145,0.02)'],
+      blue: ['rgba(0,111,235,0.65)', 'rgba(0,111,235,0.02)'],
+      green: ['rgba(77,155,243,0.55)', 'rgba(77,155,243,0.02)'],
+      purple: ['rgba(11,78,162,0.45)', 'rgba(11,78,162,0.02)'],
     },
   },
 } as const;
@@ -80,18 +97,6 @@ const verticalGradient = (start: string, end: string): LinearGradient => ({
   ],
 });
 
-const horizontalGradient = (start: string, end: string): LinearGradient => ({
-  type: 'linear',
-  x: 0,
-  y: 0,
-  x2: 1,
-  y2: 0,
-  colorStops: [
-    { offset: 0, color: start },
-    { offset: 1, color: end },
-  ],
-});
-
 export const getChartAreaGradient = (isDark: boolean, index = 0) => {
   const theme = getChartTheme(isDark);
   const stops = index % 3 === 1
@@ -103,21 +108,26 @@ export const getChartAreaGradient = (isDark: boolean, index = 0) => {
   return verticalGradient(stops[0], stops[1]);
 };
 
-const BAR_GRADIENT_PAIRS = [
-  ['#0E87F7', '#68D7F0'],
-  ['#2CBCE8', '#7DDCF4'],
-  ['#0E87F7', '#68D7F0'],
-] as const;
+// Bars use a 3-stop gradient: indigo → blue → cyan.
+const BAR_GRADIENT_STOPS = ['#4F46E5', '#006FEB', '#06B6D4'] as const;
 
-export const getChartBarGradient = (horizontal = false, index = 0) => {
-  const pair = BAR_GRADIENT_PAIRS[index % BAR_GRADIENT_PAIRS.length];
-  return horizontal
-    ? horizontalGradient(pair[0], pair[1])
-    : verticalGradient(pair[0], pair[1]);
-};
+const multiStopGradient = (colors: readonly string[], horizontal: boolean): LinearGradient => ({
+  type: 'linear',
+  x: 0,
+  y: 0,
+  x2: horizontal ? 1 : 0,
+  y2: horizontal ? 0 : 1,
+  colorStops: colors.map((color, index) => ({
+    offset: colors.length > 1 ? index / (colors.length - 1) : 0,
+    color,
+  })),
+});
+
+export const getChartBarGradient = (horizontal = false, _index = 0) =>
+  multiStopGradient(BAR_GRADIENT_STOPS, horizontal);
 
 export const getComparisonAreaSeriesStyle = (isDark: boolean, index = 0) => {
-  const color = index % 2 === 0 ? '#0B3D91' : '#0E87F7';
+  const color = index % 2 === 0 ? '#006FEB' : '#0B4EA2';
 
   return {
     color,
@@ -280,7 +290,7 @@ const styleSeries = (series: any, index: number, isDark: boolean, horizontalBar:
       : typeof series.color === 'string'
         ? series.color
         : '';
-    const lineColor = configuredColor || (hasBarSeries ? '#0B3D91' : baseColor);
+    const lineColor = configuredColor || (hasBarSeries ? '#0B4EA2' : baseColor);
     nextSeries.smooth = series.smooth ?? true;
     nextSeries.symbol = series.symbol ?? 'none';
     nextSeries.lineStyle = {
@@ -323,10 +333,10 @@ const styleSeries = (series: any, index: number, isDark: boolean, horizontalBar:
 
   if (type === 'candlestick') {
     nextSeries.itemStyle = {
-      color: '#68D7F0',
-      color0: '#0B3D91',
-      borderColor: '#0E87F7',
-      borderColor0: '#0B4EA2',
+      color: '#4D9BF3',
+      color0: '#0B4EA2',
+      borderColor: '#006FEB',
+      borderColor0: '#0B3D91',
       ...itemStyle,
     };
   }
@@ -412,7 +422,7 @@ export const applyChartTheme = (option: any, isDark: boolean) => {
     nextOption.dataZoom = asArray(option.dataZoom).map((zoom: any) => ({
       ...(isPlainObject(zoom) ? zoom : {}),
       borderColor: theme.border,
-      fillerColor: isDark ? 'rgba(14,135,247,0.14)' : 'rgba(14,135,247,0.10)',
+      fillerColor: isDark ? 'rgba(0,111,235,0.14)' : 'rgba(0,111,235,0.10)',
       textStyle: {
         color: theme.subText,
         ...(isPlainObject(zoom?.textStyle) ? zoom.textStyle : {}),

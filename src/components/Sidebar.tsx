@@ -17,8 +17,9 @@ import {
   Sun,
   User,
   UserCircle,
+  X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
@@ -49,6 +50,9 @@ interface SidebarProps {
   setActiveHelpSection: (section: 'manual' | 'faq' | 'report' | 'contact') => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  isMobileOpen: boolean;
+  onMobileClose: () => void;
+  desktopVisible?: boolean;
   onSearchSelect: (suggestion: SearchSuggestion) => void;
   onProfileClick: () => void;
   onHelpClick: () => void;
@@ -66,13 +70,19 @@ export default function Sidebar({
   setActiveProfileSection,
   activeHelpSection,
   setActiveHelpSection,
-  isCollapsed,
+  isCollapsed: isCollapsedDesktop,
   onToggleCollapse,
+  isMobileOpen,
+  onMobileClose,
+  desktopVisible = true,
   onSearchSelect,
   onProfileClick,
   onHelpClick,
   onLogout,
 }: SidebarProps) {
+  // On small screens the sidebar is a slide-in overlay that always shows its
+  // full (expanded) layout — the collapse feature only applies on desktop.
+  const isCollapsed = isMobileOpen ? false : isCollapsedDesktop;
   const { t, language, setLanguage } = useLanguage();
   const { setTheme, effectiveTheme } = useTheme();
   const authUser = useAuthUser();
@@ -84,9 +94,31 @@ export default function Sidebar({
   const activeSidebarItemClassName =
     'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20';
   const [isIndustryOpen, setIsIndustryOpen] = useState(activeTab === 'industry');
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isAccountMenuOpen]);
   const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
     () => getCache('sidebar_industry_issued_values_v2')
   );
+
+  useEffect(() => {
+    if (!isMobileOpen || typeof document === 'undefined') return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileOpen]);
 
   useEffect(() => {
     if (industryIssuedValuesQuery.data && Object.keys(industryIssuedValuesQuery.data).length > 0) {
@@ -154,12 +186,26 @@ export default function Sidebar({
   const isContextSidebar = isProfileSidebar || isHelpSidebar;
 
   return (
-    <aside
-      className={cn(
-        'hidden h-full min-h-0 shrink-0 border-r border-border-base bg-bg-surface text-text-base shadow-lg shadow-blue-950/5 transition-all duration-300 lg:flex',
-        isCollapsed ? 'w-16' : 'w-72'
-      )}
-    >
+    <>
+      {isMobileOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm lg:hidden"
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      ) : null}
+      <aside
+        className={cn(
+          'flex h-full min-h-0 shrink-0 flex-col border-r border-border-base bg-bg-surface text-text-base shadow-lg shadow-blue-950/5 transition-transform duration-300 lg:transition-all',
+          // Mobile: fixed slide-in overlay drawer
+          'fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw]',
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full',
+          // Desktop: static inline column
+          'lg:static lg:z-auto lg:max-w-none lg:translate-x-0',
+          desktopVisible ? 'lg:flex' : 'lg:hidden',
+          isCollapsedDesktop ? 'lg:w-16' : 'lg:w-72'
+        )}
+      >
       <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 lg:p-4', isCollapsed && 'overflow-visible p-2')}>
         <div className={cn('mb-4 flex h-10 items-center justify-between gap-2', isCollapsed && 'justify-center')}>
           {!isCollapsed ? (
@@ -175,11 +221,20 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={onToggleCollapse}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600 lg:flex"
                 aria-label={language === 'vi' ? 'Thu gọn' : 'Collapse'}
                 title={language === 'vi' ? 'Thu gọn' : 'Collapse'}
               >
                 <PanelLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={onMobileClose}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600 lg:hidden"
+                aria-label={language === 'vi' ? 'Đóng' : 'Close'}
+                title={language === 'vi' ? 'Đóng' : 'Close'}
+              >
+                <X className="h-5 w-5" />
               </button>
             </>
           ) : (
@@ -322,7 +377,6 @@ export default function Sidebar({
                               )}
                             >
                               <span className="min-w-0 truncate font-medium">{sub.label}</span>
-                              {isIndustryActive && <ChevronRight className="h-4 w-4 shrink-0 text-white" />}
                             </button>
                           );
                         })}
@@ -355,7 +409,6 @@ export default function Sidebar({
                       <Icon className="h-5 w-5 shrink-0" />
                       <span className="truncate font-semibold">{item.label}</span>
                     </span>
-                    {item.isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
                   </button>
                 );
               })}
@@ -468,26 +521,6 @@ export default function Sidebar({
         <div className={cn('mt-4 border-t border-border-base pt-4', isCollapsed ? 'flex flex-col items-center gap-2' : 'space-y-2')}>
           {!isCollapsed ? (
             <>
-              <button
-                type="button"
-                onClick={onProfileClick}
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
-                  isProfileSidebar
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
-                    : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
-                )}
-                aria-label={t('profile')}
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
-                  {userInitial}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-bold text-text-base">{userName}</span>
-                  <span className="block truncate text-xs font-medium text-text-muted">{t('profile')}</span>
-                </span>
-              </button>
-
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -508,40 +541,46 @@ export default function Sidebar({
                   <Languages className="h-4 w-4" />
                   <span className="text-xs font-bold uppercase">{language}</span>
                 </button>
+              </div>
+
+              <div ref={accountMenuRef} className="relative">
+                {isAccountMenuOpen ? (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-border-base bg-bg-surface p-1 shadow-lg shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onLogout();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold text-text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{t('logout')}</span>
+                    </button>
+                  </div>
+                ) : null}
                 <button
                   type="button"
-                  onClick={onHelpClick}
+                  onClick={() => setIsAccountMenuOpen((current) => !current)}
                   className={cn(
-                    'flex h-9 flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-surface transition-colors hover:border-blue-200 hover:text-blue-600',
-                    isHelpSidebar ? 'text-blue-600' : 'text-text-muted'
+                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+                    isAccountMenuOpen
+                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                      : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                   )}
-                  title={t('help')}
-                  aria-label={t('help')}
+                  aria-haspopup="menu"
+                  aria-expanded={isAccountMenuOpen}
+                  aria-label={t('profile')}
                 >
-                  <HelpCircle className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="flex h-9 flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-red-200 hover:text-red-600"
-                  title={t('logout')}
-                  aria-label={t('logout')}
-                >
-                  <LogOut className="h-4 w-4" />
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
+                    {userInitial}
+                  </span>
+                  <span className="block min-w-0 flex-1 truncate text-sm font-bold text-text-base">{userName}</span>
                 </button>
               </div>
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={onProfileClick}
-                className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20"
-                aria-label={t('profile')}
-                title={userName}
-              >
-                {userInitial}
-              </button>
               <button
                 type="button"
                 onClick={toggleTheme}
@@ -560,19 +599,39 @@ export default function Sidebar({
               >
                 <Languages className="h-5 w-5" />
               </button>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-red-50 hover:text-red-600"
-                title={t('logout')}
-                aria-label={t('logout')}
-              >
-                <LogOut className="h-5 w-5" />
-              </button>
+              <div ref={accountMenuRef} className="relative">
+                {isAccountMenuOpen ? (
+                  <div className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg border border-border-base bg-bg-surface p-1 shadow-lg shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onLogout();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold text-text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{t('logout')}</span>
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setIsAccountMenuOpen((current) => !current)}
+                  className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20"
+                  aria-haspopup="menu"
+                  aria-expanded={isAccountMenuOpen}
+                  aria-label={t('profile')}
+                  title={userName}
+                >
+                  {userInitial}
+                </button>
+              </div>
             </>
           )}
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

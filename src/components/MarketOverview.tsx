@@ -37,7 +37,7 @@ interface TopInterestBond {
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
-import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { getChartTheme, getChartTooltip, getComparisonAreaSeriesStyle, highlightChartTooltipValue } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { useAIStore } from '../store/aiStore';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
@@ -172,8 +172,8 @@ function InsightHighlightCard({ label, value, tone }: InsightMiniCardProps) {
   return (
     <div className={`flex min-w-0 flex-col justify-center rounded-xl border p-3 ${toneClass.shell}`}>
       <div className="min-w-0 text-center">
-        <p className="line-clamp-1 text-xs font-medium leading-tight text-text-muted">{label}</p>
-        <p className={`mt-0.5 line-clamp-2 text-xs font-bold leading-snug ${toneClass.value}`}>{value}</p>
+        <p className="break-words text-xs font-medium leading-tight text-text-muted">{label}</p>
+        <p className={`mt-0.5 break-words text-xs font-bold leading-snug ${toneClass.value}`}>{value}</p>
       </div>
     </div>
   );
@@ -314,6 +314,9 @@ export default function MarketOverview() {
   const [marketInsightError, setMarketInsightError] = useState<string | null>(null);
   const [isMarketInsightLoading, setIsMarketInsightLoading] = useState(false);
   const marketInsightRequestIdRef = useRef(0);
+  const industryCompositionContainerRef = useRef<HTMLDivElement>(null);
+  const [industryCompositionSize, setIndustryCompositionSize] = useState({ width: 0, height: 0 });
+  const [insightPanelWidth, setInsightPanelWidth] = useState(0);
   const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
   const {
     configured,
@@ -326,6 +329,30 @@ export default function MarketOverview() {
     statusError,
     refreshStatus,
   } = useAIStore();
+
+  useEffect(() => {
+    const element = industryCompositionContainerRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect?.width) {
+        setIndustryCompositionSize({ width: rect.width, height: rect.height });
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const element = marketInsightRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) setInsightPanelWidth(width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const legendStyle = {
     fontSize: 11,
@@ -357,11 +384,30 @@ export default function MarketOverview() {
 
   const tooltipTextStyle = getChartTooltip(isDark).textStyle;
   const chartTooltip = getChartTooltip(isDark);
-  const chartPalette = CHART_PALETTE;
   const bondVolumeUnitLabel = t('unitMillionShares');
-  const industryPrimaryBarColor = '#0E87F7';
-  const industrySecondaryBarColor = '#20BEE8';
-  const industryPieColors = ['#4D93F9', '#23C68E', '#F56B2D', '#7279F5', '#F8B011', '#14C6E4', '#94D926', '#F05DA8'];
+  // Shared chart palette — kept identical to IndustryView so the overview charts
+  // render with the same colors as their industry-tab counterparts.
+  const chartPalette = [
+    '#4D93F9',
+    '#F56B2D',
+    '#23C68E',
+    '#F55A5A',
+    '#F8B011',
+    '#9974F8',
+    '#F05DA8',
+    '#14C6E4',
+    '#7279F5',
+    '#94D926',
+  ];
+  // Palette for the remaining-debt composition pie (blue → cyan ramp).
+  const industryPieColors = [
+    '#3554E7',
+    '#006FEB',
+    '#0287E3',
+    '#049FDC',
+    '#36C4DD',
+    '#66D2E6',
+  ];
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);
@@ -494,6 +540,7 @@ export default function MarketOverview() {
       unit: t('bondCodeUnit'),
       icon: Hash,
       tone: 'blue' as const,
+      iconTone: 'blue' as const,
       sparklineValues: getSparklineSource(
         deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.bondCount)),
         deferredIndustryData.map((industry) => toNumber(industry.bondCount)),
@@ -504,7 +551,8 @@ export default function MarketOverview() {
       value: formatNumber(marketKpis.issuedVolume / 1_000_000, 2),
       unit: t('unitMillionShares'),
       icon: Boxes,
-      tone: 'purple' as const,
+      tone: 'indigo' as const,
+      iconTone: 'purple' as const,
       sparklineValues: getSparklineSource(
         deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.totalIssuedVolume)),
         deferredIndustryData.map((industry) => toNumber(industry.totalIssuedVolume)),
@@ -515,7 +563,8 @@ export default function MarketOverview() {
       value: formatNumber(marketKpis.issuedValue / 1000000000, 2),
       unit: t('unitBillionVND'),
       icon: BadgeDollarSign,
-      tone: 'green' as const,
+      tone: 'cyan' as const,
+      iconTone: 'green' as const,
       sparklineValues: getSparklineSource(
         deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.totalIssuedValue)),
         deferredIndustryData.map((industry) => toNumber(industry.totalIssuedValue)),
@@ -526,7 +575,8 @@ export default function MarketOverview() {
       value: formatNumber(marketKpis.remainingDebt / 1000000000, 2),
       unit: t('unitBillionVND'),
       icon: Wallet,
-      tone: 'orange' as const,
+      tone: 'sky' as const,
+      iconTone: 'orange' as const,
       sparklineValues: getSparklineSource(
         deferredIssuerStatsData.slice(0, 12).map((issuer) => toNumber(issuer.totalRemainingDebt)),
         deferredIndustryData.map((industry) => toNumber(industry.totalRemainingDebt)),
@@ -959,9 +1009,20 @@ export default function MarketOverview() {
     () => (marketInsightPayloadText ? createInsightPayloadSignature(marketInsightPayloadText) : ''),
     [marketInsightPayloadText],
   );
+  // Adapt the AI content length to the panel width so it fits each card without scrolling.
+  const insightDensity = insightPanelWidth === 0 || insightPanelWidth >= 296
+    ? 'full'
+    : insightPanelWidth >= 248
+      ? 'compact'
+      : 'mini';
+  const insightLengthRules = insightDensity === 'mini'
+    ? { valueWords: '4', suggestionWords: '6-9' }
+    : insightDensity === 'compact'
+      ? { valueWords: '5', suggestionWords: '9-12' }
+      : { valueWords: '6', suggestionWords: '12-16' };
   const marketInsightCacheKey = useMemo(
-    () => `market-overview-structured-insight-v8-${language}`,
-    [language],
+    () => `market-overview-structured-insight-v9-${language}-${insightDensity}`,
+    [language, insightDensity],
   );
   const cachedMarketInsight = useMemo(
     () => (marketInsightPayloadSignature ? readDailyAIInsight(marketInsightCacheKey, marketInsightPayloadSignature) : null),
@@ -1064,7 +1125,7 @@ export default function MarketOverview() {
             'S3:',
             'S4:',
             'S5:',
-            'Rules: keep I1/I2/I3 titles exactly as written above. VALUE max 6 words with a real figure. Return exactly 5 watchlist cues (S1 to S5), none left empty. Each suggestion must be a single clear sentence of roughly 12-16 words on ONE line, combining a specific figure with a concrete action to monitor; do not write fragments and do not exceed one line. Each suggestion is distinct from the insight cards and from the other suggestions. Never use the word "Risk" unless it is a genuine warning. Do not reuse the alreadyShownKpis (bond count, issued value, issued volume, remaining debt) as a standalone insight. Do not repeat the same point across cards or against the cash-flow commentary. If otherHighlights lacks a meaningful distinct figure, leave I4_LABEL and I4_VALUE empty rather than duplicating or fabricating.',
+            `Rules: keep I1/I2/I3 titles exactly as written above. VALUE max ${insightLengthRules.valueWords} words with a real figure. Return exactly 5 watchlist cues (S1 to S5), none left empty. Each suggestion must be a single clear sentence of roughly ${insightLengthRules.suggestionWords} words on ONE line, combining a specific figure with a concrete action to monitor; do not write fragments and do not exceed one line. Each suggestion is distinct from the insight cards and from the other suggestions. Never use the word "Risk" unless it is a genuine warning. Do not reuse the alreadyShownKpis (bond count, issued value, issued volume, remaining debt) as a standalone insight. Do not repeat the same point across cards or against the cash-flow commentary. If otherHighlights lacks a meaningful distinct figure, leave I4_LABEL and I4_VALUE empty rather than duplicating or fabricating.`,
           ].join(' ')
         : [
             'Bạn là chuyên gia phân tích thị trường trái phiếu doanh nghiệp. Chỉ trả lời bằng tiếng Việt CÓ DẤU đầy đủ. TUYỆT ĐỐI không viết tiếng Việt không dấu; mọi từ trong phần trả lời (cả LABEL và VALUE) đều phải có dấu thanh và dấu mũ chính xác.',
@@ -1085,7 +1146,7 @@ export default function MarketOverview() {
             'S3:',
             'S4:',
             'S5:',
-            'Quy tắc: giữ nguyên chính xác tiêu đề I1/I2/I3 như trên. Mỗi VALUE tối đa 6 từ và phải có số liệu thực. Trả về đúng 5 gợi ý theo dõi (S1 đến S5), không để trống gợi ý nào. Mỗi gợi ý là MỘT câu rõ ràng dài khoảng 12-16 từ trên MỘT dòng, kết hợp số liệu cụ thể với hành động cần theo dõi; không viết câu cụt và không vượt quá một dòng. Mỗi gợi ý khác biệt với các card insight và khác biệt giữa các gợi ý với nhau. Không dùng từ "Rủi ro" trừ khi là cảnh báo thực sự. Không dùng lại các KPI đã hiển thị (tổng số mã, tổng giá trị phát hành, khối lượng phát hành, dư nợ còn lại) làm một insight riêng. Không lặp ý giữa các card hoặc với phần nhận xét dòng tiền. Nếu otherHighlights không có số liệu nổi bật khác biệt, để trống I4_LABEL và I4_VALUE thay vì lặp lại hoặc bịa. Nhắc lại: toàn bộ nội dung phải là tiếng Việt có dấu.',
+            `Quy tắc: giữ nguyên chính xác tiêu đề I1/I2/I3 như trên. Mỗi VALUE tối đa ${insightLengthRules.valueWords} từ và phải có số liệu thực. Trả về đúng 5 gợi ý theo dõi (S1 đến S5), không để trống gợi ý nào. Mỗi gợi ý là MỘT câu rõ ràng dài khoảng ${insightLengthRules.suggestionWords} từ trên MỘT dòng, kết hợp số liệu cụ thể với hành động cần theo dõi; không viết câu cụt và không vượt quá một dòng. Mỗi gợi ý khác biệt với các card insight và khác biệt giữa các gợi ý với nhau. Không dùng từ "Rủi ro" trừ khi là cảnh báo thực sự. Không dùng lại các KPI đã hiển thị (tổng số mã, tổng giá trị phát hành, khối lượng phát hành, dư nợ còn lại) làm một insight riêng. Không lặp ý giữa các card hoặc với phần nhận xét dòng tiền. Nếu otherHighlights không có số liệu nổi bật khác biệt, để trống I4_LABEL và I4_VALUE thay vì lặp lại hoặc bịa. Nhắc lại: toàn bộ nội dung phải là tiếng Việt có dấu.`,
           ].join(' ');
 
       const response = await sendChat({
@@ -1215,7 +1276,7 @@ export default function MarketOverview() {
   const topIssuerBarData = useMemo(() => [...topIssuerDisplayData].reverse(), [topIssuerDisplayData]);
 
   const topIssuerOptions = {
-    color: [industryPrimaryBarColor],
+    color: chartPalette,
     __dataView: {
       categoryLabel: t('ticker'),
       categoryAlign: 'center',
@@ -1237,7 +1298,7 @@ export default function MarketOverview() {
         return res;
       },
     },
-    grid: { left: '3%', right: '10%', top: '0%', bottom: '6%', containLabel: true },
+    grid: { left: '3%', right: '18%', top: '0%', bottom: '6%', containLabel: true },
     xAxis: {
       type: 'value',
       splitLine: { show: false },
@@ -1258,14 +1319,14 @@ export default function MarketOverview() {
         data: topIssuerBarData.map((issuer) => topIssuerMetric === 'issuedValue'
           ? roundMetric(toNumber(issuer.totalIssuedValue) / 1_000_000_000, 0)
           : roundMetric(toNumber(issuer.totalRemainingDebt) / 1_000_000_000, 0)),
-        itemStyle: { borderRadius: [0, 4, 4, 0], color: industryPrimaryBarColor },
+        itemStyle: { borderRadius: [0, 4, 4, 0] },
         barWidth: '50%',
       },
     ],
   };
 
   const topInterestOptions = {
-    color: [industryPrimaryBarColor],
+    color: chartPalette,
     __dataView: {
       categoryLabel: t('ticker'),
       categoryAlign: 'center',
@@ -1304,11 +1365,45 @@ export default function MarketOverview() {
         name: t('interestRate'),
         type: 'bar',
         data: topInterestRankingItems.map((item) => item.bondRate),
-        itemStyle: { borderRadius: [4, 4, 0, 0], color: industryPrimaryBarColor },
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
         barWidth: '46%',
       },
     ],
   };
+
+  // Keep the legend pinned to the right of the pie while scaling both so they never overlap.
+  const industryCompositionLayout = (() => {
+    const width = industryCompositionSize.width;
+    if (!width) {
+      // Initial render before measurement: fall back to the roomy desktop layout.
+      return {
+        center: ['36%', '50%'] as [string, string],
+        radius: ['40%', '72%'] as [string, string],
+        legendRightPct: 2,
+        legendTextWidth: undefined as number | undefined,
+      };
+    }
+
+    // Estimate the actual chart canvas height (container minus the title/toolbar header).
+    const canvasHeight = Math.max(180, industryCompositionSize.height - 72);
+    // Reserve a column on the right for the legend; it grows (proportionally) as the chart narrows.
+    const legendFraction = Math.min(0.46, Math.max(0.3, 160 / width));
+    const pieFraction = 1 - legendFraction;
+    const minSide = Math.min(width, canvasHeight);
+    // Bound the pie by both the available pie column width and the canvas height, leaving a little padding.
+    const outerRadiusPx = Math.max(40, Math.min((pieFraction * width) / 2 - 6, (canvasHeight / 2) * 0.9));
+    // ECharts pie radius % is relative to min(width,height)/2, so convert px accordingly.
+    const outerRadiusPct = Math.min(72, (outerRadiusPx / (minSide / 2)) * 100);
+    const innerRadiusPct = outerRadiusPct * 0.55;
+    const centerXPct = (pieFraction / 2) * 100;
+
+    return {
+      center: [`${centerXPct}%`, '50%'] as [string, string],
+      radius: [`${innerRadiusPct}%`, `${outerRadiusPct}%`] as [string, string],
+      legendRightPct: 1,
+      legendTextWidth: Math.max(64, legendFraction * width - 18),
+    };
+  })();
 
   const industryValueOptions = {
     color: industryPieColors,
@@ -1325,12 +1420,15 @@ export default function MarketOverview() {
     },
     legend: {
       show: true,
+      type: 'scroll',
       orient: 'vertical',
-      right: '2%',
+      right: `${industryCompositionLayout.legendRightPct}%`,
       top: 'middle',
       itemWidth: 10,
       itemHeight: 10,
-      textStyle: legendStyle,
+      textStyle: industryCompositionLayout.legendTextWidth
+        ? { ...legendStyle, width: industryCompositionLayout.legendTextWidth, overflow: 'break' }
+        : legendStyle,
     },
     graphic: industryCompositionData.length === 0 ? {
       type: 'text',
@@ -1348,8 +1446,8 @@ export default function MarketOverview() {
       {
         name: industryCompositionConfig.label,
         type: 'pie',
-        radius: ['40%', '72%'],
-        center: ['36%', '50%'],
+        radius: industryCompositionLayout.radius,
+        center: industryCompositionLayout.center,
         avoidLabelOverlap: true,
         minAngle: 4,
         label: {
@@ -1379,7 +1477,7 @@ export default function MarketOverview() {
   };
 
   const industryVolumeOptions = {
-    color: ['#0E87F7', '#20BEE8'],
+    color: chartPalette,
     __dataView: {
       categoryLabel: t('marketTitle'),
       categoryAlign: 'left',
@@ -1432,14 +1530,14 @@ export default function MarketOverview() {
           name: t('issuedVolumeTitle'),
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalIssuedVolume / 1_000_000) : [],
-          itemStyle: { borderRadius: [4, 4, 0, 0], color: industryPrimaryBarColor },
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
           barWidth: '30%'
         },
         {
           name: t('listedVolume'),
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalCurrentListedVolume / 1_000_000) : [],
-          itemStyle: { borderRadius: [4, 4, 0, 0], color: industrySecondaryBarColor },
+          itemStyle: { borderRadius: [4, 4, 0, 0] },
           barWidth: '30%'
         }
     ]
@@ -1588,6 +1686,7 @@ export default function MarketOverview() {
                 unit={card.unit}
                 icon={card.icon}
                 tone={card.tone}
+                iconTone={card.iconTone}
                 sparklineValues={card.sparklineValues}
               />
             ))}
@@ -1665,7 +1764,7 @@ export default function MarketOverview() {
             <SectionCardSkeleton className="col-span-12 lg:col-span-6" />
           ) : (
             <Card className="col-span-12 flex min-h-0 flex-col p-3 md:p-4 lg:col-span-6">
-              <div className="h-96 overflow-hidden">
+              <div ref={industryCompositionContainerRef} className="h-96 overflow-hidden">
                 <ChartWithToolbar
                   key={`market-overview-industry-composition-${industryCompositionMetric}`}
                   option={industryValueOptions}
@@ -1716,7 +1815,7 @@ export default function MarketOverview() {
         </div>
 
         <Card className="order-2 col-span-12 flex min-h-0 flex-col border-blue-100/80 bg-blue-50/50 p-3 shadow-sm shadow-blue-500/10 dark:border-blue-900/40 dark:bg-blue-950/10 dark:shadow-black/20 lg:col-span-3 lg:h-[844px]">
-          <div className="flex h-full min-h-0 flex-col overflow-y-auto" ref={marketInsightRef}>
+          <div className="flex h-full min-h-0 flex-col overflow-hidden" ref={marketInsightRef}>
             <div className="mb-4 flex min-w-0 items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 dark:bg-slate-900/40 dark:ring-blue-900/40">
@@ -1787,8 +1886,8 @@ export default function MarketOverview() {
 
                       return (
                         <div key={industry.label} className="min-w-0">
-                          <div className="mb-1.5 flex items-center justify-between gap-3">
-                            <p className="min-w-0 truncate text-xs font-medium text-text-base">{industry.label}</p>
+                          <div className="mb-1.5 flex items-start justify-between gap-3">
+                            <p className="min-w-0 break-words text-xs font-medium text-text-base">{industry.label}</p>
                             <p className="shrink-0 text-xs font-bold tabular-nums text-text-base">{formatNumber(industry.share, 1)}%</p>
                           </div>
                           <div className={`h-2 overflow-hidden rounded-full ${tone.track}`}>
@@ -1809,13 +1908,13 @@ export default function MarketOverview() {
                     </div>
                     <h4 className="text-xs font-bold text-text-base">{language === 'vi' ? 'Doanh nghiệp dẫn đầu dư nợ' : 'Leading issuers'}</h4>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
                     {marketInsightSummary.leadingIssuers.length > 0 ? marketInsightSummary.leadingIssuers.map((issuer) => (
                       <button
                         key={issuer}
                         type="button"
                         onClick={() => handleTopIssuerCategoryClick(issuer)}
-                        className="cursor-pointer rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800 active:scale-95 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                        className="shrink-0 cursor-pointer whitespace-nowrap rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800 active:scale-95 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
                       >
                         {issuer}
                       </button>
@@ -1825,14 +1924,14 @@ export default function MarketOverview() {
                   </div>
                 </section>
 
-                <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/90 p-3 shadow-sm">
+                <section className="flex flex-col rounded-lg border border-border-base bg-bg-surface/90 p-3 shadow-sm">
                   <div className="mb-3 flex items-center gap-2">
                     <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     </div>
                     <h4 className="text-xs font-bold text-text-base">{language === 'vi' ? 'Gợi ý theo dõi' : 'Watchlist cues'}</h4>
                   </div>
-                  <div className="flex min-h-0 flex-1 flex-col justify-between gap-2 overflow-hidden">
+                  <div className="flex flex-col gap-2">
                     {parsedMarketInsight.suggestions.map((suggestion) => (
                       <div key={suggestion} className="flex items-start gap-2">
                         <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />

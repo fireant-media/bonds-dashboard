@@ -30,7 +30,8 @@ interface MetricCardProps {
   value: string;
   unit?: string;
   icon?: LucideIcon;
-  tone?: 'blue' | 'purple' | 'green' | 'cyan' | 'indigo' | 'orange';
+  tone?: 'blue' | 'purple' | 'green' | 'cyan' | 'indigo' | 'orange' | 'sky';
+  iconTone?: 'blue' | 'purple' | 'green' | 'cyan' | 'indigo' | 'orange' | 'sky';
   sparklineValues?: number[];
   className?: string;
   valueClassName?: string;
@@ -68,6 +69,12 @@ const metricToneClass = {
     glow: 'from-indigo-50/90 dark:from-indigo-500/10',
     value: 'group-hover:text-indigo-700',
   },
+  sky: {
+    card: 'hover:border-sky-200 hover:shadow-sky-500/10',
+    icon: 'from-sky-500 to-cyan-300 shadow-sky-500/25',
+    glow: 'from-sky-50/90 dark:from-sky-500/10',
+    value: 'group-hover:text-sky-700',
+  },
   orange: {
     card: 'hover:border-orange-200 hover:shadow-orange-500/10',
     icon: 'from-ref-orange-start to-ref-orange-end shadow-orange-500/25',
@@ -76,14 +83,15 @@ const metricToneClass = {
   },
 };
 
-export function MetricCard({ label, value, unit, icon: Icon = BarChart3, tone = 'blue', className, valueClassName, unitClassName }: MetricCardProps) {
+export function MetricCard({ label, value, unit, icon: Icon = BarChart3, tone = 'blue', iconTone, className, valueClassName, unitClassName }: MetricCardProps) {
   const toneClass = metricToneClass[tone];
+  const iconToneClass = metricToneClass[iconTone ?? tone];
 
   return (
     <Card className={cn('group relative p-4 transition-all duration-300', toneClass.card, className)}>
       <div className="relative flex min-h-24 min-w-0 flex-col gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg ring-1 ring-white/30 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:scale-105 motion-reduce:transform-none', toneClass.icon)}>
+          <div className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg ring-1 ring-white/30 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:scale-105 motion-reduce:transform-none', iconToneClass.icon)}>
             <Icon className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1 self-center">

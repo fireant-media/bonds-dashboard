@@ -146,6 +146,7 @@ export default function App() {
   const [bondEnterpriseName, setBondEnterpriseName] = useState<string>('');
   const [showBondComparison, setShowBondComparison] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const oidcProfile = (user?.profile || {}) as Record<string, unknown>;
   const activityUserId = String(
     oidcProfile.email ??
@@ -416,6 +417,23 @@ export default function App() {
     }
   }, [authLoading, location.pathname, user]);
 
+  // Close the mobile sidebar overlay whenever the route changes (e.g. after a nav click).
+  useEffect(() => {
+    setIsMobileSidebarOpen(false);
+  }, [location.pathname]);
+
+  // Keep the mobile overlay state in sync with the desktop breakpoint.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setIsMobileSidebarOpen(false);
+    };
+    if (mediaQuery.matches) setIsMobileSidebarOpen(false);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
   const handleLogout = async () => {
     try {
       await recordLogoutActivity(activityUserId);
@@ -592,26 +610,28 @@ export default function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-bg-base font-sans text-text-base selection:bg-text-highlight/20 selection:text-text-highlight transition-colors duration-300 lg:flex-row">
-      {shouldShowDashboardSidebar && (
-        <Sidebar
-          activeTab={navigationRouteContext.activeTab}
-          setActiveTab={setActiveTab}
-          activeIndustry={navigationRouteContext.activeIndustry}
-          setActiveIndustry={setActiveIndustry}
-          activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
-          setActiveFilterSubTab={setActiveFilterSubTab}
-          activeProfileSection={navigationRouteContext.profileSection || 'info'}
-          setActiveProfileSection={setActiveProfileSection}
-          activeHelpSection={navigationRouteContext.helpSection || 'manual'}
-          setActiveHelpSection={setActiveHelpSection}
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
-          onSearchSelect={handleSearchSelect}
-          onProfileClick={() => setActiveTab('profile')}
-          onHelpClick={() => setActiveTab('help')}
-          onLogout={handleLogout}
-        />
-      )}
+      <Sidebar
+        activeTab={navigationRouteContext.activeTab}
+        setActiveTab={setActiveTab}
+        activeIndustry={navigationRouteContext.activeIndustry}
+        setActiveIndustry={setActiveIndustry}
+        activeFilterSubTab={navigationRouteContext.filterSubTab || 'issuer'}
+        setActiveFilterSubTab={setActiveFilterSubTab}
+        activeProfileSection={navigationRouteContext.profileSection || 'info'}
+        setActiveProfileSection={setActiveProfileSection}
+        activeHelpSection={navigationRouteContext.helpSection || 'manual'}
+        setActiveHelpSection={setActiveHelpSection}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((current) => !current)}
+        isMobileOpen={isMobileSidebarOpen}
+        onMobileClose={() => setIsMobileSidebarOpen(false)}
+        desktopVisible={shouldShowDashboardSidebar}
+        onSearchSelect={handleSearchSelect}
+        onProfileClick={() => setActiveTab('profile')}
+        onHelpClick={() => setActiveTab('help')}
+        onLogout={handleLogout}
+      />
+
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div
@@ -624,6 +644,8 @@ export default function App() {
             onLogoClick={() => setActiveTab('overview')}
             onLogout={handleLogout}
             onSearchSelect={handleSearchSelect}
+            isMobileNavOpen={isMobileSidebarOpen}
+            onMobileNavToggle={() => setIsMobileSidebarOpen((current) => !current)}
             activeTab={navigationRouteContext.activeTab}
             setActiveTab={setActiveTab}
             activeIndustry={navigationRouteContext.activeIndustry}

@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import ChartWithToolbar from './ChartWithToolbar';
 import AIInsightPanel from './AIInsightPanel';
@@ -13,9 +13,11 @@ interface IndustryViewProps {
 
 import { getCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
+import { getAdaptiveBarWidth, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, PIE_PALETTE } from '../utils/chart';
 import { INDUSTRY_LABEL_KEYS } from '../constants/industries';
 import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+import { loadBondDetail, loadIssuerBondsByFilter } from '../services/bondData';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
 import { useIndustryBaseDashboardQuery, useIndustryFullDashboardQuery } from '../query/dashboardQueries';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
@@ -116,6 +118,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   const industryBonds = (fullPayload?.bonds || basePayload?.bonds || []) as IndustryBondItem[];
   const [financialChildSymbols, setFinancialChildSymbols] = useState<Set<string> | null>(null);
   const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
+  const [issuerDerivedCashFlowBuckets, setIssuerDerivedCashFlowBuckets] = useState<Record<string, ProjectedCashFlowBucket>>({});
+  const derivedCashFlowKeyRef = useRef<string>('');
   const projectedCashFlowBuckets = fullPayload?.projectedCashFlowBuckets || cachedProjectedCashFlows;
 
   useEffect(() => {
@@ -255,18 +259,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     '#7279F5',
     '#94D926',
   ], []);
-  const marketSharePalette = useMemo(() => [
-    '#3FB1E3',
-    '#6BE6C1',
-    '#626C91',
-    '#A0A7E6',
-    '#C4EBAD',
-    '#96DEE8',
-    '#4D93F9',
-    '#14C6E4',
-    '#7279F5',
-    '#9974F8',
-  ], []);
+  const marketSharePalette = PIE_PALETTE;
   const treemapPalette = useMemo(() => [
     '#4D93F9',
     '#14C6E4',
@@ -733,10 +726,109 @@ export default function IndustryView({ industry }: IndustryViewProps) {
 
   const combinedOptions = getCombinedOptions();
 
+  // Fallback for industries whose bond rows don't load (e.g. deep ICB groups such
+  // as Securities): when neither the server buckets nor the bond recompute have
+  // data, derive the cashflow timeline directly from the industry's issuers —
+  // the same approach the market overview uses — by fetching their bonds and
+  // cashflows. Gated so it never runs for industries that already have data.
+  useEffect(() => {
+    if (!projectedCashFlowSectionVisible) return;
+    const serverHasData = Object.keys(projectedCashFlowBuckets || {}).length > 0;
+    const recomputeHasData = Object.keys(visibleProjectedCashFlowBuckets || {}).length > 0;
+    if (serverHasData || recomputeHasData) return;
+
+    const symbols = Array.from(new Set(
+      deferredRankingData.map((issuer) => issuer.issuerSymbol).filter(Boolean) as string[]
+    ));
+    if (symbols.length === 0) return;
+
+    const fetchKey = `${industry}:${symbols.slice().sort().join(',')}`;
+    if (derivedCashFlowKeyRef.current === fetchKey) return;
+    derivedCashFlowKeyRef.current = fetchKey;
+
+    let isMounted = true;
+    void (async () => {
+      const issuerBondResults = await mapWithConcurrency(symbols.slice(0, 40), 6, async (symbol) => {
+        const rows = await loadIssuerBondsByFilter(symbol);
+        return Array.isArray(rows) ? rows : [];
+      });
+      if (!isMounted) return;
+
+      const bondsByCode = new Map<string, any>();
+      getFulfilledValues(issuerBondResults).flat().forEach((bond: any) => {
+        const code = bond?.bondCode || bond?.code;
+        if (code) bondsByCode.set(String(code), bond);
+      });
+      const bonds = Array.from(bondsByCode.values());
+      if (bonds.length === 0) return;
+
+      const cashFlowResults = await mapWithConcurrency(bonds, 10, async (bond) => {
+        const code = bond.bondCode || bond.code;
+        if (!code) return { bond, cashFlows: [] as any[] };
+        const detail = await loadBondDetail(code);
+        const cashFlows = Array.isArray(detail?.cashFlows) ? detail.cashFlows : [];
+        return { bond, cashFlows };
+      });
+      if (!isMounted) return;
+
+      const buckets = new Map<string, ProjectedCashFlowBucket>();
+      const ensureBucket = (dateString: string) => {
+        const keyInfo = getDateKey(dateString, 'month');
+        if (!keyInfo) return null;
+        if (!buckets.has(keyInfo.bucketKey)) {
+          buckets.set(keyInfo.bucketKey, { label: keyInfo.label, interest: 0, principal: 0 });
+        }
+        return buckets.get(keyInfo.bucketKey)!;
+      };
+
+      getFulfilledValues(cashFlowResults).forEach(({ bond, cashFlows }) => {
+        if (Array.isArray(cashFlows) && cashFlows.length > 0) {
+          cashFlows.forEach((cashFlow: any) => {
+            if (!cashFlow?.paymentDate) return;
+            const bucket = ensureBucket(cashFlow.paymentDate);
+            if (!bucket) return;
+            bucket.interest += Number(cashFlow.interestAmount || 0) / 1000000000;
+            bucket.principal += Number(cashFlow.principalAmount || 0) / 1000000000;
+          });
+          return;
+        }
+
+        const fallbackDate = bond.maturityDate || bond.paymentDate;
+        const fallbackPrincipal = bond.currentListedValue || bond.totalRemainingDebt || bond.totalIssuedValue;
+        if (!fallbackDate || !fallbackPrincipal) return;
+        const bucket = ensureBucket(fallbackDate);
+        if (bucket) bucket.principal += Number(fallbackPrincipal || 0) / 1000000000;
+      });
+
+      if (!isMounted) return;
+      setIssuerDerivedCashFlowBuckets(
+        Object.fromEntries(Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b)))
+      );
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [projectedCashFlowSectionVisible, projectedCashFlowBuckets, visibleProjectedCashFlowBuckets, deferredRankingData, industry]);
+
   const projectedCashFlowData = useMemo(() => {
+    // Prefer the server-built buckets (already merged with per-bond cashFlows and
+    // cached) so the chart still renders when the in-memory bond list hasn't been
+    // hydrated with cashFlows. For the Financials tab we must recompute from the
+    // filtered bonds so child-industry (Banking/Securities) cashflows are excluded.
+    // Fall back to the issuer-derived buckets when no bond rows were available.
+    const nonEmpty = (value?: Record<string, ProjectedCashFlowBucket>) => !!value && Object.keys(value).length > 0;
+    const source = industry === 'Financials'
+      ? (nonEmpty(visibleProjectedCashFlowBuckets) ? visibleProjectedCashFlowBuckets : issuerDerivedCashFlowBuckets)
+      : nonEmpty(projectedCashFlowBuckets)
+        ? projectedCashFlowBuckets
+        : nonEmpty(visibleProjectedCashFlowBuckets)
+          ? visibleProjectedCashFlowBuckets
+          : issuerDerivedCashFlowBuckets;
+
     const buckets = new Map<string, ProjectedCashFlowBucket>();
 
-    Object.entries(visibleProjectedCashFlowBuckets).forEach(([key, value]) => {
+    Object.entries(source).forEach(([key, value]) => {
       const keyInfo = getDateKey(`${key}-01`, cashFlowPeriod);
       if (!keyInfo) return;
 
@@ -756,7 +848,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     const total = sortedEntries.map(([, value]) => value.interest + value.principal);
 
     return { labels, interest, principal, total };
-  }, [visibleProjectedCashFlowBuckets, cashFlowPeriod]);
+  }, [industry, projectedCashFlowBuckets, visibleProjectedCashFlowBuckets, issuerDerivedCashFlowBuckets, cashFlowPeriod]);
 
   const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
   const projectedCashFlowTitle = language === 'vi'

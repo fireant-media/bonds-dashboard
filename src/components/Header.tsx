@@ -37,6 +37,8 @@ interface HeaderProps {
   onLogoClick: () => void;
   onLogout: () => void;
   onSearchSelect: (suggestion: SearchSuggestion) => void;
+  isMobileNavOpen: boolean;
+  onMobileNavToggle: () => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   activeIndustry?: string;
@@ -55,6 +57,8 @@ export default function Header({
   onLogoClick,
   onLogout,
   onSearchSelect,
+  isMobileNavOpen,
+  onMobileNavToggle,
   activeTab,
   setActiveTab,
   activeIndustry,
@@ -609,20 +613,20 @@ export default function Header({
 
   return (
     <>
-      <header ref={headerRef} className="relative z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-bg-base/90 px-3 py-2 backdrop-blur transition-colors duration-300 sm:px-4 lg:h-16 lg:px-6 lg:py-0">
+      <header ref={headerRef} className="relative z-40 flex min-h-16 shrink-0 items-center gap-3 border-b border-border-base bg-bg-base/90 px-3 py-2 backdrop-blur transition-colors duration-300 sm:px-4 lg:hidden">
       <div className={cn('flex min-w-0 shrink-0 items-center gap-2', showDesktopBrand ? 'lg:min-w-72 lg:pr-3' : 'lg:min-w-0 lg:pr-0')}>
         <button
           type="button"
           onClick={() => {
             setMobileSearchOpen(false);
-            setMobileNavOpen((current) => !current);
+            onMobileNavToggle();
           }}
           className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
-          aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
-          title={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
-          aria-expanded={mobileNavOpen}
+          aria-label={isMobileNavOpen ? 'Close navigation' : 'Open navigation'}
+          title={isMobileNavOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={isMobileNavOpen}
         >
-          {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          {isMobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
         <button
           type="button"
@@ -632,14 +636,6 @@ export default function Header({
         >
           <Logo />
         </button>
-      </div>
-
-      <div className="hidden min-w-0 flex-1 items-center lg:flex">
-        {showPageTitle && currentPageTitle ? (
-          <div className="min-w-0">
-            <p className="truncate text-lg font-bold text-text-base transition-colors lg:text-xl">{currentPageTitle}</p>
-          </div>
-        ) : null}
       </div>
 
       <div className="ml-auto flex items-center justify-end gap-2 lg:hidden">
@@ -667,7 +663,12 @@ export default function Header({
       </div>
 
       </header>
-      {mobileNav}
+
+      {showPageTitle && currentPageTitle ? (
+        <div className="w-full pt-3 pl-2 pr-1 sm:pl-3 sm:pr-2 md:px-4 md:pt-4 lg:pl-4 lg:pr-2 lg:pt-5 xl:pl-4 xl:pr-3">
+          <h1 className="truncate text-xl font-bold text-[#006FEB] lg:text-2xl">{currentPageTitle}</h1>
+        </div>
+      ) : null}
     </>
   );
 }

@@ -23,7 +23,7 @@ interface EnterpriseViewProps {
 import { getFireantToken, cleanTokenString } from '../utils/token';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
-import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, splitLegendItems } from '../utils/chart';
+import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, PIE_PALETTE, splitLegendItems } from '../utils/chart';
 import { readJsonResponse } from '../utils/http';
 import { sendChat } from '../api/ai';
 import { buildFireantUrl } from '../api/fireant';
@@ -1523,7 +1523,7 @@ export default function EnterpriseView({
   }, [enterpriseChatContext, location.pathname]);
 
   const pieOptions = {
-    color: chartPalette,
+    color: PIE_PALETTE,
     __dataView: {
       columns: [
         { label: t('term'), align: 'left', kind: 'text' },
@@ -1562,7 +1562,7 @@ export default function EnterpriseView({
   };
 
   const interestTypePieOptions = {
-    color: chartPalette,
+    color: PIE_PALETTE,
     __dataView: {
       columns: [
         { label: t('interestType'), align: 'left', kind: 'text' },
