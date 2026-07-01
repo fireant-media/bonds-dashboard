@@ -37,7 +37,7 @@ interface TopInterestBond {
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
 import { Card, MetricCard, MetricCardSkeleton, SectionCardSkeleton } from './ui/Card';
-import { getChartTheme, getChartTooltip, getComparisonAreaSeriesStyle, highlightChartTooltipValue } from '../utils/chart';
+import { getChartTheme, getChartTooltip, getComparisonAreaSeriesStyle, highlightChartTooltipValue, PIE_PALETTE } from '../utils/chart';
 import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
 import { useAIStore } from '../store/aiStore';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
@@ -317,6 +317,8 @@ export default function MarketOverview() {
   const industryCompositionContainerRef = useRef<HTMLDivElement>(null);
   const [industryCompositionSize, setIndustryCompositionSize] = useState({ width: 0, height: 0 });
   const [insightPanelWidth, setInsightPanelWidth] = useState(0);
+  const suggestionsListRef = useRef<HTMLDivElement>(null);
+  const [visibleSuggestionCount, setVisibleSuggestionCount] = useState(5);
   const { ref: projectedCashFlowSectionRef, isVisible: projectedCashFlowSectionVisible } = useVisibleOnce<HTMLDivElement>();
   const {
     configured,
@@ -399,27 +401,8 @@ export default function MarketOverview() {
     '#7279F5',
     '#94D926',
   ];
-  // Palette for the remaining-debt composition pie, starting from the main blue and fading lighter for later slices.
-  const industryPieColors = [
-    '#2563EB',
-    '#3B82F6',
-    '#60A5FA',
-    '#93C5FD',
-    '#BFDBFE',
-    '#DBEAFE',
-  ];
-  const topIssuerBarColors = ['#1D4ED8', '#93C5FD'] as const;
-  const topIssuerBarGradient = {
-    type: 'linear' as const,
-    x: 0,
-    y: 0,
-    x2: 1,
-    y2: 0,
-    colorStops: [
-      { offset: 0, color: topIssuerBarColors[0] },
-      { offset: 1, color: topIssuerBarColors[1] },
-    ],
-  };
+  // Composition pie shares the canonical dark -> light blue scale used across all pies/bars.
+  const industryPieColors = PIE_PALETTE;
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);
@@ -1031,12 +1014,12 @@ export default function MarketOverview() {
       ? 'compact'
       : 'mini';
   const insightLengthRules = insightDensity === 'mini'
-    ? { valueWords: '4', suggestionWords: '6-9' }
+    ? { valueWords: '3', suggestionWords: '6-9' }
     : insightDensity === 'compact'
-      ? { valueWords: '5', suggestionWords: '9-12' }
-      : { valueWords: '6', suggestionWords: '12-16' };
+      ? { valueWords: '3-4', suggestionWords: '9-12' }
+      : { valueWords: '4-5', suggestionWords: '12-16' };
   const marketInsightCacheKey = useMemo(
-    () => `market-overview-structured-insight-v9-${language}-${insightDensity}`,
+    () => `market-overview-structured-insight-v11-${language}-${insightDensity}`,
     [language, insightDensity],
   );
   const cachedMarketInsight = useMemo(
@@ -1047,6 +1030,32 @@ export default function MarketOverview() {
     () => parseStructuredMarketOverviewInsight(marketInsightText),
     [marketInsightText],
   );
+  // Show between 3 and 5 watchlist cues depending on the space the card actually has,
+  // so the full text of each cue renders without clipping or an inner scrollbar.
+  useEffect(() => {
+    const list = suggestionsListRef.current;
+    if (!list || !parsedMarketInsight) return;
+
+    const computeVisibleCount = () => {
+      const available = list.clientHeight;
+      const items = Array.from(list.children) as HTMLElement[];
+      if (!available || items.length === 0) return;
+
+      const gap = 8; // matches gap-2 between cues
+      const tallestItem = Math.max(...items.map((item) => item.offsetHeight));
+      if (!tallestItem) return;
+
+      const fits = Math.floor((available + gap) / (tallestItem + gap));
+      const clamped = Math.max(3, Math.min(5, fits));
+      setVisibleSuggestionCount((previous) => (previous === clamped ? previous : clamped));
+    };
+
+    computeVisibleCount();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(computeVisibleCount);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [parsedMarketInsight, insightPanelWidth, language]);
   const marketInsightUpdatedLabel = useMemo(() => {
     if (!marketInsightUpdatedAt) return '';
 
@@ -1154,7 +1163,7 @@ export default function MarketOverview() {
             'I2_VALUE: (dùng concentration: top issuer hoặc top 3, ví dụ "Top 3 doanh nghiệp chiếm 25,1%")',
             'I3_LABEL: Xu hướng lãi suất',
             'I3_VALUE: (dùng interestRate: bondsAbove10PctCount hoặc highestRatePct, ví dụ "8 mã lãi suất trên 10%")',
-            'I4_LABEL: (chọn ĐÚNG MỘT tiêu đề phù hợp nhất với otherHighlights, lấy nguyên văn có dấu từ danh sách: "Ngành tăng trưởng mạnh" / "Áp lực đáo hạn" / "Mức độ phân hóa giữa các ngành" / "Thanh khoản thị trường" / "Hoạt động phát hành" / "Chất lượng phân bổ danh mục" / "Độ rộng thị trường" / "Mức độ tập trung vốn" / "Xu hướng dịch chuyển vốn")',
+            'I4_LABEL: (chọn ĐÚNG MỘT tiêu đề phù hợp nhất với otherHighlights, lấy nguyên văn có dấu từ danh sách: "Ngành tăng trưởng mạnh" / "Áp lực đáo hạn" / "Phân hóa ngành" / "Thanh khoản thị trường" / "Hoạt động phát hành" / "Chất lượng phân bổ danh mục" / "Độ rộng thị trường" / "Mức độ tập trung vốn" / "Xu hướng dịch chuyển vốn")',
             'I4_VALUE: (số liệu tương ứng từ otherHighlights, ví dụ topTwoIndustrySharePct hoặc activeIndustryCount)',
             'S1:',
             'S2:',
@@ -1335,7 +1344,8 @@ export default function MarketOverview() {
           ? roundMetric(toNumber(issuer.totalIssuedValue) / 1_000_000_000, 0)
           : roundMetric(toNumber(issuer.totalRemainingDebt) / 1_000_000_000, 0)),
         itemStyle: {
-          color: topIssuerBarGradient,
+          // No explicit color: inherit the shared default bar gradient from applyChartTheme,
+          // exactly like the "Top 10 highest interest rate" chart (oriented for horizontal bars here).
           borderRadius: [0, 4, 4, 0],
         },
         barWidth: '50%',
@@ -1494,6 +1504,32 @@ export default function MarketOverview() {
     ],
   };
 
+  // Two columns in the same blue family as the "Top 10 highest interest rate" bar gradient:
+  // the issued-volume column is the dark tone, the listed-volume column is the light tone.
+  const industryVolumeDarkColor = {
+    type: 'linear' as const,
+    x: 0,
+    y: 0,
+    x2: 0,
+    y2: 1,
+    colorStops: [
+      { offset: 0, color: '#2563EB' },
+      { offset: 0.5, color: '#3B82F6' },
+      { offset: 1, color: '#0EA5E9' },
+    ],
+  };
+  const industryVolumeLightColor = {
+    type: 'linear' as const,
+    x: 0,
+    y: 0,
+    x2: 0,
+    y2: 1,
+    colorStops: [
+      { offset: 0, color: '#60A5FA' },
+      { offset: 1, color: '#93C5FD' },
+    ],
+  };
+
   const industryVolumeOptions = {
     color: chartPalette,
     __dataView: {
@@ -1549,7 +1585,7 @@ export default function MarketOverview() {
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalIssuedVolume / 1_000_000) : [],
           itemStyle: {
-            color: topIssuerBarColors[0],
+            color: industryVolumeDarkColor,
             borderRadius: [4, 4, 0, 0],
           },
           barWidth: '30%'
@@ -1559,7 +1595,7 @@ export default function MarketOverview() {
           type: 'bar',
           data: industryData.length > 0 ? industryData.map((d) => d.totalCurrentListedVolume / 1_000_000) : [],
           itemStyle: {
-            color: topIssuerBarColors[1],
+            color: industryVolumeLightColor,
             borderRadius: [4, 4, 0, 0],
           },
           barWidth: '30%'
@@ -1932,31 +1968,32 @@ export default function MarketOverview() {
                     </div>
                     <h4 className="text-xs font-bold text-text-base">{language === 'vi' ? 'Doanh nghiệp dẫn đầu dư nợ' : 'Leading issuers'}</h4>
                   </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                  <div className="grid grid-cols-5 gap-1">
                     {marketInsightSummary.leadingIssuers.length > 0 ? marketInsightSummary.leadingIssuers.map((issuer) => (
                       <button
                         key={issuer}
                         type="button"
                         onClick={() => handleTopIssuerCategoryClick(issuer)}
-                        className="shrink-0 cursor-pointer whitespace-nowrap rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800 active:scale-95 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
+                        title={issuer}
+                        className="w-full min-w-0 cursor-pointer rounded-lg bg-blue-50 px-1 py-2 text-center text-[10px] font-bold leading-tight text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800 active:scale-95 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
                       >
                         {issuer}
                       </button>
                     )) : (
-                      <p className="text-xs font-medium text-text-muted">{language === 'vi' ? 'Chưa có dữ liệu doanh nghiệp.' : 'No issuer data yet.'}</p>
+                      <p className="col-span-full text-xs font-medium text-text-muted">{language === 'vi' ? 'Chưa có dữ liệu doanh nghiệp.' : 'No issuer data yet.'}</p>
                     )}
                   </div>
                 </section>
 
-                <section className="flex flex-col rounded-lg border border-border-base bg-bg-surface/90 p-3 shadow-sm">
+                <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-border-base bg-bg-surface/90 p-3 shadow-sm">
                   <div className="mb-3 flex items-center gap-2">
                     <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     </div>
                     <h4 className="text-xs font-bold text-text-base">{language === 'vi' ? 'Gợi ý theo dõi' : 'Watchlist cues'}</h4>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    {parsedMarketInsight.suggestions.map((suggestion) => (
+                  <div ref={suggestionsListRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+                    {parsedMarketInsight.suggestions.slice(0, visibleSuggestionCount).map((suggestion) => (
                       <div key={suggestion} className="flex items-start gap-2">
                         <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
                         <p className="min-w-0 text-xs font-medium leading-relaxed text-text-base">{suggestion}</p>

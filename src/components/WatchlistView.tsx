@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
+import { EyeOff, Filter, FilterX, ListOrdered, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
 import { getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
@@ -293,7 +293,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       widthClassName: 'w-32',
       cell: (row) => (
         <div className="flex min-w-0 items-center gap-1.5">
-          <BookmarkCheck className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
           <span className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600 group-hover:text-blue-600">
             {row.code}
           </span>
@@ -633,7 +632,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           rows={filteredBonds}
           columns={columns}
           getRowKey={(row) => row.code}
-          pageSize={15}
+          pageSize={10}
           onRowClick={handleOpenBond}
           hiddenColumnIds={watchlistHiddenColumnIds}
           hideEmptyStateRow

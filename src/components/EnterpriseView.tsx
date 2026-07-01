@@ -376,14 +376,14 @@ export default function EnterpriseView({
   const enterpriseAISuggestions = useMemo(() => (
     language === 'en'
       ? [
-          'Banks with high remaining debt',
-          'Real estate issuers with issued value above 1,000 billion VND',
-          'Industrial companies with low remaining debt',
+          'Banks, high debt',
+          'Real estate, issued > 1,000B',
+          'Industrials, low debt',
         ]
       : [
-          'Ngân hàng có dư nợ còn lại cao',
-          'Doanh nghiệp bất động sản có giá trị phát hành trên 1.000 tỷ đồng',
-          'Doanh nghiệp công nghiệp có dư nợ còn lại thấp',
+          'Ngân hàng dư nợ cao',
+          'BĐS phát hành > 1.000 tỷ',
+          'Công nghiệp dư nợ thấp',
         ]
   ), [language]);
   const showEnterpriseAISuggestions = enterpriseAISummary.length === 0 && !enterpriseAIError && !enterpriseAIPrompt.trim();
@@ -1229,8 +1229,10 @@ export default function EnterpriseView({
         return Math.max(8, size);
       },
       itemStyle: {
-        color: index === 0 ? '#1D4ED8' : index === 1 ? '#93C5FD' : '#1D4ED8',
-        opacity: 0.7,
+        // Match the interest-type pie exactly: Cố định = PIE_PALETTE[0], Thả nổi = PIE_PALETTE[1], Khác = PIE_PALETTE[4].
+        // opacity:1 is required — scatter defaults to 0.8, which would render the color (and legend icon) lighter than the solid pie slices.
+        color: index === 0 ? PIE_PALETTE[0] : index === 1 ? PIE_PALETTE[1] : PIE_PALETTE[4],
+        opacity: 1,
       },
     }));
 
@@ -1304,6 +1306,30 @@ export default function EnterpriseView({
   const enterpriseInsightTitle = language === 'vi'
     ? 'Nhận định tổ chức phát hành'
     : 'Issuer insight';
+  // Keep the issuer insight aligned with the same concise, verdict-first mechanism used by the other AI commentary panels.
+  const enterpriseInsightInstructions = language === 'vi'
+    ? [
+        'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp. Trả lời bằng tiếng Việt có dấu.',
+        'CHỈ được dùng dữ liệu đầu vào do hệ thống cung cấp cho tổ chức phát hành đang xem. TUYỆT ĐỐI không tự tạo, suy diễn, ước lượng hay tính toán bất kỳ số liệu nào không có sẵn trong dữ liệu — kể cả phần trăm, tỷ lệ, mức tăng/giảm, trung bình hay tổng cộng.',
+        'MỌI số liệu trong nhận định phải KHỚP 100% với dữ liệu được cung cấp và truy xuất được về đúng một trường dữ liệu tương ứng. Không lấy số từ tổ chức khác, không làm tròn khác đi, không bịa.',
+        'Nếu một khía cạnh thiếu dữ liệu, hãy BỎ QUA khía cạnh đó hoặc chỉ nhận xét dựa trên thông tin hiện có; không sinh số liệu/thông tin không có trong dữ liệu. Nếu dữ liệu không đủ để kết luận, nói ngắn gọn rằng dữ liệu hiện chưa đủ.',
+        'Viết 2-4 câu (tối đa 5 câu tùy không gian card), theo phong cách báo cáo phân tích chuyên nghiệp; mỗi câu ngắn gọn nhưng PHẢI là một nhận định TRỌN VẸN, CÓ Ý NGHĨA — nêu số liệu KÈM đánh giá/bối cảnh (tỷ trọng, mức độ, xu hướng, ý nghĩa), TUYỆT ĐỐI không chỉ liệt kê con số rời rạc. Có thể tách đoạn ngắn cho dễ đọc.',
+        'Ví dụ ĐÚNG: "BID có 152 mã trái phiếu đang lưu hành, thuộc nhóm dẫn đầu về quy mô trong ngành ngân hàng." Ví dụ SAI (chỉ nêu số, vô nghĩa): "3 tỷ đồng và tổng số 152 trái phiếu."',
+        'Câu đầu là kết luận tổng quan về tổ chức phát hành; mọi số liệu lấy trực tiếp từ dữ liệu.',
+        'Ưu tiên nhận định về mức độ tập trung kỳ hạn, rủi ro tái cấp vốn, bất thường trong cấu trúc lãi suất và chênh lệch giữa phát hành, niêm yết và dư nợ còn lại — chỉ khi dữ liệu tương ứng có sẵn.',
+        'Không nhắc tới JSON, API, tên biến, hàm hay cấu trúc nội bộ. Nêu tên hoặc mã tổ chức phát hành ít nhất một lần và kết thúc bằng một câu bắt đầu bằng "Điểm cần theo dõi:" hoặc "Rủi ro chính:".',
+      ].join('\n')
+    : [
+        'You are a corporate-bond analyst. Respond in English only.',
+        'Use ONLY the input data provided by the system for the issuer currently shown. NEVER create, infer, estimate, or compute any figure that is not present in the data — including percentages, ratios, growth rates, averages, or totals.',
+        'EVERY figure in the commentary must match the provided data 100% and be traceable to a specific data field. Do not borrow numbers from other issuers, do not round differently, and do not fabricate.',
+        'If an aspect lacks data, SKIP that aspect or comment only on the available information; do not generate figures or facts absent from the data. If the data is insufficient to conclude, briefly say the data is currently insufficient.',
+        'Write 2-4 sentences (up to 5 depending on card space) in a professional analytical tone; each sentence must be a COMPLETE, MEANINGFUL observation — state a figure TOGETHER with its interpretation/context (share, level, trend, significance), NEVER a bare list of numbers. You may split into short paragraphs for readability.',
+        'Good example: "BID has 152 outstanding bond codes, among the largest issuers in the banking sector." Bad example (numbers only, meaningless): "3 billion VND and a total of 152 bonds."',
+        'The first sentence is an overall verdict on the issuer; all figures come directly from the data.',
+        'Prioritize issuer-specific points such as maturity concentration, refinancing risk, unusual interest-type mix, and the gap between issuance, listing, and remaining debt — only when the corresponding data is available.',
+        'Do not mention JSON, APIs, variable names, functions, or internal structure. Refer to the issuer by name or ticker at least once and end with a sentence starting with "Key watch point:" or "Main risk:".',
+      ].join('\n');
   const cashFlowInsightTitle = language === 'vi'
     ? 'NH\u1eacN X\u00c9T D\u00d2NG TI\u1ec0N'
     : 'CASH FLOW COMMENTARY';
@@ -1364,15 +1390,11 @@ export default function EnterpriseView({
         year,
         listedValueBillion: roundMetric(Number(columnData[index] || 0)),
       })),
-      projectedCashFlows: projectedCashFlowData.labels.slice(0, 6).map((label, index) => ({
-        period: label,
-        interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
-        principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
-        totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
-      })),
+      // Cash flow is intentionally excluded here — it has its own dedicated commentary panel,
+      // so the issuer insight should not repeat/analyze cash-flow figures.
       financialHighlights,
     };
-  }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, projectedCashFlowData, selectedEnterprise, sortedYears]);
+  }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, selectedEnterprise, sortedYears]);
 
   const cashFlowInsightPayload = useMemo(() => ({
     issuer: selectedEnterprise ? {
@@ -1524,7 +1546,7 @@ export default function EnterpriseView({
   }, [enterpriseChatContext, location.pathname]);
 
   const pieOptions = {
-    color: ['#1E3A8A', '#2563EB', '#3B82F6', '#60A5FA', '#93C5FD', '#BFDBFE', '#DBEAFE', '#E0F2FE'],
+    color: PIE_PALETTE,
     __dataView: {
       columns: [
         { label: t('term'), align: 'left', kind: 'text' },
@@ -1563,7 +1585,7 @@ export default function EnterpriseView({
   };
 
   const interestTypePieOptions = {
-    color: ['#1D4ED8', '#93C5FD', '#1D4ED8'],
+    color: [PIE_PALETTE[0], PIE_PALETTE[1], PIE_PALETTE[4]],
     __dataView: {
       columns: [
         { label: t('interestType'), align: 'left', kind: 'text' },
@@ -1593,7 +1615,8 @@ export default function EnterpriseView({
   };
 
   const bubbleOptions = {
-    color: ['#1D4ED8', '#93C5FD'],
+    // Same colors as the interest-type pie so Cố định / Thả nổi match across both charts.
+    color: [PIE_PALETTE[0], PIE_PALETTE[1], PIE_PALETTE[4]],
     __dataView: {
       columns: [
         { label: t('bondCode'), align: 'left', kind: 'text' },
@@ -1669,10 +1692,12 @@ export default function EnterpriseView({
       name: t('listedValueTitle'),
       type: 'bar',
       data: columnData,
-      itemStyle: { 
-        borderRadius: [4, 4, 0, 0] 
+      itemStyle: {
+        borderRadius: [4, 4, 0, 0]
       },
-      barWidth: '40%'
+      barWidth: '40%',
+      barMaxWidth: 48,
+      barMinWidth: 8
     }]
   };
 
@@ -2028,116 +2053,122 @@ export default function EnterpriseView({
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
-            <ChartWithToolbar
-              option={pieOptions}
-              style={{ height: '320px' }}
-              title={t('bondStructureByTerm')}
-              zoomConfig={{
-                shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                chartStyle: { height: '100%', width: '100%' },
-                option: {
-                  legend: pieZoomLegendConfig,
-                  series: [
-                    {
-                      center: ['36%', '50%'],
-                      radius: ['39%', '64%'],
-                      label: {
-                        show: true,
-                        position: 'outside',
-                        formatter: (params: any) => `${formatNumber(params.value, 0)}`,
-                        color: isDark ? '#e5e7eb' : '#1e293b',
-                        fontSize: 11,
-                        fontWeight: 'bold',
-                      },
-                      labelLine: {
-                        show: true,
-                        length: 12,
-                        length2: 10,
-                        smooth: true,
-                      },
-                      emphasis: {
+          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
+            <div className="flex flex-1 items-center justify-center">
+              <ChartWithToolbar
+                option={pieOptions}
+                style={{ height: '100%', minHeight: '320px' }}
+                title={t('bondStructureByTerm')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    legend: pieZoomLegendConfig,
+                    series: [
+                      {
+                        center: ['36%', '50%'],
+                        radius: ['39%', '64%'],
                         label: {
                           show: true,
-                          fontSize: '12',
-                          fontWeight: 'bold',
+                          position: 'outside',
                           formatter: (params: any) => `${formatNumber(params.value, 0)}`,
                           color: isDark ? '#e5e7eb' : '#1e293b',
-                        }
+                          fontSize: 11,
+                          fontWeight: 'bold',
+                        },
+                        labelLine: {
+                          show: true,
+                          length: 12,
+                          length2: 10,
+                          smooth: true,
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            fontSize: '12',
+                            fontWeight: 'bold',
+                            formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                            color: isDark ? '#e5e7eb' : '#1e293b',
+                          },
+                        },
                       },
-                    },
-                  ],
-                },
-              }}
-            />
-          </div>
-          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
-            <ChartWithToolbar
-              option={interestTypePieOptions}
-              style={{ height: '300px' }}
-              title={t('bondStructureByInterestType')}
-              zoomConfig={{
-                shellClassName: 'flex h-full max-h-screen w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
-                chartStyle: { height: '100%', width: '100%' },
-                option: {
-                  legend: {
-                    left: 'center',
-                    bottom: 6,
-                    top: undefined,
-                    itemWidth: 16,
-                    itemHeight: 10,
-                    itemGap: 18,
-                    textStyle: {
-                      ...legendStyle,
-                      width: 160,
-                      overflow: 'truncate',
-                      align: 'center',
-                    },
+                    ],
                   },
-                  series: [
-                    {
-                      center: ['50%', '44%'],
-                      radius: ['40%', '66%'],
-                      label: {
-                        show: true,
-                        position: 'inside',
-                        formatter: (params: any) => `${formatNumber(params.value, 0)}`,
-                        color: isDark ? '#e5e7eb' : '#1e293b',
-                        fontSize: 11,
-                        fontWeight: 'bold',
+                }}
+              />
+            </div>
+          </div>
+          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
+            <div className="flex flex-1 items-center justify-center">
+              <ChartWithToolbar
+                option={interestTypePieOptions}
+                style={{ height: '100%', minHeight: '300px' }}
+                title={t('bondStructureByInterestType')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    legend: {
+                      left: 'center',
+                      bottom: 6,
+                      top: undefined,
+                      itemWidth: 16,
+                      itemHeight: 10,
+                      itemGap: 18,
+                      textStyle: {
+                        ...legendStyle,
+                        width: 160,
+                        overflow: 'truncate',
+                        align: 'center',
                       },
-                      labelLine: {
-                        show: false,
-                        length: 12,
-                        length2: 10,
-                        smooth: true,
-                      },
-                      emphasis: {
+                    },
+                    series: [
+                      {
+                        center: ['50%', '44%'],
+                        radius: ['40%', '66%'],
                         label: {
                           show: true,
                           position: 'inside',
-                          fontSize: '12',
-                          fontWeight: 'bold',
                           formatter: (params: any) => `${formatNumber(params.value, 0)}`,
                           color: isDark ? '#e5e7eb' : '#1e293b',
-                        }
+                          fontSize: 11,
+                          fontWeight: 'bold',
+                        },
+                        labelLine: {
+                          show: false,
+                          length: 12,
+                          length2: 10,
+                          smooth: true,
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            position: 'inside',
+                            fontSize: '12',
+                            fontWeight: 'bold',
+                            formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                            color: isDark ? '#e5e7eb' : '#1e293b',
+                          },
+                        },
                       },
-                    },
-                  ],
-                },
-              }}
-            />
+                    ],
+                  },
+                }}
+              />
+            </div>
           </div>
           <AIInsightPanel
-            cacheKey={`enterprise-insight-${selectedEnterprise.ticker}`}
+            cacheKey={`enterprise-insight-v8-${selectedEnterprise.ticker}`}
             title={enterpriseInsightTitle}
             pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
             sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
             payload={enterpriseInsightPayload}
-            className="xl:col-span-4"
-            expandContent
+            className="h-full xl:col-span-4"
             layout="stacked"
             contentChrome="plain"
+            contentMaxHeight={250}
+            instructions={enterpriseInsightInstructions}
+            boldTerms={[enterpriseDisplayName, selectedEnterprise.ticker].filter(Boolean) as string[]}
           />
           <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <ChartWithToolbar
@@ -2246,7 +2277,7 @@ export default function EnterpriseView({
       <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
         <div className="rounded-lg border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-2.5 transition-colors dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
           <div className="space-y-1">
-            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700 dark:text-blue-300">
               <BadgeDollarSign className="h-4 w-4" />
               <span>{t('applyAIFilter')}</span>
             </span>
@@ -2284,7 +2315,7 @@ export default function EnterpriseView({
           </div>
 
           {showEnterpriseAISuggestions ? (
-            <div className="mt-2 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
+            <div className="mt-2 flex max-h-8 flex-wrap content-start items-center gap-2 overflow-hidden">
               <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
               {enterpriseAISuggestions.map((suggestion) => (
                 <button
@@ -2299,7 +2330,7 @@ export default function EnterpriseView({
                     event.stopPropagation();
                     handleEnterpriseSuggestionClick(suggestion);
                   }}
-                  className="shrink-0 rounded-full border border-blue-100 bg-white px-3 py-1 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-900 dark:border-blue-400/20 dark:bg-slate-900/40 dark:text-blue-300"
+                  className="shrink-0 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-blue-400/20 dark:bg-slate-900/40 dark:text-blue-300 dark:hover:text-blue-400"
                 >
                   {suggestion}
                 </button>

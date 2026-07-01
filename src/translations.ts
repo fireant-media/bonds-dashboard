@@ -398,7 +398,7 @@ export const translations = {
     publishDate: 'Ngày đăng',
     
     // Chatbot
-    chatBotTitle: 'Chat với AI',
+    chatBotTitle: 'FireAnt Bonds AI',
     chatBotWelcome: 'Tôi có thể giúp gì cho bạn về dữ liệu thị trường trái phiếu hôm nay?',
     chatBotPlaceholder: 'Nhập câu hỏi tại đây...',
     chatBotError: 'Có lỗi xảy ra khi kết nối với AI. Vui lòng thử lại sau.',
@@ -1311,7 +1311,7 @@ export const translations = {
     publishDate: 'Published Date',
 
     // Chatbot
-    chatBotTitle: 'Chat with AI',
+    chatBotTitle: 'FireAnt Bonds AI',
     chatBotWelcome: 'How can I help you with bond market data today?',
     chatBotPlaceholder: 'Type your question here...',
     chatBotError: 'An error occurred while connecting to AI. Please try again later.',

@@ -200,13 +200,14 @@ export default function Sidebar({
           // Mobile: fixed slide-in overlay drawer
           'fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw]',
           isMobileOpen ? 'translate-x-0' : '-translate-x-full',
-          // Desktop: static inline column
+          // Desktop: static inline column. Width scales down on smaller desktops so the
+          // sidebar shrinks alongside the cards instead of staying a fixed 288px.
           'lg:static lg:z-auto lg:max-w-none lg:translate-x-0',
           desktopVisible ? 'lg:flex' : 'lg:hidden',
-          isCollapsedDesktop ? 'lg:w-16' : 'lg:w-72'
+          isCollapsedDesktop ? 'lg:w-16' : 'lg:w-56 xl:w-64 2xl:w-72'
         )}
       >
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 lg:p-4', isCollapsed && 'overflow-visible p-2')}>
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 xl:p-4', isCollapsed && 'overflow-visible p-2')}>
         <div className={cn('mb-4 flex h-10 items-center justify-between gap-2', isCollapsed && 'justify-center')}>
           {!isCollapsed ? (
             <>

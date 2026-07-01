@@ -10,19 +10,19 @@ export const CHART_BASE_PALETTE = [
 
 export const CHART_PALETTE = [...CHART_BASE_PALETTE];
 
-// Pie slices use a blue-only ramp: the first slice is the primary blue and later
-// slices progressively become lighter shades of blue.
+// Pie slices stay in the SAME blue -> cyan family as the bar-chart gradient
+// (#2563EB -> #3B82F6 -> #0EA5E9) but the range is widened and blue/cyan tones are
+// interleaved so adjacent slices contrast clearly. No navy (too dark) or near-white
+// (too light) — every tone stays a readable mid blue/cyan.
 export const PIE_PALETTE = [
-  '#2563EB',
-  '#3B82F6',
-  '#60A5FA',
-  '#93C5FD',
-  '#BFDBFE',
-  '#DBEAFE',
-  '#EAF2FF',
-  '#F3F8FF',
-  '#F8FBFF',
-  '#FFFFFF',
+  '#2563EB', // blue-600 (bar scale start)
+  '#0EA5E9', // sky-500  (bar scale end)
+  '#3B82F6', // blue-500 (bar scale mid)
+  '#06B6D4', // cyan-500
+  '#60A5FA', // blue-400
+  '#0891B2', // cyan-700
+  '#1D4ED8', // blue-700
+  '#38BDF8', // sky-400
 ];
 
 export type ChartThemeMode = 'light' | 'dark';

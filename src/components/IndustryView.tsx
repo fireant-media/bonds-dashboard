@@ -510,8 +510,10 @@ export default function IndustryView({ industry }: IndustryViewProps) {
         name: t('interestRate'),
         type: 'bar',
         barWidth: getAdaptiveBarWidth(categoryCount),
+        barMaxWidth: 48,
+        barMinWidth: 8,
         data: data.map(d => d.value),
-        itemStyle: { 
+        itemStyle: {
           borderRadius: [4, 4, 0, 0]
         },
         label: {
@@ -703,11 +705,13 @@ export default function IndustryView({ industry }: IndustryViewProps) {
       ],
       series: [
         { 
-          name: t('remainingDebtTitle'), 
-          type: 'bar', 
-          data: displayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)), 
+          name: t('remainingDebtTitle'),
+          type: 'bar',
+          data: displayData.map(d => Math.round(d.totalRemainingDebt / 1000000000)),
           barWidth: getAdaptiveBarWidth(categoryCount),
-          itemStyle: { } 
+          barMaxWidth: 48,
+          barMinWidth: 8,
+          itemStyle: { }
         },
         { 
           name: language === 'vi' ? 'Số mã trái phiếu' : 'Bond codes', 

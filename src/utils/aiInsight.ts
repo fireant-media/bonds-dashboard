@@ -69,7 +69,11 @@ export const sanitizeAIInsightText = (content: string, language: InsightLanguage
     .trim();
 };
 
-export const readDailyAIInsight = (cacheKey: string, signature: string) => {
+export const readDailyAIInsight = (
+  cacheKey: string,
+  signature: string,
+  options?: { ignoreDate?: boolean },
+) => {
   if (typeof window === 'undefined' || !signature) return null;
 
   try {
@@ -77,8 +81,10 @@ export const readDailyAIInsight = (cacheKey: string, signature: string) => {
     if (!raw) return null;
 
     const parsed = JSON.parse(raw) as Partial<DailyAIInsightEntry>;
+    // With ignoreDate the cache persists until the input signature changes (no daily expiry),
+    // so the insight is only regenerated on a real data change or a manual refresh.
     if (
-      parsed.date !== getAIInsightDayKey()
+      (!options?.ignoreDate && parsed.date !== getAIInsightDayKey())
       || parsed.signature !== signature
       || typeof parsed.text !== 'string'
       || typeof parsed.updatedAt !== 'string'

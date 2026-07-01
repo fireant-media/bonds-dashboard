@@ -470,7 +470,7 @@ export function BondFilterPanel({
         <div className="py-0.5">
           <div className="flex flex-col gap-1.5 rounded-lg border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-2.5 transition-colors dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
             <div className="space-y-0.5">
-              <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700">
+              <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700 dark:text-blue-300">
                 <Sparkles className="h-4 w-4" />
                 <span>{t('applyAIFilter')}</span>
               </span>
@@ -514,7 +514,7 @@ export function BondFilterPanel({
 
             {showPromptSuggestions && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-widest text-blue-700">
+                <span className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">
                   Gợi ý nhanh:
                 </span>
                 {quickPromptSuggestions.slice(0, AI_PROMPT_SUGGESTION_LIMIT).map((suggestion) => (
@@ -526,7 +526,7 @@ export function BondFilterPanel({
                       setAiSummary([]);
                       setAiError(null);
                     }}
-                    className="inline-flex h-7 items-center rounded-full border border-blue-100 bg-bg-surface px-3 text-left text-xs font-semibold whitespace-nowrap text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-900"
+                    className="inline-flex h-7 items-center rounded-full border border-blue-100 bg-bg-surface px-3 text-left text-xs font-semibold whitespace-nowrap text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-blue-400/20 dark:text-blue-300 dark:hover:text-blue-400"
                   >
                     {suggestion}
                   </button>
@@ -546,7 +546,7 @@ export function BondFilterPanel({
                           setAiPrompt(item);
                           setAiError(null);
                         }}
-                        className="rounded-full px-3 py-0.5 text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-900"
+                        className="rounded-full px-3 py-0.5 text-xs font-semibold leading-tight text-blue-700 transition-colors hover:text-blue-600 dark:text-blue-300 dark:hover:text-blue-400"
                       >
                         {item}
                       </button>
