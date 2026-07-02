@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EyeOff, Filter, FilterX, ListOrdered, Plus, RefreshCcw, Search, Trash2 } from 'lucide-react';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
@@ -6,6 +6,8 @@ import { getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPre
 import { useLanguage } from '../LanguageContext';
 import { getWatchlistItems, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItem, type WatchlistItem } from '../utils/watchlist';
 import { loadBondDetail, type BondDataRow } from '../services/bondData';
+import { getCache } from '../utils/cache';
+import { resolveEnterpriseIndustryFromCandidates } from '../constants/industries';
 import { DataTable, type DataTableColumn } from './ui/DataTable';
 import { BondFilterPanel, useBondFilterController } from './BondFilterPanel';
 import { filterBondRowsByCriteria, sortBondRowsByCriteria } from '../services/aiBondFilter';
@@ -95,9 +97,36 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
   const [isAddBondModalOpen, setIsAddBondModalOpen] = useState(false);
   const watchlistColumnVisibilityRef = useRef<HTMLDivElement | null>(null);
 
+  // Industry is not stored on watchlist items, so resolve it the same way the bond list
+  // ("Danh sách trái phiếu") does: from the enterprise_list cache (ticker -> industry),
+  // falling back to inferring it from the issuer name/ticker.
+  const enterpriseIndustryBySymbol = useMemo(() => {
+    const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string }>;
+    return new Map(
+      enterpriseList
+        .map((item) => {
+          const ticker = String(item?.ticker || '').trim();
+          const industry = resolveEnterpriseIndustryFromCandidates(item?.industry);
+          return ticker && industry ? [ticker, industry] as const : null;
+        })
+        .filter((entry): entry is readonly [string, string] => Boolean(entry)),
+    );
+  }, []);
+
+  const resolveWatchlistIndustry = useCallback(
+    (bond: { industry?: string; ticker?: string; enterpriseId?: string; issuerName?: string }) =>
+      resolveEnterpriseIndustryFromCandidates(
+        bond.industry,
+        enterpriseIndustryBySymbol.get(String(bond.ticker || bond.enterpriseId || '').trim()),
+        bond.issuerName,
+        bond.ticker,
+      ),
+    [enterpriseIndustryBySymbol],
+  );
+
   const watchlistFilterRows = useMemo(
-    () => bonds.map((bond) => toWatchlistFilterRow(bond)),
-    [bonds],
+    () => bonds.map((bond) => ({ ...toWatchlistFilterRow(bond), industry: resolveWatchlistIndustry(bond) })),
+    [bonds, resolveWatchlistIndustry],
   );
 
   const watchlistRateTypeOptions = useMemo(
@@ -307,7 +336,8 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
       widthClassName: 'w-96',
       cell: (row) => {
         const issuerName = String(t((row.issuerName || row.ticker || t('none')) as any, row.ticker) || row.issuerName || row.ticker || t('none'));
-        const industry = row.industry ? t(row.industry as any) : '';
+        const industryKey = resolveWatchlistIndustry(row);
+        const industry = industryKey ? (t(industryKey as any) || industryKey) : '';
 
         return (
           <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
@@ -428,7 +458,7 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
         </button>
       ),
     },
-  ]), [language, t]);
+  ]), [language, t, resolveWatchlistIndustry]);
 
   const watchlistColumnOptions = useMemo(
     () => columns.filter((column) => column.id !== 'order').map((column) => ({
@@ -521,6 +551,16 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           showFilterControls={isWatchlistFilterControlsVisible}
           marketActionSlot={(
             <div ref={watchlistColumnVisibilityRef} className={watchlistColumnVisibilityOpen ? 'relative z-40 ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2' : 'relative ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2'}>
+              <button
+                type="button"
+                onClick={() => setIsAddBondModalOpen(true)}
+                className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-0 text-sm font-semibold text-white shadow-sm transition-colors hover:opacity-95 sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+                aria-label={t('addBond')}
+                title={t('addBond')}
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="hidden xl:inline">{t('addBond')}</span>
+              </button>
               <button
                 type="button"
                 onClick={applyDraftFilters}
@@ -637,17 +677,6 @@ export default function WatchlistView({ setSelectedBond, setBondEnterpriseName }
           hiddenColumnIds={watchlistHiddenColumnIds}
           hideEmptyStateRow
         />
-      </div>
-
-      <div className="mt-4 flex justify-center">
-      <button
-        type="button"
-        onClick={() => setIsAddBondModalOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95"
-      >
-          <Plus className="h-4 w-4" />
-          <span>{t('addBond')}</span>
-        </button>
       </div>
 
       <WatchlistAddBondModal isOpen={isAddBondModalOpen} onClose={() => setIsAddBondModalOpen(false)} />

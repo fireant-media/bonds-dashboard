@@ -55,22 +55,19 @@ const pruneEmptyValues = <T extends Record<string, unknown>>(value: T) =>
     Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined && fieldValue !== null && fieldValue !== ''),
   ) as Partial<T>;
 
-const normalizeSearchText = (value: string) =>
-  String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const includesAny = (text: string, patterns: string[]) => patterns.some((pattern) => text.includes(pattern));
-const normalizeLabelKey = (value: string) =>
+const normalizeTextForMatching = (value: string) =>
   String(value || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
     .replace(/\s+/g, ' ')
     .trim();
+
+const normalizeSearchText = (value: string) => normalizeTextForMatching(value);
+
+const includesAny = (text: string, patterns: string[]) => patterns.some((pattern) => text.includes(pattern));
+const normalizeLabelKey = (value: string) => normalizeTextForMatching(value);
 
 const stripMarkdownCodeFence = (value: string) =>
   value
@@ -124,8 +121,8 @@ export function normalizeAIBondRateType(value: unknown): AIBondRateType | undefi
   const text = normalizeSearchText(String(value ?? ''));
   if (!text) return undefined;
 
-  if (text.includes('co dinh') || text.includes('fixed')) return 'fixed';
-  if (text.includes('tha noi') || text.includes('floating') || text.includes('variable')) return 'floating';
+  if (/(^|[^a-z])(co dinh|fixed|fix|dinh ky)([^a-z]|$)/.test(text)) return 'fixed';
+  if (/(^|[^a-z])(tha noi|floating|variable|linh hoat|flo)([^a-z]|$)/.test(text)) return 'floating';
   return undefined;
 }
 

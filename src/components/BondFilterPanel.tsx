@@ -1163,6 +1163,10 @@ function MarketFilterToolbar({
   );
 }
 
+export type SearchFilterSuggestion =
+  | string
+  | { value: string; label: string; sublabel?: string; searchText?: string };
+
 export function SearchFilterField({
   value,
   onChange,
@@ -1170,20 +1174,35 @@ export function SearchFilterField({
 }: {
   value: string;
   onChange: (value: string) => void;
-  suggestions: string[];
+  suggestions: SearchFilterSuggestion[];
 }) {
   const { t } = useLanguage();
   const [isFocused, setIsFocused] = useState(false);
-  const normalizedValue = value.trim().toLowerCase();
+  const normalizeText = (input: string) =>
+    input.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const normalizedValue = normalizeText(value);
   const visibleSuggestions = normalizedValue
     ? suggestions
-        .filter((option): option is string => typeof option === 'string' && option.trim().length > 0)
-        .filter((option) => option.toLowerCase().includes(normalizedValue))
+        .map((option) =>
+          typeof option === 'string'
+            ? { value: option, label: option, sublabel: undefined as string | undefined, searchText: option, structured: false }
+            : {
+                value: option.value,
+                label: option.label,
+                sublabel: option.sublabel,
+                searchText: option.searchText ?? `${option.label} ${option.sublabel ?? ''} ${option.value}`,
+                structured: true,
+              },
+        )
+        .filter((option) => option.value.trim().length > 0 && option.label.trim().length > 0)
+        // Structured suggestions are already filtered/ranked by the parent (source of truth);
+        // only plain-string suggestions get the built-in substring filter.
+        .filter((option) => option.structured || normalizeText(option.searchText).includes(normalizedValue))
         .slice(0, 8)
     : [];
 
   return (
-    <div className={open ? 'relative z-40' : 'relative'}>
+    <div className="relative z-40">
       <label className="relative block">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-600" />
         <input
@@ -1201,16 +1220,19 @@ export function SearchFilterField({
           <div className="max-h-64 overflow-y-auto">
             {visibleSuggestions.map((option) => (
               <button
-                key={option}
+                key={`${option.value}-${option.label}`}
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => {
-                  onChange(option);
+                  onChange(option.value);
                   setIsFocused(false);
                 }}
-                className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold text-text-base transition-colors hover:bg-surface-container-low"
+                className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-surface-container-low"
               >
-                {option}
+                <span className="w-full truncate text-sm font-semibold text-text-base">{option.label}</span>
+                {option.sublabel ? (
+                  <span className="w-full truncate text-xs font-medium text-text-muted">{option.sublabel}</span>
+                ) : null}
               </button>
             ))}
           </div>

@@ -564,7 +564,7 @@ export default function Sidebar({
                   type="button"
                   onClick={() => setIsAccountMenuOpen((current) => !current)}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+                    'group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
                     isAccountMenuOpen
                       ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
                       : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -576,7 +576,7 @@ export default function Sidebar({
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
                     {userInitial}
                   </span>
-                  <span className="block min-w-0 flex-1 truncate text-sm font-bold text-text-base">{userName}</span>
+                  <span className="block min-w-0 flex-1 truncate text-sm font-bold text-text-base transition-colors group-hover:text-blue-600">{userName}</span>
                 </button>
               </div>
             </>

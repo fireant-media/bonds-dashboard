@@ -342,6 +342,19 @@ export default function EnterpriseView({
       .replace(/[\u0300-\u036f]/g, '')
       .trim();
 
+  // Match a term only where it aligns to the start of a word, so a query like "tc"
+  // does not match the ubiquitous legal-form prefix "CTCP" (which contains "tc" mid-word).
+  const matchesWordStart = (text: string, term: string) => {
+    if (!term) return false;
+    let index = text.indexOf(term);
+    while (index !== -1) {
+      const previousChar = index === 0 ? '' : text[index - 1];
+      if (!previousChar || !/[a-z0-9]/.test(previousChar)) return true;
+      index = text.indexOf(term, index + 1);
+    }
+    return false;
+  };
+
   const enterpriseIndustryOptions = useMemo(() => {
     return buildEnterpriseIndustryOptions(enterprises).map((item) => ({
       ...item,
@@ -358,16 +371,35 @@ export default function EnterpriseView({
         const displayName = String(t(enterprise.name as any, enterprise.ticker) || '').trim();
         const rawName = String(enterprise.name || '').trim();
         const englishName = String(enterpriseNamesEN[enterprise.ticker] || '').trim();
-        const haystack = normalizeEnterpriseSearch([ticker, displayName, rawName, englishName].filter(Boolean).join(' '));
 
-        if (!haystack.includes(normalizedTerm)) return null;
+        const normalizedTicker = normalizeEnterpriseSearch(ticker);
+        const normalizedName = normalizeEnterpriseSearch([displayName, rawName, englishName].filter(Boolean).join(' '));
+        // Ticker: substring match. Name: word-start match only (so "tc" ignores the "CTCP" prefix).
+        const tickerMatch = normalizedTicker.includes(normalizedTerm);
+        const nameMatch = matchesWordStart(normalizedName, normalizedTerm);
+        if (!tickerMatch && !nameMatch) return null;
 
+        // Rank so ticker matches surface before name matches, most exact first:
+        // exact ticker (0) > ticker prefix (1) > ticker contains (2) > name prefix (3) > name word-start (4).
+        let rank: number;
+        if (normalizedTicker === normalizedTerm) rank = 0;
+        else if (normalizedTicker.startsWith(normalizedTerm)) rank = 1;
+        else if (tickerMatch) rank = 2;
+        else if (normalizedName.startsWith(normalizedTerm)) rank = 3;
+        else rank = 4;
+
+        const label = displayName || englishName || rawName || ticker;
         return {
           ticker,
-          label: displayName || englishName || rawName || ticker,
+          rank,
+          value: label,
+          label,
+          sublabel: ticker ? `${t('ticker')}: ${ticker}` : undefined,
+          searchText: [label, ticker, rawName, englishName].filter(Boolean).join(' '),
         };
       })
-      .filter((item): item is { ticker: string; label: string } => Boolean(item))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => (left.rank - right.rank) || left.label.localeCompare(right.label))
       .slice(0, 8);
   }, [enterpriseNamesEN, enterpriseSearchTerm, enterprises, t]);
   const enterpriseAIPromptPlaceholder = language === 'en'
@@ -2363,7 +2395,7 @@ export default function EnterpriseView({
                 <SearchFilterField
                   value={enterpriseSearchTerm}
                   onChange={setEnterpriseSearchTerm}
-                  suggestions={safeEnterpriseSearchSuggestions.map((item) => item.label)}
+                  suggestions={safeEnterpriseSearchSuggestions}
                 />
               </div>
               <div className="min-w-0 flex-1">

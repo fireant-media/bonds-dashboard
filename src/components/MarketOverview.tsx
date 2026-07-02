@@ -15,7 +15,6 @@ import {
   ShieldAlert,
   Sparkles,
   TrendingUp,
-  Trophy,
   Wallet,
 } from 'lucide-react';
 import { type ChartDataTableColumn } from './ui/ChartDataViewModal';
@@ -931,10 +930,6 @@ export default function MarketOverview() {
       highYieldCount,
       listingRatio,
       notableIndustries: [topIndustry, secondIndustry].filter(Boolean),
-      leadingIssuers: topDebtData
-        .slice(0, 5)
-        .map((issuer) => String(issuer.issuerSymbol || issuer.issuerName || '').trim())
-        .filter(Boolean),
     };
   }, [deferredIndustryData, marketKpis.issuedValue, marketKpis.remainingDebt, t, topDebtData, topInterestAllNormalized]);
 
@@ -1981,30 +1976,6 @@ export default function MarketOverview() {
                       );
                     }) : (
                       <p className="text-xs font-medium text-text-muted">{language === 'vi' ? 'Chưa có dữ liệu ngành.' : 'No industry data yet.'}</p>
-                    )}
-                  </div>
-                </section>
-
-                <section className="rounded-lg border border-border-base bg-bg-surface/90 p-3 shadow-sm">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
-                      <Trophy className="h-3.5 w-3.5" />
-                    </div>
-                    <h4 className="text-xs font-bold text-text-base">{language === 'vi' ? 'Doanh nghiệp dẫn đầu dư nợ' : 'Leading issuers'}</h4>
-                  </div>
-                  <div className="grid grid-cols-5 gap-1">
-                    {marketInsightSummary.leadingIssuers.length > 0 ? marketInsightSummary.leadingIssuers.map((issuer) => (
-                      <button
-                        key={issuer}
-                        type="button"
-                        onClick={() => handleTopIssuerCategoryClick(issuer)}
-                        title={issuer}
-                        className="w-full min-w-0 cursor-pointer rounded-lg bg-blue-50 px-1 py-2 text-center text-[10px] font-bold leading-tight text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800 active:scale-95 dark:bg-blue-500/10 dark:text-blue-300 dark:hover:bg-blue-500/20"
-                      >
-                        {issuer}
-                      </button>
-                    )) : (
-                      <p className="col-span-full text-xs font-medium text-text-muted">{language === 'vi' ? 'Chưa có dữ liệu doanh nghiệp.' : 'No issuer data yet.'}</p>
                     )}
                   </div>
                 </section>
