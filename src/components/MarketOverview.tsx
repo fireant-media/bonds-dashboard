@@ -938,6 +938,15 @@ export default function MarketOverview() {
     };
   }, [deferredIndustryData, marketKpis.issuedValue, marketKpis.remainingDebt, t, topDebtData, topInterestAllNormalized]);
 
+  // Only generate/cache the AI insight once the underlying market data is actually
+  // loaded. On a cold production load the data arrays are briefly empty; generating
+  // then produces a "no data" insight that gets stuck (see generate effect below).
+  const hasMarketInsightData = Boolean(
+    marketInsightSummary.topIndustry
+    && topDebtData.length > 0
+    && topInterestAllNormalized.length > 0,
+  );
+
   const activeModel = selectedModel || defaultModel;
   const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
   const marketInsightPayload = useMemo(() => ({
@@ -1106,7 +1115,7 @@ export default function MarketOverview() {
   }, [baseUrl, configured, isLoadingStatus, marketInsightVisible, refreshStatus, statusError]);
 
   const generateMarketInsight = async (force = false) => {
-    if (!marketInsightPayloadText) return;
+    if (!marketInsightPayloadText || !hasMarketInsightData) return;
 
     if (!configured) {
       setMarketInsightError(t('aiNotConfiguredShort'));
@@ -1210,11 +1219,12 @@ export default function MarketOverview() {
   };
 
   useEffect(() => {
-    if (!marketInsightVisible || !marketInsightPayloadText || !configured || isMarketInsightLoading || marketInsightText || marketInsightError || cachedMarketInsight) return;
+    if (!marketInsightVisible || !marketInsightPayloadText || !hasMarketInsightData || !configured || isMarketInsightLoading || marketInsightText || marketInsightError || cachedMarketInsight) return;
     void generateMarketInsight(false);
   }, [
     cachedMarketInsight,
     configured,
+    hasMarketInsightData,
     isMarketInsightLoading,
     marketInsightError,
     marketInsightPayloadText,
@@ -1433,18 +1443,32 @@ export default function MarketOverview() {
     };
   })();
 
+  const industryCompositionTotal = industryCompositionData.reduce((sum, item) => sum + item.value, 0);
   const industryValueOptions = {
     color: industryPieColors,
     __dataView: {
       categoryLabel: t('marketTitle'),
       categoryAlign: 'left',
+      columns: [
+        { label: t('name'), align: 'left' as const, kind: 'text' as const },
+        { label: industryCompositionConfig.label, unit: t('unitBillionVND'), align: 'right' as const, kind: 'number' as const },
+        { label: language === 'vi' ? 'Tỷ trọng' : 'Proportion', align: 'right' as const, kind: 'number' as const },
+      ],
+      rows: industryCompositionData.map((item) => [
+        item.name,
+        item.value,
+        industryCompositionTotal > 0 ? `${formatNumber((item.value / industryCompositionTotal) * 100, 2)}%` : '',
+      ]),
     },
     tooltip: {
       ...chartTooltip,
       trigger: 'item',
       confine: true,
       textStyle: tooltipTextStyle,
-      formatter: (params: any) => `${params.name}<br/>${params.marker}${industryCompositionConfig.label}: ${highlightChartTooltipValue(formatNumber(params.value, 2), ` ${t('unitBillionVND')}`)}`,
+      formatter: (params: any) => {
+        const proportionLabel = language === 'vi' ? 'Tỷ trọng' : 'Proportion';
+        return `${params.name}<br/>${params.marker}${industryCompositionConfig.label}: ${highlightChartTooltipValue(formatNumber(params.value, 2), ` ${t('unitBillionVND')}`)}<br/>${params.marker}${proportionLabel}: ${highlightChartTooltipValue(formatNumber(params.percent, 2), '%')}`;
+      },
     },
     legend: {
       show: true,
