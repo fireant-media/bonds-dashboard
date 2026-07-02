@@ -1,8 +1,37 @@
-import { LayoutDashboard, Building2, Briefcase, ChevronDown, ChevronRight, PanelLeft, Calendar } from 'lucide-react';
-import { useState } from 'react';
+import {
+  AlertTriangle,
+  BookOpen,
+  Bookmark,
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Headphones,
+  HelpCircle,
+  Languages,
+  LayoutDashboard,
+  LogOut,
+  Moon,
+  PanelLeft,
+  Search,
+  SlidersHorizontal,
+  Sun,
+  User,
+  UserCircle,
+  X,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
+import { useTheme } from '../ThemeContext';
+import { useAuthUser } from '../auth/authStore';
+import { getCache } from '../utils/cache';
+import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
+import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
+import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
+import Logo from './Logo';
+import GlobalSearch from './GlobalSearch';
+import type { SearchSuggestion } from '../hooks/useGlobalSearch';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -11,126 +40,599 @@ function cn(...inputs: ClassValue[]) {
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  activeIndustry: string;
+  activeIndustry?: string;
   setActiveIndustry: (industry: string) => void;
-  isOpen: boolean;
-  onToggle: () => void;
-  onEnterpriseTabClick: () => void;
+  activeFilterSubTab: 'issuer' | 'bonds';
+  setActiveFilterSubTab: (subTab: 'issuer' | 'bonds') => void;
+  activeProfileSection: 'info';
+  setActiveProfileSection: (section: 'info') => void;
+  activeHelpSection: 'manual' | 'faq' | 'report' | 'contact';
+  setActiveHelpSection: (section: 'manual' | 'faq' | 'report' | 'contact') => void;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  isMobileOpen: boolean;
+  onMobileClose: () => void;
+  desktopVisible?: boolean;
+  onSearchSelect: (suggestion: SearchSuggestion) => void;
+  onProfileClick: () => void;
+  onHelpClick: () => void;
+  onLogout: () => void;
 }
 
-export default function Sidebar({ 
-  activeTab, 
-  setActiveTab, 
-  activeIndustry, 
+export default function Sidebar({
+  activeTab,
+  setActiveTab,
+  activeIndustry,
   setActiveIndustry,
-  isOpen,
-  onToggle,
-  onEnterpriseTabClick
+  activeFilterSubTab,
+  setActiveFilterSubTab,
+  activeProfileSection,
+  setActiveProfileSection,
+  activeHelpSection,
+  setActiveHelpSection,
+  isCollapsed: isCollapsedDesktop,
+  onToggleCollapse,
+  isMobileOpen,
+  onMobileClose,
+  desktopVisible = true,
+  onSearchSelect,
+  onProfileClick,
+  onHelpClick,
+  onLogout,
 }: SidebarProps) {
-  const [isIndustryOpen, setIsIndustryOpen] = useState(false);
-  const { t, language } = useLanguage();
+  // On small screens the sidebar is a slide-in overlay that always shows its
+  // full (expanded) layout — the collapse feature only applies on desktop.
+  const isCollapsed = isMobileOpen ? false : isCollapsedDesktop;
+  const { t, language, setLanguage } = useLanguage();
+  const { setTheme, effectiveTheme } = useTheme();
+  const authUser = useAuthUser();
+  const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
+  const userName = authUser?.profile?.name || 'Admin User';
+  const userInitial = (userName.charAt(0) || 'A').toUpperCase();
+  const toggleTheme = () => setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
+  const toggleLanguage = () => setLanguage(language === 'vi' ? 'en' : 'vi');
+  const activeSidebarItemClassName =
+    'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20';
+  const [isIndustryOpen, setIsIndustryOpen] = useState(activeTab === 'industry');
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
-  const menuItems = [
+  useEffect(() => {
+    if (!isAccountMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isAccountMenuOpen]);
+  const [industryIssuedValues, setIndustryIssuedValues] = useState<Record<string, number> | null>(
+    () => getCache('sidebar_industry_issued_values_v2')
+  );
+
+  useEffect(() => {
+    if (!isMobileOpen || typeof document === 'undefined') return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileOpen]);
+
+  useEffect(() => {
+    if (industryIssuedValuesQuery.data && Object.keys(industryIssuedValuesQuery.data).length > 0) {
+      setIndustryIssuedValues(industryIssuedValuesQuery.data);
+    }
+  }, [industryIssuedValuesQuery.data]);
+
+  useEffect(() => {
+    if (activeTab === 'industry') {
+      setIsIndustryOpen(true);
+    }
+  }, [activeTab]);
+
+  const subIndustries = useMemo(() => {
+    const items = INDUSTRY_NAV_ITEMS.map((item) => ({
+      id: item.id,
+      label: t(item.labelKey as any),
+      issuedValue: industryIssuedValues?.[item.id],
+      order: item.priority,
+    }));
+
+    return items.sort((a, b) => {
+      const leftValue = typeof a.issuedValue === 'number' ? a.issuedValue : -1;
+      const rightValue = typeof b.issuedValue === 'number' ? b.issuedValue : -1;
+      return rightValue - leftValue || a.order - b.order;
+    });
+  }, [industryIssuedValues, t]);
+
+  const dashboardItems = [
     { id: 'overview', label: t('overview'), icon: LayoutDashboard },
     { id: 'industry', label: t('industry'), icon: Building2, hasSubmenu: true },
-    { id: 'enterprise', label: t('enterprise'), icon: Briefcase },
+    { id: 'issuer', label: t('filterByIssuer'), icon: UserCircle },
   ];
 
-  const subIndustries = [
-    { id: 'Banking', label: t('Banking') },
-    { id: 'Securities', label: t('Securities') },
-    { id: 'RealEstate', label: t('RealEstate') },
+  const bondItems = [
+    {
+      id: 'bond-list',
+      label: t('filterByBond'),
+      icon: SlidersHorizontal,
+      isActive: activeTab === 'filter' && activeFilterSubTab === 'bonds',
+      onClick: () => {
+        warmDashboardCoreDataInBackground();
+        setActiveFilterSubTab('bonds');
+      },
+    },
+    {
+      id: 'watchlist',
+      label: t('watchList'),
+      icon: Bookmark,
+      isActive: activeTab === 'watchlist',
+      onClick: () => setActiveTab('watchlist'),
+    },
   ];
+
+  const contextItems = [
+    { id: 'profile', label: t('personalProfile'), icon: User },
+    { id: 'manual', label: t('supportManual'), icon: BookOpen },
+    { id: 'faq', label: t('faqTitle'), icon: HelpCircle },
+    { id: 'report', label: t('systemReport'), icon: AlertTriangle },
+    { id: 'contact', label: t('contactSupport'), icon: Headphones },
+  ] as const;
+
+  const isProfileSidebar = activeTab === 'profile';
+  const isHelpSidebar = activeTab === 'help';
+  const isContextSidebar = isProfileSidebar || isHelpSidebar;
 
   return (
-    <aside className="w-full bg-bg-surface md:border-r border-border-base flex flex-col h-auto md:h-full overflow-hidden transition-colors duration-300">
-      <div className={cn("p-3 md:p-6 transition-all duration-300 shrink-0", isOpen ? "w-full md:w-80" : "w-full md:w-[64px] md:px-3")}>
-        <div className={cn("flex items-center mb-3 md:mb-8", isOpen ? "justify-between" : "justify-center")}>
-          {isOpen && (
-            <div className="flex items-center gap-3 animate-in fade-in duration-300">
-              <div className="h-10 w-10 bg-[#3634B3] rounded-xl flex items-center justify-center text-white">
-                <LayoutDashboard className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-text-highlight tracking-tight transition-colors">FIREANT</p>
-              </div>
-            </div>
+    <>
+      {isMobileOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm lg:hidden"
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      ) : null}
+      <aside
+        className={cn(
+          'flex h-full min-h-0 shrink-0 flex-col border-r border-border-base bg-bg-surface text-text-base shadow-lg shadow-blue-950/5 transition-transform duration-300 lg:transition-all',
+          // Mobile: fixed slide-in overlay drawer
+          'fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw]',
+          isMobileOpen ? 'translate-x-0' : '-translate-x-full',
+          // Desktop: static inline column. Width scales down on smaller desktops so the
+          // sidebar shrinks alongside the cards instead of staying a fixed 288px.
+          'lg:static lg:z-auto lg:max-w-none lg:translate-x-0',
+          desktopVisible ? 'lg:flex' : 'lg:hidden',
+          isCollapsedDesktop ? 'lg:w-16' : 'lg:w-56 xl:w-64 2xl:w-72'
+        )}
+      >
+      <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden p-3 xl:p-4', isCollapsed && 'overflow-visible p-2')}>
+        <div className={cn('mb-4 flex h-10 items-center justify-between gap-2', isCollapsed && 'justify-center')}>
+          {!isCollapsed ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setActiveTab('overview')}
+                className="min-w-0 overflow-hidden rounded-lg transition-opacity hover:opacity-90"
+                aria-label="FireAnt Bonds"
+              >
+                <Logo />
+              </button>
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600 lg:flex"
+                aria-label={language === 'vi' ? 'Thu gọn' : 'Collapse'}
+                title={language === 'vi' ? 'Thu gọn' : 'Collapse'}
+              >
+                <PanelLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={onMobileClose}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600 lg:hidden"
+                aria-label={language === 'vi' ? 'Đóng' : 'Close'}
+                title={language === 'vi' ? 'Đóng' : 'Close'}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg transition-opacity hover:opacity-90"
+              aria-label={language === 'vi' ? 'Mở rộng' : 'Expand'}
+              title={language === 'vi' ? 'Mở rộng' : 'Expand'}
+            >
+              <Logo iconOnly />
+            </button>
           )}
-          <button 
-            onClick={onToggle}
-            className="p-2 text-gray-400 hover:text-text-highlight hover:bg-gray-100 dark:hover:bg-gray-700/50 rounded-lg transition-colors"
-            title={isOpen ? t('hideSidebar') : t('showSidebar')}
-          >
-            <PanelLeft className={cn("h-5 w-5 transition-transform duration-300", !isOpen && "rotate-180")} />
-          </button>
         </div>
 
-        <nav className="space-y-1">
-          {menuItems.map((item) => (
-            <div key={item.id}>
-              <button
-                onClick={() => {
-                  if (!isOpen) {
-                    onToggle();
-                    return;
-                  }
-                  if (item.hasSubmenu) {
-                    setIsIndustryOpen(!isIndustryOpen);
-                  } else if (item.id === 'enterprise') {
-                    onEnterpriseTabClick();
-                  } else {
-                    setActiveTab(item.id);
-                  }
-                }}
-                className={cn(
-                  "w-full flex items-center rounded-xl transition-all duration-200 group",
-                  isOpen ? "px-3 py-2.5 md:px-4 md:py-3 justify-between" : "p-3 justify-center",
-                  activeTab === item.id && !item.hasSubmenu
-                    ? "bg-[#3634B3]/5 text-text-highlight"
-                    : "text-text-muted hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-text-highlight"
-                )}
-                title={!isOpen ? item.label : undefined}
-              >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <item.icon className={cn("h-5 w-5 transition-colors shrink-0", activeTab === item.id && !item.hasSubmenu ? "text-text-highlight" : "text-gray-400 group-hover:text-text-highlight")} />
-                  {isOpen && <span className={cn("text-sm transition-all animate-in fade-in duration-300 truncate", activeTab === item.id && !item.hasSubmenu ? "font-bold" : "font-medium")}>{item.label}</span>}
-                </div>
-                {isOpen && item.hasSubmenu && (
-                  isIndustryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
-                )}
-                {isOpen && !item.hasSubmenu && activeTab === item.id && (
-                  <ChevronRight className="h-4 w-4 animate-in slide-in-from-left-2 duration-300" />
-                )}
-              </button>
+        {!isCollapsed ? (
+          <div className="mb-4">
+            <GlobalSearch onSearchSelect={onSearchSelect} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="mb-4 flex h-9 w-9 items-center justify-center self-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+            aria-label={t('searchPlaceholder')}
+            title={t('searchPlaceholder')}
+          >
+            <Search className="h-5 w-5" />
+          </button>
+        )}
 
-              {isOpen && item.hasSubmenu && isIndustryOpen && (
-                <div className="mt-1 ml-6 md:ml-9 space-y-1 animate-in slide-in-from-top-2 duration-200">
-                  {subIndustries.map((sub) => (
+        <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar', isCollapsed && 'flex flex-col items-center overflow-x-visible pr-0')}>
+
+          {isCollapsed ? null : isContextSidebar ? (
+            <nav className="space-y-1">
+              {contextItems.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  item.id === 'profile'
+                    ? isProfileSidebar && activeProfileSection === 'info'
+                    : isHelpSidebar && activeHelpSection === item.id;
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (item.id === 'profile') {
+                        setActiveProfileSection('info');
+                        return;
+                      }
+                      if (item.id === 'manual' || item.id === 'faq' || item.id === 'report' || item.id === 'contact') {
+                        setActiveHelpSection(item.id);
+                      }
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
+                      isActive
+                        ? activeSidebarItemClassName
+                        : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <Icon className="h-5 w-5 shrink-0" />
+                      <span className="truncate font-semibold">{item.label}</span>
+                    </span>
+                    {isActive ? <ChevronRight className="h-4 w-4 shrink-0" /> : null}
+                  </button>
+                );
+              })}
+            </nav>
+          ) : (
+            <nav className="space-y-1">
+              {dashboardItems.map((item) => {
+                const Icon = item.icon;
+                const isActive =
+                  item.id === 'overview'
+                    ? activeTab === 'overview'
+                    : item.id === 'industry'
+                      ? activeTab === 'industry'
+                      : activeTab === 'filter' && activeFilterSubTab === 'issuer';
+
+                return (
+                  <div key={item.id}>
                     <button
-                      key={sub.id}
+                      type="button"
                       onClick={() => {
-                        setActiveTab('industry');
-                        setActiveIndustry(sub.id);
+                        if (item.id === 'overview') {
+                          setActiveTab('overview');
+                          return;
+                        }
+                        if (item.id === 'industry') {
+                          setIsIndustryOpen((current) => !current);
+                          return;
+                        }
+                        setActiveFilterSubTab('issuer');
                       }}
                       className={cn(
-                        "w-full text-left px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-between group whitespace-nowrap",
-                        activeTab === 'industry' && activeIndustry === sub.id
-                          ? "text-text-highlight font-bold bg-[#3634B3]/5"
-                          : "text-text-muted hover:text-text-highlight hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        'group flex w-full items-center rounded-lg px-3 py-2.5 transition-colors cursor-pointer',
+                        isActive
+                          ? activeSidebarItemClassName
+                          : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
                       )}
                     >
-                      {sub.label}
-                      {activeTab === 'industry' && activeIndustry === sub.id && (
-                        <ChevronRight className="h-3 w-3" />
-                      )}
+                      <span className="flex min-w-0 flex-1 items-center gap-3">
+                        <Icon className={cn('h-5 w-5 shrink-0 transition-colors', isActive ? 'text-white' : 'text-current')} />
+                        <span className="truncate text-sm font-semibold">{item.label}</span>
+                      </span>
+                      {item.hasSubmenu ? (
+                        isIndustryOpen ? (
+                          <ChevronDown className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-white' : 'text-current')} />
+                        ) : (
+                          <ChevronRight className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-white' : 'text-current')} />
+                        )
+                      ) : null}
                     </button>
-                  ))}
-                </div>
-              )}
+
+                    {item.id === 'industry' && isIndustryOpen && (
+                      <div className="mt-1 space-y-1 pl-5">
+                        {subIndustries.map((sub) => {
+                          const isIndustryActive = activeTab === 'industry' && activeIndustry === sub.id;
+
+                          return (
+                            <button
+                              key={sub.id}
+                              type="button"
+                              onMouseEnter={() => {
+                                void warmIndustryData(sub.id);
+                              }}
+                              onClick={() => {
+                                void warmIndustryData(sub.id);
+                                setActiveTab('industry');
+                                setActiveIndustry(sub.id);
+                              }}
+                              className={cn(
+                                'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors cursor-pointer',
+                                isIndustryActive
+                                  ? activeSidebarItemClassName
+                                  : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                              )}
+                            >
+                              <span className="min-w-0 truncate font-medium">{sub.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </nav>
+          )}
+
+          {!isCollapsed && !isContextSidebar ? (
+            <div className="mt-2 space-y-1">
+              {bondItems.map((item) => {
+                const Icon = item.icon;
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={item.onClick}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer',
+                      item.isActive
+                        ? activeSidebarItemClassName
+                        : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <Icon className="h-5 w-5 shrink-0" />
+                      <span className="truncate font-semibold">{item.label}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          ))}
-        </nav>
+          ) : null}
+
+          {isCollapsed ? (
+            <div className="flex flex-col items-center gap-2 px-1">
+              {isContextSidebar
+                ? contextItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive =
+                      item.id === 'profile'
+                        ? isProfileSidebar && activeProfileSection === 'info'
+                        : isHelpSidebar && activeHelpSection === item.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          if (item.id === 'profile') {
+                            setActiveProfileSection('info');
+                            return;
+                          }
+                          if (item.id === 'manual' || item.id === 'faq' || item.id === 'report' || item.id === 'contact') {
+                            setActiveHelpSection(item.id);
+                          }
+                        }}
+                          className={cn(
+                           'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                           isActive
+                             ? activeSidebarItemClassName
+                             : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                        )}
+                        aria-label={item.label}
+                        title={item.label}
+                      >
+                        <Icon className="h-5 w-5" />
+                      </button>
+                    );
+                  })
+                : (
+                  <>
+                    {dashboardItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive =
+                        item.id === 'overview'
+                          ? activeTab === 'overview'
+                          : item.id === 'industry'
+                            ? activeTab === 'industry'
+                            : activeTab === 'filter' && activeFilterSubTab === 'issuer';
+
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            if (item.id === 'overview') {
+                              setActiveTab('overview');
+                              return;
+                            }
+                            if (item.id === 'industry') {
+                              setIsIndustryOpen(true);
+                              onToggleCollapse();
+                              return;
+                            }
+                            setActiveFilterSubTab('issuer');
+                          }}
+                           className={cn(
+                             'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                             isActive
+                               ? activeSidebarItemClassName
+                               : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                          )}
+                          aria-label={item.label}
+                          title={item.label}
+                        >
+                          <Icon className="h-5 w-5" />
+                        </button>
+                      );
+                    })}
+                    {bondItems.map((item) => {
+                      const Icon = item.icon;
+
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={item.onClick}
+                           className={cn(
+                             'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                             item.isActive
+                               ? activeSidebarItemClassName
+                               : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                          )}
+                          aria-label={item.label}
+                          title={item.label}
+                        >
+                          <Icon className="h-5 w-5" />
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+            </div>
+          ) : null}
+        </div>
+
+        <div className={cn('mt-4 border-t border-border-base pt-4', isCollapsed ? 'flex flex-col items-center gap-2' : 'space-y-2')}>
+          {!isCollapsed ? (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                  title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+                  aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+                >
+                  {effectiveTheme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleLanguage}
+                  className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+                  title={t('uiLanguage')}
+                  aria-label={t('uiLanguage')}
+                >
+                  <Languages className="h-4 w-4" />
+                  <span className="text-xs font-bold uppercase">{language}</span>
+                </button>
+              </div>
+
+              <div ref={accountMenuRef} className="relative">
+                {isAccountMenuOpen ? (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-border-base bg-bg-surface p-1 shadow-lg shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onLogout();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold text-text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{t('logout')}</span>
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setIsAccountMenuOpen((current) => !current)}
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+                    isAccountMenuOpen
+                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-600/10 dark:text-blue-300'
+                      : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
+                  )}
+                  aria-haspopup="menu"
+                  aria-expanded={isAccountMenuOpen}
+                  aria-label={t('profile')}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20">
+                    {userInitial}
+                  </span>
+                  <span className="block min-w-0 flex-1 truncate text-sm font-bold text-text-base">{userName}</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+                aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
+              >
+                {effectiveTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </button>
+              <button
+                type="button"
+                onClick={toggleLanguage}
+                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                title={t('uiLanguage')}
+                aria-label={t('uiLanguage')}
+              >
+                <Languages className="h-5 w-5" />
+              </button>
+              <div ref={accountMenuRef} className="relative">
+                {isAccountMenuOpen ? (
+                  <div className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg border border-border-base bg-bg-surface p-1 shadow-lg shadow-blue-950/10">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onLogout();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold text-text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span className="truncate">{t('logout')}</span>
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setIsAccountMenuOpen((current) => !current)}
+                  className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 font-bold text-white shadow-lg shadow-cyan-500/20"
+                  aria-haspopup="menu"
+                  aria-expanded={isAccountMenuOpen}
+                  aria-label={t('profile')}
+                  title={userName}
+                >
+                  {userInitial}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

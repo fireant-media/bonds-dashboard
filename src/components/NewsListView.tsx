@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NewsItem } from '../types';
-import { Newspaper, ChevronRight, ChevronLeft, RefreshCw, AlertCircle, ExternalLink } from 'lucide-react';
-import { fetchNewsData, getCachedNews, getNewsLastUpdate } from '../services/newsService';
+import { Newspaper, ChevronRight, ChevronLeft, RefreshCw, AlertCircle } from 'lucide-react';
 import { formatDate } from '../utils/format';
-import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import { useNewsQuery } from '../query/dashboardQueries';
 
 interface NewsListViewProps {
   onSelectNews: (news: NewsItem) => void;
@@ -13,69 +12,37 @@ interface NewsListViewProps {
 const ITEMS_PER_PAGE = 12;
 const REFRESH_INTERVAL = 300000; // 5 minutes
 
-export default function NewsListView({ onSelectNews }: NewsListViewProps) {
-  const { effectiveTheme } = useTheme();
+export default function NewsListView({ onSelectNews: _onSelectNews }: NewsListViewProps) {
   const { t } = useLanguage();
-  const isDark = effectiveTheme === 'dark';
   const [currentPage, setCurrentPage] = useState(1);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
-  const loadingRef = useRef(false);
-
-  // Initialize from cache immediately
-  useEffect(() => {
-    const cached = getCachedNews();
-    if (cached) {
-      setNewsList(cached);
-    }
-  }, []);
-
-  const loadData = useCallback(async (isAutoRefresh = false, force = false) => {
-    if (loadingRef.current) return;
-    
-    // Cooldown check: Only fetch if forced or > 2 minutes since last update (for non-auto-refresh)
-    if (!isAutoRefresh && !force) {
-      const lastUpdate = getNewsLastUpdate();
-      const now = Date.now();
-      if (lastUpdate && now - lastUpdate < 120000) {
-        return;
-      }
-    }
-
-    // If we have news, don't show full page loading skeleton
-    const hasExistingNews = newsList.length > 0;
-    if (!hasExistingNews) {
-      setLoading(true);
-    }
-    
-    loadingRef.current = true;
-    setError(null);
-    
-    try {
-      const data = await fetchNewsData();
-      setNewsList(data);
-    } catch (err) {
-      if (!hasExistingNews) {
-        setError(t('newsFetchError'));
-      }
-      console.error('Fetch error:', err);
-    } finally {
-      setLoading(false);
-      loadingRef.current = false;
-    }
-  }, [newsList.length, t]);
+  const intervalRef = useRef<number | null>(null);
+  const newsQuery = useNewsQuery();
 
   useEffect(() => {
-    loadData();
+    if (Array.isArray(newsQuery.data)) {
+      setNewsList(newsQuery.data);
+    }
+  }, [newsQuery.data]);
 
-    const interval = setInterval(() => {
-      loadData(true);
-    }, REFRESH_INTERVAL);
+  useEffect(() => {
+    if (!intervalRef.current) {
+      intervalRef.current = window.setInterval(() => {
+        void newsQuery.refetch();
+      }, REFRESH_INTERVAL);
+    }
 
-    return () => clearInterval(interval);
-  }, [loadData]);
+    return () => {
+      if (intervalRef.current) {
+        window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [newsQuery.refetch]);
+
+  const loading = newsQuery.isLoading && newsList.length === 0;
+  const error = newsQuery.error instanceof Error ? newsQuery.error.message : null;
 
   const totalPages = Math.ceil(newsList.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -86,21 +53,12 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const getSourceInitials = (source: string) => {
-    if (!source) return 'FA';
-    const words = source.split(' ');
-    if (words.length >= 2) {
-      return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
-    }
-    return source.substring(0, 2).toUpperCase();
-  };
-
   const handleImageError = (id: string) => {
     setImageErrors(prev => ({ ...prev, [id]: true }));
   };
 
   const NewsSkeleton = () => (
-    <div className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden flex flex-col h-[520px] animate-pulse transition-colors">
+    <div className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden flex flex-col min-h-96 sm:min-h-[460px] md:min-h-[520px] animate-pulse transition-colors">
       <div className="h-64 bg-bg-base/50" />
       <div className="p-6 flex-1 flex flex-col gap-4">
         <div className="h-4 w-1/4 bg-bg-base/50 rounded-full" />
@@ -120,23 +78,23 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
   );
 
   return (
-    <div className="p-0 md:p-8 space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 transition-colors">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="space-y-6 px-0 py-0 transition-colors animate-in fade-in slide-in-from-bottom-4 duration-700 md:space-y-8 md:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-text-base flex items-center gap-3 transition-colors">
-            <Newspaper className="h-7 w-7 text-[#3634B3]" />
+            <Newspaper className="h-7 w-7 text-blue-600" />
             {t('relatedNews')}
           </h2>
           <p className="text-sm text-text-muted mt-1 transition-colors">{t('newsDescription')}</p>
         </div>
         {!loading && (
-          <button 
-            onClick={() => loadData(false, true)}
+          <button
+            onClick={() => void newsQuery.refetch()}
             disabled={loading}
-            className="p-2 text-text-muted hover:text-[#3634B3] transition-all hover:rotate-180 duration-500"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border-base text-text-muted transition-all hover:text-blue-600 active:scale-95"
             title={t('refresh')}
           >
-            <RefreshCw className={`h-5 w-5 ${loadingRef.current ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-5 w-5 ${newsQuery.isFetching ? 'animate-spin' : ''}`} />
           </button>
         )}
       </div>
@@ -151,9 +109,9 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
             <AlertCircle className="h-8 w-8 text-red-500 dark:text-red-400" />
           </div>
           <p className="text-text-base font-bold mb-4">{error}</p>
-          <button 
-            onClick={() => loadData(false, true)}
-            className="flex items-center gap-2 px-6 py-3 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-[#3634B3]/20"
+          <button
+            onClick={() => void newsQuery.refetch()}
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-blue-600/20"
           >
             <RefreshCw className="h-4 w-4" /> {t('retry')}
           </button>
@@ -168,61 +126,50 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
           {currentNews.map((news) => {
-            const hasImage = news.image && !imageErrors[news.id];
-            
-            return (
-              <div 
-                key={news.id} 
-                onClick={() => onSelectNews(news)}
-                className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col h-auto min-h-[460px] md:h-[520px]"
-              >
-                <div className="relative h-48 md:h-64 w-full bg-[#3634B3]">
-                  <img 
-                    src={news.image || `https://picsum.photos/seed/${news.id}/800/600`}
-                    alt={news.title} 
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
+            const hasImage = Boolean(news.image && !imageErrors[news.id]);
+            const articleUrl = news.originalUrl || news.url || '#';
 
-                      // Nếu ảnh chính lỗi → fallback ảnh random (KHÔNG dùng avatar chữ nữa)
-                      if (!target.src.includes('picsum.photos')) {
-                        target.src = `https://picsum.photos/seed/${news.id}/800/600`;
-                      }
-                    }}
-                  />
-                  <div className="absolute top-4 left-4">
-                    <span className="px-5 py-1.5 bg-[#000000]/30 backdrop-blur-md text-[11px] font-bold text-white uppercase tracking-wider rounded-full border border-white/20 transition-colors">
-                      {news.source}
-                    </span>
-                  </div>
+            return (
+              <a
+                key={news.id}
+                href={articleUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-bg-surface rounded-3xl border border-border-base shadow-sm overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer group flex flex-col min-h-96 sm:min-h-[460px] md:min-h-[520px]"
+              >
+                <div className="relative h-48 md:h-64 w-full bg-blue-600">
+                  {hasImage ? (
+                    <img
+                      src={news.image}
+                      alt={news.title}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                      referrerPolicy="no-referrer"
+                      onError={() => handleImageError(news.id)}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-blue-50 text-blue-500">
+                      <Newspaper className="h-10 w-10" />
+                    </div>
+                  )}
                 </div>
-                
+
                 <div className="p-4 md:p-6 flex-1 flex flex-col">
                   <div className="mb-4">
-                    <h3 className="text-lg font-bold text-text-base leading-snug group-hover:text-[#3634B3] transition-colors line-clamp-2 min-h-[3rem]">
+                    <h3 className="text-lg font-bold text-text-base leading-snug group-hover:text-blue-600 transition-colors line-clamp-2 min-h-[3rem]">
                       {news.title}
                     </h3>
-                    <p className="text-sm text-text-muted mt-3 line-clamp-3 leading-relaxed transition-colors">
-                      {news.summary}
-                    </p>
                   </div>
-                  
+
                   <div className="mt-auto pt-6 border-t border-border-base transition-colors flex items-center justify-between">
-                    <div className="space-y-1">
-                      <p className="text-[11px] text-text-muted font-bold uppercase tracking-tight line-clamp-1 transition-colors">
-                        {news.author}
-                      </p>
-                      <p className="text-[11px] text-text-muted transition-colors">
-                        {formatDate(news.date)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 text-[#3634B3] text-[11px] font-bold uppercase tracking-wider group-hover:translate-x-1 transition-all">
+                    <p className="text-[11px] text-text-muted transition-colors">
+                      {formatDate(news.date)}
+                    </p>
+                    <div className="flex items-center gap-1 text-blue-600 text-[11px] font-bold uppercase tracking-wider group-hover:translate-x-1 transition-all">
                       {t('readMore')} <ChevronRight className="h-3 w-3" />
                     </div>
                   </div>
                 </div>
-              </div>
+              </a>
             );
           })}
         </div>
@@ -237,9 +184,8 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
-          
+
           {[...Array(totalPages)].map((_, i) => {
-            // Only show limited pages around current page
             const page = i + 1;
             if (page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
               return (
@@ -248,14 +194,15 @@ export default function NewsListView({ onSelectNews }: NewsListViewProps) {
                   onClick={() => handlePageChange(page)}
                   className={`w-12 h-12 rounded-2xl text-sm font-bold transition-all border ${
                     currentPage === page
-                      ? 'bg-[#3634B3] text-white border-transparent shadow-xl shadow-[#3634B3]/20 scale-110 z-10'
-                      : 'bg-bg-surface text-text-base border-border-base hover:border-[#3634B3] hover:text-[#3634B3]'
+                      ? 'bg-blue-600 text-white border-transparent shadow-xl shadow-blue-600/20 scale-110 z-10'
+                      : 'bg-bg-surface text-text-base border-border-base hover:border-blue-600 hover:text-blue-600'
                   }`}
                 >
                   {page}
                 </button>
               );
-            } else if (page === currentPage - 2 || page === currentPage + 2) {
+            }
+            if (page === currentPage - 2 || page === currentPage + 2) {
               return <span key={page} className="px-1 text-text-muted font-bold">...</span>;
             }
             return null;
