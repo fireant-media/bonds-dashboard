@@ -400,8 +400,17 @@ export default function MarketOverview() {
     '#7279F5',
     '#94D926',
   ];
-  // Composition pie shares the canonical dark -> light blue scale used across all pies/bars.
-  const industryPieColors = PIE_PALETTE;
+  // Blue/sky family palette matching the other Market Overview charts (industry
+  // volume bars, top-interest bars). Distinct shades so no two pie slices share
+  // the same color while staying in the same tone as the rest of the page.
+  const industryPieColors = [
+     '#2563EB', // Blue
+  '#10B981', // Emerald
+  '#F59E0B', // Amber
+  '#EF4444', // Red
+  '#8B5CF6', // Violet
+  '#06B6D4', // Cyan
+  ];
 
   const toNumber = (value: unknown) => {
     const numberValue = Number(value);

@@ -259,8 +259,7 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     '#7279F5',
     '#94D926',
   ], []);
-  const marketSharePalette = PIE_PALETTE;
-  const treemapPalette = useMemo(() => [
+  const sharedIndustryPalette = useMemo(() => [
     '#4D93F9',
     '#14C6E4',
     '#7279F5',
@@ -272,6 +271,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     '#A0A7E6',
     '#96DEE8',
   ], []);
+  const marketSharePalette = sharedIndustryPalette;
+  const treemapPalette = sharedIndustryPalette;
   const chartTitleStyle = {
     fontSize: 10,
     color: chartTheme.text,

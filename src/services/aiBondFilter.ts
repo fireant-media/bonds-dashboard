@@ -464,24 +464,24 @@ function buildFallbackSummary(criteria: AIBondFilterCriteria) {
   const summary: string[] = [];
 
   if (criteria.industry) {
-    summary.push(`Nganh nghe: ${criteria.industry}`);
+    summary.push(`Ngành nghề: ${criteria.industry}`);
   }
 
   if (criteria.issuer) {
-    summary.push(`To chuc phat hanh: ${criteria.issuer}`);
+    summary.push(`Tổ chức phát hành: ${criteria.issuer}`);
   }
 
   if (criteria.bondType) {
-    summary.push(`Loai trai phieu: ${criteria.bondType}`);
+    summary.push(`Loại trái phiếu: ${criteria.bondType}`);
   }
 
   if (criteria.remainingDaysMin !== undefined || criteria.remainingDaysMax !== undefined) {
     if (criteria.remainingDaysMin !== undefined && criteria.remainingDaysMax !== undefined) {
-      summary.push(`Ky han con lai tu ${formatNumber(criteria.remainingDaysMin, 0)} den ${formatNumber(criteria.remainingDaysMax, 0)} ngay`);
+      summary.push(`Kỳ hạn còn lại từ ${formatNumber(criteria.remainingDaysMin, 0)} đến ${formatNumber(criteria.remainingDaysMax, 0)} ngày`);
     } else if (criteria.remainingDaysMin !== undefined) {
-      summary.push(`Ky han con lai tu ${formatNumber(criteria.remainingDaysMin, 0)} ngay tro len`);
+      summary.push(`Kỳ hạn còn lại từ ${formatNumber(criteria.remainingDaysMin, 0)} ngày trở lên`);
     } else if (criteria.remainingDaysMax !== undefined) {
-      summary.push(`Ky han con lai den ${formatNumber(criteria.remainingDaysMax, 0)} ngay`);
+      summary.push(`Kỳ hạn còn lại đến ${formatNumber(criteria.remainingDaysMax, 0)} ngày`);
     }
   }
 
@@ -533,31 +533,31 @@ function buildFallbackSummary(criteria: AIBondFilterCriteria) {
 
   if (criteria.minListedVolume !== undefined || criteria.maxListedVolume !== undefined) {
     if (criteria.minListedVolume !== undefined && criteria.maxListedVolume !== undefined) {
-      summary.push(`Khoi luong niem yet tu ${formatNumber(criteria.minListedVolume, 0)} den ${formatNumber(criteria.maxListedVolume, 0)}`);
+      summary.push(`Khối lượng niêm yết từ ${formatNumber(criteria.minListedVolume, 0)} đến ${formatNumber(criteria.maxListedVolume, 0)}`);
     } else if (criteria.minListedVolume !== undefined) {
-      summary.push(`Khoi luong niem yet tu ${formatNumber(criteria.minListedVolume, 0)} tro len`);
+      summary.push(`Khối lượng niêm yết từ ${formatNumber(criteria.minListedVolume, 0)} trở lên`);
     } else if (criteria.maxListedVolume !== undefined) {
-      summary.push(`Khoi luong niem yet den ${formatNumber(criteria.maxListedVolume, 0)}`);
+      summary.push(`Khối lượng niêm yết đến ${formatNumber(criteria.maxListedVolume, 0)}`);
     }
   }
 
   if (criteria.minIssuedValueBillion !== undefined || criteria.maxIssuedValueBillion !== undefined) {
     if (criteria.minIssuedValueBillion !== undefined && criteria.maxIssuedValueBillion !== undefined) {
-      summary.push(`Gia tri phat hanh tu ${formatNumber(criteria.minIssuedValueBillion, 2)} den ${formatNumber(criteria.maxIssuedValueBillion, 2)} ty VND`);
+      summary.push(`Giá trị phát hành từ ${formatNumber(criteria.minIssuedValueBillion, 2)} đến ${formatNumber(criteria.maxIssuedValueBillion, 2)} tỷ VND`);
     } else if (criteria.minIssuedValueBillion !== undefined) {
-      summary.push(`Gia tri phat hanh tu ${formatNumber(criteria.minIssuedValueBillion, 2)} ty VND tro len`);
+      summary.push(`Giá trị phát hành từ ${formatNumber(criteria.minIssuedValueBillion, 2)} tỷ VND trở lên`);
     } else if (criteria.maxIssuedValueBillion !== undefined) {
-      summary.push(`Gia tri phat hanh den ${formatNumber(criteria.maxIssuedValueBillion, 2)} ty VND`);
+      summary.push(`Giá trị phát hành đến ${formatNumber(criteria.maxIssuedValueBillion, 2)} tỷ VND`);
     }
   }
 
   if (criteria.minListedValueBillion !== undefined || criteria.maxListedValueBillion !== undefined) {
     if (criteria.minListedValueBillion !== undefined && criteria.maxListedValueBillion !== undefined) {
-      summary.push(`Gia tri niem yet tu ${formatNumber(criteria.minListedValueBillion, 2)} den ${formatNumber(criteria.maxListedValueBillion, 2)} ty VND`);
+      summary.push(`Giá trị niêm yết từ ${formatNumber(criteria.minListedValueBillion, 2)} đến ${formatNumber(criteria.maxListedValueBillion, 2)} tỷ VND`);
     } else if (criteria.minListedValueBillion !== undefined) {
-      summary.push(`Gia tri niem yet tu ${formatNumber(criteria.minListedValueBillion, 2)} ty VND tro len`);
+      summary.push(`Giá trị niêm yết từ ${formatNumber(criteria.minListedValueBillion, 2)} tỷ VND trở lên`);
     } else if (criteria.maxListedValueBillion !== undefined) {
-      summary.push(`Gia tri niem yet den ${formatNumber(criteria.maxListedValueBillion, 2)} ty VND`);
+      summary.push(`Giá trị niêm yết đến ${formatNumber(criteria.maxListedValueBillion, 2)} tỷ VND`);
     }
   }
 
@@ -583,6 +583,14 @@ export function isBondFilterIntent(message: string) {
   const hasTypeKeyword = /(co dinh|fixed|tha noi|floating|variable)/.test(text);
   const hasRangeSignal = /(tu | den | duoi | tren | trong | khoang | sau | truoc | nho hon | lon hon | it nhat | toi da | toi thieu |\d{4}|\d+\s*%|\d+\s*thang)/.test(text);
   const isRankingQuestion = /(top|cao nhat|thap nhat|lon nhat|nho nhat|gan nhat|moi nhat)/.test(text);
+  const hasExplicitCommand = /(loc|filter|liet ke|danh sach|sap xep|xep theo|order by|sort by|\btop\b)/.test(text);
+  const isQuestion = /\?/.test(message)
+    || /(bao nhieu|la gi|the nao|nhu the nao|tai sao|vi sao|co phai|khi nao|o dau|\bnao\b|giai thich|so sanh|danh gia|nhan xet|cho biet)/.test(text);
+
+  // A genuine question that is not an explicit list/filter/sort command and has no numeric
+  // range is answered from the current page context (grounded Q&A) instead of being turned
+  // into a market-wide filter. Explicit filter/list/sort or range requests still filter.
+  if (isQuestion && !hasExplicitCommand && !hasRangeSignal) return false;
 
   if (isRankingQuestion && !hasFilterVerb && !hasFieldKeyword) return false;
   if (hasSortKeyword && hasFieldKeyword) return true;
@@ -622,7 +630,7 @@ export async function extractBondFilterCriteria({
         'Khong biet gia tri nao thi bo trong, khong duoc doan vo can cu.',
         'Tra ve duy nhat mot object JSON co dang:',
         '{"isFilterRequest": true, "criteria": {}, "summary": ["..."]}',
-        'summary la danh sach mo ta ngan gon bang tieng Viet. Neu yeu cau khong phai loc trai phieu thi tra ve {"isFilterRequest": false, "criteria": {}, "summary": []}.',
+        'summary la danh sach mo ta ngan gon bang tieng Viet CO DAU day du (co dau thanh va dau mu chinh xac, tuyet doi khong viet tieng Viet khong dau). Neu yeu cau khong phai loc trai phieu thi tra ve {"isFilterRequest": false, "criteria": {}, "summary": []}.',
         'Khong duoc tra ve markdown, code fence, hay van ban bo sung.',
       ].join(' '),
       userMessage: message.trim(),
@@ -712,19 +720,14 @@ export function summarizeBondFilterCriteria(criteria: AIBondFilterCriteria, lang
 
   return summary.map((item) =>
     item
-      .replace('Nganh nghe', 'Industry')
-      .replace('To chuc phat hanh', 'Issuer')
-      .replace('Loai trai phieu', 'Bond type')
-      .replace('Ky han con lai', 'Remaining term')
-      .replace('Khoi luong niem yet', 'Listed volume')
-      .replace('Gia tri phat hanh', 'Issued value')
-      .replace('Gia tri niem yet', 'Listed value')
-      .replace('ty VND', 'Billion VND')
-      .replace('tro len', 'and above')
-      .replace(' den ', ' to ')
+      .replace('Ngành nghề', 'Industry')
+      .replace('Tổ chức phát hành', 'Issuer')
+      .replace('Loại trái phiếu', 'Bond type')
+      .replace('Kỳ hạn còn lại', 'Remaining term')
+      .replace('Khối lượng niêm yết', 'Listed volume')
+      .replace('Giá trị phát hành', 'Issued value')
+      .replace('Giá trị niêm yết', 'Listed value')
       .replace('Kỳ hạn', 'Tenor')
-      .replace('tháng trở lên', 'months and above')
-      .replace('tháng', 'months')
       .replace('Lãi suất', 'Coupon rate')
       .replace('Ngày phát hành', 'Issue date')
       .replace('Ngày đáo hạn', 'Maturity date')
@@ -739,7 +742,15 @@ export function summarizeBondFilterCriteria(criteria: AIBondFilterCriteria, lang
       .replace('Sắp xếp theo lãi suất danh nghĩa giảm dần', 'Sort by coupon rate descending')
       .replace('Sắp xếp theo khối lượng niêm yết giảm dần', 'Sort by listed volume descending')
       .replace('Sắp xếp theo giá trị niêm yết giảm dần', 'Sort by listed value descending')
-      .replace('Ưu tiên tiếp theo', 'Secondary priority'),
+      .replace('Ưu tiên tiếp theo', 'Secondary priority')
+      .replace('tỷ VND', 'Billion VND')
+      .replace('tháng trở lên', 'months and above')
+      .replace('ngày trở lên', 'days and above')
+      .replace('tháng', 'months')
+      .replace('ngày', 'days')
+      .replace(' trở lên', ' and above')
+      .replace(' đến ', ' to ')
+      .replace(' từ ', ' from '),
   );
 }
 

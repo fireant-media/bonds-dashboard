@@ -1142,6 +1142,43 @@ export default function EnterpriseView({
     ]),
     [pieData, pieDataTotal],
   );
+  // Assign colors by slice size (largest first) so the biggest slices take the
+  // primary blue / near-blue tones (blue, teal, emerald), keeping this chart in
+  // sync with the other blue-led charts on the page. The base palette matches the
+  // Market Overview "Remaining debt composition by industry" pie; if there are
+  // more slices than base colors, later (smaller) slices get lightened shades so
+  // no two slices ever share the same color.
+  const pieColoredData = useMemo(() => {
+    // Blue-led ordering of the shared palette so large slices read as blue.
+    // Blue, Cyan and Teal (the true/near blues) lead — cyan (#0EA5E9) matches the
+    // light blue used in the "bond structure by interest type" chart. Emerald is
+    // green so it is pushed to the back to avoid two green-looking large slices.
+    const basePalette = ['#2563EB', '#0EA5E9', '#14B8A6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#A16207', '#6B7280', '#10B981'];
+    const lighten = (hex: string, amount: number) => {
+      const value = parseInt(hex.slice(1), 16);
+      const mix = (channel: number) => Math.round(channel + (255 - channel) * amount);
+      const r = mix((value >> 16) & 255);
+      const g = mix((value >> 8) & 255);
+      const b = mix(value & 255);
+      return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+    };
+    const colorForRank = (rank: number) => {
+      const base = basePalette[rank % basePalette.length];
+      const cycle = Math.floor(rank / basePalette.length);
+      return cycle === 0 ? base : lighten(base, Math.min(0.6, cycle * 0.22));
+    };
+    const rankByIndex = pieData
+      .map((item, index) => ({ index, value: Number(item.value || 0) }))
+      .sort((a, b) => b.value - a.value)
+      .reduce((acc, entry, rank) => {
+        acc[entry.index] = rank;
+        return acc;
+      }, {} as Record<number, number>);
+    return pieData.map((item, index) => ({
+      ...item,
+      itemStyle: { color: colorForRank(rankByIndex[index]) },
+    }));
+  }, [pieData]);
   const pieLegendConfig = {
     show: pieData.length > 0,
     type: 'scroll' as const,
@@ -1262,9 +1299,9 @@ export default function EnterpriseView({
       },
       itemStyle: {
         // Match the interest-type pie exactly: Cố định = PIE_PALETTE[0], Thả nổi = PIE_PALETTE[1], Khác = PIE_PALETTE[4].
-        // opacity:1 is required — scatter defaults to 0.8, which would render the color (and legend icon) lighter than the solid pie slices.
+        // Semi-transparent so overlapping bubbles stay legible — the bubble underneath shows through.
         color: index === 0 ? PIE_PALETTE[0] : index === 1 ? PIE_PALETTE[1] : PIE_PALETTE[4],
-        opacity: 1,
+        opacity: 0.7,
       },
     }));
 
@@ -1472,7 +1509,7 @@ export default function EnterpriseView({
             maxRemainingDebtBillion: appliedEnterpriseRemainingDebtMax || null,
             aiSummary: enterpriseAISummary,
           },
-          bonds: enterpriseBonds.slice(0, 20).map((bond) => ({
+          bonds: enterpriseBonds.slice(0, 1000).map((bond) => ({
             bondCode: bond.code,
             tenorMonths: Number(bond.term || 0),
             interestRate: roundMetric(Number(bond.interestRate || 0)),
@@ -1527,7 +1564,7 @@ export default function EnterpriseView({
           isLoading: loading,
           error,
         },
-        enterprises: sortedEnterprises.slice(0, 20).map((enterprise) => ({
+        enterprises: sortedEnterprises.slice(0, 1000).map((enterprise) => ({
           ticker: enterprise.ticker,
           name: String(t(enterprise.name as any, enterprise.ticker) || enterprise.ticker),
           industry: enterprise.industry,
@@ -1578,7 +1615,10 @@ export default function EnterpriseView({
   }, [enterpriseChatContext, location.pathname]);
 
   const pieOptions = {
-    color: PIE_PALETTE,
+    // Mirror the per-slice colors (assigned by size in pieColoredData) here in
+    // data order so the legend markers match their slices exactly. Base palette:
+    // Blue, Cyan, Teal, Amber, Red, Violet, Pink, Brown, Slate, Emerald.
+    color: pieColoredData.map((item) => item.itemStyle.color),
     __dataView: {
       columns: [
         { label: t('term'), align: 'left', kind: 'text' },
@@ -1612,7 +1652,7 @@ export default function EnterpriseView({
           formatter: (params: any) => params.name,
         },
       },
-      data: pieData
+      data: pieColoredData
     }]
   };
 
@@ -2020,7 +2060,7 @@ export default function EnterpriseView({
                 return activeBadges.map((badge, idx) => (
                   <div 
                     key={idx} 
-                    className="flex min-h-8 items-center rounded-full border border-border-base bg-bg-surface px-3 py-1.5 shadow-sm shadow-blue-950/5 transition-colors hover:border-blue-200 hover:bg-blue-50 cursor-help select-none dark:bg-blue-500/10 dark:hover:bg-blue-500/15"
+                    className="flex min-h-8 items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 shadow-sm shadow-blue-950/5 transition-colors hover:border-blue-200 hover:bg-blue-100 cursor-help select-none dark:border-blue-500/20 dark:bg-blue-500/10 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/20"
                     title={badge.tooltip}
                   >
                     <span className="mr-2 text-xs font-semibold uppercase text-text-muted/80">{badge.label}:</span>
@@ -2088,6 +2128,7 @@ export default function EnterpriseView({
           <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
             <div className="flex flex-1 items-center justify-center">
               <ChartWithToolbar
+                className="w-full"
                 option={pieOptions}
                 style={{ height: '100%', minHeight: '320px' }}
                 title={t('bondStructureByTerm')}
@@ -2133,6 +2174,7 @@ export default function EnterpriseView({
           <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
             <div className="flex flex-1 items-center justify-center">
               <ChartWithToolbar
+                className="w-full"
                 option={interestTypePieOptions}
                 style={{ height: '100%', minHeight: '300px' }}
                 title={t('bondStructureByInterestType')}

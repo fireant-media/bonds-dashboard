@@ -769,7 +769,7 @@ export default function MarketBondFilterView({
           loading,
           error,
         },
-        bonds: filteredRows.slice(0, 25).map((row) => ({
+        bonds: filteredRows.slice(0, 1000).map((row) => ({
           bondCode: row.bondCode,
           issuerName: row.issuerName || row.issuerSymbol,
           issuerSymbol: row.issuerSymbol,

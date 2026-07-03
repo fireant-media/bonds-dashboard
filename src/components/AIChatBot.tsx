@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, Bot, Lightbulb, Loader2, MessageSquare, Send, SlidersHorizontal, User, X } from 'lucide-react';
+import { AlertTriangle, Bot, Loader2, MessageSquare, RotateCcw, Send, SlidersHorizontal, Sparkles, User, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useLanguage } from '../LanguageContext';
 import { streamChat } from '../api/ai';
@@ -53,7 +53,10 @@ interface PageDataRequestConfig {
   label: string;
   url?: string;
   init?: RequestInit;
+  /** Used instead of a network request (local-only context). */
   fallback?: Record<string, unknown>;
+  /** Used when the network request fails so the AI can still answer from local data. */
+  localFallback?: Record<string, unknown>;
 }
 
 interface PageDatasetSummary {
@@ -66,7 +69,7 @@ const CHAT_HISTORY_KEY = 'sentinel_chat_history';
 const CLIENT_FALLBACK_AI_MODEL = 'gpt-5.4-mini';
 const CHAT_FILTER_FETCH_LIMIT = 1500;
 const MAX_CARD_COUNT = 6;
-const MAX_ROW_COUNT = 10;
+const MAX_ROW_COUNT = 100;
 const MAX_SUGGESTION_COUNT = 3;
 
 const PAGE_DATA_API_CATALOG = [
@@ -115,6 +118,19 @@ const INDUSTRY_INTENTS = [
   { id: 'InfrastructureServices', patterns: ['ha tang', 'hạ tầng'] },
   { id: 'Technology', patterns: ['technology', 'cong nghe', 'công nghệ'] },
 ];
+
+// Wrap markdown tables so wide comparison tables scroll horizontally instead of
+// breaking the chat bubble layout, and open any links in a new tab.
+const CHAT_MARKDOWN_COMPONENTS: Components = {
+  table: ({ node: _node, ...props }) => (
+    <div className="my-2 overflow-x-auto rounded-lg border border-border-base">
+      <table {...props} className="w-full text-xs" />
+    </div>
+  ),
+  a: ({ node: _node, ...props }) => (
+    <a {...props} target="_blank" rel="noreferrer" className="text-blue-600 underline underline-offset-2" />
+  ),
+};
 
 let fireantTokenDebugLogged = false;
 
@@ -401,6 +417,87 @@ function buildMaturitySummary(pathname: string, payload: Record<string, any>) {
   };
 }
 
+// The watchlist lives in the browser's localStorage, so we build its chatbot
+// context directly from the stored items instead of round-tripping to the server
+// (which can fail on auth/network and strip the maturity/rate fields the AI needs).
+function buildWatchlistLocalDataset(pathname: string): Record<string, unknown> {
+  const rawItems = getWatchlistItems();
+
+  if (rawItems.length === 0) {
+    return {
+      route: pathname,
+      page: 'watchlist',
+      source: 'watchlist-local',
+      count: 0,
+      cards: [],
+      items: [],
+      note: 'watchlist is empty',
+    };
+  }
+
+  const items = [...rawItems]
+    .sort((left, right) => {
+      const leftTime = Date.parse(normalizeDate(left.maturityDate));
+      const rightTime = Date.parse(normalizeDate(right.maturityDate));
+      const safeLeft = Number.isNaN(leftTime) ? Number.POSITIVE_INFINITY : leftTime;
+      const safeRight = Number.isNaN(rightTime) ? Number.POSITIVE_INFINITY : rightTime;
+      return safeLeft - safeRight;
+    })
+    .slice(0, MAX_ROW_COUNT)
+    .map((item) => ({
+      bondCode: normalizeText(item.code).toUpperCase(),
+      issuerName: normalizeText(item.issuerName || item.ticker),
+      issuerSymbol: normalizeText(item.ticker),
+      maturityDate: normalizeDate(item.maturityDate),
+      issueDate: normalizeDate(item.issueDate),
+      bondRate: toRoundedNumber(item.interestRate),
+      tenorMonths: toRoundedNumber(item.term),
+      interestType: normalizeText(item.interestType),
+      bondType: normalizeText(item.bondType),
+      listedValueBillion: toBillion(item.listedValue),
+      issuedValueBillion: toBillion(item.issuedValue),
+    }));
+
+  const totalIssuedValueBillion = toRoundedNumber(items.reduce((total, item) => total + item.issuedValueBillion, 0));
+  const totalListedValueBillion = toRoundedNumber(items.reduce((total, item) => total + item.listedValueBillion, 0));
+
+  // Projected principal repayment by maturity month, aggregated from local fields
+  // (issued value grouped by maturity date). This does not include interim coupon
+  // payments because the local watchlist does not store a full payment schedule.
+  const principalByMonth = new Map<string, { principalBillion: number; bondCount: number }>();
+  for (const item of rawItems) {
+    const maturityDate = normalizeDate(item.maturityDate);
+    const month = maturityDate ? maturityDate.slice(0, 7) : 'chưa rõ';
+    const entry = principalByMonth.get(month) || { principalBillion: 0, bondCount: 0 };
+    entry.principalBillion += toBillion(item.issuedValue);
+    entry.bondCount += 1;
+    principalByMonth.set(month, entry);
+  }
+  const projectedPrincipalByMaturityMonth = Array.from(principalByMonth.entries())
+    .map(([month, value]) => ({
+      month,
+      principalBillion: toRoundedNumber(value.principalBillion),
+      bondCount: value.bondCount,
+    }))
+    .sort((left, right) => (left.month < right.month ? -1 : left.month > right.month ? 1 : 0));
+
+  return {
+    route: pathname,
+    page: 'watchlist',
+    source: 'watchlist-local',
+    count: rawItems.length,
+    cards: [
+      { key: 'bondCount', label: 'Số mã theo dõi', value: rawItems.length, unit: 'mã' },
+      { key: 'totalIssuedValue', label: 'Tổng giá trị phát hành', value: totalIssuedValueBillion, unit: 'tỷ VND' },
+      { key: 'totalListedValue', label: 'Tổng giá trị niêm yết', value: totalListedValueBillion, unit: 'tỷ VND' },
+    ],
+    items,
+    projectedPrincipalByMaturityMonth,
+    projectedCashFlowNote: 'projectedPrincipalByMaturityMonth là giá trị gốc (theo giá trị phát hành) đến hạn theo từng tháng, tổng hợp từ dữ liệu local; chưa bao gồm các kỳ trả lãi định kỳ.',
+    note: 'Dữ liệu danh mục theo dõi lấy trực tiếp từ thiết bị của người dùng, đã sắp theo ngày đáo hạn tăng dần.',
+  };
+}
+
 function summarizePageData(pathname: string, payload: unknown): Record<string, unknown> {
   if (!isObject(payload)) {
     return {
@@ -458,23 +555,6 @@ function getFilterRouteState(pathname: string) {
   };
 }
 
-function getPageLabel(pathname: string) {
-  const parts = pathname.split('/').filter(Boolean);
-
-  if (parts.length === 0) return 'Tổng quan thị trường';
-  if (isBondRoute(pathname)) {
-    return getActiveBondContext(pathname)?.label || 'Chi tiết trái phiếu';
-  }
-  if (parts[0] === 'industry') return `Nhóm ngành ${getIndustryDisplayLabel(parts[1] || 'Banking')}`;
-  if (parts[0] === 'enterprise' && parts[1]) return `Tổ chức phát hành ${parts[1].toUpperCase()}`;
-  if (parts[0] === 'enterprise') return 'Danh sách tổ chức phát hành';
-  if (parts[0] === 'watchlist') return 'Danh mục theo dõi';
-  if (parts[0] === 'maturity') return 'Danh sách đáo hạn';
-  if (parts[0] === 'news') return 'Tin tức';
-
-  return 'Tổng quan thị trường';
-}
-
 function resolvePageLabel(pathname: string) {
   const parts = pathname.split('/').filter(Boolean);
   const activeBondContext = getActiveBondContext(pathname);
@@ -509,6 +589,17 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
   const parts = pathname.split('/').filter(Boolean);
   const filterRouteState = getFilterRouteState(pathname);
   const activeViewContext = getActiveViewContext(pathname);
+
+  // Local snapshot of the current view (published by the page component). Used as an
+  // offline fallback for server-fetched routes so the AI keeps working without network.
+  const viewContextFallback = activeViewContext
+    ? {
+        ...activeViewContext.dataset,
+        route: pathname,
+        contextLabel: activeViewContext.label,
+        updatedAt: activeViewContext.updatedAt,
+      }
+    : undefined;
 
   if (parts.length === 0) {
     return {
@@ -552,6 +643,7 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
     return {
       label: resolvePageLabel(pathname),
       url: `/api/page-data?view=issuer&symbol=${symbol}&detailLimit=60`,
+      localFallback: viewContextFallback,
     };
   }
 
@@ -578,6 +670,7 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
     return {
       label: resolvePageLabel(pathname),
       url: `/api/page-data?view=issuer&symbol=${encodeURIComponent(filterRouteState.ticker)}&detailLimit=60`,
+      localFallback: viewContextFallback,
     };
   }
 
@@ -618,34 +711,9 @@ function buildPageDataRequest(pathname: string): PageDataRequestConfig {
   }
 
   if (parts[0] === 'watchlist') {
-    const codes = getWatchlistItems()
-      .map((item) => normalizeText(item.code).toUpperCase())
-      .filter(Boolean);
-
-    if (codes.length === 0) {
-      return {
-        label: resolvePageLabel(pathname),
-        fallback: {
-          route: pathname,
-          page: 'watchlist',
-          cards: [],
-          items: [],
-          watchlistCodes: [],
-          note: 'watchlist is empty',
-        },
-      };
-    }
-
     return {
       label: resolvePageLabel(pathname),
-      url: '/api/page-data?view=watchlist',
-      init: {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ codes }),
-      },
+      fallback: buildWatchlistLocalDataset(pathname),
     };
   }
 
@@ -709,24 +777,6 @@ function sanitizeAssistantContent(content: string): string {
     .trim();
 }
 
-function getIndustryLabel(industryId: string) {
-  const labels: Record<string, string> = {
-    Banking: 'ngân hàng',
-    Securities: 'chứng khoán',
-    RealEstate: 'bất động sản',
-    Financials: 'tài chính',
-    Industrials: 'công nghiệp',
-    ConsumerDiscretionary: 'tiêu dùng không thiết yếu',
-    ConsumerStaples: 'tiêu dùng cơ bản',
-    BasicMaterials: 'vật liệu cơ bản',
-    Energy: 'năng lượng',
-    InfrastructureServices: 'hạ tầng',
-    Technology: 'công nghệ',
-  };
-
-  return labels[industryId] || industryId;
-}
-
 function getCurrentSuggestedSymbol(pathname: string, recentUserMessage: string) {
   const parts = pathname.split('/').filter(Boolean);
   const activeBondContext = getActiveBondContext(pathname);
@@ -747,85 +797,6 @@ function getCurrentSuggestedSymbol(pathname: string, recentUserMessage: string) 
   );
 }
 
-function buildFollowUpSuggestions(pathname: string, messages: Message[], input: string) {
-  const parts = pathname.split('/').filter(Boolean);
-  const recentUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
-  const activeBondContext = getActiveBondContext(pathname);
-  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentUserMessage);
-
-  let suggestions: string[] = [];
-
-  if (activeBondContext?.kind === 'bond-comparison') {
-    const compareCodes = activeBondContext.bondCodes.slice(0, 4);
-    suggestions = [
-      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareCodes.join(', ')}.`,
-      `Mã nào đang có lãi suất nổi bật nhất trong nhóm so sánh này?`,
-      `Mã nào đáo hạn sớm nhất và cần theo dõi nhiều nhất?`,
-      `So sánh nhanh rủi ro, kỳ hạn và quy mô phát hành của các mã này.`,
-    ];
-  } else if (activeBondContext?.kind === 'bond-detail' && recentSymbol) {
-    const issuerSymbol = activeBondContext.issuerSymbol || activeBondContext.issuerName;
-    suggestions = [
-      `Tóm tắt nhanh mã trái phiếu ${recentSymbol}.`,
-      `Lãi suất, kỳ hạn và điểm cần theo dõi của ${recentSymbol} là gì?`,
-      `Lịch thanh toán và áp lực đáo hạn của ${recentSymbol} hiện ra sao?`,
-      issuerSymbol
-        ? `Mã ${recentSymbol} phản ánh gì về tình hình trái phiếu của ${issuerSymbol}?`
-        : `Rủi ro chính của mã ${recentSymbol} hiện nay là gì?`,
-    ];
-  } else if (parts[0] === 'enterprise' && recentSymbol) {
-    suggestions = [
-      `${recentSymbol} hiện có bao nhiêu mã trái phiếu đang lưu hành?`,
-      `Cơ cấu kỳ hạn và lãi suất của ${recentSymbol} hiện như thế nào?`,
-      `Áp lực đáo hạn của ${recentSymbol} trong 12 tháng tới ra sao?`,
-      `Đánh giá nhanh rủi ro và điểm cần theo dõi của ${recentSymbol}.`,
-    ];
-  } else if (parts[0] === 'industry' && parts[1]) {
-    const industryLabel = getIndustryLabel(parts[1]);
-    suggestions = [
-      `Top tổ chức phát hành trong nhóm ${industryLabel} là ai?`,
-      `Quy mô dư nợ của nhóm ${industryLabel} đang tập trung vào đâu?`,
-      `Lãi suất phát hành của nhóm ${industryLabel} có điểm gì đáng chú ý?`,
-      `Rủi ro chính của nhóm ${industryLabel} hiện nay là gì?`,
-    ];
-  } else if (parts[0] === 'maturity') {
-    suggestions = [
-      'Có bao nhiêu mã trái phiếu sắp đáo hạn trong 12 tháng tới?',
-      'Những tổ chức nào có áp lực đáo hạn lớn nhất?',
-      'Các tháng nào tập trung nhiều trái phiếu đáo hạn nhất?',
-      'Đánh giá nhanh rủi ro thanh toán từ dữ liệu đáo hạn hiện tại.',
-    ];
-  } else if (parts[0] === 'watchlist') {
-    suggestions = [
-      'Tóm tắt nhanh rủi ro của danh mục theo dõi hiện tại.',
-      'Mã nào trong danh mục theo dõi đáo hạn sớm nhất?',
-      'Cơ cấu kỳ hạn của danh mục theo dõi đang nghiêng về đâu?',
-      'Lãi suất các trái phiếu trong danh mục theo dõi có gì nổi bật?',
-    ];
-  } else {
-    suggestions = [
-      'Có bao nhiêu mã trái phiếu trên thị trường hiện tại?',
-      'Top tổ chức phát hành theo dư nợ hiện nay là ai?',
-      'Ngành nào đang có khối lượng trái phiếu lớn nhất?',
-      'Những mã có lãi suất cao nhất hiện nay là mã nào?',
-    ];
-
-    if (recentSymbol) {
-      suggestions.unshift(`Phân tích nhanh tình hình trái phiếu của ${recentSymbol}.`);
-    }
-  }
-
-  const excluded = new Set(
-    [input, recentUserMessage]
-      .map((value) => normalizeText(value).toLowerCase())
-      .filter(Boolean),
-  );
-
-  return Array.from(new Set(suggestions))
-    .filter((question) => !excluded.has(question.toLowerCase()))
-    .slice(0, MAX_SUGGESTION_COUNT);
-}
-
 function getIndustryDisplayLabel(industryId: string) {
   const labels: Record<string, string> = {
     Banking: 'Ngân hàng',
@@ -842,80 +813,6 @@ function getIndustryDisplayLabel(industryId: string) {
   };
 
   return labels[industryId] || industryId;
-}
-
-function buildSuggestedQuestions(pathname: string, messages: Message[], input: string) {
-  const parts = pathname.split('/').filter(Boolean);
-  const recentUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
-  const activeBondContext = getActiveBondContext(pathname);
-  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentUserMessage);
-
-  let suggestions: string[] = [];
-
-  if (activeBondContext?.kind === 'bond-comparison') {
-    const compareCodes = activeBondContext.bondCodes.slice(0, 4);
-    suggestions = [
-      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareCodes.join(', ')}.`,
-      'Mã nào đang có lãi suất cao nhất trong nhóm này?',
-      'Mã nào có ngày đáo hạn gần nhất trong nhóm này?',
-    ];
-  } else if (activeBondContext?.kind === 'bond-detail' && recentSymbol) {
-    const issuerSymbol = activeBondContext.issuerSymbol || activeBondContext.issuerName;
-    suggestions = [
-      `Tóm tắt nhanh mã trái phiếu ${recentSymbol}.`,
-      `Lãi suất, kỳ hạn và điểm cần theo dõi của ${recentSymbol} là gì?`,
-      `Lịch thanh toán và áp lực đáo hạn của ${recentSymbol} hiện ra sao?`,
-    ];
-
-    if (issuerSymbol) {
-      suggestions.unshift(`Mã ${recentSymbol} đang cho thấy điều gì về tổ chức phát hành ${issuerSymbol}?`);
-    }
-  } else if (parts[0] === 'enterprise' && recentSymbol) {
-    suggestions = [
-      `${recentSymbol} hiện có bao nhiêu mã trái phiếu đang lưu hành?`,
-      `Cơ cấu kỳ hạn và lãi suất của ${recentSymbol} hiện như thế nào?`,
-      `Áp lực đáo hạn của ${recentSymbol} trong 12 tháng tới ra sao?`,
-    ];
-  } else if (parts[0] === 'industry' && parts[1]) {
-    const industryLabel = getIndustryDisplayLabel(parts[1]);
-    suggestions = [
-      `Top tổ chức phát hành trong nhóm ${industryLabel.toLowerCase()} là ai?`,
-      `Quy mô dư nợ của nhóm ${industryLabel.toLowerCase()} đang tập trung vào đâu?`,
-      `Lãi suất phát hành của nhóm ${industryLabel.toLowerCase()} có điểm gì đáng chú ý?`,
-    ];
-  } else if (parts[0] === 'maturity') {
-    suggestions = [
-      'Có bao nhiêu mã trái phiếu sắp đáo hạn trong 12 tháng tới?',
-      'Những tổ chức nào có áp lực đáo hạn lớn nhất?',
-      'Các tháng nào tập trung nhiều trái phiếu đáo hạn nhất?',
-    ];
-  } else if (parts[0] === 'watchlist') {
-    suggestions = [
-      'Tóm tắt nhanh rủi ro của danh mục theo dõi hiện tại.',
-      'Mã nào trong danh mục theo dõi đáo hạn sớm nhất?',
-      'Cơ cấu kỳ hạn của danh mục theo dõi đang nghiêng về đâu?',
-    ];
-  } else {
-    suggestions = [
-      'Có bao nhiêu mã trái phiếu trên thị trường hiện tại?',
-      'Top tổ chức phát hành theo dư nợ hiện nay là ai?',
-      'Ngành nào đang có khối lượng trái phiếu lớn nhất?',
-    ];
-
-    if (recentSymbol) {
-      suggestions.unshift(`Phân tích nhanh tình hình trái phiếu của ${recentSymbol}.`);
-    }
-  }
-
-  const excluded = new Set(
-    [input, recentUserMessage]
-      .map((value) => normalizeText(value).toLowerCase())
-      .filter(Boolean),
-  );
-
-  return Array.from(new Set(suggestions))
-    .filter((question) => !excluded.has(question.toLowerCase()))
-    .slice(0, MAX_SUGGESTION_COUNT);
 }
 
 function resolveSuggestedQuestions(pathname: string, messages: Message[], input: string) {
@@ -1193,6 +1090,22 @@ async function fetchPageDatasetSummary(
       error: null,
     };
   } catch (error: any) {
+    // Network/server failed (e.g. offline). Prefer any local snapshot we already
+    // have for this route so the AI can still answer from the user's own data.
+    if (requestConfig.localFallback) {
+      return {
+        summary: {
+          label: requestConfig.label,
+          data: {
+            ...requestConfig.localFallback,
+            source: 'local-offline-fallback',
+            note: 'Dữ liệu lấy từ thiết bị của người dùng do không kết nối được máy chủ; có thể chưa phải số liệu mới nhất.',
+          },
+        },
+        error: null,
+      };
+    }
+
     return {
       summary: {
         label: requestConfig.label,
@@ -1221,7 +1134,7 @@ async function fetchPageContextSnapshot(pathname: string, userMessage?: string):
   const errors = summaries.map((item) => item.error).filter(Boolean);
   const context = {
     instruction:
-      'Chon dataset phu hop voi cau hoi. Uu tien so lieu trong datasets; neu thieu du lieu thi noi ro thieu gi.',
+      'Trả lời bằng tiếng Việt có dấu đầy đủ. Chỉ dùng phần dữ liệu liên quan trực tiếp đến câu hỏi và đọc hết mọi dòng để tính toán, đếm, xếp hạng hoặc liệt kê cho chính xác. Tuyệt đối không bịa hay suy diễn ngoài dữ liệu này. Nếu dữ liệu không có thông tin phù hợp, trả lời đúng một câu "Không tìm thấy thông tin phù hợp."; nếu câu hỏi mơ hồ thì hỏi lại người dùng để làm rõ.',
     apiCatalog: PAGE_DATA_API_CATALOG,
     currentRoute: pathname,
     datasets: summaries.map((item) => item.summary),
@@ -1260,7 +1173,7 @@ function buildBondFilterAssistantContent(
       return `I did not find any listed bond matching ${summaryText || 'the requested conditions'}. You can widen the tenor, coupon, issue date, or maturity date range and try again.`;
     }
 
-    return `Toi chua tim thay ma trai phieu niem yet nao phu hop voi ${summaryText || 'dieu kien da mo ta'}. Ban co the mo rong khoang ky han, lai suat, ngay phat hanh hoac ngay dao han de lay them ket qua.`;
+    return `Tôi chưa tìm thấy mã trái phiếu niêm yết nào phù hợp với ${summaryText || 'điều kiện đã mô tả'}. Bạn có thể mở rộng khoảng kỳ hạn, lãi suất, ngày phát hành hoặc ngày đáo hạn để lấy thêm kết quả.`;
   }
 
   const avgRate = rows.reduce((total, row) => total + Number(row.bondRate || 0), 0) / rows.length;
@@ -1275,19 +1188,19 @@ function buildBondFilterAssistantContent(
       return `- \`${row.bondCode}\` | ${row.issuerName} | ${formatInterestRate(row.bondRate)}% | ${formatNumber(row.tenorPeriod, 0)} months | maturity ${formatDate(row.maturityDate)}`;
     }
 
-    return `- \`${row.bondCode}\` | ${row.issuerName} | ${formatInterestRate(row.bondRate)}% | ${formatNumber(row.tenorPeriod, 0)} thang | dao han ${formatDate(row.maturityDate)}`;
+    return `- \`${row.bondCode}\` | ${row.issuerName} | ${formatInterestRate(row.bondRate)}% | ${formatNumber(row.tenorPeriod, 0)} tháng | đáo hạn ${formatDate(row.maturityDate)}`;
   });
 
   const tenorRange = tenorValues.length > 0
     ? `${formatNumber(Math.min(...tenorValues), 0)} - ${formatNumber(Math.max(...tenorValues), 0)}`
     : language === 'en'
       ? 'n/a'
-      : 'chua ro';
+      : 'chưa rõ';
   const maturityRange = maturityDates.length > 0
     ? `${formatDate(maturityDates[0])} - ${formatDate(maturityDates[maturityDates.length - 1])}`
     : language === 'en'
       ? 'n/a'
-      : 'chua ro';
+      : 'chưa rõ';
 
   if (language === 'en') {
     return [
@@ -1298,9 +1211,9 @@ function buildBondFilterAssistantContent(
   }
 
   return [
-    `Toi da loc tap trai phieu niem yet theo ${summaryText || 'cac tieu chi ban mo ta'} va hien co **${formatNumber(rows.length, 0)} ma phu hop**.`,
-    `Nhom ket qua nay co lai suat binh quan **${formatInterestRate(avgRate)}%**, ky han trai trong khoang **${tenorRange} thang**, va lich dao han trai tu **${maturityRange}**${sortText ? `. Thu tu hien tai: **${sortText}**` : ''}.`,
-    `Mot so ma nen xem tiep:\n${previewLines.join('\n')}`,
+    `Tôi đã lọc tập trái phiếu niêm yết theo ${summaryText || 'các tiêu chí bạn mô tả'} và hiện có **${formatNumber(rows.length, 0)} mã phù hợp**.`,
+    `Nhóm kết quả này có lãi suất bình quân **${formatInterestRate(avgRate)}%**, kỳ hạn trải trong khoảng **${tenorRange} tháng**, và lịch đáo hạn trải từ **${maturityRange}**${sortText ? `. Thứ tự hiện tại: **${sortText}**` : ''}.`,
+    `Một số mã nên xem tiếp:\n${previewLines.join('\n')}`,
   ].join('\n\n');
 }
 
@@ -1651,6 +1564,18 @@ export default function AIChatBot() {
     setStreamingIdx(null);
   };
 
+  const handleResetChat = () => {
+    if (isStreaming) handleStop();
+    setErrorBanner(null);
+    setInput('');
+    const welcome: Message = { role: 'assistant', content: t('chatBotWelcome') };
+    setMessages([welcome]);
+    safeWriteLocalStorage(CHAT_HISTORY_KEY, JSON.stringify([welcome]));
+    requestAnimationFrame(() => resizeTextarea(textareaRef.current));
+  };
+
+  const hasConversation = messages.some((message) => message.role === 'user');
+
   return (
     <div className="ai-chatbot-shell fixed bottom-4 left-4 right-4 z-50 sm:left-auto sm:right-6">
       <AnimatePresence initial={false}>
@@ -1659,24 +1584,49 @@ export default function AIChatBot() {
             initial={{ opacity: 0, scale: 0.96, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 24 }}
-            className="mb-3 flex h-96 w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-xl sm:mb-4 sm:h-[32rem] sm:max-w-md"
+            className="mb-3 flex h-[75vh] max-h-[40rem] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl sm:mb-4 sm:h-[34rem] sm:max-w-md"
           >
             <div className="flex items-center justify-between gap-3 border-b border-border-base bg-bg-base/80 px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-text-muted">
-                  {isLoadingContext ? t('loading') : pageContext?.label || 'AI'}
-                </p>
-                <h3 className="truncate text-sm font-bold text-text-base">{t('chatBotTitle')}</h3>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-sm">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-bold leading-tight text-text-base">{t('chatBotTitle')}</h3>
+                  <p className="truncate text-xs font-medium text-text-muted">
+                    {isLoadingContext ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {t('loading')}
+                      </span>
+                    ) : (
+                      pageContext?.label || 'AI'
+                    )}
+                  </p>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-base bg-bg-base text-text-muted shadow-sm transition-colors hover:border-blue-500/40 hover:bg-blue-50 hover:text-blue-600"
-                title="Close"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {hasConversation && (
+                  <button
+                    type="button"
+                    onClick={handleResetChat}
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-base bg-bg-base text-text-muted shadow-sm transition-colors hover:border-blue-500/40 hover:bg-blue-50 hover:text-blue-600"
+                    title={t('chatBotReset')}
+                    aria-label={t('chatBotReset')}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-border-base bg-bg-base text-text-muted shadow-sm transition-colors hover:border-blue-500/40 hover:bg-blue-50 hover:text-blue-600"
+                  title="Close"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             {(!configured || statusError || errorBanner || (!activeModel && !isLoadingModels)) && (
@@ -1710,20 +1660,22 @@ export default function AIChatBot() {
                     className={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
                   >
                     <div
-                      className={`flex max-w-xs gap-2 sm:max-w-sm ${
-                        message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+                      className={`flex gap-2 ${
+                        message.role === 'user' ? 'max-w-[85%] flex-row-reverse' : 'max-w-[92%] flex-row'
                       }`}
                     >
                       <div
                         className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                          message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-blue-600 text-white'
+                          message.role === 'user'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gradient-to-br from-blue-500 to-blue-600 text-white'
                         }`}
                       >
                         {message.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                       </div>
 
                       <div
-                        className={`overflow-hidden rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                        className={`min-w-0 overflow-hidden rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                           message.role === 'user'
                             ? 'rounded-tr-none bg-blue-500 text-white'
                             : 'rounded-tl-none border border-border-base bg-bg-base text-text-base'
@@ -1738,8 +1690,8 @@ export default function AIChatBot() {
                           </div>
                         ) : (
                           <div className="space-y-3">
-                            <div className="prose prose-sm max-w-none text-text-base prose-headings:text-text-base prose-p:text-text-base prose-strong:text-text-base prose-li:text-text-base prose-code:text-text-base">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            <div className="prose prose-sm max-w-none break-words text-text-base prose-headings:text-text-base prose-p:text-text-base prose-strong:text-text-base prose-li:text-text-base prose-code:text-text-base prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>
                                 {message.content}
                               </ReactMarkdown>
                               {isCurrentStream && <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-current align-middle" />}
@@ -1761,11 +1713,11 @@ export default function AIChatBot() {
                   </div>
                 );
               })}
-              {suggestedQuestions.length > 0 && (
+              {!isStreaming && suggestedQuestions.length > 0 && (
                 <div className="ml-10 flex flex-col gap-2">
-                  <div className="hidden">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Gợi ý tiếp theo</p>
-                    <p className="text-xs text-text-muted">Chạm để điền nhanh câu hỏi.</p>
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-text-muted">
+                    <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+                    <span>{t('chatBotSuggestions')}</span>
                   </div>
                   <div className="flex flex-col gap-2">
                     {suggestedQuestions.map((question) => (
@@ -1773,37 +1725,11 @@ export default function AIChatBot() {
                         key={question}
                         type="button"
                         onClick={() => fillSuggestedQuestion(question)}
-                        className="w-full rounded-2xl border border-border-base bg-bg-base px-3 py-2 text-left text-xs font-medium leading-snug text-text-muted shadow-sm transition-colors hover:border-blue-500/30 hover:text-text-base"
+                        className="w-full rounded-2xl border border-border-base bg-bg-base px-3 py-2 text-left text-xs font-medium leading-snug text-text-muted shadow-sm transition-colors hover:border-blue-500/40 hover:bg-blue-500/5 hover:text-text-base"
                       >
                         {question}
                       </button>
                     ))}
-                  </div>
-                </div>
-              )}
-              {false && (
-                <div className="flex justify-start">
-                  <div className="flex max-w-xs gap-2 sm:max-w-sm">
-                    <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
-                      <Lightbulb className="h-4 w-4" />
-                    </div>
-                    <div className="space-y-1.5 rounded-2xl rounded-tl-none border border-border-base bg-bg-base px-3 py-2">
-                      <p className="hidden">
-                        Gợi ý tiếp theo
-                      </p>
-                      <div className="grid gap-1">
-                        {suggestedQuestions.map((question) => (
-                          <button
-                            key={question}
-                            type="button"
-                            onClick={() => fillSuggestedQuestion(question)}
-                            className="rounded-xl border border-border-base bg-bg-surface px-3 py-1.5 text-left text-xs font-medium leading-tight text-text-base transition-colors hover:border-blue-500/40 hover:bg-blue-500/10"
-                          >
-                            {question}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
@@ -1811,26 +1737,6 @@ export default function AIChatBot() {
             </div>
 
             <div className="border-t border-border-base bg-bg-base/60 p-3">
-              {false && (
-                <div className="mb-3 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted/80">
-                    <Lightbulb className="h-3.5 w-3.5 text-blue-500" />
-                    <span>Gợi ý tiếp theo</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestedQuestions.map((question) => (
-                      <button
-                        key={question}
-                        type="button"
-                        onClick={() => fillSuggestedQuestion(question)}
-                        className="rounded-full border border-border-base bg-bg-surface px-3 py-2 text-left text-xs font-medium text-text-base transition-colors hover:border-blue-500/40 hover:bg-blue-500/10"
-                      >
-                        {question}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
               <div className="flex items-end gap-2">
                 <textarea
                   ref={textareaRef}
