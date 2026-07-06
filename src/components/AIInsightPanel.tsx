@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, Sparkles, TriangleAlert } from 'lucide-react';
 import { sendChat } from '../api/ai';
 import { useVisibleOnce } from '../hooks/useVisibleOnce';
@@ -154,6 +154,35 @@ export default function AIInsightPanel({
   const [isLoading, setIsLoading] = useState(false);
   const requestIdRef = useRef(0);
 
+  // Adaptive mode: measure the fixed-height content box (height fixed by the card, width responsive
+  // to the screen) and turn it into a target sentence count so the model writes just enough to fill
+  // the card at the current size — not so long it gets trimmed, not so short it leaves whitespace.
+  const [adaptiveLengthTarget, setAdaptiveLengthTarget] = useState(0);
+  const adaptiveResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const measureAdaptiveBox = useCallback((node: HTMLDivElement | null) => {
+    adaptiveResizeObserverRef.current?.disconnect();
+    adaptiveResizeObserverRef.current = null;
+    if (!node) return;
+
+    const measure = () => {
+      const width = node.clientWidth;
+      const height = node.clientHeight;
+      if (!width || !height) return;
+      const lines = Math.max(3, Math.floor(height / 24)); // leading-6 ≈ 24px per line
+      const charsPerLine = Math.max(24, Math.floor(width / 7.2)); // ≈ text-sm avg char width
+      // ≈ chars in a concise 15-20 word sentence; higher divisor → fewer sentences requested, so
+      // the model doesn't over-write and get trimmed (which was dropping the cash-flow point).
+      const sentences = Math.min(14, Math.max(3, Math.round((lines * charsPerLine) / 120)));
+      setAdaptiveLengthTarget((previous) => (previous === sentences ? previous : sentences));
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    adaptiveResizeObserverRef.current = observer;
+  }, []);
+
   const activeModel = selectedModel || defaultModel;
   const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
 
@@ -176,13 +205,20 @@ export default function AIInsightPanel({
     [payloadText],
   );
   const localizedCacheKey = useMemo(
-    () => `${cacheKey}-${language}${adaptive ? '-prose' : ''}`,
-    [cacheKey, language, adaptive],
+    () => `${cacheKey}-${language}${adaptive ? `-prose-len${adaptiveLengthTarget}` : ''}`,
+    [cacheKey, language, adaptive, adaptiveLengthTarget],
   );
   const cachedInsight = useMemo(
     () => (payloadSignature ? readDailyAIInsight(localizedCacheKey, payloadSignature, { ignoreDate: persistCache }) : null),
     [localizedCacheKey, payloadSignature, persistCache],
   );
+
+  // Track the latest payload signature so an in-flight generation can tell whether the input
+  // changed under it (e.g. async cash-flow data arriving after the request started).
+  const payloadSignatureRef = useRef(payloadSignature);
+  useEffect(() => {
+    payloadSignatureRef.current = payloadSignature;
+  }, [payloadSignature]);
 
   const updatedLabel = useMemo(() => {
     if (!updatedAt) return '';
@@ -252,7 +288,7 @@ export default function AIInsightPanel({
           : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi tra loi bang tieng Viet. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo cua he thong. Lam noi bat cac so lieu quan trong nhat truoc. Uu tien neu con so cu the, muc do tap trung, diem rui ro va yeu to can theo doi tiep theo.');
 
       const analystPrompt = adaptive
-        ? `${basePrompt}\n\n${buildParagraphDirective(language === 'en' ? 'en' : 'vi')}`
+        ? `${basePrompt}\n\n${buildParagraphDirective(language === 'en' ? 'en' : 'vi', adaptiveLengthTarget)}`
         : `${basePrompt}${language === 'en'
           ? ' Write 3 to 4 short sentences in a concise professional tone.'
           : ' Viet 3 den 4 cau ngan, giong chuyen nghiep.'}`;
@@ -267,6 +303,10 @@ export default function AIInsightPanel({
       });
 
       if (requestIdRef.current !== requestId) return;
+      // The input changed while the model was responding (e.g. cash-flow data finished loading) —
+      // discard this now-stale output; the effect will regenerate for the current data. Prevents a
+      // "no data" insight generated on incomplete data from sticking after the real data arrives.
+      if (payloadSignatureRef.current !== payloadSignature) return;
 
       const nextInsight = sanitizeAIInsightText(String(response.text || ''), language === 'en' ? 'en' : 'vi');
       const generatedAt = new Date().toISOString();
@@ -290,8 +330,10 @@ export default function AIInsightPanel({
 
   useEffect(() => {
     if (!isVisible || !payloadText || !configured || isLoading || insight || error || cachedInsight) return;
+    // In adaptive mode wait until the card has been measured so the requested length fits it.
+    if (adaptive && !adaptiveLengthTarget) return;
     void generateInsight(false);
-  }, [cachedInsight, configured, error, insight, isLoading, isVisible, payloadText]);
+  }, [adaptive, adaptiveLengthTarget, cachedInsight, configured, error, insight, isLoading, isVisible, payloadText]);
 
   const isStackedLayout = layout === 'stacked';
   const adaptiveContentClassName = contentAreaClassName || DEFAULT_ADAPTIVE_CONTENT_CLASS;
@@ -334,7 +376,27 @@ export default function AIInsightPanel({
           </button>
         </div>
 
-        {isLoading ? (
+        {adaptive ? (
+          // Persistent fixed-height box (measured for the length target) that holds every state, so
+          // the card height never changes and measurement is ready before the first generation.
+          <div ref={measureAdaptiveBox} className={`${contentClassName} ${insightContentClassName}`}>
+            {isLoading ? (
+              <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
+                <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                <span>{t('aiGeneratingInsight')}</span>
+              </div>
+            ) : error ? (
+              <div className="flex items-start gap-3 text-sm text-text-muted">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                <span>{error}</span>
+              </div>
+            ) : insight ? (
+              <AdaptiveInsightContent content={insight} boldTerms={boldTerms} className="h-full overflow-hidden" />
+            ) : (
+              <div className="text-sm text-text-muted">{payloadText ? t('aiNoInsight') : t('noData')}</div>
+            )}
+          </div>
+        ) : isLoading ? (
           <div className="flex items-center gap-3 px-1 py-2 text-sm font-semibold text-text-muted">
             <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
             <span>{t('aiGeneratingInsight')}</span>
@@ -345,17 +407,9 @@ export default function AIInsightPanel({
             <span>{error}</span>
           </div>
         ) : insight ? (
-          adaptive ? (
-            <AdaptiveInsightContent
-              content={insight}
-              boldTerms={boldTerms}
-              className={`${contentClassName} ${insightContentClassName}`}
-            />
-          ) : (
-            <div className={`${contentClassName} ${insightContentClassName}`}>
-              <AIInsightText content={insight} boldTerms={boldTerms} />
-            </div>
-          )
+          <div className={`${contentClassName} ${insightContentClassName}`}>
+            <AIInsightText content={insight} boldTerms={boldTerms} />
+          </div>
         ) : (
           <div className={`${contentClassName} text-sm text-text-muted`}>
             {payloadText ? t('aiNoInsight') : t('noData')}

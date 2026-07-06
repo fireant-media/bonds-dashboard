@@ -24,6 +24,11 @@ dotenv.config();
 const AI_API_KEY = OPENAI_API_KEY;
 const AI_BASE_URL = OPENAI_BASE_URL;
 
+// Upper bound on completion length. Without this the upstream gateway applies its
+// own (low) default, which truncates longer analyst insights mid-sentence — e.g. the
+// bond-detail "Nhận xét" can request up to ~16 dense sentences. Overridable via env.
+const AI_MAX_TOKENS = Number.parseInt(process.env.FIREANT_AI_MAX_TOKENS || "", 10) || 2048;
+
 const getRequestAIKey = (req: express.Request): string => {
   const headerToken = req.headers["x-fireant-access-token"];
   const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
@@ -200,7 +205,10 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json());
+  // Raise the body limit well above express.json's 100kb default: AI chat requests carry a
+  // serialized page-data context (up to ~100 bond rows plus history), which routinely exceeds
+  // 100kb and was being rejected with HTTP 413 before reaching the handler.
+  app.use(express.json({ limit: "10mb" }));
 
   app.use(cookieSession({
     name: 'session',
@@ -1259,6 +1267,7 @@ async function startServer() {
           model: targetModel,
           messages: chatMessages,
           stream: false,
+          max_completion_tokens: AI_MAX_TOKENS,
         },
         {
           headers: {
@@ -1372,6 +1381,7 @@ async function startServer() {
           model: targetModel,
           messages: chatMessages,
           stream: true,
+          max_completion_tokens: AI_MAX_TOKENS,
         }),
         signal: abortController.signal,
       });

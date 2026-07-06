@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Children, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, Bot, Loader2, MessageSquare, RotateCcw, Send, SlidersHorizontal, Sparkles, User, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -19,6 +19,9 @@ import {
   type AIBondFilterCriteria,
 } from '../services/aiBondFilter';
 import { loadBondFilterRows, type BondDataRow } from '../services/bondData';
+import { ENTERPRISE_LIST_DATA_CACHE_KEY } from '../services/enterpriseListData';
+import { getCache } from '../utils/cache';
+import type { Enterprise } from '../types';
 import { useAIStore } from '../store/aiStore';
 import { formatDate, formatInterestRate, formatNumber } from '../utils/format';
 import { getWatchlistItems, onWatchlistUpdated } from '../utils/watchlist';
@@ -121,16 +124,107 @@ const INDUSTRY_INTENTS = [
 
 // Wrap markdown tables so wide comparison tables scroll horizontally instead of
 // breaking the chat bubble layout, and open any links in a new tab.
-const CHAT_MARKDOWN_COMPONENTS: Components = {
-  table: ({ node: _node, ...props }) => (
-    <div className="my-2 overflow-x-auto rounded-lg border border-border-base">
-      <table {...props} className="w-full text-xs" />
-    </div>
-  ),
-  a: ({ node: _node, ...props }) => (
-    <a {...props} target="_blank" rel="noreferrer" className="text-blue-600 underline underline-offset-2" />
-  ),
-};
+// A bond code is an uppercase ticker prefix immediately followed by digits (e.g. TMS12101);
+// a stock/issuer ticker is 3–4 uppercase letters (e.g. TMS). Bond codes match first so a code
+// like TMS12101 is captured whole rather than as the ticker "TMS" + digits.
+const CODE_TOKEN_REGEX = /\b(?:[A-Z]{2,5}\d{3,}[A-Z0-9]*|[A-Z]{3,4})\b/g;
+
+// Currency codes that are also real tickers (VND = VNDirect). When they follow an amount word
+// or number (e.g. "300 tỷ VND", "5,24 triệu VND") they are the đồng/currency unit, not an issuer,
+// so they must stay plain text rather than linkifying to the securities firm.
+const CURRENCY_CODES = new Set(['VND', 'USD', 'EUR', 'JPY', 'CNY', 'SGD']);
+const AMOUNT_CONTEXT_REGEX = /(\d|ty|tỷ|tỉ|trieu|triệu|nghin|nghìn|ngan|ngàn|dong|đồng)\s*$/i;
+
+interface CodeLinkHandlers {
+  // Only uppercase tickers present in this set become issuer links, so common all-caps words
+  // (VND, USD, GDP, …) are never turned into broken links. Bond codes are matched structurally.
+  knownTickers: Set<string>;
+  onBond: (code: string) => void;
+  onIssuer: (ticker: string) => void;
+}
+
+// Wrap detected bond codes / issuer tickers found in a plain-text run with bold, clickable chips.
+function renderTextWithCodeLinks(text: string, handlers: CodeLinkHandlers): ReactNode {
+  const nodes: ReactNode[] = [];
+  let lastIndex = 0;
+  let tokenIndex = 0;
+  let match: RegExpExecArray | null;
+  CODE_TOKEN_REGEX.lastIndex = 0;
+
+  while ((match = CODE_TOKEN_REGEX.exec(text)) !== null) {
+    const token = match[0];
+    const isBond = /\d/.test(token);
+    if (!isBond) {
+      // Leave non-bond tokens that are not known tickers as plain text (e.g. GDP, CTCP).
+      if (!handlers.knownTickers.has(token)) continue;
+      // A currency code right after an amount ("tỷ VND") is the unit, not the VNDirect ticker.
+      if (CURRENCY_CODES.has(token) && AMOUNT_CONTEXT_REGEX.test(text.slice(0, match.index))) continue;
+    }
+
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    nodes.push(
+      <button
+        key={`code-${tokenIndex++}-${token}`}
+        type="button"
+        onClick={() => (isBond ? handlers.onBond(token) : handlers.onIssuer(token))}
+        className="font-bold text-blue-600 underline decoration-dotted underline-offset-2 transition-colors hover:text-blue-700"
+      >
+        {token}
+      </button>,
+    );
+    lastIndex = match.index + token.length;
+  }
+
+  if (nodes.length === 0) return text;
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+// Transform only the direct string children of a rendered markdown element. Nested elements
+// (e.g. a <strong> inside a <p>) are left untouched — ReactMarkdown renders each through its
+// own component override, so they get linkified there without double-processing.
+function linkifyChildren(children: ReactNode, handlers: CodeLinkHandlers): ReactNode {
+  return Children.map(children, (child) =>
+    typeof child === 'string' ? renderTextWithCodeLinks(child, handlers) : child,
+  );
+}
+
+function createChatMarkdownComponents(handlers: CodeLinkHandlers): Components {
+  return {
+    table: ({ node: _node, ...props }) => (
+      <div className="my-2 overflow-x-auto rounded-lg border border-border-base">
+        <table {...props} className="w-full border-collapse text-xs" />
+      </div>
+    ),
+    th: ({ node: _node, children, style, ...props }) => (
+      <th
+        {...props}
+        // Force centered headers even when remark-gfm emits an inline text-align from `:---:` syntax.
+        style={{ ...style, textAlign: 'center', verticalAlign: 'middle' }}
+        className="border-b border-border-base px-3 py-2 font-semibold"
+      >
+        {linkifyChildren(children, handlers)}
+      </th>
+    ),
+    td: ({ node: _node, children, ...props }) => (
+      <td {...props} className="border-b border-border-base px-3 py-2 align-middle">
+        {linkifyChildren(children, handlers)}
+      </td>
+    ),
+    p: ({ node: _node, children, ...props }) => <p {...props}>{linkifyChildren(children, handlers)}</p>,
+    li: ({ node: _node, children, ...props }) => <li {...props}>{linkifyChildren(children, handlers)}</li>,
+    strong: ({ node: _node, children, ...props }) => (
+      <strong {...props}>{linkifyChildren(children, handlers)}</strong>
+    ),
+    em: ({ node: _node, children, ...props }) => <em {...props}>{linkifyChildren(children, handlers)}</em>,
+    code: ({ node: _node, children, ...props }) => (
+      <code {...props}>{linkifyChildren(children, handlers)}</code>
+    ),
+    a: ({ node: _node, ...props }) => (
+      <a {...props} target="_blank" rel="noreferrer" className="text-blue-600 underline underline-offset-2" />
+    ),
+  };
+}
 
 let fireantTokenDebugLogged = false;
 
@@ -555,6 +649,17 @@ function getFilterRouteState(pathname: string) {
   };
 }
 
+// The market-wide bond filter only makes sense while browsing the whole market (overview, bond
+// list, issuer/industry pages). On a bond-detail or comparison overlay (tracked by the live
+// bond-chat-context store) or the watchlist, a question like "mã nào lãi suất cao nhất trong nhóm
+// này" is about that specific set — textually indistinguishable from a filter command — so it must
+// be answered from page data (grounded Q&A), never turned into a market-wide filter.
+function isMarketFilterRoute(pathname: string) {
+  if (getBondChatContext()) return false;
+  const root = pathname.split('/').filter(Boolean)[0] || '';
+  return root !== 'watchlist';
+}
+
 function resolvePageLabel(pathname: string) {
   const parts = pathname.split('/').filter(Boolean);
   const activeBondContext = getActiveBondContext(pathname);
@@ -828,10 +933,11 @@ function resolveSuggestedQuestions(pathname: string, messages: Message[], input:
 
   if (activeBondContext?.kind === 'bond-comparison') {
     const compareCodes = activeBondContext.bondCodes.slice(0, 4);
+    const compareList = compareCodes.join(', ');
     suggestions = [
-      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareCodes.join(', ')}.`,
-      'Mã nào đang có lãi suất cao nhất trong nhóm này?',
-      'Mã nào có ngày đáo hạn gần nhất trong nhóm này?',
+      `Tóm tắt nhanh nhóm trái phiếu đang so sánh: ${compareList}.`,
+      `Trong nhóm đang so sánh (${compareList}), mã nào có lãi suất cao nhất?`,
+      `Trong nhóm đang so sánh (${compareList}), mã nào đáo hạn sớm nhất?`,
     ];
   } else if (activeBondContext?.kind === 'bond-detail' && recentSymbol) {
     const issuerSymbol = activeBondContext.issuerSymbol || activeBondContext.issuerName;
@@ -851,22 +957,11 @@ function resolveSuggestedQuestions(pathname: string, messages: Message[], input:
       `Áp lực đáo hạn của ${recentSymbol} trong 12 tháng tới ra sao?`,
     ];
   } else if (filterRouteState?.subTab === 'issuer') {
-    const hasFilters = Boolean(
-      normalizeText(activeViewFilters?.searchTerm).length > 0 ||
-      normalizeText(activeViewFilters?.industry).length > 0 ||
-      (Array.isArray(activeViewFilters?.aiSummary) && activeViewFilters.aiSummary.length > 0),
-    );
-    suggestions = hasFilters
-      ? [
-          'Tóm tắt nhanh danh sách tổ chức phát hành đang được lọc hiện tại.',
-          'Nhóm tổ chức phát hành nào đang nổi bật nhất trong kết quả lọc này?',
-          'Bộ lọc hiện tại đang loại ra những nhóm tổ chức nào?',
-        ]
-      : [
-          'Hiện có bao nhiêu tổ chức phát hành trong danh sách này?',
-          'Tổ chức phát hành nào đang có dư nợ còn lại lớn nhất?',
-          'Ngành nào đang tập trung nhiều tổ chức phát hành nhất?',
-        ];
+    suggestions = [
+      'Tổ chức phát hành nào đang có dư nợ trái phiếu lớn nhất?',
+      'Ngành nào đang tập trung nhiều tổ chức phát hành nhất?',
+      'Tổng quan các tổ chức phát hành hiện nay có gì đáng chú ý?',
+    ];
   } else if (filterRouteState?.subTab === 'bonds') {
     const hasFilters = Boolean(
       normalizeText(activeViewFilters?.searchTerm).length > 0 ||
@@ -1221,6 +1316,7 @@ export default function AIChatBot() {
   const { t, language } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
+  const [knownTickers, setKnownTickers] = useState<Set<string>>(() => new Set());
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1247,6 +1343,51 @@ export default function AIChatBot() {
     isLoadingModels,
     statusError,
   } = useAIStore();
+
+  // Reflect the page the user actually sees, not just the URL. Bond detail is an overlay: while it
+  // is open the URL is `/{bondCode}` (a bond route); once dismissed the URL can still read
+  // `/{bondCode}` while the visible page is the overlay's background (e.g. the issuer list). Mirror
+  // App's own logic — trust the live bond-chat-context store for "is a bond popup showing",
+  // otherwise fall back to the background route — so suggestions and grounding follow the view.
+  // The runtimeContextVersion state (bumped by the bond/view-context subscription) forces this
+  // module-store read to re-run whenever the context changes.
+  const activeBondChatContext = getBondChatContext();
+  const backgroundPathname = (location.state as { backgroundLocation?: { pathname?: string } } | null)
+    ?.backgroundLocation?.pathname;
+  const effectivePathname = activeBondChatContext
+    ? activeBondChatContext.routePathname || location.pathname
+    : backgroundPathname || location.pathname;
+
+  // Build the set of valid issuer tickers from the already-cached enterprise list so answers can
+  // linkify stock codes without triggering a heavy fetch. Re-read on navigation: the cache fills
+  // in once the user visits issuer/enterprise pages. Bond codes are matched structurally and stay
+  // clickable regardless of whether this set is populated.
+  useEffect(() => {
+    const cached = getCache(ENTERPRISE_LIST_DATA_CACHE_KEY) as Enterprise[] | null;
+    if (!Array.isArray(cached) || cached.length === 0) return;
+    const tickers = cached
+      .map((enterprise) => String(enterprise?.ticker || '').trim().toUpperCase())
+      .filter(Boolean);
+    setKnownTickers((previous) => (previous.size === tickers.length ? previous : new Set(tickers)));
+  }, [location.pathname]);
+
+  const markdownComponents = useMemo(
+    () =>
+      createChatMarkdownComponents({
+        knownTickers,
+        onBond: (code) => {
+          setIsOpen(false);
+          navigate(`/${code}`, { state: { backgroundLocation: location } });
+        },
+        onIssuer: (ticker) => {
+          setIsOpen(false);
+          navigate(`/filter/issuer/${ticker}`, {
+            state: { from: { pathname: location.pathname, search: location.search, hash: location.hash } },
+          });
+        },
+      }),
+    [knownTickers, navigate, location],
+  );
 
   useEffect(() => {
     const saved = safeReadLocalStorage(CHAT_HISTORY_KEY);
@@ -1315,7 +1456,7 @@ export default function AIChatBot() {
     let active = true;
     setIsLoadingContext(true);
 
-    void fetchPageContextSnapshot(location.pathname).then((snapshot) => {
+    void fetchPageContextSnapshot(effectivePathname).then((snapshot) => {
       if (!active) return;
       setPageContext(snapshot);
       setContextError(snapshot.error);
@@ -1325,14 +1466,14 @@ export default function AIChatBot() {
     return () => {
       active = false;
     };
-  }, [isOpen, location.pathname, runtimeContextVersion]);
+  }, [isOpen, effectivePathname, runtimeContextVersion]);
 
   useEffect(() => {
-    if (!isOpen || location.pathname !== '/watchlist') return undefined;
+    if (!isOpen || effectivePathname !== '/watchlist') return undefined;
 
     const unsubscribe = onWatchlistUpdated(() => {
       setIsLoadingContext(true);
-      void fetchPageContextSnapshot(location.pathname).then((snapshot) => {
+      void fetchPageContextSnapshot(effectivePathname).then((snapshot) => {
         setPageContext(snapshot);
         setContextError(snapshot.error);
         setIsLoadingContext(false);
@@ -1340,7 +1481,7 @@ export default function AIChatBot() {
     });
 
     return unsubscribe;
-  }, [isOpen, location.pathname, runtimeContextVersion]);
+  }, [isOpen, effectivePathname, runtimeContextVersion]);
 
   useEffect(() => {
     if (isOpen) {
@@ -1350,7 +1491,7 @@ export default function AIChatBot() {
 
   const activeModel = getActiveModelId(models, selectedModel, defaultModel);
   const isStreaming = streamingIdx !== null;
-  const suggestedQuestions = resolveSuggestedQuestions(location.pathname, messages, input);
+  const suggestedQuestions = resolveSuggestedQuestions(effectivePathname, messages, input);
 
   const fillSuggestedQuestion = (question: string) => {
     setInput(question);
@@ -1402,11 +1543,11 @@ export default function AIChatBot() {
 
     const userMessage = input.trim();
     const priorHistory = messages.filter((message, index) => !(index === 0 && message.role === 'assistant'));
-    const shouldHandleFilter = isBondFilterIntent(userMessage);
+    const shouldHandleFilter = isBondFilterIntent(userMessage) && isMarketFilterRoute(effectivePathname);
 
     if (!shouldHandleFilter) {
       setIsLoadingContext(true);
-      const contextSnapshot = await fetchPageContextSnapshot(location.pathname, userMessage);
+      const contextSnapshot = await fetchPageContextSnapshot(effectivePathname, userMessage);
       setPageContext(contextSnapshot);
       setContextError(contextSnapshot.error);
       setIsLoadingContext(false);
@@ -1691,7 +1832,7 @@ export default function AIChatBot() {
                         ) : (
                           <div className="space-y-3">
                             <div className="prose prose-sm max-w-none break-words text-text-base prose-headings:text-text-base prose-p:text-text-base prose-strong:text-text-base prose-li:text-text-base prose-code:text-text-base prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                                 {message.content}
                               </ReactMarkdown>
                               {isCurrentStream && <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-current align-middle" />}

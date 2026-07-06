@@ -1250,19 +1250,32 @@ export default function MarketOverview() {
     ? 'NH\u1eacN X\u00c9T V\u1ec0 D\u00d2NG TI\u1ec0N'
     : 'CASH FLOW COMMENTARY';
 
-  const cashFlowInsightPayload = useMemo(() => ({
-    period: cashFlowPeriod,
-    labels: projectedCashFlowData.labels,
-    interest: projectedCashFlowData.interest,
-    principal: projectedCashFlowData.principal,
-    total: projectedCashFlowData.total,
-    peakBucket: projectedCashFlowData.total.length > 0
-      ? {
-        label: projectedCashFlowData.labels[projectedCashFlowData.total.indexOf(Math.max(...projectedCashFlowData.total))] || '',
-        value: Math.max(...projectedCashFlowData.total),
-      }
-      : null,
-  }), [cashFlowPeriod, projectedCashFlowData]);
+  const cashFlowInsightPayload = useMemo(() => {
+    // Round to 2 decimals (tỷ đồng) before handing to the AI — the raw sums carry many decimal
+    // places (e.g. 3318.731535959), which the model would otherwise echo verbatim as unreadable
+    // numbers like "3.318,731535959".
+    const round2 = (value: number) => (Number.isFinite(value) ? Number(value.toFixed(2)) : 0);
+    const interest = projectedCashFlowData.interest.map(round2);
+    const principal = projectedCashFlowData.principal.map(round2);
+    const total = projectedCashFlowData.total.map(round2);
+    const peakIndex = total.length > 0 ? total.indexOf(Math.max(...total)) : -1;
+
+    return {
+      period: cashFlowPeriod,
+      periodLabel: language === 'vi' ? (cashFlowPeriod === 'month' ? 'tháng' : 'năm') : (cashFlowPeriod === 'month' ? 'month' : 'year'),
+      unit: language === 'vi' ? 'tỷ đồng' : 'billion VND',
+      labels: projectedCashFlowData.labels,
+      interest,
+      principal,
+      total,
+      peakBucket: peakIndex >= 0
+        ? {
+          label: projectedCashFlowData.labels[peakIndex] || '',
+          value: total[peakIndex],
+        }
+        : null,
+    };
+  }, [cashFlowPeriod, language, projectedCashFlowData]);
 
   const topIssuerDataViewRows = useMemo(() => {
     return topIssuerDisplayData.map((issuer) => ([

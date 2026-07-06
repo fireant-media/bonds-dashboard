@@ -581,11 +581,34 @@ export function isBondFilterIntent(message: string) {
   const hasRemainingDaysKeyword = /(ky han con lai|remaining term|days left|ngay con lai|con lai.*ngay)/.test(text);
   const hasSortKeyword = /(sap xep|xep theo|giam dan|tang dan|cao nhat|thap nhat|gan nhat|moi nhat|top)/.test(text);
   const hasTypeKeyword = /(co dinh|fixed|tha noi|floating|variable)/.test(text);
-  const hasRangeSignal = /(tu | den | duoi | tren | trong | khoang | sau | truoc | nho hon | lon hon | it nhat | toi da | toi thieu |\d{4}|\d+\s*%|\d+\s*thang)/.test(text);
+  // `\b\d{4}\b` matches a standalone year (e.g. 2026) but NOT the digits inside a bond code like
+  // "CVT12102" (letters+digits form one token, so there is no word boundary before the digits) —
+  // otherwise a question naming a bond code was mistaken for a numeric range and sent to the filter.
+  const hasRangeSignal = /(tu | den | duoi | tren | trong | khoang | sau | truoc | nho hon | lon hon | it nhat | toi da | toi thieu |\b\d{4}\b|\d+\s*%|\d+\s*thang)/.test(text);
   const isRankingQuestion = /(top|cao nhat|thap nhat|lon nhat|nho nhat|gan nhat|moi nhat)/.test(text);
   const hasExplicitCommand = /(loc|filter|liet ke|danh sach|sap xep|xep theo|order by|sort by|\btop\b)/.test(text);
   const isQuestion = /\?/.test(message)
     || /(bao nhieu|la gi|the nao|nhu the nao|tai sao|vi sao|co phai|khi nao|o dau|\bnao\b|giai thich|so sanh|danh gia|nhan xet|cho biet)/.test(text);
+
+  // Analytical / aggregate questions are answered from the current page's data (grounded Q&A),
+  // never turned into a market-wide bond filter. The filter can only return a list of individual
+  // bonds, so it cannot say *who* the top issuers are, *summarize* a set, count the whole market,
+  // or reason about the *current* filtered results — routing such questions to it produced an
+  // off-topic, always-identical bond list. Genuine list/sort/criteria commands still filter.
+  const asksWho = /(\bla ai\b|\bla nhung ai\b|\bnhung ai\b|gom (nhung )?ai)/.test(text);
+  const asksToSummarize = /(tom tat|nhan xet|danh gia|phan tich|noi bat|noi troi|dang chu y)/.test(text);
+  const refersToCurrentResults = /(ket qua (dang |hien )?loc|ket qua loc|dang duoc loc|bo loc hien tai|theo bo loc|trong danh sach nay|tren danh sach nay|danh sach hien tai)/.test(text);
+  const asksHowMany = /(bao nhieu|how many|co may)/.test(text);
+  const hasNumericCriterion = /(\d+\s*%|\d+\s*thang|\d+\s*ngay|\d{4}|\d[\d.,]*\s*ty)/.test(text);
+  // "top/most … issuers/industry" ranks aggregates the filter can't compute (it lists bonds).
+  const ranksIssuersOrIndustry =
+    /(\btop\b|nhieu nhat|lon nhat|cao nhat|dan dau)/.test(text)
+    && /(to chuc phat hanh|doanh nghiep phat hanh|nganh nao|nhom nganh|nhom to chuc)/.test(text)
+    && !/(loc|liet ke|sap xep|xep theo|order by|sort by)/.test(text)
+    && !/\btrai phieu\b/.test(text);
+
+  if (asksWho || asksToSummarize || refersToCurrentResults || ranksIssuersOrIndustry) return false;
+  if (asksHowMany && !hasNumericCriterion && !hasTypeKeyword) return false;
 
   // A genuine question that is not an explicit list/filter/sort command and has no numeric
   // range is answered from the current page context (grounded Q&A) instead of being turned

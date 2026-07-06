@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { filterBondRowsByCriteria, normalizeAIBondRateType } from './aiBondFilter';
+import { filterBondRowsByCriteria, isBondFilterIntent, normalizeAIBondRateType } from './aiBondFilter';
 
 test('normalizeAIBondRateType handles Vietnamese fixed and floating values', () => {
   assert.equal(normalizeAIBondRateType('Cố định'), 'fixed');
@@ -56,4 +56,63 @@ test('filterBondRowsByCriteria matches Vietnamese interest types', () => {
 
   assert.equal(filterBondRowsByCriteria(rows as any, { bondRateType: 'fixed' } as any).length, 1);
   assert.equal(filterBondRowsByCriteria(rows as any, { bondRateType: 'floating' } as any).length, 1);
+});
+
+// Analytical / aggregate questions must route to grounded Q&A (isBondFilterIntent === false),
+// never to the bond-list filter — which can only return individual bonds and would otherwise
+// answer every one of them with the same off-topic list. Regression guard for the suggested
+// questions and their typed variants.
+test('isBondFilterIntent routes analytical questions to Q&A, not the filter', () => {
+  const qaQuestions = [
+    // Reported suggested questions that were being misrouted to the filter.
+    'Top tổ chức phát hành theo dư nợ hiện nay là ai?',
+    'Top tổ chức phát hành trong nhóm ngân hàng là ai?',
+    'Tóm tắt nhanh danh sách tổ chức phát hành đang được lọc hiện tại.',
+    'Nhóm tổ chức phát hành nào đang nổi bật nhất trong kết quả lọc này?',
+    'Hiện có bao nhiêu mã trái phiếu trong danh sách toàn thị trường?',
+    // Other curated suggestions about the current page / filtered set.
+    'Trong kết quả đang lọc, mã nào có lãi suất cao nhất?',
+    'Tóm tắt nhanh danh sách trái phiếu theo bộ lọc hiện tại.',
+    'Bộ lọc hiện tại đang loại ra những nhóm tổ chức nào?',
+    'Mã nào đang có lãi suất cao nhất trên danh sách này?',
+    'Tổng quy mô và điểm nổi bật của thị trường trái phiếu hiện tại là gì?',
+    'Ngành nào đang có khối lượng trái phiếu lớn nhất?',
+    'Lãi suất phát hành của nhóm ngân hàng có điểm gì đáng chú ý?',
+  ];
+
+  for (const question of qaQuestions) {
+    assert.equal(isBondFilterIntent(question), false, `expected Q&A for: ${question}`);
+  }
+});
+
+// A question naming a specific bond code (which contains 4+ digits) must not be mistaken for a
+// numeric-range filter: the digits inside "CVT12102" previously tripped the `\d{4}` year signal
+// and flipped these bond-detail questions into the market-wide filter.
+test('isBondFilterIntent does not treat a bond code as a numeric range', () => {
+  const qaQuestions = [
+    'Lãi suất, kỳ hạn và điểm cần theo dõi của CVT12102 là gì?',
+    'Lịch thanh toán và áp lực đáo hạn của CVT12102 hiện ra sao?',
+  ];
+
+  for (const question of qaQuestions) {
+    assert.equal(isBondFilterIntent(question), false, `expected Q&A for: ${question}`);
+  }
+});
+
+// Genuine list / sort / criteria commands must still be handled by the filter (=== true),
+// so the analytical-question guards above don't over-capture real filter requests.
+test('isBondFilterIntent still routes genuine filter commands to the filter', () => {
+  const filterCommands = [
+    'Lọc trái phiếu lãi suất trên 10%',
+    'Liệt kê trái phiếu ngành ngân hàng đáo hạn trong 12 tháng tới',
+    'Top trái phiếu lãi suất cao nhất',
+    'Trái phiếu lãi suất cố định kỳ hạn từ 12 đến 36 tháng',
+    'Sắp xếp theo lãi suất giảm dần',
+    'Trái phiếu phát hành trong năm 2024',
+    'Có bao nhiêu trái phiếu lãi suất trên 10%?',
+  ];
+
+  for (const command of filterCommands) {
+    assert.equal(isBondFilterIntent(command), true, `expected filter for: ${command}`);
+  }
 });

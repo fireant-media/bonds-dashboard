@@ -1373,33 +1373,30 @@ export default function EnterpriseView({
       : t(selectedEnterprise.name as any, selectedEnterprise.ticker))
     : '';
   const enterpriseInsightTitle = language === 'vi'
-    ? 'Nhận định tổ chức phát hành'
-    : 'Issuer insight';
+    ? 'Nhận xét'
+    : 'Remarks';
   // Keep the issuer insight aligned with the same concise, verdict-first mechanism used by the other AI commentary panels.
   const enterpriseInsightInstructions = language === 'vi'
     ? [
         'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp. Trả lời bằng tiếng Việt có dấu.',
-        'CHỈ được dùng dữ liệu đầu vào do hệ thống cung cấp cho tổ chức phát hành đang xem. TUYỆT ĐỐI không tự tạo, suy diễn, ước lượng hay tính toán bất kỳ số liệu nào không có sẵn trong dữ liệu — kể cả phần trăm, tỷ lệ, mức tăng/giảm, trung bình hay tổng cộng.',
-        'MỌI số liệu trong nhận định phải KHỚP 100% với dữ liệu được cung cấp và truy xuất được về đúng một trường dữ liệu tương ứng. Không lấy số từ tổ chức khác, không làm tròn khác đi, không bịa.',
-        'Nếu một khía cạnh thiếu dữ liệu, hãy BỎ QUA khía cạnh đó; không sinh số liệu/thông tin không có trong dữ liệu. Nếu dữ liệu không đủ để kết luận, nói ngắn gọn rằng dữ liệu hiện chưa đủ.',
-        'Mỗi ý phải nêu số liệu KÈM đánh giá/bối cảnh (tỷ trọng, mức độ, xu hướng, ý nghĩa), TUYỆT ĐỐI không chỉ liệt kê con số rời rạc. Ví dụ ĐÚNG: "BID có 152 mã trái phiếu đang lưu hành, thuộc nhóm dẫn đầu về quy mô trong ngành ngân hàng." Ví dụ SAI: "3 tỷ đồng và tổng số 152 trái phiếu."',
-        'Câu đầu tiên là kết luận tổng thể về tổ chức phát hành; mọi số liệu lấy trực tiếp từ dữ liệu.',
-        'Ưu tiên nhận định về mức độ tập trung kỳ hạn, rủi ro tái cấp vốn, bất thường trong cấu trúc lãi suất và chênh lệch giữa phát hành, niêm yết và dư nợ còn lại — chỉ khi dữ liệu tương ứng có sẵn. Nêu tên hoặc mã tổ chức phát hành ít nhất một lần.',
-        'Không phân tích lại dòng tiền (đã có nhận xét riêng). Không nhắc tới JSON, API, tên biến, hàm hay cấu trúc nội bộ.',
+        'CHỈ dùng dữ liệu được cung cấp cho tổ chức phát hành đang xem; TUYỆT ĐỐI không bịa, suy diễn hay tự tính thêm số. Mọi số phải khớp 100% với dữ liệu; khía cạnh nào thiếu dữ liệu thì bỏ qua.',
+        'Viết NGẮN GỌN, súc tích: mỗi câu là một ý trọn vẹn và NGẮN (khoảng 15-20 từ), nêu số liệu KÈM nhận định. KHÔNG viết dài dòng, KHÔNG liệt kê mọi nhóm kỳ hạn hay mọi năm.',
+        'Trình bày đúng thứ tự ưu tiên sau, mỗi ý MỘT câu ngắn (câu sau có thể bị lược cho vừa card nên ý quan trọng phải đặt trước):',
+        '1) Kết luận tổng thể về quy mô và dư nợ trái phiếu của tổ chức (nêu tên hoặc mã).',
+        '2) BẮT BUỘC: nhận xét dòng tiền dự kiến theo năm (trường projectedCashFlowByYear, đơn vị tỷ đồng) — nêu năm có tổng nghĩa vụ cao nhất (peakCashFlowYear) kèm giá trị và giai đoạn nghĩa vụ tập trung.',
+        '3) Một điểm nổi bật nhất của danh mục: cơ cấu lãi suất (thả nổi/cố định) HOẶC mức độ tập trung kỳ hạn — chỉ nêu điểm chính, không liệt kê hết.',
+        'Không nhắc tới JSON, API, tên biến, hàm hay cấu trúc nội bộ.',
       ].join('\n')
     : [
         'You are a corporate-bond analyst. Respond in English only.',
-        'Use ONLY the input data provided by the system for the issuer currently shown. NEVER create, infer, estimate, or compute any figure that is not present in the data — including percentages, ratios, growth rates, averages, or totals.',
-        'EVERY figure in the commentary must match the provided data 100% and be traceable to a specific data field. Do not borrow numbers from other issuers, do not round differently, and do not fabricate.',
-        'If an aspect lacks data, SKIP that aspect; do not generate figures or facts absent from the data. If the data is insufficient to conclude, briefly say the data is currently insufficient.',
-        'Every point must state a figure TOGETHER with its interpretation/context (share, level, trend, significance), NEVER a bare list of numbers. Good example: "BID has 152 outstanding bond codes, among the largest issuers in the banking sector." Bad example: "3 billion VND and a total of 152 bonds."',
-        'The first sentence is an overall verdict on the issuer; all figures come directly from the data.',
-        'Prioritize issuer-specific points such as maturity concentration, refinancing risk, unusual interest-type mix, and the gap between issuance, listing, and remaining debt — only when the corresponding data is available. Refer to the issuer by name or ticker at least once.',
-        'Do not re-analyze cash flow (it has its own commentary). Do not mention JSON, APIs, variable names, functions, or internal structure.',
+        'Use ONLY the data provided for the issuer shown; NEVER fabricate, infer, or compute extra figures. Every number must match the data 100%; skip any aspect that lacks data.',
+        'Write CONCISELY: each sentence is one complete, SHORT idea (about 15-20 words) pairing a figure with its meaning. Do NOT be verbose and do NOT enumerate every term bucket or every year.',
+        'Follow this priority order, one short sentence per point (later sentences may be trimmed to fit the card, so the important points must come first):',
+        "1) Overall verdict on the issuer's bond scale and outstanding debt (name the issuer or ticker).",
+        '2) REQUIRED: projected cash flow by year (projectedCashFlowByYear field, in billion VND) — the year with the highest total obligation (peakCashFlowYear) with its value and the period where obligations concentrate.',
+        '3) The single most notable portfolio trait: interest-type mix (floating/fixed) OR maturity concentration — only the key point, not a full list.',
+        'Do not mention JSON, APIs, variable names, functions, or internal structure.',
       ].join('\n');
-  const cashFlowInsightTitle = language === 'vi'
-    ? 'NH\u1eacN X\u00c9T D\u00d2NG TI\u1ec0N'
-    : 'CASH FLOW COMMENTARY';
   const handleEnterpriseBondDataViewCategoryClick = (bondCode: string) => {
     const normalizedBondCode = String(bondCode || '').trim().toUpperCase();
     if (!normalizedBondCode) return;
@@ -1434,6 +1431,47 @@ export default function EnterpriseView({
       profitBillion: roundMetric(Number(financialData.ProfitAfterTax_TTM || financialData.ProfitAfterTax || financialData.ParentCompanyShareholderProfitAfterTax_TTM || 0) / 1_000_000_000),
     } : null;
 
+    // Projected cash flow aggregated BY YEAR — same source as the "Dòng tiền dự kiến theo năm"
+    // chart (forced to year buckets, independent of the month/year toggle) so the remark can also
+    // comment on cash flow. Values are already in tỷ đồng (billion VND).
+    const cashFlowYearBuckets = new Map<string, { year: string; interest: number; principal: number }>();
+    const ensureCashFlowYear = (date: Date) => {
+      const year = String(date.getFullYear());
+      if (!cashFlowYearBuckets.has(year)) cashFlowYearBuckets.set(year, { year, interest: 0, principal: 0 });
+      return cashFlowYearBuckets.get(year)!;
+    };
+    enterpriseBonds.forEach((bond) => {
+      const cashFlows = Array.isArray(bond.cashFlows) ? bond.cashFlows : [];
+      cashFlows.forEach((cashFlow) => {
+        if (!cashFlow.paymentDate) return;
+        const paymentDate = new Date(cashFlow.paymentDate);
+        if (Number.isNaN(paymentDate.getTime())) return;
+        const bucket = ensureCashFlowYear(paymentDate);
+        bucket.interest += cashFlow.interestAmount || 0;
+        bucket.principal += cashFlow.principalAmount || 0;
+      });
+      if (cashFlows.length === 0 && bond.maturityDate && bond.listedValue) {
+        const maturityDate = new Date(bond.maturityDate);
+        if (!Number.isNaN(maturityDate.getTime())) {
+          ensureCashFlowYear(maturityDate).principal += bond.listedValue || 0;
+        }
+      }
+    });
+    const projectedCashFlowByYear = Array.from(cashFlowYearBuckets.values())
+      .sort((left, right) => left.year.localeCompare(right.year))
+      .map((bucket) => ({
+        year: bucket.year,
+        interestBillion: roundMetric(bucket.interest, 2),
+        principalBillion: roundMetric(bucket.principal, 2),
+        totalBillion: roundMetric(bucket.interest + bucket.principal, 2),
+      }));
+    const peakCashFlowYear = projectedCashFlowByYear.reduce<{ year: string; totalBillion: number } | null>(
+      (peak, bucket) => (peak && peak.totalBillion >= bucket.totalBillion
+        ? peak
+        : { year: bucket.year, totalBillion: bucket.totalBillion }),
+      null,
+    );
+
     return {
       issuer: {
         ticker: selectedEnterprise.ticker,
@@ -1457,29 +1495,12 @@ export default function EnterpriseView({
         year,
         listedValueBillion: roundMetric(Number(columnData[index] || 0)),
       })),
-      // Cash flow is intentionally excluded here — it has its own dedicated commentary panel,
-      // so the issuer insight should not repeat/analyze cash-flow figures.
+      // Cash flow (by year, in tỷ đồng) so the remark also covers projected cash flow.
+      projectedCashFlowByYear: projectedCashFlowByYear.slice(0, 12),
+      peakCashFlowYear,
       financialHighlights,
     };
   }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, selectedEnterprise, sortedYears]);
-
-  const cashFlowInsightPayload = useMemo(() => ({
-    issuer: selectedEnterprise ? {
-      ticker: selectedEnterprise.ticker,
-      name: enterpriseDisplayName || selectedEnterprise.ticker,
-    } : null,
-    period: cashFlowPeriod,
-    labels: projectedCashFlowData.labels,
-    interest: projectedCashFlowData.interest,
-    principal: projectedCashFlowData.principal,
-    total: projectedCashFlowData.total,
-    peakBucket: projectedCashFlowData.total.length > 0
-      ? {
-        label: projectedCashFlowData.labels[projectedCashFlowData.total.indexOf(Math.max(...projectedCashFlowData.total))] || '',
-        value: Math.max(...projectedCashFlowData.total),
-      }
-      : null,
-  }), [cashFlowPeriod, enterpriseDisplayName, projectedCashFlowData, selectedEnterprise]);
 
   const enterpriseChatContext = useMemo(() => {
     if (selectedEnterprise) {
@@ -2123,7 +2144,7 @@ export default function EnterpriseView({
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
+          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <div className="flex flex-1 items-center justify-center">
               <ChartWithToolbar
                 className="w-full"
@@ -2169,7 +2190,7 @@ export default function EnterpriseView({
               />
             </div>
           </div>
-          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-4">
+          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <div className="flex flex-1 items-center justify-center">
               <ChartWithToolbar
                 className="w-full"
@@ -2229,20 +2250,6 @@ export default function EnterpriseView({
               />
             </div>
           </div>
-          <AIInsightPanel
-            cacheKey={`enterprise-insight-v8-${selectedEnterprise.ticker}`}
-            title={enterpriseInsightTitle}
-            pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
-            sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
-            payload={enterpriseInsightPayload}
-            className="xl:col-span-4 xl:self-start"
-            layout="stacked"
-            contentChrome="plain"
-            adaptive
-            contentAreaClassName="overflow-hidden h-[220px] sm:h-[260px] xl:h-[280px]"
-            instructions={enterpriseInsightInstructions}
-            boldTerms={[enterpriseDisplayName, selectedEnterprise.ticker].filter(Boolean) as string[]}
-          />
           <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             <ChartWithToolbar
               option={bubbleOptions}
@@ -2255,16 +2262,18 @@ export default function EnterpriseView({
             <ChartWithToolbar option={columnOptions} style={{ height: '320px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
           </div>
           <AIInsightPanel
-            cacheKey={`enterprise-cashflow-insight-${selectedEnterprise.ticker}`}
-            title={cashFlowInsightTitle}
+            cacheKey={`enterprise-insight-v11-${selectedEnterprise.ticker}`}
+            title={enterpriseInsightTitle}
             pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
-            sectionTitle={cashFlowInsightTitle}
-            payload={cashFlowInsightPayload}
+            sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
+            payload={enterpriseInsightPayload}
             className="xl:col-span-6 xl:self-start"
-            adaptive
-            contentAreaClassName="overflow-hidden h-[220px] sm:h-[260px] xl:h-[280px]"
             layout="stacked"
             contentChrome="plain"
+            adaptive
+            contentAreaClassName="overflow-hidden h-[244px]"
+            instructions={enterpriseInsightInstructions}
+            boldTerms={[enterpriseDisplayName, selectedEnterprise.ticker].filter(Boolean) as string[]}
           />
           <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
             {loadingCashFlows && !hasProjectedCashFlowData ? (

@@ -31,18 +31,18 @@ export function buildParagraphDirective(language: 'en' | 'vi', targetSentences?:
       'Write the insight as flowing analytical prose, exactly like a professional market commentary paragraph.',
       'Do NOT use bullet points, dashes, numbered lists, headings, section labels, or line-by-line items. You may use at most two short paragraphs.',
       'Lead with the single most important conclusion and its key figures, then add supporting points in decreasing order of importance.',
-      `${lengthRule} Every sentence must pair a figure with its interpretation, never a bare number.`,
+      `${lengthRule} Every sentence must pair a figure with its interpretation, never a bare number. Keep each sentence complete and self-contained so it remains understandable on its own.`,
     ].join(' ');
   }
 
   const lengthRule = target
     ? `Viết khoảng ${target} câu súc tích — đủ để lấp đầy khung card, không để lại khoảng trống; có thể dài hơn một chút vì phần cuối sẽ được cắt cho vừa.`
-    : 'Viết khoảng 5 đến 8 câu súc tích.';
+    : 'Viết khoảng 3 đến 5 câu súc tích.';
   return [
     'Viết nhận định thành đoạn văn mạch lạc, đúng phong cách một đoạn bình luận thị trường chuyên nghiệp.',
     'KHÔNG dùng gạch đầu dòng, dấu gạch ngang, đánh số, tiêu đề, nhãn mục hay liệt kê theo dòng. Có thể dùng tối đa hai đoạn ngắn.',
     'Nêu kết luận quan trọng nhất cùng số liệu chính trước, rồi bổ sung các ý theo mức độ giảm dần.',
-    `${lengthRule} Mỗi câu phải gắn số liệu với nhận định, tuyệt đối không nêu số trơ.`,
+    `${lengthRule} Mỗi câu phải gắn số liệu với nhận định, tuyệt đối không nêu số trơ. Giữ mỗi câu hoàn chỉnh và tự đứng được để người đọc không thấy các mảnh thông tin rời rạc.`,
   ].join(' ');
 }
 
@@ -112,11 +112,16 @@ export function parseStructuredInsight(text: string): InsightSection[] {
 }
 
 // Split a paragraph into sentences so trailing ones can be dropped to fit a card height.
+// Only break at sentence punctuation that is followed by whitespace (or end of text). This keeps
+// a "." used as a Vietnamese thousands separator (e.g. 3.318,60) from chopping a number in half —
+// which previously produced garbled fragments like "318,60, cao hơn..." with no start/end.
 function splitSentences(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
-  const matches = trimmed.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
-  return matches ? matches.map((sentence) => sentence.trim()).filter(Boolean) : [trimmed];
+  return trimmed
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
 }
 
 // Expand paragraph blocks into one block per sentence so the fitter can trim at sentence
