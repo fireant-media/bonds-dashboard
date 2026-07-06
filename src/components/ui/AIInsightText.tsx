@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { parseStructuredInsight } from '../../utils/aiInsightStructured';
 
 interface AIInsightTextProps {
   content: string;
@@ -53,16 +54,13 @@ function buildKeywordMatchers(boldTerms?: string[]) {
 
 export default function AIInsightText({
   content,
-  containerClassName = 'space-y-1.5',
+  containerClassName = 'space-y-2.5',
   paragraphClassName = 'whitespace-pre-line break-words text-sm leading-6 text-text-base',
   boldTerms,
 }: AIInsightTextProps) {
-  const paragraphs = content
-    .split(/\n\s*\n+/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
+  const sections = parseStructuredInsight(content);
 
-  if (paragraphs.length === 0) {
+  if (sections.length === 0) {
     return null;
   }
 
@@ -79,16 +77,8 @@ export default function AIInsightText({
       );
     });
 
-  const renderHighlightedText = (text: string, keyPrefix: string, forceBold = false): ReactNode[] => {
-    if (forceBold) {
-      return [
-        <span key={`${keyPrefix}-bold`} className={EMPHASIS_CLASS_NAME}>
-          {text}
-        </span>,
-      ];
-    }
-
-    return text.split(TOKEN_PATTERN).flatMap<ReactNode>((part, index) => {
+  const renderTokens = (text: string, keyPrefix: string): ReactNode[] =>
+    text.split(TOKEN_PATTERN).flatMap<ReactNode>((part, index) => {
       if (!part) return [];
 
       if (NUMBER_WITH_UNIT_TEST_PATTERN.test(part) || CODE_TEST_PATTERN.test(part)) {
@@ -101,22 +91,45 @@ export default function AIInsightText({
 
       return renderKeywords(part, `${keyPrefix}-${index}`);
     });
-  };
+
+  // Render inline text, honouring **bold** spans and the number/keyword emphasis rules.
+  const renderInline = (text: string, keyPrefix: string): ReactNode[] =>
+    text.split(/(\*\*[^*]+\*\*)/g).flatMap<ReactNode>((segment, segmentIndex) => {
+      if (!segment) return [];
+
+      if (segment.startsWith('**') && segment.endsWith('**')) {
+        return [
+          <span key={`${keyPrefix}-bold-${segmentIndex}`} className={EMPHASIS_CLASS_NAME}>
+            {renderTokens(segment.slice(2, -2), `${keyPrefix}-bold-${segmentIndex}`)}
+          </span>,
+        ];
+      }
+
+      return renderTokens(segment, `${keyPrefix}-plain-${segmentIndex}`);
+    });
 
   return (
     <div className={containerClassName}>
-      {paragraphs.map((paragraph, index) => (
-        <p key={`${paragraph.slice(0, 12)}-${index}`} className={paragraphClassName}>
-          {paragraph.split(/(\*\*[^*]+\*\*)/g).map((segment, segmentIndex) => {
-            if (!segment) return null;
-
-            if (segment.startsWith('**') && segment.endsWith('**')) {
-              return renderHighlightedText(segment.slice(2, -2), `bold-${index}-${segmentIndex}`, true);
-            }
-
-            return renderHighlightedText(segment, `plain-${index}-${segmentIndex}`);
-          })}
-        </p>
+      {sections.map((section, sectionIndex) => (
+        <section key={`ai-section-${sectionIndex}`} className="space-y-1">
+          {section.label ? (
+            <h4 className="text-[11px] font-bold uppercase tracking-wide text-blue-700/80 dark:text-blue-300/80">
+              {section.label}
+            </h4>
+          ) : null}
+          {section.blocks.map((block, blockIndex) =>
+            block.type === 'bullet' ? (
+              <div key={`ai-bullet-${sectionIndex}-${blockIndex}`} className="flex items-start gap-2">
+                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500/70 dark:bg-blue-400/70" />
+                <p className={paragraphClassName}>{renderInline(block.text, `b-${sectionIndex}-${blockIndex}`)}</p>
+              </div>
+            ) : (
+              <p key={`ai-para-${sectionIndex}-${blockIndex}`} className={paragraphClassName}>
+                {renderInline(block.text, `p-${sectionIndex}-${blockIndex}`)}
+              </p>
+            ),
+          )}
+        </section>
       ))}
     </div>
   );

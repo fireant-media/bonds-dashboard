@@ -2045,8 +2045,8 @@ export default function MarketOverview() {
               pageTitle={t('marketOverview')}
               sectionTitle={cashFlowInsightTitle}
               payload={cashFlowInsightPayload}
-              className="shrink-0 lg:w-[37.5%]"
-              expandContent
+              className="shrink-0 lg:w-[37.5%] lg:self-start"
+              adaptive
               layout="stacked"
               contentChrome="plain"
             />

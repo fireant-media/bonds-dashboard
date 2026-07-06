@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowLeftRight, Activity, Bookmark, BookmarkCheck, Briefcase, Calendar, Info, Landmark, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
 import ChartWithToolbar from './ChartWithToolbar';
 import { Bond } from '../types';
@@ -15,12 +15,13 @@ import { loadBondIndustryByFilter, loadIndustryBondGroupData, type IndustryBondG
 import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
+import { buildParagraphDirective } from '../utils/aiInsightStructured';
 import { clearBondDetailChatContext, setBondDetailChatContext } from '../utils/bondDetailChatContext';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { useAIStore } from '../store/aiStore';
 import { setCache, getCache } from '../utils/cache';
 import { Card, MetricCard } from './ui/Card';
-import AIInsightText from './ui/AIInsightText';
+import AdaptiveInsightContent from './ui/AdaptiveInsightContent';
 
 interface BondDetailPopupProps {
   bond: Bond;
@@ -57,7 +58,7 @@ type BondDetailView = Bond & {
   cashFlows?: BondCashFlow[];
 };
 
-const AI_INSIGHT_CACHE_KEY = 'bond_detail_remarks';
+const AI_INSIGHT_CACHE_KEY = 'bond_detail_remarks_prose';
 
 const normalizeText = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -215,6 +216,32 @@ export default function BondDetailPopup({
   const [aiRemarkUpdatedAt, setAiRemarkUpdatedAt] = useState('');
   const [aiRemarkLoading, setAiRemarkLoading] = useState(false);
   const [aiRemarkError, setAiRemarkError] = useState<string | null>(null);
+  // Measured capacity of the remark box (fixed height, responsive width) → how many sentences the
+  // AI should write so the paragraph fills the card at the current screen size without being cut
+  // short or leaving empty space. The client fitter still trims any slight overflow.
+  const [aiRemarkLengthTarget, setAiRemarkLengthTarget] = useState(0);
+  const aiRemarkResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const measureAiRemarkBox = useCallback((node: HTMLDivElement | null) => {
+    aiRemarkResizeObserverRef.current?.disconnect();
+    aiRemarkResizeObserverRef.current = null;
+    if (!node) return;
+
+    const measure = () => {
+      const width = node.clientWidth;
+      const height = node.clientHeight;
+      if (!width || !height) return;
+      const lines = Math.max(3, Math.floor(height / 24)); // leading-6 ≈ 24px per line
+      const charsPerLine = Math.max(24, Math.floor(width / 7.2)); // ≈ text-sm avg char width
+      const sentences = Math.min(16, Math.max(3, Math.round((lines * charsPerLine) / 90)));
+      setAiRemarkLengthTarget((previous) => (previous === sentences ? previous : sentences));
+    };
+
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    aiRemarkResizeObserverRef.current = observer;
+  }, []);
 
   const formatTerm = (rawTerm: unknown) => {
     const months = parseTermMonths(rawTerm);
@@ -1103,8 +1130,8 @@ export default function BondDetailPopup({
     [aiRemarkPayload, isAiRemarkDataReady],
   );
   const localizedAiRemarkCacheKey = useMemo(
-    () => `${AI_INSIGHT_CACHE_KEY}-${language}`,
-    [language],
+    () => `${AI_INSIGHT_CACHE_KEY}-${language}-len${aiRemarkLengthTarget}`,
+    [language, aiRemarkLengthTarget],
   );
   const aiRemarkUpdatedLabel = useMemo(() => {
     if (!aiRemarkUpdatedAt) return '';
@@ -1250,6 +1277,13 @@ export default function BondDetailPopup({
       };
     }
 
+    // Wait until the card has been measured so the requested length matches its capacity.
+    if (!aiRemarkLengthTarget) {
+      return () => {
+        isActive = false;
+      };
+    }
+
     const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature);
     if (cachedRemark) {
       setAiRemark(cachedRemark.text);
@@ -1299,9 +1333,10 @@ export default function BondDetailPopup({
 
         const model = selectedModel || defaultModel;
         const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
-        const prompt = language === 'en'
-          ? 'You are a professional bond analyst. Respond in English only. Use only the provided dataset for this specific bond. Read the full bond dataset, issuer information, rate structure, issue scale, industry-relative assessment, and cash-flow data when available. Write only 2 to 3 short sentences in a concise, professional tone. Keep the remark compact. The first sentence must surface the most important bond-specific numbers. Do not mention APIs, JSON, code, internal implementation details, or say that data is missing unless it is truly absent from the dataset.'
-          : 'Ban la chuyen gia phan tich trai phieu. Chi tra loi bang tieng Viet. Chi su dung bo du lieu duoc cung cap cho chinh ma trai phieu nay. Hay doc day du du lieu cua ma trai phieu, thong tin to chuc phat hanh, cau truc lai suat, quy mo phat hanh, danh gia tuong quan voi nganh va du lieu dong tien neu co. Chi viet 2 den 3 cau ngan, giong dieu chuyen nghiep va that suc tich. Cau dau phai neu bat cac so lieu quan trong nhat cua chinh ma trai phieu. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
+        const basePrompt = language === 'en'
+          ? 'You are a professional bond analyst. Respond in English only. Use only the provided dataset for this specific bond. Read the full bond dataset, issuer information, rate structure, issue scale, industry-relative assessment, and cash-flow data when available. Every point must surface bond-specific numbers together with their meaning. Do not mention APIs, JSON, code, internal implementation details, or say that data is missing unless it is truly absent from the dataset.'
+          : 'Ban la chuyen gia phan tich trai phieu. Chi tra loi bang tieng Viet co dau. Chi su dung bo du lieu duoc cung cap cho chinh ma trai phieu nay. Hay doc day du du lieu cua ma trai phieu, thong tin to chuc phat hanh, cau truc lai suat, quy mo phat hanh, danh gia tuong quan voi nganh va du lieu dong tien neu co. Moi y phai neu so lieu cua chinh ma trai phieu kem y nghia. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
+        const prompt = `${basePrompt}\n\n${buildParagraphDirective(language === 'en' ? 'en' : 'vi', aiRemarkLengthTarget)}`;
 
         const response = await sendChat({
           model,
@@ -1344,6 +1379,7 @@ export default function BondDetailPopup({
   }, [
     aiRemarkPayload,
     aiRemarkSignature,
+    aiRemarkLengthTarget,
     baseUrl,
     configured,
     defaultModel,
@@ -1644,17 +1680,17 @@ export default function BondDetailPopup({
               </div>
             </section>
 
-            <section className="grid gap-6 xl:grid-cols-2">
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+            <section className="grid gap-6 xl:grid-cols-2 xl:items-start">
+              <div className="h-[320px] rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
                 {loading ? (
-                  <div className="flex h-96 items-center justify-center">
+                  <div className="flex h-full items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="h-8 w-8 animate-spin rounded-full border-4 border-text-highlight border-t-transparent" />
                       <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">{t('loadingCashFlow')}</p>
                     </div>
                   </div>
                 ) : error ? (
-                  <div className="flex h-96 items-center justify-center p-4 text-center">
+                  <div className="flex h-full items-center justify-center p-4 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-red-500">{error}</p>
                       {error.includes('401') ? (
@@ -1691,7 +1727,7 @@ export default function BondDetailPopup({
                     actionsPlacement="below"
                   />
                 ) : (
-                  <div className="flex h-96 items-center justify-center text-sm font-medium text-text-muted">
+                  <div className="flex h-full items-center justify-center text-sm font-medium text-text-muted">
                     {t('noData')}
                   </div>
                 )}
@@ -1710,19 +1746,21 @@ export default function BondDetailPopup({
                   </div>
                 </div>
 
-                {aiRemarkLoading ? (
-                  <p className="text-sm font-semibold text-text-muted">{t('aiGeneratingInsight')}</p>
-                ) : aiRemarkError ? (
-                  <p className="text-sm font-medium text-amber-600">{aiRemarkError}</p>
-                ) : aiRemark ? (
-                  <AIInsightText
-                    content={aiRemark}
-                    containerClassName="space-y-0"
-                    paragraphClassName="whitespace-pre-line break-words text-sm leading-6 text-text-base"
-                  />
-                ) : (
-                  <p className="text-sm text-text-muted">{t('aiNoInsight')}</p>
-                )}
+                <div ref={measureAiRemarkBox} className="h-[220px] overflow-hidden">
+                  {aiRemarkLoading ? (
+                    <p className="text-sm font-semibold text-text-muted">{t('aiGeneratingInsight')}</p>
+                  ) : aiRemarkError ? (
+                    <p className="text-sm font-medium text-amber-600">{aiRemarkError}</p>
+                  ) : aiRemark ? (
+                    <AdaptiveInsightContent
+                      content={aiRemark}
+                      boldTerms={[currentBond.code, issuerDisplayName].filter(Boolean) as string[]}
+                      className="h-full overflow-hidden"
+                    />
+                  ) : (
+                    <p className="text-sm text-text-muted">{t('aiNoInsight')}</p>
+                  )}
+                </div>
               </Card>
             </section>
           </div>

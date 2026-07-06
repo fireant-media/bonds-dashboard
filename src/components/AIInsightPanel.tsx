@@ -5,8 +5,10 @@ import { useVisibleOnce } from '../hooks/useVisibleOnce';
 import { useLanguage } from '../LanguageContext';
 import { useAIStore } from '../store/aiStore';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
+import { buildParagraphDirective } from '../utils/aiInsightStructured';
 import { Card } from './ui/Card';
 import AIInsightText from './ui/AIInsightText';
+import AdaptiveInsightContent from './ui/AdaptiveInsightContent';
 
 interface AIInsightPanelProps {
   cacheKey: string;
@@ -18,11 +20,18 @@ interface AIInsightPanelProps {
   expandContent?: boolean;
   layout?: 'default' | 'stacked';
   contentChrome?: 'boxed' | 'plain';
-  // Ask the model for a shorter, key-points-only insight.
+  // Ask the model for a shorter, key-points-only insight (non-adaptive mode only).
   concise?: boolean;
-  // Cap the content area (px). Text is auto-trimmed to fit so the card height stays fixed and never grows.
-  contentMaxHeight?: number;
-  // Fully override the analyst brief (already localized by the caller). Takes precedence over `concise`.
+  // Adaptive mode: the model returns a rich, structured insight (lead summary + labelled
+  // sections with bullets) and the card reveals as many blocks as fit its measured height —
+  // full on large cards, key points on medium, just the summary on small — so the text always
+  // fills the card without overflowing or leaving big gaps.
+  adaptive?: boolean;
+  // Tailwind classes controlling how tall the adaptive content area may grow at each breakpoint.
+  // `flex-1` lets it fill a card stretched by a taller sibling; the responsive max-heights cap it
+  // when the card sizes to its own content (e.g. stacked on small screens → summary only).
+  contentAreaClassName?: string;
+  // Fully override the analyst brief (already localized by the caller).
   instructions?: string;
   // Extra literal terms to bold in the rendered text (e.g. the issuer name).
   boldTerms?: string[];
@@ -30,13 +39,10 @@ interface AIInsightPanelProps {
   persistCache?: boolean;
 }
 
-// Split an insight into sentences so trailing ones can be dropped to fit a fixed height.
-function splitInsightSentences(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-  const matches = trimmed.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
-  return matches ? matches.map((sentence) => sentence.trim()).filter(Boolean) : [trimmed];
-}
+// A FIXED height at every breakpoint (never `flex-1`/`max-h`/`h-auto`): the card size is fully
+// decided by the layout, and the insight is trimmed to fit it — content can never stretch or
+// change the card height. Values grow with the breakpoint so bigger screens show more.
+const DEFAULT_ADAPTIVE_CONTENT_CLASS = 'overflow-hidden h-[220px] sm:h-[240px] lg:h-[320px]';
 
 let pendingAIStatusRequest: Promise<void> | null = null;
 
@@ -123,7 +129,8 @@ export default function AIInsightPanel({
   layout = 'default',
   contentChrome = 'boxed',
   concise = false,
-  contentMaxHeight,
+  adaptive = false,
+  contentAreaClassName,
   instructions,
   boldTerms,
   persistCache = false,
@@ -150,36 +157,6 @@ export default function AIInsightPanel({
   const activeModel = selectedModel || defaultModel;
   const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
 
-  // Fixed-height mode: adapt the GENERATED length to the panel size so the text fits the card at
-  // the normal font (no shrinking, no cutting) — smaller panels get fewer sentences.
-  const [panelWidth, setPanelWidth] = useState(0);
-  useEffect(() => {
-    if (!contentMaxHeight) return;
-    const element = ref.current;
-    if (!element) return;
-    // Measure once on mount so the density (and cache key) is stable before the first generation.
-    const initialWidth = element.getBoundingClientRect().width;
-    if (initialWidth) setPanelWidth(initialWidth);
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width) setPanelWidth(width);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [contentMaxHeight]);
-  const insightDensity = !contentMaxHeight || panelWidth === 0 || panelWidth >= 360
-    ? 'full'
-    : panelWidth >= 300
-      ? 'compact'
-      : 'mini';
-  const expandedContentMaxHeight = contentMaxHeight ? Math.round(contentMaxHeight * 1.2) : undefined;
-  const lengthDirective = !contentMaxHeight
-    ? ''
-    : language === 'en'
-      ? ` Length: write ${insightDensity === 'mini' ? '1 to 2' : insightDensity === 'compact' ? '2 to 3' : '3 to 4'} complete, meaningful sentences. Each sentence must connect a figure to an interpretation and avoid bare numbers. Keep each sentence short and easy to scan, and allow the card to grow slightly if needed to fit the content without exceeding the available space.`
-      : ` Độ dài: viết ${insightDensity === 'mini' ? '1-2' : insightDensity === 'compact' ? '2-3' : '3-4'} câu trọn vẹn, có ý nghĩa. Mỗi câu phải kết nối số liệu với nhận xét, không được chỉ nêu số trơ. Giữ mỗi câu ngắn, dễ đọc và cho phép card nở nhẹ nếu cần để vừa toàn bộ nội dung trong phạm vi không gian sẵn có.`;
-
   const payloadText = useMemo(() => {
     if (!hasMeaningfulPayload(payload)) return '';
 
@@ -199,8 +176,8 @@ export default function AIInsightPanel({
     [payloadText],
   );
   const localizedCacheKey = useMemo(
-    () => `${cacheKey}-${language}${contentMaxHeight ? `-${insightDensity}` : ''}`,
-    [cacheKey, language, contentMaxHeight, insightDensity],
+    () => `${cacheKey}-${language}${adaptive ? '-prose' : ''}`,
+    [cacheKey, language, adaptive],
   );
   const cachedInsight = useMemo(
     () => (payloadSignature ? readDailyAIInsight(localizedCacheKey, payloadSignature, { ignoreDate: persistCache }) : null),
@@ -223,14 +200,7 @@ export default function AIInsightPanel({
   }, [language, t, updatedAt]);
 
   useEffect(() => {
-    if (!payloadSignature) {
-      setInsight('');
-      setUpdatedAt('');
-      setError(null);
-      return;
-    }
-
-    if (!cachedInsight) {
+    if (!payloadSignature || !cachedInsight) {
       setInsight('');
       setUpdatedAt('');
       setError(null);
@@ -275,19 +245,24 @@ export default function AIInsightPanel({
         ? instructions
         : concise
         ? (language === 'en'
-          ? 'You are a professional fixed-income analyst. Respond in English only. Only use the provided data. Do not mention JSON, APIs, endpoints, variable names, functions, internal code structure, or implementation details. Write 2 to 3 very short sentences focusing ONLY on the key points, no filler. The first sentence must surface the most important figures (scale, concentration, notable risk).'
-          : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi tra loi bang tieng Viet. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo. Viet 2 den 3 cau that ngan, chi tap trung vao cac y chinh, khong lan man. Cau dau phai neu cac so lieu quan trong nhat (quy mo, muc do tap trung, rui ro dang chu y).')
+          ? 'You are a professional fixed-income analyst. Respond in English only. Only use the provided data. Do not mention JSON, APIs, endpoints, variable names, functions, internal code structure, or implementation details. Focus ONLY on the key points, no filler. Surface the most important figures first (scale, concentration, notable risk).'
+          : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi tra loi bang tieng Viet. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo. Chi tap trung vao cac y chinh, khong lan man. Neu cac so lieu quan trong nhat truoc (quy mo, muc do tap trung, rui ro dang chu y).')
         : (language === 'en'
-          ? 'You are a professional fixed-income analyst. Respond in English only. Only use the provided data. Do not mention JSON, APIs, endpoints, variable names, functions, internal code structure, or implementation details. Write 3 to 4 short sentences in a concise professional tone. The first sentence must surface the most important figures. Prioritize concrete numbers, concentration, risk, and the next point to monitor.'
-          : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi tra loi bang tieng Viet. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo cua he thong. Viet 3 den 4 cau ngan, giong chuyen nghiep. Cau dau phai lam noi bat cac so lieu quan trong nhat. Uu tien neu con so cu the, muc do tap trung, diem rui ro va yeu to can theo doi tiep theo.');
-      const analystPrompt = `${basePrompt}${lengthDirective}`;
+          ? 'You are a professional fixed-income analyst. Respond in English only. Only use the provided data. Do not mention JSON, APIs, endpoints, variable names, functions, internal code structure, or implementation details. Surface the most important figures first. Prioritize concrete numbers, concentration, risk, and the next point to monitor.'
+          : 'Ban la chuyen gia phan tich thi truong trai phieu doanh nghiep. Chi tra loi bang tieng Viet. Chi su dung du lieu duoc cung cap. Khong nhac toi JSON, API, endpoint, ten bien, ten ham hay cau truc noi bo cua he thong. Lam noi bat cac so lieu quan trong nhat truoc. Uu tien neu con so cu the, muc do tap trung, diem rui ro va yeu to can theo doi tiep theo.');
+
+      const analystPrompt = adaptive
+        ? `${basePrompt}\n\n${buildParagraphDirective(language === 'en' ? 'en' : 'vi')}`
+        : `${basePrompt}${language === 'en'
+          ? ' Write 3 to 4 short sentences in a concise professional tone.'
+          : ' Viet 3 den 4 cau ngan, giong chuyen nghiep.'}`;
 
       const response = await sendChat({
         model: activeModel,
         systemPrompt: `${activeSystemPrompt ? `${activeSystemPrompt}\n\n` : ''}${analystPrompt}`,
         userMessage: language === 'en'
-          ? `Write a short insight in English for the section "${sectionTitle}" on the page "${pageTitle}". Use only the provided data and present the analysis as a compact paragraph.`
-          : `Hay viet nhan dinh ngan bang tieng Viet cho muc "${sectionTitle}" tren trang "${pageTitle}". Chi dung du lieu da cung cap va trinh bay thanh doan phan tich ngan gon.`,
+          ? `Write a short insight in English for the section "${sectionTitle}" on the page "${pageTitle}". Use only the provided data.`
+          : `Hay viet nhan dinh ngan bang tieng Viet cho muc "${sectionTitle}" tren trang "${pageTitle}". Chi dung du lieu da cung cap.`,
         pageContext: payloadText,
       });
 
@@ -315,57 +290,13 @@ export default function AIInsightPanel({
 
   useEffect(() => {
     if (!isVisible || !payloadText || !configured || isLoading || insight || error || cachedInsight) return;
-    // In fixed-height mode wait until the width is measured so density (and the cache key) is final,
-    // otherwise we'd generate once for the wrong density and again after measuring.
-    if (contentMaxHeight && panelWidth === 0) return;
     void generateInsight(false);
-  }, [cachedInsight, configured, contentMaxHeight, error, insight, isLoading, isVisible, panelWidth, payloadText]);
-
-  // Fixed-height safety net: the generated length is already sized to the panel, but if the text
-  // still slightly overflows we drop a trailing WHOLE sentence (never cut mid-text), keeping a
-  // minimum so the insight always reads as complete. Font/color/style stay the default (same as
-  // the cash-flow commentary panel).
-  const MIN_VISIBLE_SENTENCES = 2;
-  const contentRef = useRef<HTMLDivElement>(null);
-  const insightSentences = useMemo(
-    () => (contentMaxHeight ? splitInsightSentences(insight) : []),
-    [contentMaxHeight, insight],
-  );
-  const [visibleSentenceCount, setVisibleSentenceCount] = useState(0);
-
-  useEffect(() => {
-    if (!contentMaxHeight) return;
-    setVisibleSentenceCount(insightSentences.length);
-  }, [contentMaxHeight, insightSentences]);
-
-  useEffect(() => {
-    if (!contentMaxHeight) return;
-    const element = contentRef.current;
-    if (!element) return;
-    if (element.scrollHeight > element.clientHeight && visibleSentenceCount > MIN_VISIBLE_SENTENCES) {
-      setVisibleSentenceCount((previous) => Math.max(MIN_VISIBLE_SENTENCES, previous - 1));
-    }
-  }, [contentMaxHeight, visibleSentenceCount, insight]);
-
-  // Re-fit from scratch when the card is resized (width changes rewrap the text).
-  useEffect(() => {
-    if (!contentMaxHeight || typeof ResizeObserver === 'undefined') return;
-    const element = contentRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => setVisibleSentenceCount(insightSentences.length));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [contentMaxHeight, insightSentences]);
-
-  // Keep the original text (with its paragraph breaks) unless we actually need to drop trailing
-  // sentences as a last resort; only then fall back to a flattened prefix.
-  const displayedInsight = !contentMaxHeight || visibleSentenceCount >= insightSentences.length
-    ? insight
-    : insightSentences.slice(0, Math.max(MIN_VISIBLE_SENTENCES, visibleSentenceCount)).join(' ');
+  }, [cachedInsight, configured, error, insight, isLoading, isVisible, payloadText]);
 
   const isStackedLayout = layout === 'stacked';
-  const insightContentClassName = contentMaxHeight
-    ? 'overflow-y-auto pr-1'
+  const adaptiveContentClassName = contentAreaClassName || DEFAULT_ADAPTIVE_CONTENT_CLASS;
+  const insightContentClassName = adaptive
+    ? adaptiveContentClassName
     : expandContent || isStackedLayout
       ? 'overflow-visible'
       : 'max-h-28 overflow-y-auto pr-1';
@@ -414,13 +345,17 @@ export default function AIInsightPanel({
             <span>{error}</span>
           </div>
         ) : insight ? (
-          <div
-            ref={contentRef}
-            className={`${contentClassName} ${insightContentClassName}`}
-            style={contentMaxHeight ? { maxHeight: expandedContentMaxHeight } : undefined}
-          >
-            <AIInsightText content={displayedInsight} boldTerms={boldTerms} />
-          </div>
+          adaptive ? (
+            <AdaptiveInsightContent
+              content={insight}
+              boldTerms={boldTerms}
+              className={`${contentClassName} ${insightContentClassName}`}
+            />
+          ) : (
+            <div className={`${contentClassName} ${insightContentClassName}`}>
+              <AIInsightText content={insight} boldTerms={boldTerms} />
+            </div>
+          )
         ) : (
           <div className={`${contentClassName} text-sm text-text-muted`}>
             {payloadText ? t('aiNoInsight') : t('noData')}

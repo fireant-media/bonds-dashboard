@@ -1381,23 +1381,21 @@ export default function EnterpriseView({
         'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp. Trả lời bằng tiếng Việt có dấu.',
         'CHỈ được dùng dữ liệu đầu vào do hệ thống cung cấp cho tổ chức phát hành đang xem. TUYỆT ĐỐI không tự tạo, suy diễn, ước lượng hay tính toán bất kỳ số liệu nào không có sẵn trong dữ liệu — kể cả phần trăm, tỷ lệ, mức tăng/giảm, trung bình hay tổng cộng.',
         'MỌI số liệu trong nhận định phải KHỚP 100% với dữ liệu được cung cấp và truy xuất được về đúng một trường dữ liệu tương ứng. Không lấy số từ tổ chức khác, không làm tròn khác đi, không bịa.',
-        'Nếu một khía cạnh thiếu dữ liệu, hãy BỎ QUA khía cạnh đó hoặc chỉ nhận xét dựa trên thông tin hiện có; không sinh số liệu/thông tin không có trong dữ liệu. Nếu dữ liệu không đủ để kết luận, nói ngắn gọn rằng dữ liệu hiện chưa đủ.',
-        'Viết 2-4 câu (tối đa 5 câu tùy không gian card), theo phong cách báo cáo phân tích chuyên nghiệp; mỗi câu ngắn gọn nhưng PHẢI là một nhận định TRỌN VẸN, CÓ Ý NGHĨA — nêu số liệu KÈM đánh giá/bối cảnh (tỷ trọng, mức độ, xu hướng, ý nghĩa), TUYỆT ĐỐI không chỉ liệt kê con số rời rạc. Có thể tách đoạn ngắn cho dễ đọc.',
-        'Ví dụ ĐÚNG: "BID có 152 mã trái phiếu đang lưu hành, thuộc nhóm dẫn đầu về quy mô trong ngành ngân hàng." Ví dụ SAI (chỉ nêu số, vô nghĩa): "3 tỷ đồng và tổng số 152 trái phiếu."',
-        'Câu đầu là kết luận tổng quan về tổ chức phát hành; mọi số liệu lấy trực tiếp từ dữ liệu.',
-        'Ưu tiên nhận định về mức độ tập trung kỳ hạn, rủi ro tái cấp vốn, bất thường trong cấu trúc lãi suất và chênh lệch giữa phát hành, niêm yết và dư nợ còn lại — chỉ khi dữ liệu tương ứng có sẵn.',
-        'Không nhắc tới JSON, API, tên biến, hàm hay cấu trúc nội bộ. Nêu tên hoặc mã tổ chức phát hành ít nhất một lần và kết thúc bằng một câu bắt đầu bằng "Điểm cần theo dõi:" hoặc "Rủi ro chính:".',
+        'Nếu một khía cạnh thiếu dữ liệu, hãy BỎ QUA khía cạnh đó; không sinh số liệu/thông tin không có trong dữ liệu. Nếu dữ liệu không đủ để kết luận, nói ngắn gọn rằng dữ liệu hiện chưa đủ.',
+        'Mỗi ý phải nêu số liệu KÈM đánh giá/bối cảnh (tỷ trọng, mức độ, xu hướng, ý nghĩa), TUYỆT ĐỐI không chỉ liệt kê con số rời rạc. Ví dụ ĐÚNG: "BID có 152 mã trái phiếu đang lưu hành, thuộc nhóm dẫn đầu về quy mô trong ngành ngân hàng." Ví dụ SAI: "3 tỷ đồng và tổng số 152 trái phiếu."',
+        'Câu đầu tiên là kết luận tổng thể về tổ chức phát hành; mọi số liệu lấy trực tiếp từ dữ liệu.',
+        'Ưu tiên nhận định về mức độ tập trung kỳ hạn, rủi ro tái cấp vốn, bất thường trong cấu trúc lãi suất và chênh lệch giữa phát hành, niêm yết và dư nợ còn lại — chỉ khi dữ liệu tương ứng có sẵn. Nêu tên hoặc mã tổ chức phát hành ít nhất một lần.',
+        'Không phân tích lại dòng tiền (đã có nhận xét riêng). Không nhắc tới JSON, API, tên biến, hàm hay cấu trúc nội bộ.',
       ].join('\n')
     : [
         'You are a corporate-bond analyst. Respond in English only.',
         'Use ONLY the input data provided by the system for the issuer currently shown. NEVER create, infer, estimate, or compute any figure that is not present in the data — including percentages, ratios, growth rates, averages, or totals.',
         'EVERY figure in the commentary must match the provided data 100% and be traceable to a specific data field. Do not borrow numbers from other issuers, do not round differently, and do not fabricate.',
-        'If an aspect lacks data, SKIP that aspect or comment only on the available information; do not generate figures or facts absent from the data. If the data is insufficient to conclude, briefly say the data is currently insufficient.',
-        'Write 2-4 sentences (up to 5 depending on card space) in a professional analytical tone; each sentence must be a COMPLETE, MEANINGFUL observation — state a figure TOGETHER with its interpretation/context (share, level, trend, significance), NEVER a bare list of numbers. You may split into short paragraphs for readability.',
-        'Good example: "BID has 152 outstanding bond codes, among the largest issuers in the banking sector." Bad example (numbers only, meaningless): "3 billion VND and a total of 152 bonds."',
+        'If an aspect lacks data, SKIP that aspect; do not generate figures or facts absent from the data. If the data is insufficient to conclude, briefly say the data is currently insufficient.',
+        'Every point must state a figure TOGETHER with its interpretation/context (share, level, trend, significance), NEVER a bare list of numbers. Good example: "BID has 152 outstanding bond codes, among the largest issuers in the banking sector." Bad example: "3 billion VND and a total of 152 bonds."',
         'The first sentence is an overall verdict on the issuer; all figures come directly from the data.',
-        'Prioritize issuer-specific points such as maturity concentration, refinancing risk, unusual interest-type mix, and the gap between issuance, listing, and remaining debt — only when the corresponding data is available.',
-        'Do not mention JSON, APIs, variable names, functions, or internal structure. Refer to the issuer by name or ticker at least once and end with a sentence starting with "Key watch point:" or "Main risk:".',
+        'Prioritize issuer-specific points such as maturity concentration, refinancing risk, unusual interest-type mix, and the gap between issuance, listing, and remaining debt — only when the corresponding data is available. Refer to the issuer by name or ticker at least once.',
+        'Do not re-analyze cash flow (it has its own commentary). Do not mention JSON, APIs, variable names, functions, or internal structure.',
       ].join('\n');
   const cashFlowInsightTitle = language === 'vi'
     ? 'NH\u1eacN X\u00c9T D\u00d2NG TI\u1ec0N'
@@ -2237,10 +2235,11 @@ export default function EnterpriseView({
             pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
             sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
             payload={enterpriseInsightPayload}
-            className="h-full xl:col-span-4"
+            className="xl:col-span-4 xl:self-start"
             layout="stacked"
             contentChrome="plain"
-            contentMaxHeight={250}
+            adaptive
+            contentAreaClassName="overflow-hidden h-[220px] sm:h-[260px] xl:h-[280px]"
             instructions={enterpriseInsightInstructions}
             boldTerms={[enterpriseDisplayName, selectedEnterprise.ticker].filter(Boolean) as string[]}
           />
@@ -2261,8 +2260,9 @@ export default function EnterpriseView({
             pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
             sectionTitle={cashFlowInsightTitle}
             payload={cashFlowInsightPayload}
-            className="xl:col-span-6"
-            expandContent
+            className="xl:col-span-6 xl:self-start"
+            adaptive
+            contentAreaClassName="overflow-hidden h-[220px] sm:h-[260px] xl:h-[280px]"
             layout="stacked"
             contentChrome="plain"
           />
