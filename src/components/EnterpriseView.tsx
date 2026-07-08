@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowUpDown, ChevronRight, ChevronLeft, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search } from 'lucide-react';
+import { ArrowLeft, ArrowUpDown, ChevronRight, ChevronLeft, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search, X } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
@@ -277,6 +277,9 @@ export default function EnterpriseView({
   const [enterpriseAISummary, setEnterpriseAISummary] = useState<string[]>([]);
   const [enterpriseAIError, setEnterpriseAIError] = useState<string | null>(null);
   const [isApplyingEnterpriseAIFilter, setIsApplyingEnterpriseAIFilter] = useState(false);
+  // On mobile, focusing the inline AI-filter input opens this centered modal (a bigger, easier
+  // input + apply button) instead of typing in the small inline field.
+  const [isEnterpriseAIFilterModalOpen, setIsEnterpriseAIFilterModalOpen] = useState(false);
   const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
   const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
   const [enterpriseAppliedSortDirection, setEnterpriseAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
@@ -403,8 +406,8 @@ export default function EnterpriseView({
       .slice(0, 8);
   }, [enterpriseNamesEN, enterpriseSearchTerm, enterprises, t]);
   const enterpriseAIPromptPlaceholder = language === 'en'
-    ? 'Example: Show listed companies in real estate with issued value above 1.000 and remaining debt above 500.'
-    : 'Ví dụ: Lọc các doanh nghiệp niêm yết ngành bất động sản có giá trị phát hành trên 1.000 và dư nợ còn lại trên 500.';
+    ? 'Example: real estate firms, high debt'
+    : 'Ví dụ: doanh nghiệp bất động sản, dư nợ lớn';
   const enterpriseAISuggestions = useMemo(() => (
     language === 'en'
       ? [
@@ -589,6 +592,8 @@ export default function EnterpriseView({
       setEnterpriseAISummary(
         Array.isArray(parsed.summary) ? parsed.summary.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3) : [],
       );
+      // Applied successfully → dismiss the mobile modal so the filtered table is visible.
+      setIsEnterpriseAIFilterModalOpen(false);
     } catch (requestError) {
       console.error('Failed to apply enterprise AI filter', requestError);
       setEnterpriseAIError(
@@ -1586,11 +1591,30 @@ export default function EnterpriseView({
         enterprises: sortedEnterprises.slice(0, 1000).map((enterprise) => ({
           ticker: enterprise.ticker,
           name: String(t(enterprise.name as any, enterprise.ticker) || enterprise.ticker),
-          industry: enterprise.industry,
+          industry: String(t(enterprise.industry as any) || enterprise.industry || ''),
           bondCount: Number(enterprise.bondCount || 0),
           issuedValueBillion: roundMetric(Number(enterprise.issuedValue || 0)),
           remainingDebtBillion: roundMetric(Number(enterprise.remainingDebt || 0)),
         })),
+        // Pre-aggregated count of issuers per industry (localized label), sorted by issuer count
+        // desc, so grounded Q&A can directly answer "which industry concentrates the most issuers?"
+        // without the model having to group the raw enterprises list itself (which it would decline,
+        // answering "Không tìm thấy thông tin phù hợp").
+        industryDistribution: (() => {
+          const counts = new Map<string, { industry: string; issuerCount: number; bondCount: number; remainingDebtBillion: number }>();
+          enterprises.forEach((enterprise) => {
+            const label = String(t(enterprise.industry as any) || enterprise.industry || 'N/A');
+            const key = label.toLowerCase();
+            const current = counts.get(key) || { industry: label, issuerCount: 0, bondCount: 0, remainingDebtBillion: 0 };
+            current.issuerCount += 1;
+            current.bondCount += Number(enterprise.bondCount || 0);
+            current.remainingDebtBillion += Number(enterprise.remainingDebt || 0);
+            counts.set(key, current);
+          });
+          return Array.from(counts.values())
+            .map((item) => ({ ...item, remainingDebtBillion: roundMetric(item.remainingDebtBillion) }))
+            .sort((a, b) => b.issuerCount - a.issuerCount);
+        })(),
       },
     };
   }, [
@@ -2364,7 +2388,7 @@ export default function EnterpriseView({
               <BadgeDollarSign className="h-4 w-4" />
               <span>{t('applyAIFilter')}</span>
             </span>
-            <div className="flex flex-col gap-2 xl:flex-row xl:items-stretch">
+            <div className="flex flex-row items-stretch gap-2">
               <div className="min-w-0 flex-1">
                 <textarea
                   rows={1}
@@ -2381,15 +2405,22 @@ export default function EnterpriseView({
                     if (enterpriseAISummary.length > 0) setEnterpriseAISummary([]);
                     if (enterpriseAIError) setEnterpriseAIError(null);
                   }}
+                  onFocus={(event) => {
+                    // On mobile, don't type in the cramped inline field — pop a centered modal.
+                    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+                      event.target.blur();
+                      setIsEnterpriseAIFilterModalOpen(true);
+                    }
+                  }}
                   placeholder={enterpriseAIPromptPlaceholder}
-                  className="h-11 w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+                  className="h-11 w-full resize-none overflow-hidden rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-xs placeholder:text-text-muted/80 focus:border-blue-400 sm:placeholder:text-sm"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => void handleApplyEnterpriseAIFilter()}
                 disabled={!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter || isLoadingStatus}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <BadgeDollarSign className={`h-4 w-4 ${isApplyingEnterpriseAIFilter ? 'animate-pulse' : ''}`} />
                 <span>{t('applyAIFilter')}</span>
@@ -2398,7 +2429,7 @@ export default function EnterpriseView({
           </div>
 
           {showEnterpriseAISuggestions ? (
-            <div className="mt-2 flex max-h-8 flex-wrap content-start items-center gap-2 overflow-hidden">
+            <div className="mt-2 hidden max-h-8 flex-wrap content-start items-center gap-2 overflow-hidden md:flex">
               <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
               {enterpriseAISuggestions.map((suggestion) => (
                 <button
@@ -2505,7 +2536,7 @@ export default function EnterpriseView({
             <button
               type="button"
               onClick={handleApplyEnterpriseFilters}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-label={t('applyFilters')}
               title={t('applyFilters')}
             >
@@ -2515,7 +2546,7 @@ export default function EnterpriseView({
             <button
               type="button"
               onClick={handleResetEnterpriseFilters}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-label={t('reset')}
               title={t('reset')}
             >
@@ -2525,7 +2556,7 @@ export default function EnterpriseView({
             <button
               type="button"
               onClick={() => setIsFilterControlsVisible((current) => !current)}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
             >
@@ -2536,7 +2567,7 @@ export default function EnterpriseView({
             <button
               type="button"
               onClick={() => setEnterpriseColumnVisibilityOpen((current) => !current)}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-haspopup="dialog"
               aria-expanded={enterpriseColumnVisibilityOpen}
               aria-label={t('hideColumns')}
@@ -2761,7 +2792,7 @@ export default function EnterpriseView({
 
         {/* Enterprise Pagination Controls */}
         {totalEnterprisePages > 1 && (
-          <div className="flex items-center justify-end border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6 lg:pr-8 xl:pr-12">
+          <div className="flex items-center justify-center border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6">
             <div className="flex gap-2">
               <button 
                 onClick={() => setEnterprisePage(prev => Math.max(1, prev - 1))}
@@ -2863,6 +2894,85 @@ export default function EnterpriseView({
         )}
 
       </div>
+
+      {isEnterpriseAIFilterModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsEnterpriseAIFilterModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border-base bg-bg-surface p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-2 text-sm font-bold text-text-base">
+                <BadgeDollarSign className="h-4 w-4 text-blue-600" />
+                {t('applyAIFilter')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsEnterpriseAIFilterModalOpen(false)}
+                className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              rows={3}
+              value={enterpriseAIPrompt}
+              onChange={(event) => {
+                const nextPrompt = event.target.value;
+
+                if (!nextPrompt.trim()) {
+                  handleResetEnterpriseFilters();
+                  return;
+                }
+
+                setEnterpriseAIPrompt(nextPrompt);
+                if (enterpriseAISummary.length > 0) setEnterpriseAISummary([]);
+                if (enterpriseAIError) setEnterpriseAIError(null);
+              }}
+              placeholder={enterpriseAIPromptPlaceholder}
+              className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+            />
+            {enterpriseAIError ? (
+              <p className="mt-2 text-sm font-medium text-red-600">{enterpriseAIError}</p>
+            ) : null}
+            {showEnterpriseAISuggestions ? (
+              <div className="mt-3 flex flex-col gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
+                <div className="flex flex-wrap gap-2">
+                  {enterpriseAISuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => handleEnterpriseSuggestionClick(suggestion)}
+                      className="whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-blue-400/20 dark:bg-slate-900/40 dark:text-blue-300 dark:hover:text-blue-400"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void handleApplyEnterpriseAIFilter()}
+                disabled={!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter || isLoadingStatus}
+                className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BadgeDollarSign className={`h-4 w-4 ${isApplyingEnterpriseAIFilter ? 'animate-pulse' : ''}`} />
+                <span>{t('applyAIFilter')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

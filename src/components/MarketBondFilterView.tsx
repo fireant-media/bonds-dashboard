@@ -1029,7 +1029,7 @@ export default function MarketBondFilterView({
             <button
               type="button"
               onClick={applyDraftFilters}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-label={t('applyFilters')}
               title={t('applyFilters')}
             >
@@ -1039,7 +1039,7 @@ export default function MarketBondFilterView({
             <button
               type="button"
               onClick={resetFilters}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-label={t('reset')}
               title={t('reset')}
             >
@@ -1049,7 +1049,7 @@ export default function MarketBondFilterView({
             <button
               type="button"
               onClick={() => setIsFilterControlsVisible((current) => !current)}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
               title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
             >
@@ -1059,7 +1059,7 @@ export default function MarketBondFilterView({
             <button
               type="button"
               onClick={() => setIsColumnVisibilityOpen((current) => !current)}
-              className="inline-flex h-8 w-8 flex-none items-center justify-center gap-0 whitespace-nowrap rounded-md border border-border-base bg-bg-surface px-0 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:w-9 sm:rounded-lg md:h-10 md:w-10 lg:h-11 lg:w-11 xl:w-28 xl:gap-2 xl:px-3"
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
               aria-haspopup="dialog"
               aria-expanded={isColumnVisibilityOpen}
               aria-label={t('hideColumns')}

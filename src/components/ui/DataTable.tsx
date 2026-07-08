@@ -294,7 +294,7 @@ export function DataTable<T>({
 
       {totalPages > 1 && (
         <>
-          <div className="flex items-center justify-between gap-3 border-t border-border-base bg-bg-surface px-4 py-3 text-sm lg:hidden">
+          <div className="hidden items-center justify-between gap-3 border-t border-border-base bg-bg-surface px-4 py-3 text-sm">
             <button
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
@@ -316,7 +316,7 @@ export function DataTable<T>({
             </button>
           </div>
 
-          <div className="hidden overflow-x-auto border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6 lg:flex lg:items-center lg:justify-end lg:pr-8 xl:pr-12">
+          <div className="flex items-center justify-center overflow-x-auto border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6">
             <div className="flex min-w-max items-center gap-2">
               <button
                 type="button"

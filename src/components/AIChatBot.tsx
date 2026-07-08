@@ -42,6 +42,10 @@ interface Message {
   content: string;
   model?: string;
   action?: MessageAction;
+  // The view (effective pathname) this message was sent from. Lets suggested-question
+  // personalization stay scoped to the current view instead of leaking a symbol mentioned on a
+  // previously-visited page (e.g. a bond code asked on bond detail bleeding into issuer suggestions).
+  pathname?: string;
 }
 
 interface PageContextSnapshot {
@@ -923,11 +927,17 @@ function getIndustryDisplayLabel(industryId: string) {
 function resolveSuggestedQuestions(pathname: string, messages: Message[], input: string) {
   const parts = pathname.split('/').filter(Boolean);
   const recentUserMessage = [...messages].reverse().find((message) => message.role === 'user')?.content || '';
+  // Only personalize with a symbol the user mentioned WHILE on this same view — otherwise a bond code
+  // asked on bond detail would keep coloring the issuer/enterprise/market suggestions after navigating
+  // away, so those views never showed their own default questions until another question was asked.
+  const recentViewUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === 'user' && message.pathname === pathname)?.content || '';
   const activeBondContext = getActiveBondContext(pathname);
   const filterRouteState = getFilterRouteState(pathname);
   const activeViewContext = getActiveViewContext(pathname);
   const activeViewFilters = isObject(activeViewContext?.dataset?.filters) ? activeViewContext.dataset.filters : null;
-  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentUserMessage);
+  const recentSymbol = getCurrentSuggestedSymbol(pathname, recentViewUserMessage);
 
   let suggestions: string[] = [];
 
@@ -1555,7 +1565,7 @@ export default function AIChatBot() {
       setInput('');
       requestAnimationFrame(() => resizeTextarea(textareaRef.current));
       setErrorBanner(null);
-      setMessages((previous) => [...previous, { role: 'user', content: userMessage }]);
+      setMessages((previous) => [...previous, { role: 'user', content: userMessage, pathname: effectivePathname }]);
 
       abortRef.current?.abort();
       abortRef.current = new AbortController();
@@ -1628,7 +1638,7 @@ export default function AIChatBot() {
     setInput('');
     requestAnimationFrame(() => resizeTextarea(textareaRef.current));
     setErrorBanner(null);
-    setMessages((previous) => [...previous, { role: 'user', content: userMessage }]);
+    setMessages((previous) => [...previous, { role: 'user', content: userMessage, pathname: effectivePathname }]);
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -1718,14 +1728,14 @@ export default function AIChatBot() {
   const hasConversation = messages.some((message) => message.role === 'user');
 
   return (
-    <div className="ai-chatbot-shell fixed bottom-4 left-4 right-4 z-50 sm:left-auto sm:right-6">
+    <div className="ai-chatbot-shell pointer-events-none fixed bottom-4 left-4 right-4 z-50 sm:left-auto sm:right-6">
       <AnimatePresence initial={false}>
         {isOpen ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 24 }}
-            className="mb-3 flex h-[75vh] max-h-[40rem] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl sm:mb-4 sm:h-[34rem] sm:max-w-md"
+            className="pointer-events-auto mb-3 flex h-[75vh] max-h-[40rem] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-border-base bg-bg-surface shadow-2xl sm:mb-4 sm:h-[34rem] sm:max-w-md"
           >
             <div className="flex items-center justify-between gap-3 border-b border-border-base bg-bg-base/80 px-4 py-3">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -1923,7 +1933,7 @@ export default function AIChatBot() {
             whileTap={{ scale: 0.96 }}
             type="button"
             onClick={() => setIsOpen(true)}
-            className="ml-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg transition-colors hover:bg-blue-600"
+            className="pointer-events-auto ml-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg transition-colors hover:bg-blue-600"
             title={t('chatBotTitle')}
           >
             <MessageSquare className="h-5 w-5" />

@@ -267,7 +267,7 @@ export default function Sidebar({
           </button>
         )}
 
-        <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar', isCollapsed && 'flex flex-col items-center overflow-x-visible pr-0')}>
+        <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 custom-scrollbar', isCollapsed && 'flex flex-col items-center pr-0')}>
 
           {isCollapsed ? null : isContextSidebar ? (
             <nav className="space-y-1">
@@ -417,7 +417,7 @@ export default function Sidebar({
           ) : null}
 
           {isCollapsed ? (
-            <div className="flex flex-col items-center gap-2 px-1">
+            <div className="flex w-full flex-col items-center gap-2">
               {isContextSidebar
                 ? contextItems.map((item) => {
                     const Icon = item.icon;
@@ -440,7 +440,7 @@ export default function Sidebar({
                           }
                         }}
                           className={cn(
-                           'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                           'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
                            isActive
                              ? activeSidebarItemClassName
                              : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -480,7 +480,7 @@ export default function Sidebar({
                             setActiveFilterSubTab('issuer');
                           }}
                            className={cn(
-                             'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                             'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
                              isActive
                                ? activeSidebarItemClassName
                                : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -501,7 +501,7 @@ export default function Sidebar({
                           type="button"
                           onClick={item.onClick}
                            className={cn(
-                             'flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                             'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
                              item.isActive
                                ? activeSidebarItemClassName
                                : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -602,7 +602,7 @@ export default function Sidebar({
               </button>
               <div ref={accountMenuRef} className="relative">
                 {isAccountMenuOpen ? (
-                  <div className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg border border-border-base bg-bg-surface p-1 shadow-lg shadow-blue-950/10">
+                  <div className="absolute bottom-0 left-full z-50 ml-2 w-40 rounded-lg border border-border-base bg-bg-surface p-1 shadow-lg shadow-blue-950/10">
                     <button
                       type="button"
                       onClick={() => {

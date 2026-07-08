@@ -1,5 +1,4 @@
 import {
-  Search,
   LogOut,
   HelpCircle,
   UserCircle,
@@ -24,7 +23,6 @@ import { useTheme } from '../ThemeContext';
 import { INDUSTRY_LABEL_KEYS, INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
 import { useSidebarIndustryIssuedValuesQuery } from '../query/dashboardQueries';
-import GlobalSearch from './GlobalSearch';
 import type { SearchSuggestion } from '../hooks/useGlobalSearch';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -68,7 +66,6 @@ export default function Header({
   showDesktopBrand = true,
   showPageTitle = true,
 }: HeaderProps) {
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<HeaderMenu>(null);
   const [activeDashboardSubmenu, setActiveDashboardSubmenu] = useState<'industry' | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -618,7 +615,6 @@ export default function Header({
         <button
           type="button"
           onClick={() => {
-            setMobileSearchOpen(false);
             onMobileNavToggle();
           }}
           className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95 lg:hidden"
@@ -636,30 +632,6 @@ export default function Header({
         >
           <Logo />
         </button>
-      </div>
-
-      <div className="ml-auto flex items-center justify-end gap-2 lg:hidden">
-        <button
-          type="button"
-          onClick={() => setMobileSearchOpen((current) => !current)}
-          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600 active:scale-95"
-          aria-label={t('searchPlaceholder')}
-          title={t('searchPlaceholder')}
-        >
-          <Search className="h-5 w-5" />
-        </button>
-
-        {mobileSearchOpen && (
-          <div className="absolute left-0 right-0 top-full z-50 border-b border-border-base bg-surface-bright p-3 shadow-xl shadow-blue-950/10 lg:hidden">
-            <GlobalSearch
-              onSearchSelect={onSearchSelect}
-              autoFocus
-              showCloseButton
-              onClose={() => setMobileSearchOpen(false)}
-              onAfterSelect={() => setMobileSearchOpen(false)}
-            />
-          </div>
-        )}
       </div>
 
       </header>

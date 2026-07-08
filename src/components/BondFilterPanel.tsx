@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { BadgePercent, Building2, CalendarRange, CheckCircle2, ChevronDown, Landmark, ListFilter, Loader2, RefreshCcw, Search, Sparkles, type LucideIcon } from 'lucide-react';
+import { BadgePercent, Building2, CalendarRange, CheckCircle2, Landmark, ListFilter, Loader2, RefreshCcw, Search, Sparkles, X, type LucideIcon } from 'lucide-react';
 import { useLanguage } from '../LanguageContext';
 import { useAIStore } from '../store/aiStore';
 import {
@@ -415,6 +415,16 @@ export function BondFilterPanel({
   const isMarketVariant = variant === 'market';
   const isMaturityVariant = variant === 'maturity';
   const showStandardToolbar = showFilterControls;
+  // On mobile, focusing the inline AI-filter input opens this centered modal (bigger input + quick
+  // suggestions + apply). aiModalApplyPending closes it once an apply we launched finishes cleanly.
+  const [isAIFilterModalOpen, setIsAIFilterModalOpen] = useState(false);
+  const [aiModalApplyPending, setAiModalApplyPending] = useState(false);
+  useEffect(() => {
+    if (aiModalApplyPending && !isApplyingAIFilter) {
+      if (!aiError) setIsAIFilterModalOpen(false);
+      setAiModalApplyPending(false);
+    }
+  }, [aiModalApplyPending, isApplyingAIFilter, aiError]);
   const quickPromptSuggestions = useMemo(() => (
     language === 'en'
       ? [
@@ -474,7 +484,7 @@ export function BondFilterPanel({
                 <Sparkles className="h-4 w-4" />
                 <span>{t('applyAIFilter')}</span>
               </span>
-              <div className="flex flex-col gap-2 xl:flex-row xl:items-stretch">
+              <div className="flex flex-row items-stretch gap-2">
                 <div className="min-w-0 flex-1">
                   <textarea
                     value={aiPrompt}
@@ -496,15 +506,22 @@ export function BondFilterPanel({
                         setAiError(null);
                       }
                     }}
+                    onFocus={(event) => {
+                      // On mobile, don't type in the cramped inline field — pop a centered modal.
+                      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+                        event.target.blur();
+                        setIsAIFilterModalOpen(true);
+                      }
+                    }}
                     placeholder={t('aiFilterPlaceholder')}
-                    className="h-11 w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+                    className="h-11 w-full resize-none overflow-hidden rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-xs placeholder:text-text-muted/80 focus:border-blue-400 sm:placeholder:text-sm"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => void onApplyAI()}
                   disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   <span>{t('applyAIFilter')}</span>
@@ -513,7 +530,7 @@ export function BondFilterPanel({
             </div>
 
             {showPromptSuggestions && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="hidden flex-wrap items-center gap-2 md:flex">
                 <span className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">
                   Gợi ý nhanh:
                 </span>
@@ -636,6 +653,92 @@ export function BondFilterPanel({
           </div>
         ) : null}
       </div>
+
+      {isAIFilterModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsAIFilterModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border-base bg-bg-surface p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-2 text-sm font-bold text-text-base">
+                <Sparkles className="h-4 w-4 text-blue-600" />
+                {t('applyAIFilter')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsAIFilterModalOpen(false)}
+                className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              rows={3}
+              value={aiPrompt}
+              onChange={(event) => {
+                const nextPrompt = event.target.value;
+
+                if (!nextPrompt.trim()) {
+                  onReset();
+                  return;
+                }
+
+                setAiPrompt(nextPrompt);
+                if (aiSummary.length > 0) setAiSummary([]);
+                if (aiError) setAiError(null);
+              }}
+              placeholder={t('aiFilterPlaceholder')}
+              className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+            />
+            {aiError ? (
+              <p className="mt-2 text-sm font-medium text-red-600">{aiError}</p>
+            ) : null}
+            {showPromptSuggestions ? (
+              <div className="mt-3 flex flex-col gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
+                <div className="flex flex-wrap gap-2">
+                  {quickPromptSuggestions.slice(0, AI_PROMPT_SUGGESTION_LIMIT).map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => {
+                        setAiPrompt(suggestion);
+                        setAiSummary([]);
+                        setAiError(null);
+                      }}
+                      className="inline-flex h-7 items-center whitespace-nowrap rounded-full border border-blue-100 bg-bg-surface px-3 text-left text-xs font-semibold text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-blue-400/20 dark:text-blue-300 dark:hover:text-blue-400"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setAiModalApplyPending(true);
+                  void onApplyAI();
+                }}
+                disabled={!aiPrompt.trim() || isApplyingAIFilter || isLoadingStatus}
+                className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isApplyingAIFilter ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                <span>{t('applyAIFilter')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1212,7 +1315,7 @@ export function SearchFilterField({
           onFocus={() => setIsFocused(true)}
           onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
           placeholder={t('searchBondPlaceholder')}
-          className="h-11 w-full rounded-lg border border-border-base bg-bg-base pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+          className="h-8 w-full rounded-lg border border-border-base bg-bg-base pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400 sm:h-9"
         />
       </label>
       {isFocused && visibleSuggestions.length > 0 ? (
@@ -1288,7 +1391,7 @@ export function FilterChipButton({ icon: Icon, label, active, open, valueText, o
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-11 items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold shadow-sm transition-colors ${fullWidth ? 'w-full' : ''} ${
+      className={`inline-flex h-8 items-center gap-2 rounded-lg border px-4 text-sm font-semibold shadow-sm transition-colors sm:h-9 ${fullWidth ? 'w-full' : ''} ${
         active || open
           ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300'
           : 'border-border-base bg-bg-base text-text-base hover:border-blue-200 hover:text-text-highlight'
@@ -1298,7 +1401,6 @@ export function FilterChipButton({ icon: Icon, label, active, open, valueText, o
     >
       <Icon className="h-4 w-4 shrink-0 text-blue-600" />
       <span className="max-w-xs truncate">{valueText || label}</span>
-      <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
     </button>
   );
 }

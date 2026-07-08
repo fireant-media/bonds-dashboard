@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowLeftRight, Activity, Bookmark, BookmarkCheck, Briefcase, Calendar, Info, Landmark, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Activity, Bookmark, BookmarkCheck, Briefcase, Calendar, Info, Landmark, RefreshCw, ShieldCheck, Sparkles, TrendingUp } from 'lucide-react';
 import ChartWithToolbar from './ChartWithToolbar';
 import { Bond } from '../types';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
@@ -232,7 +232,10 @@ export default function BondDetailPopup({
       if (!width || !height) return;
       const lines = Math.max(3, Math.floor(height / 24)); // leading-6 ≈ 24px per line
       const charsPerLine = Math.max(24, Math.floor(width / 7.2)); // ≈ text-sm avg char width
-      const sentences = Math.min(16, Math.max(3, Math.round((lines * charsPerLine) / 90)));
+      // Divisor matches AIInsightPanel (120): higher divisor → fewer sentences requested, so the
+      // model doesn't heavily over-write and lean on the client fitter to trim (which is what left
+      // the last sentence clipped mid-way). The fitter still guarantees no overflow.
+      const sentences = Math.min(14, Math.max(3, Math.round((lines * charsPerLine) / 120)));
       setAiRemarkLengthTarget((previous) => (previous === sentences ? previous : sentences));
     };
 
@@ -1264,118 +1267,109 @@ export default function BondDetailPopup({
     void ensureBondDetailAIStatus(refreshStatus);
   }, [baseUrl, configured, isAiRemarkDataReady, isLoadingStatus, refreshStatus, statusError]);
 
-  useEffect(() => {
-    let isActive = true;
+  // Generate (or refresh) the bond remark. Callable directly by the refresh button (`force = true`
+  // → skip cache, always regenerate) and by the auto-generate effect (`force = false` → serve cache
+  // when present). Staleness is guarded by `aiRequestIdRef` so an outdated in-flight response (e.g.
+  // after switching bonds or clicking refresh again) is discarded instead of overwriting the latest.
+  const generateBondRemark = async (force = false) => {
+    // Only the signature (bond data) is required. Do NOT gate on `aiRemarkLengthTarget`: a forced
+    // refresh must always fire even if the box measurement is momentarily 0 — `buildParagraphDirective`
+    // handles a 0 target by falling back to a default sentence range. (Gating on it here made the
+    // refresh button silently no-op.) The auto-generate effect still waits for the measurement.
+    if (!aiRemarkSignature) return;
 
+    if (!configured) {
+      // Only surface "not configured" once the status check has resolved.
+      if (!isLoadingStatus) {
+        setAiRemark('');
+        setAiRemarkUpdatedAt('');
+        setAiRemarkLoading(false);
+        setAiRemarkError(baseUrl ? null : t('aiNotConfiguredShort'));
+      }
+      return;
+    }
+
+    if (!force) {
+      const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature);
+      if (cachedRemark) {
+        setAiRemark(cachedRemark.text);
+        setAiRemarkUpdatedAt(cachedRemark.updatedAt);
+        setAiRemarkError(null);
+        setAiRemarkLoading(false);
+        return;
+      }
+    }
+
+    const requestId = aiRequestIdRef.current + 1;
+    aiRequestIdRef.current = requestId;
+    setAiRemarkLoading(true);
+    setAiRemarkError(null);
+
+    try {
+      const model = selectedModel || defaultModel;
+      const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
+      const basePrompt = language === 'en'
+        ? 'You are a professional bond analyst. Respond in English only. Use only the provided dataset for this specific bond. Read the full bond dataset, issuer information, rate structure, issue scale, industry-relative assessment, and cash-flow data when available. Every point must surface bond-specific numbers together with their meaning. Do not mention APIs, JSON, code, internal implementation details, or say that data is missing unless it is truly absent from the dataset.'
+        : 'Ban la chuyen gia phan tich trai phieu. Chi tra loi bang tieng Viet co dau. Chi su dung bo du lieu duoc cung cap cho chinh ma trai phieu nay. Hay doc day du du lieu cua ma trai phieu, thong tin to chuc phat hanh, cau truc lai suat, quy mo phat hanh, danh gia tuong quan voi nganh va du lieu dong tien neu co. Moi y phai neu so lieu cua chinh ma trai phieu kem y nghia. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
+      const prompt = `${basePrompt}\n\n${buildParagraphDirective(language === 'en' ? 'en' : 'vi', aiRemarkLengthTarget)}`;
+
+      const response = await sendChat({
+        model,
+        systemPrompt: `${activeSystemPrompt ? `${activeSystemPrompt}\n\n` : ''}${prompt}`,
+        userMessage: language === 'en'
+          ? `Write a short AI remark in English for bond "${aiRemarkPayload.bondCode}" based on the full provided dataset for that bond, not just the summary signals.`
+          : `Hay viet nhan xet AI ngan bang tieng Viet cho trai phieu "${aiRemarkPayload.bondCode}" dua tren toan bo bo du lieu cua ma trai phieu nay, khong chi dua vao cac tin hieu tom tat.`,
+        pageContext: JSON.stringify(aiRemarkPayload),
+      });
+
+      if (aiRequestIdRef.current !== requestId) return;
+
+      const nextRemark = sanitizeAIInsightText(String(response.text || ''), language === 'en' ? 'en' : 'vi');
+      const generatedAt = new Date().toISOString();
+      setAiRemark(nextRemark);
+      setAiRemarkUpdatedAt(generatedAt);
+      setAiRemarkError(null);
+      writeDailyAIInsight(localizedAiRemarkCacheKey, {
+        signature: aiRemarkSignature,
+        text: nextRemark,
+        model: response.model || model,
+        updatedAt: generatedAt,
+      });
+    } catch (remarkError) {
+      if (aiRequestIdRef.current !== requestId) return;
+      console.error('Error generating bond detail AI remark:', remarkError);
+      setAiRemark('');
+      setAiRemarkUpdatedAt('');
+      setAiRemarkError(t('aiError'));
+    } finally {
+      if (aiRequestIdRef.current === requestId) {
+        setAiRemarkLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
     if (!aiRemarkSignature) {
       setAiRemark('');
       setAiRemarkUpdatedAt('');
       setAiRemarkError(null);
       setAiRemarkLoading(false);
-      return () => {
-        isActive = false;
-      };
+      return;
     }
 
     // Wait until the card has been measured so the requested length matches its capacity.
-    if (!aiRemarkLengthTarget) {
-      return () => {
-        isActive = false;
-      };
-    }
-
-    const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature);
-    if (cachedRemark) {
-      setAiRemark(cachedRemark.text);
-      setAiRemarkUpdatedAt(cachedRemark.updatedAt);
-      setAiRemarkError(null);
-      setAiRemarkLoading(false);
-      return () => {
-        isActive = false;
-      };
-    }
+    if (!aiRemarkLengthTarget) return;
 
     if (isLoadingStatus) {
-      setAiRemarkUpdatedAt('');
       setAiRemarkLoading(true);
       setAiRemarkError(null);
-      return () => {
-        isActive = false;
-      };
+      return;
     }
 
-    if (!configured && !baseUrl) {
-      setAiRemark('');
-      setAiRemarkUpdatedAt('');
-      setAiRemarkLoading(false);
-      setAiRemarkError(statusError ? t('aiNotConfiguredShort') : null);
-      return () => {
-        isActive = false;
-      };
-    }
-
-    const generateRemark = async () => {
-      const requestId = aiRequestIdRef.current + 1;
-      aiRequestIdRef.current = requestId;
-      setAiRemarkLoading(true);
-      setAiRemarkError(null);
-
-      try {
-        if (!configured) {
-          if (isActive) {
-            setAiRemark('');
-            setAiRemarkUpdatedAt('');
-            setAiRemarkError(t('aiNotConfiguredShort'));
-            setAiRemarkLoading(false);
-          }
-          return;
-        }
-
-        const model = selectedModel || defaultModel;
-        const activeSystemPrompt = systemPrompt || defaultSystemPrompt;
-        const basePrompt = language === 'en'
-          ? 'You are a professional bond analyst. Respond in English only. Use only the provided dataset for this specific bond. Read the full bond dataset, issuer information, rate structure, issue scale, industry-relative assessment, and cash-flow data when available. Every point must surface bond-specific numbers together with their meaning. Do not mention APIs, JSON, code, internal implementation details, or say that data is missing unless it is truly absent from the dataset.'
-          : 'Ban la chuyen gia phan tich trai phieu. Chi tra loi bang tieng Viet co dau. Chi su dung bo du lieu duoc cung cap cho chinh ma trai phieu nay. Hay doc day du du lieu cua ma trai phieu, thong tin to chuc phat hanh, cau truc lai suat, quy mo phat hanh, danh gia tuong quan voi nganh va du lieu dong tien neu co. Moi y phai neu so lieu cua chinh ma trai phieu kem y nghia. Khong nhac toi API, JSON, ma nguon hay cau truc noi bo.';
-        const prompt = `${basePrompt}\n\n${buildParagraphDirective(language === 'en' ? 'en' : 'vi', aiRemarkLengthTarget)}`;
-
-        const response = await sendChat({
-          model,
-          systemPrompt: `${activeSystemPrompt ? `${activeSystemPrompt}\n\n` : ''}${prompt}`,
-          userMessage: language === 'en'
-            ? `Write a short AI remark in English for bond "${aiRemarkPayload.bondCode}" based on the full provided dataset for that bond, not just the summary signals.`
-            : `Hay viet nhan xet AI ngan bang tieng Viet cho trai phieu "${aiRemarkPayload.bondCode}" dua tren toan bo bo du lieu cua ma trai phieu nay, khong chi dua vao cac tin hieu tom tat.`,
-          pageContext: JSON.stringify(aiRemarkPayload),
-        });
-
-        if (!isActive || aiRequestIdRef.current !== requestId) return;
-
-        const nextRemark = sanitizeAIInsightText(String(response.text || ''), language === 'en' ? 'en' : 'vi');
-        const generatedAt = new Date().toISOString();
-        setAiRemark(nextRemark);
-        setAiRemarkUpdatedAt(generatedAt);
-        setAiRemarkLoading(false);
-        setAiRemarkError(null);
-        writeDailyAIInsight(localizedAiRemarkCacheKey, {
-          signature: aiRemarkSignature,
-          text: nextRemark,
-          model: response.model || model,
-          updatedAt: generatedAt,
-        });
-      } catch (remarkError) {
-        if (!isActive || aiRequestIdRef.current !== requestId) return;
-        console.error('Error generating bond detail AI remark:', remarkError);
-        setAiRemark('');
-        setAiRemarkUpdatedAt('');
-        setAiRemarkLoading(false);
-        setAiRemarkError(t('aiError'));
-      }
-    };
-
-    void generateRemark();
-
-    return () => {
-      isActive = false;
-    };
+    void generateBondRemark(false);
+    // generateBondRemark is intentionally omitted: it is recreated each render and the listed deps
+    // already cover every input it reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     aiRemarkPayload,
     aiRemarkSignature,
@@ -1388,7 +1382,6 @@ export default function BondDetailPopup({
     isLoadingStatus,
     language,
     localizedAiRemarkCacheKey,
-    refreshStatus,
     selectedModel,
     statusError,
     systemPrompt,
@@ -1734,21 +1727,36 @@ export default function BondDetailPopup({
               </div>
 
               <Card className="group flex flex-col rounded-2xl border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-5 shadow-sm shadow-blue-500/10 transition-all duration-300 dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:shadow-black/20">
-                <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-6 motion-reduce:transform-none dark:bg-slate-900/40 dark:ring-blue-900/40">
-                    <Sparkles className="h-5 w-5" />
+                <div className="mb-5 flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-6 motion-reduce:transform-none dark:bg-slate-900/40 dark:ring-blue-900/40">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-base font-bold text-text-base">{t('aiInsightTitle')}</h2>
+                      {aiRemarkUpdatedLabel ? (
+                        <div className="mt-0.5 text-xs font-medium text-text-muted/80">{aiRemarkUpdatedLabel}</div>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base font-bold text-text-base">{t('aiInsightTitle')}</h2>
-                    {aiRemarkUpdatedLabel ? (
-                      <div className="mt-0.5 text-xs font-medium text-text-muted/80">{aiRemarkUpdatedLabel}</div>
-                    ) : null}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void generateBondRemark(true)}
+                    disabled={!isAiRemarkDataReady || aiRemarkLoading}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-border-base bg-bg-surface px-2.5 py-1.5 text-xs font-semibold text-text-muted transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:hover:translate-y-0"
+                    title={t('refresh')}
+                    aria-label={t('refresh')}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${aiRemarkLoading ? 'animate-spin' : ''}`} />
+                  </button>
                 </div>
 
                 <div ref={measureAiRemarkBox} className="h-[220px] overflow-hidden">
                   {aiRemarkLoading ? (
-                    <p className="text-sm font-semibold text-text-muted">{t('aiGeneratingInsight')}</p>
+                    <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
+                      <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                      <span>{t('aiGeneratingInsight')}</span>
+                    </div>
                   ) : aiRemarkError ? (
                     <p className="text-sm font-medium text-amber-600">{aiRemarkError}</p>
                   ) : aiRemark ? (
