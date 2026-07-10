@@ -5,7 +5,7 @@ import { useVisibleOnce } from '../hooks/useVisibleOnce';
 import { useLanguage } from '../LanguageContext';
 import { useAIStore } from '../store/aiStore';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
-import { buildParagraphDirective } from '../utils/aiInsightStructured';
+import { buildParagraphDirective, estimateAdaptiveInsightSentenceTarget } from '../utils/aiInsightStructured';
 import { Card } from './ui/Card';
 import AIInsightText from './ui/AIInsightText';
 import AdaptiveInsightContent from './ui/AdaptiveInsightContent';
@@ -168,11 +168,7 @@ export default function AIInsightPanel({
       const width = node.clientWidth;
       const height = node.clientHeight;
       if (!width || !height) return;
-      const lines = Math.max(3, Math.floor(height / 24)); // leading-6 ≈ 24px per line
-      const charsPerLine = Math.max(24, Math.floor(width / 7.2)); // ≈ text-sm avg char width
-      // ≈ chars in a concise 15-20 word sentence; higher divisor → fewer sentences requested, so
-      // the model doesn't over-write and get trimmed (which was dropping the cash-flow point).
-      const sentences = Math.min(14, Math.max(3, Math.round((lines * charsPerLine) / 120)));
+      const sentences = estimateAdaptiveInsightSentenceTarget(width, height);
       setAdaptiveLengthTarget((previous) => (previous === sentences ? previous : sentences));
     };
 

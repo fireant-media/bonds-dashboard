@@ -1842,7 +1842,7 @@ export default function EnterpriseView({
       itemHeight: 10,
       textStyle: legendStyle
     },
-    grid: { top: '12%', bottom: '24%', left: '10%', right: '8%', containLabel: true },
+    grid: { top: '12%', bottom: '24%', left: '5%', right: '8%', containLabel: true },
     xAxis: {
       type: 'category',
       data: projectedCashFlowData.labels,

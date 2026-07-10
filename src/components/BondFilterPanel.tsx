@@ -1134,6 +1134,8 @@ function MarketFilterToolbar({
               onToggle={() => setOpenMenu((current) => (current === 'issuer' ? null : 'issuer'))}
               onChange={(value) => setDraftFilters((current) => ({ ...current, issuer: value }))}
               onClose={() => setOpenMenu(null)}
+              searchable
+              searchPlaceholder={t('searchIssuerPlaceholder')}
               fullWidth
             />
             <SelectFilterChip
@@ -1315,6 +1317,8 @@ export function SearchFilterField({
           onFocus={() => setIsFocused(true)}
           onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
           placeholder={t('searchBondPlaceholder')}
+          title={t('searchBondPlaceholder')}
+          aria-label={t('searchBondPlaceholder')}
           className="h-8 w-full rounded-lg border border-border-base bg-bg-base pl-10 pr-4 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400 sm:h-9"
         />
       </label>
@@ -1364,6 +1368,8 @@ export function ActionFilterButton({
     <button
       type="button"
       onClick={onClick}
+      title={label}
+      aria-label={label}
       className={`inline-flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${className} ${
         variant === 'primary'
           ? 'bg-blue-600 text-white hover:bg-blue-500'
@@ -1391,6 +1397,8 @@ export function FilterChipButton({ icon: Icon, label, active, open, valueText, o
     <button
       type="button"
       onClick={onClick}
+      title={valueText ? `${label}: ${valueText}` : label}
+      aria-label={label}
       className={`inline-flex h-8 items-center gap-2 rounded-lg border px-4 text-sm font-semibold shadow-sm transition-colors sm:h-9 ${fullWidth ? 'w-full' : ''} ${
         active || open
           ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300'
@@ -1453,16 +1461,42 @@ interface SelectFilterChipProps {
   onChange: (value: string) => void;
   onClose: () => void;
   fullWidth?: boolean;
+  // Show a search box inside the popover to filter a long option list (e.g. issuers).
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
-export function SelectFilterChip({ icon, label, value, options, open, onToggle, onChange, onClose, fullWidth = false }: SelectFilterChipProps) {
+const normalizeFilterSearch = (input: string) =>
+  input.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+
+export function SelectFilterChip({ icon, label, value, options, open, onToggle, onChange, onClose, fullWidth = false, searchable = false, searchPlaceholder }: SelectFilterChipProps) {
   const { t } = useLanguage();
   const active = Boolean(value);
+  const [query, setQuery] = useState('');
+
+  // Clear the query whenever the popover closes so it reopens on the full list.
+  useEffect(() => {
+    if (!open) setQuery('');
+  }, [open]);
+
+  const validOptions = useMemo(
+    () => options.filter((option): option is string => typeof option === 'string' && option.trim().length > 0),
+    [options],
+  );
+  const visibleOptions = useMemo(() => {
+    if (!searchable) return validOptions;
+    const normalizedQuery = normalizeFilterSearch(query);
+    if (!normalizedQuery) return validOptions;
+    return validOptions.filter((option) => {
+      const haystack = `${getDisplayOptionLabel(t, option)} ${option}`;
+      return normalizeFilterSearch(haystack).includes(normalizedQuery);
+    });
+  }, [query, searchable, t, validOptions]);
 
   return (
     <FilterPopoverShell
       open={open}
-      widthClass="w-64"
+      widthClass={searchable ? 'w-72' : 'w-64'}
       onClose={onClose}
       button={(
         <FilterChipButton
@@ -1477,6 +1511,19 @@ export function SelectFilterChip({ icon, label, value, options, open, onToggle, 
       )}
     >
       <div className="space-y-2">
+        {searchable ? (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-blue-600" />
+            <input
+              type="text"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={searchPlaceholder || t('search')}
+              autoFocus
+              className="h-9 w-full rounded-md border border-border-base bg-bg-base pl-9 pr-3 text-sm font-semibold text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+            />
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={() => {
@@ -1492,25 +1539,27 @@ export function SelectFilterChip({ icon, label, value, options, open, onToggle, 
           {t('all')}
         </button>
         <div className="max-h-64 overflow-y-auto">
-          {options
-            .filter((option): option is string => typeof option === 'string' && option.trim().length > 0)
-            .map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                onChange(option);
-                onClose();
-              }}
-              className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors ${
-                value === option
-                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
-                  : 'text-text-base hover:bg-surface-container-low'
-              }`}
-            >
-              {getDisplayOptionLabel(t, option)}
-            </button>
-          ))}
+          {visibleOptions.length > 0 ? (
+            visibleOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  onChange(option);
+                  onClose();
+                }}
+                className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors ${
+                  value === option
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
+                    : 'text-text-base hover:bg-surface-container-low'
+                }`}
+              >
+                {getDisplayOptionLabel(t, option)}
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-sm font-medium text-text-muted">{t('noData')}</div>
+          )}
         </div>
       </div>
     </FilterPopoverShell>

@@ -15,7 +15,7 @@ import { loadBondIndustryByFilter, loadIndustryBondGroupData, type IndustryBondG
 import { resolveIndustryKeyFromCandidates } from '../constants/industries';
 import { CHART_PALETTE, getChartTooltip, highlightChartTooltipValue } from '../utils/chart';
 import { readDailyAIInsight, sanitizeAIInsightText, writeDailyAIInsight } from '../utils/aiInsight';
-import { buildParagraphDirective } from '../utils/aiInsightStructured';
+import { buildParagraphDirective, estimateAdaptiveInsightSentenceTarget } from '../utils/aiInsightStructured';
 import { clearBondDetailChatContext, setBondDetailChatContext } from '../utils/bondDetailChatContext';
 import { isBondTracked, onWatchlistUpdated, removeWatchlistItem, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 import { useAIStore } from '../store/aiStore';
@@ -230,12 +230,7 @@ export default function BondDetailPopup({
       const width = node.clientWidth;
       const height = node.clientHeight;
       if (!width || !height) return;
-      const lines = Math.max(3, Math.floor(height / 24)); // leading-6 ≈ 24px per line
-      const charsPerLine = Math.max(24, Math.floor(width / 7.2)); // ≈ text-sm avg char width
-      // Divisor matches AIInsightPanel (120): higher divisor → fewer sentences requested, so the
-      // model doesn't heavily over-write and lean on the client fitter to trim (which is what left
-      // the last sentence clipped mid-way). The fitter still guarantees no overflow.
-      const sentences = Math.min(14, Math.max(3, Math.round((lines * charsPerLine) / 120)));
+      const sentences = estimateAdaptiveInsightSentenceTarget(width, height);
       setAiRemarkLengthTarget((previous) => (previous === sentences ? previous : sentences));
     };
 
@@ -1128,13 +1123,18 @@ export default function BondDetailPopup({
     ],
   );
 
+  // Cache identity is per bond + language and deliberately STABLE: it does not fold in the payload
+  // hash or the measured length target. That way the insight is generated only the first time a bond
+  // is opened and is reused verbatim on every later reopen (and across days) — it is refreshed only
+  // when the user clicks the refresh button. Enrichment data arriving late (issuer financials,
+  // industry percentile) or the card being re-measured no longer invalidates it and causes a reset.
   const aiRemarkSignature = useMemo(
-    () => (isAiRemarkDataReady ? JSON.stringify(aiRemarkPayload) : ''),
-    [aiRemarkPayload, isAiRemarkDataReady],
+    () => (isAiRemarkDataReady && currentBond.code ? `bond:${currentBond.code}` : ''),
+    [currentBond.code, isAiRemarkDataReady],
   );
   const localizedAiRemarkCacheKey = useMemo(
-    () => `${AI_INSIGHT_CACHE_KEY}-${language}-len${aiRemarkLengthTarget}`,
-    [language, aiRemarkLengthTarget],
+    () => `${AI_INSIGHT_CACHE_KEY}-${language}-${currentBond.code || 'unknown'}`,
+    [language, currentBond.code],
   );
   const aiRemarkUpdatedLabel = useMemo(() => {
     if (!aiRemarkUpdatedAt) return '';
@@ -1290,7 +1290,7 @@ export default function BondDetailPopup({
     }
 
     if (!force) {
-      const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature);
+      const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature, { ignoreDate: true });
       if (cachedRemark) {
         setAiRemark(cachedRemark.text);
         setAiRemarkUpdatedAt(cachedRemark.updatedAt);
@@ -1366,11 +1366,35 @@ export default function BondDetailPopup({
       return;
     }
 
-    void generateBondRemark(false);
+    // Already have an insight for this bond in state — keep it. Enrichment data arriving late or a
+    // re-measure must never swap a good, already-fitted insight for a fresh one (a jarring "reset").
+    if (aiRemark) return;
+
+    // Reopening a bond generated before: serve the persisted insight instantly, no regeneration.
+    const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature, { ignoreDate: true });
+    if (cachedRemark) {
+      setAiRemark(cachedRemark.text);
+      setAiRemarkUpdatedAt(cachedRemark.updatedAt);
+      setAiRemarkError(null);
+      setAiRemarkLoading(false);
+      return;
+    }
+
+    // First time this bond is opened: debounce the single generation. The payload keeps changing as
+    // enrichment data (issuer name, financials, industry comparison) loads; each change re-runs this
+    // effect and resets the timer, so generation fires ~0.8s AFTER the data settles — folding it all
+    // into ONE rich insight instead of several regenerations. Show the loading state meanwhile.
+    setAiRemarkLoading(true);
+    setAiRemarkError(null);
+    const generateTimer = window.setTimeout(() => {
+      void generateBondRemark(false);
+    }, 800);
+    return () => window.clearTimeout(generateTimer);
     // generateBondRemark is intentionally omitted: it is recreated each render and the listed deps
     // already cover every input it reads.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    aiRemark,
     aiRemarkPayload,
     aiRemarkSignature,
     aiRemarkLengthTarget,
@@ -1421,8 +1445,14 @@ export default function BondDetailPopup({
     const chartData = Array.from(groupedCashFlows.values()).sort((left, right) => left.sortValue - right.sortValue);
     const tooltip = getChartTooltip(isDark);
     const useBarDefault = chartData.length === 1;
-    const barWidth = useBarDefault ? '18%' : undefined;
-    const barMaxWidth = useBarDefault ? 24 : undefined;
+    // Uniform column width whether there is 1 or many categories: every bar case uses the SAME width
+    // percentage + max cap, so a single-month bond renders the same-sized column as a multi-month one
+    // (previously 1 category used 18%/24px while others used 38%/40px). `barMaxWidth` caps the width
+    // for few categories (and overrides the percentage the toolbar's line→column toggle applies),
+    // while the percentage keeps columns from overlapping when there are many categories.
+    const barWidth = '38%';
+    const barMaxWidth = 40;
+    const barGap = '30%';
 
     return {
       color: chartPalette,
@@ -1446,7 +1476,7 @@ export default function BondDetailPopup({
         itemHeight: 10,
         textStyle: { fontSize: 11 },
       },
-      grid: { left: '3%', right: '4%', top: '8%', bottom: '16%', containLabel: true },
+      grid: { left: '3%', right: '4%', top: '12%', bottom: '16%', containLabel: true },
       xAxis: {
         type: 'category',
         data: chartData.map((item) => item.label),
@@ -1472,7 +1502,7 @@ export default function BondDetailPopup({
           lineStyle: useBarDefault ? undefined : { width: 2 },
           barWidth,
           barMaxWidth,
-          barGap: useBarDefault ? '30%' : undefined,
+          barGap,
         },
         {
           type: useBarDefault ? 'bar' : 'line',
@@ -1484,7 +1514,7 @@ export default function BondDetailPopup({
           lineStyle: useBarDefault ? undefined : { width: 2 },
           barWidth,
           barMaxWidth,
-          barGap: useBarDefault ? '30%' : undefined,
+          barGap,
         },
       ],
     };
@@ -1597,22 +1627,26 @@ export default function BondDetailPopup({
                 <button
                   type="button"
                   onClick={handleCompareBond}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border-base bg-white px-4 py-2 text-xs font-bold uppercase tracking-wide text-text-base shadow-sm shadow-blue-950/10 transition-colors hover:border-blue-200 hover:bg-slate-50 hover:text-blue-600 hover:shadow-md dark:bg-surface-bright dark:text-text-base dark:hover:bg-surface-container-low"
+                  title={t('compareBond')}
+                  aria-label={t('compareBond')}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border-base bg-white px-2.5 py-2 text-xs font-bold uppercase tracking-wide text-text-base shadow-sm shadow-blue-950/10 transition-colors hover:border-blue-200 hover:bg-slate-50 hover:text-blue-600 hover:shadow-md sm:px-4 dark:bg-surface-bright dark:text-text-base dark:hover:bg-surface-container-low"
                 >
                   <ArrowLeftRight className="h-4 w-4" />
-                  <span>{t('compareBond')}</span>
+                  <span className="hidden sm:inline">{t('compareBond')}</span>
                 </button>
                 <button
                   type="button"
                   onClick={isTracked ? handleUntrackBond : handleTrackBond}
+                  title={isTracked ? t('followed') : t('follow')}
+                  aria-label={isTracked ? t('followed') : t('follow')}
                   className={
                     isTracked
-                      ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold uppercase tracking-wide text-emerald-600 transition-colors'
-                      : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95'
+                      ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-xs font-bold uppercase tracking-wide text-emerald-600 transition-colors sm:px-4'
+                      : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-2.5 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 sm:px-4'
                   }
                 >
                   {isTracked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
-                  <span>{isTracked ? t('followed') : t('follow')}</span>
+                  <span className="hidden sm:inline">{isTracked ? t('followed') : t('follow')}</span>
                 </button>
               </div>
             </div>
@@ -1632,9 +1666,9 @@ export default function BondDetailPopup({
             </section>
 
             <section className="grid gap-6 xl:grid-cols-2">
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <div className="group rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 dark:hover:border-blue-500/30">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600 transition-transform duration-300 group-hover:scale-110">
                     <Info className="h-5 w-5" />
                   </div>
                   <h2 className="text-base font-bold text-text-base">{t('bondInfoSection')}</h2>
@@ -1642,9 +1676,9 @@ export default function BondDetailPopup({
                 {renderInfoRows(bondInfoRows)}
               </div>
 
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <div className="group rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 dark:hover:border-blue-500/30">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600 transition-transform duration-300 group-hover:scale-110">
                     <Briefcase className="h-5 w-5" />
                   </div>
                   <h2 className="text-base font-bold text-text-base">{t('issuerInfoSection')}</h2>
@@ -1652,9 +1686,9 @@ export default function BondDetailPopup({
                 {renderInfoRows(issuerInfoRows)}
               </div>
 
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <div className="group rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 dark:hover:border-blue-500/30">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600 transition-transform duration-300 group-hover:scale-110">
                     <TrendingUp className="h-5 w-5" />
                   </div>
                   <h2 className="text-base font-bold text-text-base">{t('bondRateSection')}</h2>
@@ -1662,9 +1696,9 @@ export default function BondDetailPopup({
                 {renderInfoRows(bondRateRows)}
               </div>
 
-              <div className="rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <div className="group rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 dark:hover:border-blue-500/30">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600 transition-transform duration-300 group-hover:scale-110">
                     <Landmark className="h-5 w-5" />
                   </div>
                   <h2 className="text-base font-bold text-text-base">{t('issueScaleSection')}</h2>
@@ -1674,7 +1708,7 @@ export default function BondDetailPopup({
             </section>
 
             <section className="grid gap-6 xl:grid-cols-2 xl:items-start">
-              <div className="h-[320px] rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm">
+              <div className="h-[320px] rounded-2xl border border-border-base bg-bg-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/10 lg:h-[400px] dark:hover:border-blue-500/30">
                 {loading ? (
                   <div className="flex h-full items-center justify-center">
                     <div className="flex flex-col items-center gap-3">
@@ -1726,7 +1760,7 @@ export default function BondDetailPopup({
                 )}
               </div>
 
-              <Card className="group flex flex-col rounded-2xl border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-5 shadow-sm shadow-blue-500/10 transition-all duration-300 dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:shadow-black/20">
+              <Card className="group flex h-[320px] flex-col rounded-2xl border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-5 shadow-sm shadow-blue-500/10 transition-all duration-300 lg:h-[400px] dark:border-blue-900/40 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:shadow-black/20">
                 <div className="mb-5 flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-surface text-blue-600 shadow-sm ring-1 ring-blue-100 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-6 motion-reduce:transform-none dark:bg-slate-900/40 dark:ring-blue-900/40">
@@ -1751,7 +1785,11 @@ export default function BondDetailPopup({
                   </button>
                 </div>
 
-                <div ref={measureAiRemarkBox} className="h-[220px] overflow-hidden">
+                {/* `relative` + the fit box's `absolute inset-0` give the clip box a DEFINITE pixel
+                    height (the flex-1 slot), so the fitter measures overflow correctly and trims to
+                    whole sentences. A percentage `h-full` would not resolve against a flex item and
+                    let the text overflow the card and clip mid-sentence. */}
+                <div ref={measureAiRemarkBox} className="relative min-h-0 flex-1 overflow-hidden">
                   {aiRemarkLoading ? (
                     <div className="flex items-center gap-3 py-2 text-sm font-semibold text-text-muted">
                       <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
@@ -1763,7 +1801,7 @@ export default function BondDetailPopup({
                     <AdaptiveInsightContent
                       content={aiRemark}
                       boldTerms={[currentBond.code, issuerDisplayName].filter(Boolean) as string[]}
-                      className="h-full overflow-hidden"
+                      className="absolute inset-0 overflow-hidden"
                     />
                   ) : (
                     <p className="text-sm text-text-muted">{t('aiNoInsight')}</p>

@@ -73,11 +73,14 @@ export default function AdaptiveInsightContent({ content, boldTerms, className }
   );
   const tailWords = useMemo(() => lastBlockText(limited).split(/\s+/).filter(Boolean).length, [limited]);
 
-  // Restart from the full insight whenever the inputs that decide the fit change.
+  // Restart from the full insight whenever the inputs that decide the fit change. Keyed on `content`
+  // (not just `totalBlocks`): two different paragraphs can share a block count, and without a restart
+  // the new text would inherit the previous fit's `visibleBlocks`/`tailWordLimit` — leaving it either
+  // under-filled or, after a refresh to longer text, clipped mid-sentence before the fitter re-runs.
   useEffect(() => {
     setVisibleBlocks(totalBlocks);
     setTailWordLimit(null);
-  }, [totalBlocks, fitNonce]);
+  }, [content, totalBlocks, fitNonce]);
 
   // Shrink until the text fits the fixed-height box, never cutting mid-sentence. useLayoutEffect
   // measures AFTER layout but BEFORE paint and runs on every commit (no deps), so the reduction

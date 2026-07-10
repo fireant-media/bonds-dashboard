@@ -58,6 +58,48 @@ test('filterBondRowsByCriteria matches Vietnamese interest types', () => {
   assert.equal(filterBondRowsByCriteria(rows as any, { bondRateType: 'floating' } as any).length, 1);
 });
 
+const makeRow = (overrides: Record<string, unknown>) => ({
+  bondCode: '',
+  issuerName: '',
+  issuerSymbol: '',
+  bondType: '',
+  industry: '',
+  issueDate: '',
+  maturityDate: '',
+  tenorPeriod: 12,
+  bondRate: 8,
+  bondRateType: 'Cố định',
+  currentListedVolume: 0,
+  currentListedValue: 0,
+  totalIssuedValue: 0,
+  totalRemainingDebt: 0,
+  totalDebtFull: 0,
+  status: '',
+  bondInfos: {},
+  raw: {},
+  ...overrides,
+});
+
+// "Danh sách mã trái phiếu ACB" resolves even when the extracted issuer is a TICKER and the row's
+// issuerSymbol is blank: the ticker is found in the bond code (VN bond codes start with the ticker).
+test('filterBondRowsByCriteria matches an issuer ticker via bond code / symbol / name', () => {
+  const rows = [
+    makeRow({ bondCode: 'ACB12203', issuerName: 'Ngân hàng TMCP Á Châu', issuerSymbol: '' }),
+    makeRow({ bondCode: 'TCB12102', issuerName: 'Ngân hàng TMCP Kỹ Thương Việt Nam', issuerSymbol: 'TCB' }),
+    makeRow({ bondCode: 'VIC12001', issuerName: 'Tập đoàn Vingroup', issuerSymbol: 'VIC' }),
+  ];
+
+  // Ticker via bond code prefix, even with empty issuerSymbol.
+  assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'ACB' } as any).length, 1);
+  assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'ACB' } as any)[0].bondCode, 'ACB12203');
+  // Ticker via issuerSymbol.
+  assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'TCB' } as any).length, 1);
+  // Token-subset name match (different word order / spacing).
+  assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'Vingroup' } as any).length, 1);
+  // Unknown issuer returns nothing.
+  assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'XYZ' } as any).length, 0);
+});
+
 // Analytical / aggregate questions must route to grounded Q&A (isBondFilterIntent === false),
 // never to the bond-list filter — which can only return individual bonds and would otherwise
 // answer every one of them with the same off-topic list. Regression guard for the suggested

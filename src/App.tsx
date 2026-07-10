@@ -223,15 +223,31 @@ export default function App() {
     const container = scrollContainerRef.current;
     if (!container) return;
 
+    // Opening a bond detail/comparison (rendered over the list via `backgroundLocation`): show it from
+    // the TOP rather than inheriting the list's scroll position (e.g. the user was on page 3 scrolled
+    // down). The list's own scroll was already saved by the effect above and is restored on "back".
     if (location.state?.backgroundLocation) {
+      container.scrollTo({ top: 0, behavior: 'instant' });
       return;
     }
 
     const savedScrollTop = scrollPositionsRef.current.get(location.key);
 
     if (navigationType === 'POP' && typeof savedScrollTop === 'number') {
-      container.scrollTo({ top: savedScrollTop, behavior: 'instant' });
-      return;
+      // The destination (e.g. the bond list) remounts and loads its rows asynchronously, so on the
+      // first frame the content is too short to reach the saved offset. Re-apply across frames until
+      // the content has grown enough to honour it (or we give up), so "back" lands on the exact row.
+      let frame = 0;
+      let attempts = 0;
+      const applyScroll = () => {
+        container.scrollTo({ top: savedScrollTop, behavior: 'instant' });
+        attempts += 1;
+        if (container.scrollTop < savedScrollTop - 1 && attempts < 30) {
+          frame = requestAnimationFrame(applyScroll);
+        }
+      };
+      applyScroll();
+      return () => cancelAnimationFrame(frame);
     }
 
     container.scrollTo({ top: 0, behavior: 'instant' });

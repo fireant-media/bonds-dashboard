@@ -642,7 +642,8 @@ export async function extractBondFilterCriteria({
         'Vi du: 1.000 ty = 1000 ty = 1 nghin ty. 1000 ty = 1 nghin ty. 1,000 = 1 ty.',
         'bondRateType chi nhan mot trong hai gia tri: "fixed" hoac "floating".',
         'Cac truong gia tri theo ty VND gom: minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion.',
-        'Chi dien industry, issuer, bondType neu nguoi dung neu ro tieu chi nay. Khong dua ma trai phieu vao issuer.',
+        'Chi dien industry, issuer, bondType neu nguoi dung neu ro tieu chi nay. Khong dua ma trai phieu (vi du ACB12203) vao issuer.',
+        'Neu nguoi dung chi neu ten viet tat hoac ma chung khoan cua to chuc phat hanh (vi du: ACB, TCB, VIC, MSN, VPB) thi coi do la issuer va dat dung gia tri do (giu nguyen, khong tu suy dien thanh ten day du).',
         'sortBy chi nhan mot trong cac gia tri: 0 ten to chuc phat hanh, 1 ma trai phieu, 2 tong khoi luong phat hanh giam dan, 3 tong gia tri phat hanh giam dan, 4 dao han gan nhat, 5 phat hanh moi nhat, 6 lai suat danh nghia giam dan, 7 khoi luong niem yet giam dan, 8 gia tri niem yet giam dan.',
         'secondarySorts la danh sach thu tu uu tien tiep theo neu cau hoi co nhieu dieu kien xep hang.',
         'Neu nguoi dung hoi "trai phieu co lai suat cao nhat" thi phai uu tien {"sortBy": 6} va khong duoc tu y dat minBondRate/maxBondRate.',
@@ -851,13 +852,32 @@ function matchesTextCriteria(value: string, expected?: string) {
   return candidate === normalizedExpected || candidate.includes(normalizedExpected);
 }
 
+// Issuer matching is deliberately lenient so a question like "Danh sách mã trái phiếu ACB" resolves
+// even when the extracted issuer is a TICKER rather than the stored full name. It matches against the
+// issuer name, the issuer symbol, AND the bond code — Vietnamese bond codes start with the issuer's
+// ticker (e.g. ACB12203, TCB12102), so the ticker is found there even when `issuerSymbol` is blank.
+// It also accepts a token-subset match so a name given in a slightly different word order still hits.
+function matchesIssuerCriteria(row: BondDataRow, expected?: string) {
+  const normalizedExpected = normalizeLabelKey(expected || '');
+  if (!normalizedExpected) return true;
+
+  const haystack = normalizeLabelKey(
+    `${row.issuerName || ''} ${row.issuerSymbol || ''} ${row.bondCode || ''}`,
+  );
+  if (!haystack) return false;
+  if (haystack.includes(normalizedExpected)) return true;
+
+  const tokens = normalizedExpected.split(' ').filter((token) => token.length >= 2);
+  return tokens.length > 0 && tokens.every((token) => haystack.includes(token));
+}
+
 export function filterBondRowsByCriteria(rows: BondDataRow[], criteria: AIBondFilterCriteria) {
   return rows.filter((row) => {
     if (!matchesTextCriteria(row.industry || '', criteria.industry)) {
       return false;
     }
 
-    if (!matchesTextCriteria(`${row.issuerName || ''} ${row.issuerSymbol || ''}`.trim(), criteria.issuer)) {
+    if (!matchesIssuerCriteria(row, criteria.issuer)) {
       return false;
     }
 
@@ -984,6 +1004,43 @@ export function hasAIBondFilterCriteria(criteria: AIBondFilterCriteria) {
   );
 }
 
+// Whether a bond-filter request is worth answering with the chat's filtered-list template. It must
+// either NARROW the universe (any real constraint) or RANK it meaningfully (a non-default sort or
+// secondary sorts). Sorting by the default bond-code (1) / issuer-name (0) order with no constraint
+// would just dump the entire listed-bond list (~1000+ rows) — never a useful reply to a typed
+// question — so those cases fall through to grounded Q&A instead of the list template.
+export function hasActionableBondFilter(criteria: AIBondFilterCriteria) {
+  const hasConstraint = Boolean(
+    criteria.industry
+    || criteria.issuer
+    || criteria.bondType
+    || criteria.remainingDaysMin !== undefined
+    || criteria.remainingDaysMax !== undefined
+    || criteria.minTenorMonths !== undefined
+    || criteria.maxTenorMonths !== undefined
+    || criteria.issueDateFrom
+    || criteria.issueDateTo
+    || criteria.maturityDateFrom
+    || criteria.maturityDateTo
+    || criteria.minBondRate !== undefined
+    || criteria.maxBondRate !== undefined
+    || criteria.bondRateType
+    || criteria.minListedVolume !== undefined
+    || criteria.maxListedVolume !== undefined
+    || criteria.minIssuedValueBillion !== undefined
+    || criteria.maxIssuedValueBillion !== undefined
+    || criteria.minListedValueBillion !== undefined
+    || criteria.maxListedValueBillion !== undefined,
+  );
+  if (hasConstraint) return true;
+
+  // sortBy 0 = issuer name, 1 = bond code (neutral default orders); 2-8 rank by volume/value/rate/
+  // maturity/issue date (a meaningful "top/nearest/newest" ranking that stands on its own).
+  const hasRankingSort = criteria.sortBy !== undefined && criteria.sortBy !== 0 && criteria.sortBy !== 1;
+  const hasSecondarySorts = Array.isArray(criteria.secondarySorts) && criteria.secondarySorts.length > 0;
+  return hasRankingSort || hasSecondarySorts;
+}
+
 export function buildBondFilterResultPreview(rows: BondDataRow[], limit = 5) {
   return rows.slice(0, limit).map((row) => ({
     bondCode: row.bondCode,
@@ -991,6 +1048,7 @@ export function buildBondFilterResultPreview(rows: BondDataRow[], limit = 5) {
     bondRate: row.bondRate,
     tenorPeriod: row.tenorPeriod,
     maturityDate: row.maturityDate,
+    issuedValueBillion: Number(((Number(row.totalIssuedValue) || 0) / 1_000_000_000).toFixed(2)),
   }));
 }
 

@@ -1145,6 +1145,7 @@ export default function MarketBondFilterView({
         rows={filteredRows}
         columns={columns}
         getRowKey={(row) => row.bondCode}
+        persistKey="market-bond-list"
         pageSize={10}
         initialSort={tableInitialSort}
         emptyState={t('noData')}

@@ -12,13 +12,13 @@ import {
   extractBondFilterCriteria,
   filterBondRowsByCriteria,
   getAIBondSortByLabel,
-  hasAIBondFilterCriteria,
+  hasActionableBondFilter,
   isBondFilterIntent,
   sortBondRowsByCriteria,
   summarizeBondFilterCriteria,
   type AIBondFilterCriteria,
 } from '../services/aiBondFilter';
-import { loadBondFilterRows, type BondDataRow } from '../services/bondData';
+import { loadBondFilterRows, loadGovernmentBondRows, loadUnlistedEnterpriseBondRows, type BondDataRow } from '../services/bondData';
 import { ENTERPRISE_LIST_DATA_CACHE_KEY } from '../services/enterpriseListData';
 import { getCache } from '../utils/cache';
 import type { Enterprise } from '../types';
@@ -75,6 +75,10 @@ const BILLION = 1_000_000_000;
 const CHAT_HISTORY_KEY = 'sentinel_chat_history';
 const CLIENT_FALLBACK_AI_MODEL = 'gpt-5.4-mini';
 const CHAT_FILTER_FETCH_LIMIT = 1500;
+// Max rows rendered in the chat's bond-list answer table. High enough to show a single issuer's full
+// list in-chat (the answer must be complete, no redirect); a pathological huge result still notes the
+// remainder as "…và N mã khác" without truncating to a filter-page link.
+const CHAT_FILTER_TABLE_LIMIT = 200;
 const MAX_CARD_COUNT = 6;
 const MAX_ROW_COUNT = 100;
 const MAX_SUGGESTION_COUNT = 3;
@@ -865,10 +869,25 @@ function resizeTextarea(textarea: HTMLTextAreaElement | null) {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
 }
 
+// Render any ISO date (yyyy-mm-dd, with an optional time part) the model echoed from the page-context
+// data as dd-mm-yyyy — the Vietnamese format used everywhere else in the UI. Month/day are validated
+// so genuinely non-date "1234-56-78" strings and year ranges (e.g. 2026-2045) are left untouched.
+function reformatIsoDatesToVietnamese(content: string): string {
+  return content.replace(
+    /\b(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?\b/g,
+    (match, year: string, month: string, day: string) => {
+      const monthNum = Number(month);
+      const dayNum = Number(day);
+      if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) return match;
+      return `${day}-${month}-${year}`;
+    },
+  );
+}
+
 function sanitizeAssistantContent(content: string): string {
   if (!content.trim()) return content;
 
-  return content
+  return reformatIsoDatesToVietnamese(content)
     .replace(/Theo dữ liệu([^:\n]*?)trong\s+`?PAGE_DATA`?\s*:?/gi, 'Theo dữ liệu$1:')
     .replace(/Theo du lieu([^:\n]*?)trong\s+`?PAGE_DATA`?\s*:?/gi, 'Theo dữ liệu$1:')
     .replace(/\s+trong\s+`?PAGE_DATA`?/gi, '')
@@ -1275,10 +1294,10 @@ function buildBondFilterAssistantContent(
 
   if (rows.length === 0) {
     if (language === 'en') {
-      return `I did not find any listed bond matching ${summaryText || 'the requested conditions'}. You can widen the tenor, coupon, issue date, or maturity date range and try again.`;
+      return `I did not find any bond matching ${summaryText || 'the requested conditions'}. You can widen the tenor, coupon, issue date, or maturity date range and try again.`;
     }
 
-    return `Tôi chưa tìm thấy mã trái phiếu niêm yết nào phù hợp với ${summaryText || 'điều kiện đã mô tả'}. Bạn có thể mở rộng khoảng kỳ hạn, lãi suất, ngày phát hành hoặc ngày đáo hạn để lấy thêm kết quả.`;
+    return `Tôi chưa tìm thấy mã trái phiếu nào phù hợp với ${summaryText || 'điều kiện đã mô tả'}. Bạn có thể mở rộng khoảng kỳ hạn, lãi suất, ngày phát hành hoặc ngày đáo hạn để lấy thêm kết quả.`;
   }
 
   const avgRate = rows.reduce((total, row) => total + Number(row.bondRate || 0), 0) / rows.length;
@@ -1287,14 +1306,15 @@ function buildBondFilterAssistantContent(
     .map((row) => row.maturityDate)
     .filter(Boolean)
     .sort((left, right) => Date.parse(left) - Date.parse(right));
-  const previewRows = buildBondFilterResultPreview(sortBondRowsByCriteria(rows, criteria), 5);
-  const previewLines = previewRows.map((row) => {
-    if (language === 'en') {
-      return `- \`${row.bondCode}\` | ${row.issuerName} | ${formatInterestRate(row.bondRate)}% | ${formatNumber(row.tenorPeriod, 0)} months | maturity ${formatDate(row.maturityDate)}`;
-    }
-
-    return `- \`${row.bondCode}\` | ${row.issuerName} | ${formatInterestRate(row.bondRate)}% | ${formatNumber(row.tenorPeriod, 0)} tháng | đáo hạn ${formatDate(row.maturityDate)}`;
-  });
+  const sortedRows = sortBondRowsByCriteria(rows, criteria);
+  const previewRows = buildBondFilterResultPreview(sortedRows, CHAT_FILTER_TABLE_LIMIT);
+  const remainingCount = rows.length - previewRows.length;
+  const escapeCell = (value: string) => String(value ?? '').replace(/\|/g, '/').replace(/\n/g, ' ').trim();
+  const formatIssuedValue = (billion: number) => (
+    billion > 0
+      ? `${formatNumber(billion, 2)} ${language === 'en' ? 'bn VND' : 'tỷ'}`
+      : language === 'en' ? 'n/a' : 'chưa rõ'
+  );
 
   const tenorRange = tenorValues.length > 0
     ? `${formatNumber(Math.min(...tenorValues), 0)} - ${formatNumber(Math.max(...tenorValues), 0)}`
@@ -1307,19 +1327,68 @@ function buildBondFilterAssistantContent(
       ? 'n/a'
       : 'chưa rõ';
 
+  // Drop the "Tổ chức phát hành" column when every bond is from the SAME issuer (e.g. "Danh sách mã
+  // trái phiếu ACB") — the issuer is named once in the lead sentence instead of repeated per row.
+  const distinctIssuerKeys = new Set(
+    sortedRows
+      .map((row) => (row.issuerName || row.issuerSymbol || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const singleIssuerName = distinctIssuerKeys.size === 1
+    ? (sortedRows.find((row) => row.issuerName)?.issuerName
+        || sortedRows.find((row) => row.issuerSymbol)?.issuerSymbol
+        || '')
+    : '';
+  const showIssuerColumn = !singleIssuerName;
+
+  // Answer list questions as a markdown table (rendered via remark-gfm): bond code, [issuer,] coupon,
+  // maturity, issued value.
+  const headerCells = language === 'en'
+    ? ['Code', ...(showIssuerColumn ? ['Issuer'] : []), 'Coupon', 'Maturity', 'Issued value']
+    : ['Mã', ...(showIssuerColumn ? ['Tổ chức phát hành'] : []), 'Lãi suất', 'Ngày đáo hạn', 'Giá trị phát hành'];
+  const table = [
+    `| ${headerCells.join(' | ')} |`,
+    `| ${headerCells.map(() => '---').join(' | ')} |`,
+    ...previewRows.map((row) => {
+      const cells = [
+        `\`${row.bondCode}\``,
+        ...(showIssuerColumn ? [escapeCell(row.issuerName)] : []),
+        `${formatInterestRate(row.bondRate)}%`,
+        formatDate(row.maturityDate),
+        formatIssuedValue(row.issuedValueBillion),
+      ];
+      return `| ${cells.join(' | ')} |`;
+    }),
+  ].join('\n');
+
+  // The sort label already reads "Sắp xếp theo …" / "Sort by …"; only show it for a meaningful
+  // ranking sort (not the neutral bond-code / issuer-name default), to avoid noise.
+  const sortNote = criteria.sortBy !== undefined && criteria.sortBy !== 0 && criteria.sortBy !== 1 && sortText
+    ? ` (${sortText})`
+    : '';
+  const nonSortSummary = summary.filter((item) => !/^(Sắp xếp|Sort)\b/i.test(item));
+  const criteriaText = nonSortSummary.join(', ');
+  const otherCriteria = nonSortSummary.filter((item) => !/^(Tổ chức phát hành|Issuer)\b/i.test(item));
+
   if (language === 'en') {
+    const lead = singleIssuerName
+      ? `**${singleIssuerName}** has **${formatNumber(rows.length, 0)} bonds**${otherCriteria.length ? ` (${otherCriteria.join(', ')})` : ''}`
+      : `I found **${formatNumber(rows.length, 0)} bonds** matching ${criteriaText || 'the requested conditions'}`;
     return [
-      `I filtered the listed bond universe by ${summaryText || 'the requested conditions'} and found **${formatNumber(rows.length, 0)} matching bonds**.`,
-      `This group has an average coupon of **${formatInterestRate(avgRate)}%**, a tenor range around **${tenorRange} months**, and maturities spanning **${maturityRange}**${sortText ? `. Current result order: **${sortText}**` : ''}.`,
-      `A few bonds worth reviewing next:\n${previewLines.join('\n')}`,
-    ].join('\n\n');
+      `${lead} — average coupon **${formatInterestRate(avgRate)}%**, tenor **${tenorRange} months**, maturities **${maturityRange}**${sortNote}.`,
+      table,
+      remainingCount > 0 ? `…and **${formatNumber(remainingCount, 0)}** more bonds.` : '',
+    ].filter(Boolean).join('\n\n');
   }
 
+  const lead = singleIssuerName
+    ? `**${singleIssuerName}** hiện có **${formatNumber(rows.length, 0)} mã trái phiếu**${otherCriteria.length ? ` (${otherCriteria.join(', ')})` : ''}`
+    : `Có **${formatNumber(rows.length, 0)} mã trái phiếu** phù hợp với ${criteriaText || 'các tiêu chí bạn mô tả'}`;
   return [
-    `Tôi đã lọc tập trái phiếu niêm yết theo ${summaryText || 'các tiêu chí bạn mô tả'} và hiện có **${formatNumber(rows.length, 0)} mã phù hợp**.`,
-    `Nhóm kết quả này có lãi suất bình quân **${formatInterestRate(avgRate)}%**, kỳ hạn trải trong khoảng **${tenorRange} tháng**, và lịch đáo hạn trải từ **${maturityRange}**${sortText ? `. Thứ tự hiện tại: **${sortText}**` : ''}.`,
-    `Một số mã nên xem tiếp:\n${previewLines.join('\n')}`,
-  ].join('\n\n');
+    `${lead} — lãi suất bình quân **${formatInterestRate(avgRate)}%**, kỳ hạn **${tenorRange} tháng**, đáo hạn **${maturityRange}**${sortNote}.`,
+    table,
+    remainingCount > 0 ? `…và **${formatNumber(remainingCount, 0)}** mã khác.` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
 export default function AIChatBot() {
@@ -1656,46 +1725,84 @@ export default function AIChatBot() {
         model: sendModel,
       });
 
-      if (!extraction.isFilterRequest || !hasAIBondFilterCriteria(extraction.criteria)) {
-        throw new Error(t('aiFilterNoCriteria'));
-      }
+      if (extraction.isFilterRequest && hasActionableBondFilter(extraction.criteria)) {
+        // Cover the SAME universe as the bond-list page: listed-market + government + unlisted
+        // enterprise bonds. Fetching only the listed set (isListing:1) made issuers whose bonds are
+        // unlisted (e.g. TCB) wrongly return "no matching bond" even though the list page shows them.
+        const [listedRows, governmentRows, unlistedRows] = await Promise.all([
+          loadBondFilterRows(
+            buildBondFilterQueryFromCriteria(extraction.criteria, {
+              statusID: 1,
+              isListing: 1,
+              top: CHAT_FILTER_FETCH_LIMIT,
+            }),
+          ),
+          loadGovernmentBondRows().catch(() => [] as BondDataRow[]),
+          loadUnlistedEnterpriseBondRows().catch(() => [] as BondDataRow[]),
+        ]);
+        const mergedRows = Array.from(
+          new Map(
+            [...listedRows, ...governmentRows, ...unlistedRows].map((row) => [row.bondCode, row]),
+          ).values(),
+        );
+        const matchedRows = filterBondRowsByCriteria(mergedRows, extraction.criteria);
+        const assistantContent = buildBondFilterAssistantContent(
+          extraction.criteria,
+          matchedRows,
+          language === 'en' ? 'en' : 'vi',
+        );
 
-      const matchedRows = filterBondRowsByCriteria(
-        await loadBondFilterRows(
-          buildBondFilterQueryFromCriteria(extraction.criteria, {
-            statusID: 1,
-            isListing: 1,
-            top: CHAT_FILTER_FETCH_LIMIT,
-          }),
-        ),
-        extraction.criteria,
-      );
+        // Answer in full, in-chat — no "open the bond filter page" navigation action.
+        replaceLastAssistantMessage(assistantContent, finalModel);
+      } else {
+        // Not an actionable filter/ranking request (no real constraint, only a default order) —
+        // answer the actual question from the current page's data via grounded Q&A instead of
+        // dumping the entire listed-bond universe as a generic, always-identical list.
+        setIsLoadingContext(true);
+        const contextSnapshot = await fetchPageContextSnapshot(effectivePathname, userMessage);
+        setPageContext(contextSnapshot);
+        setContextError(contextSnapshot.error);
+        setIsLoadingContext(false);
 
-      const criteriaSummary = extraction.summary.length > 0
-        ? extraction.summary.slice(0, MAX_SUGGESTION_COUNT)
-        : summarizeBondFilterCriteria(extraction.criteria, language === 'en' ? 'en' : 'vi').slice(0, MAX_SUGGESTION_COUNT);
-      const assistantContent = buildBondFilterAssistantContent(
-        extraction.criteria,
-        matchedRows,
-        language === 'en' ? 'en' : 'vi',
-      );
-
-      replaceLastAssistantMessage(
-        assistantContent,
-        finalModel,
-        {
-          type: 'navigate',
-          label: t('openBondFilterPage'),
-          to: '/filter/bonds',
-          state: {
-            aiBondFilterPreset: {
-              criteria: extraction.criteria,
-              prompt: userMessage,
-              summary: criteriaSummary,
+        let receivedAny = false;
+        let aggregated = '';
+        await streamChat(
+          {
+            userMessage,
+            messages: priorHistory,
+            model: sendModel,
+            pageContext: contextSnapshot?.text || undefined,
+          },
+          {
+            signal: abortRef.current.signal,
+            onStart: (data) => {
+              finalModel = data.model || sendModel;
+            },
+            onDelta: (chunk) => {
+              receivedAny = true;
+              aggregated += chunk;
+              replaceLastAssistantMessage(sanitizeAssistantContent(aggregated), finalModel);
+            },
+            onDone: (data) => {
+              finalModel = data.model || finalModel;
+            },
+            onError: (message) => {
+              serverError = message;
+              setErrorBanner(message);
+              if (message.toLowerCase().includes('not allowed')) {
+                setSelectedModel('');
+                void refreshModels(true);
+              }
             },
           },
-        },
-      );
+        );
+
+        if (receivedAny) {
+          replaceLastAssistantMessage(sanitizeAssistantContent(aggregated), finalModel);
+        } else if (!serverError) {
+          serverError = t('chatBotError');
+        }
+      }
     } catch (error: any) {
       if (error?.name !== 'AbortError') {
         serverError = serverError || error?.message || t('chatBotError');
@@ -1703,6 +1810,7 @@ export default function AIChatBot() {
     } finally {
       abortRef.current = null;
       setStreamingIdx(null);
+      setIsLoadingContext(false);
       if (serverError) {
         replaceLastAssistantMessage(serverError || t('chatBotError'), finalModel);
       }

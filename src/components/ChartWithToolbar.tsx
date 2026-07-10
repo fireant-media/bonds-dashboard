@@ -35,6 +35,8 @@ interface ChartWithToolbarProps {
   className?: string;
   allowMagicType?: boolean;
   showToolbar?: boolean;
+  // Show the "Nguồn: FireAnt tổng hợp" attribution in the bottom-right of the chart card. Default on.
+  showSource?: boolean;
   showZoomButton?: boolean;
   showDataZoomSliderOnHover?: boolean;
   notMerge?: boolean;
@@ -383,6 +385,7 @@ export default function ChartWithToolbar({
   className,
   allowMagicType = false,
   showToolbar = true,
+  showSource = true,
   showZoomButton = true,
   showDataZoomSliderOnHover = false,
   notMerge,
@@ -862,6 +865,11 @@ export default function ChartWithToolbar({
             lazyUpdate={lazyUpdate}
         />
       </div>
+      {showSource ? (
+        <div className="mt-1 shrink-0 pr-0.5 text-right text-[11px] font-medium italic leading-normal text-text-muted/70">
+          {t('chartSource')}
+        </div>
+      ) : null}
 
       <ChartDataViewModal
         isOpen={showDataView}
@@ -955,6 +963,11 @@ export default function ChartWithToolbar({
                 lazyUpdate={lazyUpdate}
               />
             </div>
+            {showSource ? (
+              <div className="shrink-0 px-4 pb-3 text-right text-xs font-medium italic leading-normal text-text-muted/70">
+                {t('chartSource')}
+              </div>
+            ) : null}
           </div>
         </div>
         </Portal>

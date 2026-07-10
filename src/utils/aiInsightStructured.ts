@@ -141,6 +141,15 @@ export function countBlocks(sections: InsightSection[]): number {
   return sections.reduce((total, section) => total + section.blocks.length, 0);
 }
 
+// Estimate how many sentences an adaptive insight should contain for a given card size.
+// Smaller cards get a shorter, more concise paragraph; larger cards can carry a fuller view.
+export function estimateAdaptiveInsightSentenceTarget(width: number, height: number): number {
+  const safeWidth = Math.max(240, Number.isFinite(width) ? width : 0);
+  const safeHeight = Math.max(180, Number.isFinite(height) ? height : 0);
+  const target = Math.round(safeHeight / 90 + safeWidth / 640);
+  return Math.min(8, Math.max(3, target));
+}
+
 // Keep only the first `maxBlocks` blocks (top-down, across sections). A section's heading is
 // dropped automatically when none of its blocks survive.
 export function limitSections(sections: InsightSection[], maxBlocks: number): InsightSection[] {

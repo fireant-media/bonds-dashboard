@@ -7,6 +7,12 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Remembers the current page per table (keyed by `persistKey`) so a table that UNMOUNTS and remounts
+// — e.g. the bond list is replaced by the bond-detail view, then restored on "back" — returns to the
+// page the user was on instead of resetting to page 1. Module-scoped so it survives the remount;
+// resets on a full reload, which is the desired "fresh session" behaviour.
+const dataTablePageStore = new Map<string, number>();
+
 type SortDirection = 'asc' | 'desc';
 
 export interface DataTableColumn<T> {
@@ -39,6 +45,9 @@ interface DataTableProps<T> {
   onVisibleRowsChange?: (rows: T[]) => void;
   onRowClick?: (row: T) => void;
   hideEmptyStateRow?: boolean;
+  // When set, the current page is remembered under this key across unmount/remount (e.g. opening a
+  // row's detail view and coming back), so the table restores that page instead of resetting to 1.
+  persistKey?: string;
 }
 
 const compareValues = (
@@ -91,8 +100,9 @@ export function DataTable<T>({
   onVisibleRowsChange,
   onRowClick,
   hideEmptyStateRow = false,
+  persistKey,
 }: DataTableProps<T>) {
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => (persistKey && dataTablePageStore.get(persistKey)) || 1);
   const [sort, setSort] = useState(initialSort ?? null);
   const headerViewportRef = useRef<HTMLDivElement | null>(null);
   const headerTableRef = useRef<HTMLTableElement | null>(null);
@@ -102,10 +112,24 @@ export function DataTable<T>({
     [columns, hiddenColumnIds],
   );
 
+  // Reset to the first page when the incoming sort ACTUALLY changes. Tracked by a signature ref
+  // (not a "skip first run" flag) so it is idempotent: the initial value is adopted without a reset,
+  // and StrictMode's double-invoked mount effect — which re-runs with the same value — does NOT fire
+  // the reset and wipe a page restored from `persistKey`. Only a genuinely new sort resets to page 1.
+  const lastSortSignatureRef = useRef<string | null>(null);
   useEffect(() => {
+    const signature = initialSort ? `${initialSort.columnId}:${initialSort.direction}` : 'none';
+    if (lastSortSignatureRef.current === signature) return;
+    const isFirstAdoption = lastSortSignatureRef.current === null;
+    lastSortSignatureRef.current = signature;
     setSort(initialSort ?? null);
-    setPage(1);
+    if (!isFirstAdoption) setPage(1);
   }, [initialSort?.columnId, initialSort?.direction]);
+
+  // Remember the page for this table so a remount (e.g. returning from a row's detail view) restores it.
+  useEffect(() => {
+    if (persistKey) dataTablePageStore.set(persistKey, page);
+  }, [persistKey, page]);
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
