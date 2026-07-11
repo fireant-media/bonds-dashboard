@@ -47,7 +47,7 @@ export const sanitizeAIInsightText = (content: string, language: InsightLanguage
         internalData: 'du lieu noi bo',
       };
 
-  return content
+  const normalized = content
     .replace(/Based on the data([^:\n]*?)in\s+`?PAGE_DATA`?\s*:?/gi, `${replacements.basedOnData}$1`)
     .replace(/Theo d(?:u|ữ) li(?:e|ệ)u([^:\n]*?)trong\s+`?PAGE_DATA`?\s*:?/gi, `${replacements.basedOnData}$1`)
     .replace(/\s+trong\s+`?PAGE_DATA`?/gi, '')
@@ -63,7 +63,24 @@ export const sanitizeAIInsightText = (content: string, language: InsightLanguage
     .replace(/`?datasets?`?/gi, replacements.data)
     .replace(/\bfield(s)?\b/gi, replacements.metrics)
     .replace(/\bfunction(s)?\b/gi, replacements.internalProcessing)
-    .replace(/\bvariable(s)?\b/gi, replacements.internalData)
+    .replace(/\bvariable(s)?\b/gi, replacements.internalData);
+
+  // Collapse a proper-noun word the model sometimes repeats inside an issuer name
+  // (e.g. "Ngân hàng TMCP Sài Gòn Tài Tài Lộc" -> "... Sài Gòn Tài Lộc"). Restricted to an
+  // uppercase-initial word repeated verbatim (same casing) so ordinary prose and legitimate
+  // reduplication stay untouched; the `+` collapses three or more repeats in one pass.
+  let deduped = normalized;
+  try {
+    const repeatedProperNoun = new RegExp(
+      '(^|[^\\p{L}\\p{N}])(\\p{Lu}[\\p{L}\\p{M}]*)(?:\\s+\\2)+(?![\\p{L}\\p{N}])',
+      'gu',
+    );
+    deduped = deduped.replace(repeatedProperNoun, '$1$2');
+  } catch {
+    // Engine without Unicode property escapes — leave the text unchanged.
+  }
+
+  return deduped
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

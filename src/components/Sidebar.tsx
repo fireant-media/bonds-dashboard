@@ -259,7 +259,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onToggleCollapse}
-            className="mb-4 flex h-9 w-9 items-center justify-center self-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
+            className="mb-4 flex h-9 w-11 items-center justify-center self-center rounded-lg border border-border-base bg-bg-surface text-text-muted transition-colors hover:border-blue-200 hover:text-blue-600"
             aria-label={t('searchPlaceholder')}
             title={t('searchPlaceholder')}
           >
@@ -440,7 +440,7 @@ export default function Sidebar({
                           }
                         }}
                           className={cn(
-                           'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
+                           'flex h-9 w-11 shrink-0 items-center justify-center rounded-xl transition-colors',
                            isActive
                              ? activeSidebarItemClassName
                              : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -480,7 +480,7 @@ export default function Sidebar({
                             setActiveFilterSubTab('issuer');
                           }}
                            className={cn(
-                             'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
+                             'flex h-9 w-11 shrink-0 items-center justify-center rounded-xl transition-colors',
                              isActive
                                ? activeSidebarItemClassName
                                : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -501,7 +501,7 @@ export default function Sidebar({
                           type="button"
                           onClick={item.onClick}
                            className={cn(
-                             'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
+                             'flex h-9 w-11 shrink-0 items-center justify-center rounded-xl transition-colors',
                              item.isActive
                                ? activeSidebarItemClassName
                                : 'text-text-muted hover:bg-blue-50 hover:text-blue-600'
@@ -585,7 +585,7 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                className="flex h-9 w-11 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
                 title={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
                 aria-label={effectiveTheme === 'dark' ? t('lightMode') : t('darkMode')}
               >
@@ -594,7 +594,7 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={toggleLanguage}
-                className="flex h-9 w-9 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+                className="flex h-9 w-11 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
                 title={t('uiLanguage')}
                 aria-label={t('uiLanguage')}
               >

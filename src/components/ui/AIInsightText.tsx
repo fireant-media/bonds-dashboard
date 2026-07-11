@@ -31,14 +31,17 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Build case-insensitive split + test regexes for keywords plus any dynamic terms (issuer name).
-function buildKeywordMatchers(boldTerms?: string[]) {
-  const termSources = (boldTerms || [])
-    .map((term) => String(term || '').trim())
-    .filter((term) => term.length >= 2)
-    .map(escapeRegExp);
-  const source = [...termSources, KEYWORD_SOURCE].filter(Boolean).join('|');
+// Vietnamese corporate-form abbreviations (Thương mại cổ phần, Công ty cổ phần, Trách nhiệm hữu
+// hạn, ...) are NOT tickers or bond codes, so they must never be emphasised on their own — e.g. the
+// "TMCP" inside "Ngân hàng TMCP Á Châu". The full issuer name is emphasised as one unit via boldTerms.
+const NON_TICKER_ABBREVIATIONS = new Set([
+  'TMCP', 'CTCP', 'CTCPTM', 'TNHH', 'MTV', 'NHTM', 'NHNN', 'DNNN', 'TPDN', 'HDQT', 'HĐQT', 'UBCK',
+]);
 
+// Build case-insensitive split + test regexes for a set of `|`-joined alternatives.
+function buildMatchers(sources: string[]) {
+  const source = sources.filter(Boolean).join('|');
+  if (!source) return null;
   try {
     return {
       split: new RegExp(`(?<![\\p{L}\\p{N}])(${source})(?![\\p{L}\\p{N}])`, 'giu'),
@@ -50,6 +53,20 @@ function buildKeywordMatchers(boldTerms?: string[]) {
       test: new RegExp(`^(?:${source})$`, 'i'),
     };
   }
+}
+
+// Static matchers for the built-in sentiment keywords (identical across every render).
+const KEYWORD_MATCHERS = buildMatchers([KEYWORD_SOURCE])!;
+
+// Matchers for caller-supplied literal terms (issuer name, bond code). Matched as WHOLE units before
+// number/code tokenising so the full "Ngân hàng TMCP ..." name is bolded together, rather than only
+// its ticker-shaped fragments — which previously left just "TMCP" emphasised inside the name.
+function buildTermMatchers(boldTerms?: string[]) {
+  const termSources = (boldTerms || [])
+    .map((term) => String(term || '').trim())
+    .filter((term) => term.length >= 2)
+    .map(escapeRegExp);
+  return termSources.length ? buildMatchers(termSources) : null;
 }
 
 export default function AIInsightText({
@@ -64,12 +81,12 @@ export default function AIInsightText({
     return null;
   }
 
-  const keywordMatchers = buildKeywordMatchers(boldTerms);
+  const termMatchers = buildTermMatchers(boldTerms);
 
   const renderKeywords = (text: string, keyPrefix: string): ReactNode[] =>
-    text.split(keywordMatchers.split).map((part, index) => {
+    text.split(KEYWORD_MATCHERS.split).map((part, index) => {
       if (!part) return null;
-      const shouldHighlight = keywordMatchers.test.test(part);
+      const shouldHighlight = KEYWORD_MATCHERS.test.test(part);
       return (
         <span key={`${keyPrefix}-kw-${index}`} className={shouldHighlight ? EMPHASIS_CLASS_NAME : undefined}>
           {part}
@@ -81,7 +98,10 @@ export default function AIInsightText({
     text.split(TOKEN_PATTERN).flatMap<ReactNode>((part, index) => {
       if (!part) return [];
 
-      if (NUMBER_WITH_UNIT_TEST_PATTERN.test(part) || CODE_TEST_PATTERN.test(part)) {
+      // Emphasise numbers-with-units and ticker/bond codes — but never a corporate-form abbreviation
+      // (TMCP, CTCP, ...), which is only ever part of a longer issuer name, not a code of its own.
+      const isCode = CODE_TEST_PATTERN.test(part) && !NON_TICKER_ABBREVIATIONS.has(part.toUpperCase());
+      if (NUMBER_WITH_UNIT_TEST_PATTERN.test(part) || isCode) {
         return [
           <span key={`${keyPrefix}-${index}-${part}`} className={EMPHASIS_CLASS_NAME}>
             {part}
@@ -92,7 +112,25 @@ export default function AIInsightText({
       return renderKeywords(part, `${keyPrefix}-${index}`);
     });
 
-  // Render inline text, honouring **bold** spans and the number/keyword emphasis rules.
+  // Emphasise whole caller-supplied terms (issuer name, bond code) as ONE unit before tokenising, so
+  // the entire "Ngân hàng TMCP ..." name is bolded together. Non-term text falls through to the
+  // number/code/keyword emphasis rules.
+  const renderTerms = (text: string, keyPrefix: string): ReactNode[] => {
+    if (!termMatchers) return renderTokens(text, keyPrefix);
+    return text.split(termMatchers.split).flatMap<ReactNode>((part, index) => {
+      if (!part) return [];
+      if (termMatchers.test.test(part)) {
+        return [
+          <span key={`${keyPrefix}-term-${index}`} className={EMPHASIS_CLASS_NAME}>
+            {part}
+          </span>,
+        ];
+      }
+      return renderTokens(part, `${keyPrefix}-t-${index}`);
+    });
+  };
+
+  // Render inline text, honouring **bold** spans and the term/number/keyword emphasis rules.
   const renderInline = (text: string, keyPrefix: string): ReactNode[] =>
     text.split(/(\*\*[^*]+\*\*)/g).flatMap<ReactNode>((segment, segmentIndex) => {
       if (!segment) return [];
@@ -100,12 +138,12 @@ export default function AIInsightText({
       if (segment.startsWith('**') && segment.endsWith('**')) {
         return [
           <span key={`${keyPrefix}-bold-${segmentIndex}`} className={EMPHASIS_CLASS_NAME}>
-            {renderTokens(segment.slice(2, -2), `${keyPrefix}-bold-${segmentIndex}`)}
+            {renderTerms(segment.slice(2, -2), `${keyPrefix}-bold-${segmentIndex}`)}
           </span>,
         ];
       }
 
-      return renderTokens(segment, `${keyPrefix}-plain-${segmentIndex}`);
+      return renderTerms(segment, `${keyPrefix}-plain-${segmentIndex}`);
     });
 
   return (

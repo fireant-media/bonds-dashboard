@@ -175,7 +175,7 @@ function renderTextWithCodeLinks(text: string, handlers: CodeLinkHandlers): Reac
         key={`code-${tokenIndex++}-${token}`}
         type="button"
         onClick={() => (isBond ? handlers.onBond(token) : handlers.onIssuer(token))}
-        className="font-bold text-blue-600 underline decoration-dotted underline-offset-2 transition-colors hover:text-blue-700"
+        className="font-bold text-blue-600 transition-colors hover:text-blue-700"
       >
         {token}
       </button>,
@@ -225,8 +225,12 @@ function createChatMarkdownComponents(handlers: CodeLinkHandlers): Components {
       <strong {...props}>{linkifyChildren(children, handlers)}</strong>
     ),
     em: ({ node: _node, children, ...props }) => <em {...props}>{linkifyChildren(children, handlers)}</em>,
+    // Render inline code as normal text (no monospace/smaller font, no backticks) so a bond/stock
+    // code the model wrapped in backticks reads exactly like the surrounding answer and still linkifies.
     code: ({ node: _node, children, ...props }) => (
-      <code {...props}>{linkifyChildren(children, handlers)}</code>
+      <span {...props} style={{ fontFamily: 'inherit', fontSize: 'inherit' }}>
+        {linkifyChildren(children, handlers)}
+      </span>
     ),
     a: ({ node: _node, ...props }) => (
       <a {...props} target="_blank" rel="noreferrer" className="text-blue-600 underline underline-offset-2" />
@@ -1258,7 +1262,7 @@ async function fetchPageContextSnapshot(pathname: string, userMessage?: string):
   const errors = summaries.map((item) => item.error).filter(Boolean);
   const context = {
     instruction:
-      'Trả lời bằng tiếng Việt có dấu đầy đủ. Chỉ dùng phần dữ liệu liên quan trực tiếp đến câu hỏi và đọc hết mọi dòng để tính toán, đếm, xếp hạng hoặc liệt kê cho chính xác. Tuyệt đối không bịa hay suy diễn ngoài dữ liệu này. Nếu dữ liệu không có thông tin phù hợp, trả lời đúng một câu "Không tìm thấy thông tin phù hợp."; nếu câu hỏi mơ hồ thì hỏi lại người dùng để làm rõ.',
+      'Trả lời bằng tiếng Việt có dấu đầy đủ. Dùng phần dữ liệu liên quan trực tiếp đến câu hỏi (và số liệu đã nêu ở câu trả lời trước trong cùng cuộc trò chuyện), đọc hết mọi dòng để tính toán, đếm, xếp hạng hoặc liệt kê cho chính xác. Với câu hỏi dạng phân tích, so sánh hay "mã nào tốt nhất", được phép xếp hạng và nhận định dựa trên các tiêu chí khách quan trong dữ liệu (lãi suất, kỳ hạn, đáo hạn, quy mô phát hành, tổ chức phát hành), nhưng không đưa ra khuyến nghị mua/bán. Tuyệt đối không bịa thêm số liệu. Chỉ trả lời "Không tìm thấy thông tin phù hợp." khi thực sự không có dữ liệu liên quan để phân tích; nếu câu hỏi mơ hồ thì hỏi lại người dùng để làm rõ.',
     apiCatalog: PAGE_DATA_API_CATALOG,
     currentRoute: pathname,
     datasets: summaries.map((item) => item.summary),
@@ -1351,7 +1355,7 @@ function buildBondFilterAssistantContent(
     `| ${headerCells.map(() => '---').join(' | ')} |`,
     ...previewRows.map((row) => {
       const cells = [
-        `\`${row.bondCode}\``,
+        escapeCell(row.bondCode),
         ...(showIssuerColumn ? [escapeCell(row.issuerName)] : []),
         `${formatInterestRate(row.bondRate)}%`,
         formatDate(row.maturityDate),

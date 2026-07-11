@@ -1292,7 +1292,7 @@ export default function BondDetailPopup({
     if (!force) {
       const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature, { ignoreDate: true });
       if (cachedRemark) {
-        setAiRemark(cachedRemark.text);
+        setAiRemark(sanitizeAIInsightText(cachedRemark.text, language === 'en' ? 'en' : 'vi'));
         setAiRemarkUpdatedAt(cachedRemark.updatedAt);
         setAiRemarkError(null);
         setAiRemarkLoading(false);
@@ -1373,7 +1373,7 @@ export default function BondDetailPopup({
     // Reopening a bond generated before: serve the persisted insight instantly, no regeneration.
     const cachedRemark = readDailyAIInsight(localizedAiRemarkCacheKey, aiRemarkSignature, { ignoreDate: true });
     if (cachedRemark) {
-      setAiRemark(cachedRemark.text);
+      setAiRemark(sanitizeAIInsightText(cachedRemark.text, language === 'en' ? 'en' : 'vi'));
       setAiRemarkUpdatedAt(cachedRemark.updatedAt);
       setAiRemarkError(null);
       setAiRemarkLoading(false);
