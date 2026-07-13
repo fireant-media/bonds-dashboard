@@ -281,8 +281,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
   };
   const industryIssuedValueLabel = language === 'vi' ? 'Giá trị phát hành' : 'Issued Value';
   const industryIssuedValueTreemapLabel = language === 'vi'
-    ? 'Giá trị phát hành của các doanh nghiệp trong ngành'
-    : 'Issued Value of companies in the industry';
+    ? 'Giá trị phát hành'
+    : 'Issued Value';
   const getBondVolumeUnitLabel = (scale: 'thousand' | 'million') => (
     scale === 'million'
       ? t('unitMillionShares')
@@ -858,8 +858,8 @@ export default function IndustryView({ industry }: IndustryViewProps) {
     ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
     : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
   const combinedChartTitle = language === 'vi'
-    ? 'Số mã trái phiếu & Dư nợ còn lại của các doanh nghiệp'
-    : 'Bond codes & remaining debt of companies';
+    ? 'Số mã trái phiếu & Dư nợ còn lại'
+    : 'Bond codes & remaining debt';
   const industryPageTitle = `${t('marketTitle')} ${getIndustryLabel(industry)}`;
   const industryInsightTitle = language === 'vi'
     ? `Nhận định ngành ${getIndustryLabel(industry)}`

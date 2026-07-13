@@ -106,7 +106,7 @@ const wrapAxisLabel = (label: string, maxLineLength = 12) => {
 
 type InsightTone = 'blue' | 'emerald' | 'violet' | 'red' | 'amber';
 
-const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconWrap: string; value: string; track: string; bar: string }> = {
+const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconWrap: string; value: string; track: string; bar: string; hoverRing: string }> = {
   blue: {
     shell: 'border-blue-100 bg-blue-50/70 dark:border-blue-900/40 dark:bg-blue-950/20',
     icon: 'text-blue-600 dark:text-blue-400',
@@ -114,6 +114,7 @@ const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconW
     value: 'text-blue-700 dark:text-blue-300',
     track: 'bg-blue-100 dark:bg-blue-950/60',
     bar: 'bg-blue-500',
+    hoverRing: 'hover:border-blue-300 hover:ring-blue-200/70 dark:hover:border-blue-500/40 dark:hover:ring-blue-500/20',
   },
   emerald: {
     shell: 'border-emerald-100 bg-emerald-50/70 dark:border-emerald-900/40 dark:bg-emerald-950/20',
@@ -122,6 +123,7 @@ const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconW
     value: 'text-emerald-700 dark:text-emerald-300',
     track: 'bg-emerald-100 dark:bg-emerald-950/60',
     bar: 'bg-emerald-500',
+    hoverRing: 'hover:border-emerald-300 hover:ring-emerald-200/70 dark:hover:border-emerald-500/40 dark:hover:ring-emerald-500/20',
   },
   violet: {
     shell: 'border-violet-100 bg-violet-50/70 dark:border-violet-900/40 dark:bg-violet-950/20',
@@ -130,6 +132,7 @@ const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconW
     value: 'text-violet-700 dark:text-violet-300',
     track: 'bg-violet-100 dark:bg-violet-950/60',
     bar: 'bg-violet-500',
+    hoverRing: 'hover:border-violet-300 hover:ring-violet-200/70 dark:hover:border-violet-500/40 dark:hover:ring-violet-500/20',
   },
   red: {
     shell: 'border-red-100 bg-red-50/70 dark:border-red-900/40 dark:bg-red-950/20',
@@ -138,6 +141,7 @@ const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconW
     value: 'text-red-700 dark:text-red-300',
     track: 'bg-red-100 dark:bg-red-950/60',
     bar: 'bg-red-500',
+    hoverRing: 'hover:border-red-300 hover:ring-red-200/70 dark:hover:border-red-500/40 dark:hover:ring-red-500/20',
   },
   amber: {
     shell: 'border-amber-100 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-950/20',
@@ -146,6 +150,7 @@ const insightToneClass: Record<InsightTone, { shell: string; icon: string; iconW
     value: 'text-amber-700 dark:text-amber-300',
     track: 'bg-amber-100 dark:bg-amber-950/60',
     bar: 'bg-amber-500',
+    hoverRing: 'hover:border-amber-300 hover:ring-amber-200/70 dark:hover:border-amber-500/40 dark:hover:ring-amber-500/20',
   },
 };
 
@@ -169,14 +174,49 @@ function InsightHighlightCard({ label, value, tone }: InsightMiniCardProps) {
   const toneClass = insightToneClass[tone];
 
   return (
-    <div className={`flex min-w-0 flex-col justify-center rounded-xl border p-3 ${toneClass.shell}`}>
+    <div
+      title={`${label}: ${value}`}
+      className={`group/insight flex min-w-0 cursor-default flex-col justify-center rounded-xl border p-3 shadow-sm ring-1 ring-transparent transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md motion-reduce:hover:translate-y-0 ${toneClass.shell} ${toneClass.hoverRing}`}
+    >
       <div className="min-w-0 text-center">
-        <p className="break-words text-xs font-medium leading-tight text-text-muted">{label}</p>
+        <p className="break-words text-xs font-medium leading-tight text-text-muted transition-colors group-hover/insight:text-text-base">{label}</p>
         <p className={`mt-0.5 break-words text-xs font-bold leading-snug ${toneClass.value}`}>{value}</p>
       </div>
     </div>
   );
 }
+
+// Wrap a long category label (an industry name) onto up to 3 lines at word boundaries, so the X
+// axis reads horizontally and compact instead of being rotated 45°. Returns a string with "\n"
+// breaks, which ECharts renders as multiple lines in the axis label.
+const wrapIndustryAxisLabel = (label: string): string => {
+  const words = String(label || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return label;
+
+  const MAX_CHARS_PER_LINE = 10;
+  const MAX_LINES = 3;
+  const lines: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    if (!current) {
+      current = word;
+    } else if ((current + ' ' + word).length <= MAX_CHARS_PER_LINE) {
+      current += ' ' + word;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+
+  if (lines.length > MAX_LINES) {
+    const kept = lines.slice(0, MAX_LINES);
+    kept[MAX_LINES - 1] = `${kept[MAX_LINES - 1]}…`;
+    return kept.join('\n');
+  }
+  return lines.join('\n');
+};
 
 const getShareWidthClass = (share: number) => {
   if (share <= 0) return 'w-0';
@@ -313,6 +353,10 @@ export default function MarketOverview() {
   const [marketInsightError, setMarketInsightError] = useState<string | null>(null);
   const [isMarketInsightLoading, setIsMarketInsightLoading] = useState(false);
   const marketInsightRequestIdRef = useRef(0);
+  // Tracks the data signature the currently shown insight was generated for. Lets us tell a real
+  // data change (must regenerate) apart from a mere density/layout change (must NOT regenerate —
+  // reuse the insight we already have, so the AI endpoint isn't called again on every resize).
+  const lastMarketInsightSignatureRef = useRef('');
   const industryCompositionContainerRef = useRef<HTMLDivElement>(null);
   const [industryCompositionSize, setIndustryCompositionSize] = useState({ width: 0, height: 0 });
   const [insightPanelWidth, setInsightPanelWidth] = useState(0);
@@ -884,11 +928,18 @@ export default function MarketOverview() {
     () => (industryData.length > 0 ? industryData.map((item) => t(item.icbName as any)) : []),
     [industryData, t]
   );
+  // Tilt the X labels when there are many columns or long industry names, so they never overlap;
+  // short/few labels stay horizontal. When horizontal, labels also wrap onto up to 3 lines
+  // (wrapIndustryAxisLabel) to stay compact.
   const industryVolumeAxisRotate = useMemo(() => {
     const maxLabelLength = industryVolumeCategories.reduce((max, label) => Math.max(max, label.length), 0);
-    if (industryVolumeCategories.length >= 10 || maxLabelLength >= 20) return 48;
-    if (industryVolumeCategories.length >= 8 || maxLabelLength >= 14) return 36;
+    if (industryVolumeCategories.length >= 10 || maxLabelLength >= 20) return 40;
+    if (industryVolumeCategories.length >= 6 || maxLabelLength >= 12) return 30;
     return 0;
+  }, [industryVolumeCategories]);
+  const industryVolumeAxisCompact = useMemo(() => {
+    const maxLabelLength = industryVolumeCategories.reduce((max, label) => Math.max(max, label.length), 0);
+    return industryVolumeCategories.length >= 8 || maxLabelLength >= 14;
   }, [industryVolumeCategories]);
   const marketInsightTitle = language === 'vi'
     ? 'Nh\u1eadn x\u00e9t t\u1ed5ng quan'
@@ -1087,30 +1138,32 @@ export default function MarketOverview() {
 
   useEffect(() => {
     if (!marketInsightPayloadSignature) {
+      lastMarketInsightSignatureRef.current = '';
       setMarketInsightText('');
       setMarketInsightUpdatedAt('');
       setMarketInsightError(null);
       return;
     }
 
-    if (!cachedMarketInsight) {
-      setMarketInsightText('');
-      setMarketInsightUpdatedAt('');
+    // A valid cache hit for the current (density key + data signature): show it.
+    if (cachedMarketInsight && parseStructuredMarketOverviewInsight(cachedMarketInsight.text)) {
+      lastMarketInsightSignatureRef.current = marketInsightPayloadSignature;
+      setMarketInsightText(cachedMarketInsight.text);
+      setMarketInsightUpdatedAt(cachedMarketInsight.updatedAt);
       setMarketInsightError(null);
       return;
     }
 
-    // Discard cache if it uses an outdated format that no longer parses
-    if (!parseStructuredMarketOverviewInsight(cachedMarketInsight.text)) {
+    // No usable cache for this key. Only reset (→ trigger a fresh generation) when the underlying
+    // DATA changed. When just the density/layout changed for the same data, keep the insight we
+    // already have so the AI endpoint isn't hit again for a cosmetically different length target.
+    const dataChanged = lastMarketInsightSignatureRef.current !== marketInsightPayloadSignature;
+    if (dataChanged) {
+      lastMarketInsightSignatureRef.current = marketInsightPayloadSignature;
       setMarketInsightText('');
       setMarketInsightUpdatedAt('');
       setMarketInsightError(null);
-      return;
     }
-
-    setMarketInsightText(cachedMarketInsight.text);
-    setMarketInsightUpdatedAt(cachedMarketInsight.updatedAt);
-    setMarketInsightError(null);
   }, [cachedMarketInsight, marketInsightPayloadSignature]);
 
   useEffect(() => {
@@ -1602,11 +1655,13 @@ export default function MarketOverview() {
         ...categoryLabelStyle,
         interval: 0,
         rotate: industryVolumeAxisRotate,
-        margin: industryVolumeAxisRotate > 0 ? 16 : 12,
-        lineHeight: 14,
+        margin: industryVolumeAxisRotate > 0 ? 14 : 10,
+        lineHeight: 13,
         hideOverlap: false,
-        fontSize: industryVolumeAxisRotate > 0 ? 10 : categoryLabelStyle.fontSize,
-        formatter: (value: string) => String(value || ''),
+        fontSize: industryVolumeAxisCompact ? 10 : categoryLabelStyle.fontSize,
+        // Tilted labels read best on a single line; only wrap when horizontal (rotate 0) to keep
+        // short/few labels compact without stacking rotated multi-line blocks that overlap.
+        formatter: (value: string) => (industryVolumeAxisRotate > 0 ? String(value || '') : wrapIndustryAxisLabel(value)),
       },
     },
     yAxis: {

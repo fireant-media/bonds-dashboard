@@ -2,9 +2,27 @@ import { sendChat } from '../api/ai';
 import type { BondDataRow, BondFilterQuery } from './bondData';
 import { formatDate, formatInterestRate, formatNumber, normalizeInterestType } from '../utils/format';
 
-const TODAY_ISO = '2026-06-11';
 const FALLBACK_MODEL = 'gpt-5.4-mini';
 const MAX_FILTER_SUMMARY_COUNT = 3;
+
+// The current date used to resolve relative expressions ("hôm nay", "trong vòng 1 tuần",
+// "tháng tới"...). Computed live so it never drifts stale — a hard-coded date silently
+// pushed every relative maturity window into the past and matched zero bonds.
+function getTodayIso() {
+  return new Date().toISOString().split('T')[0];
+}
+
+// Shift an ISO date (YYYY-MM-DD) by a number of days/months/years, using UTC so the
+// calendar date never wobbles across timezones. Months/years shift by real calendar
+// units (not fixed 30/365-day approximations).
+function shiftIsoDate(baseIso: string, { days = 0, months = 0, years = 0 }: { days?: number; months?: number; years?: number }) {
+  const [year, month, day] = baseIso.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (years) date.setUTCFullYear(date.getUTCFullYear() + years);
+  if (months) date.setUTCMonth(date.getUTCMonth() + months);
+  if (days) date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().split('T')[0];
+}
 
 export type AIBondRateType = 'fixed' | 'floating';
 export type AIBondSortBy = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -326,18 +344,192 @@ function inferAIBondSortByFromText(message: string): AIBondSortBy | undefined {
   return undefined;
 }
 
-function inferHeuristicBondFilterCriteria(message: string): AIBondFilterCriteria {
+// Resolve a maturity time-window phrase ("đáo hạn trong vòng 1 tuần", "đáo hạn trong 30 ngày",
+// "đáo hạn 3 tháng tới") into a concrete [today, today+window] maturity-date range. We express it
+// as a maturity DATE range rather than remainingDays because the market-bond filter has a maturity
+// date field (and filters on row.maturityDate) but has no remaining-days field and its rows carry
+// no daysLeft — so a remainingDays criterion would silently disappear there. `text` is already
+// diacritic-stripped (đ→d, "tuần"→"tuan"). Requires a maturity cue ("dao han") so an unrelated
+// window like a tenor ("kỳ hạn 3 tháng") or an issue window is not misread as a maturity range.
+function inferMaturityWindow(text: string): { from: string; to: string } | undefined {
+  if (!/dao han/.test(text)) return undefined;
+
+  // Either a leading window preposition ("trong (vong) X tuan") or a trailing one ("X tuan toi").
+  const match =
+    text.match(/(?:trong vong|trong khoang|trong|sap toi|toi)\s*(\d{1,3})\s*(ngay|tuan|thang|nam)/) ||
+    text.match(/(\d{1,3})\s*(ngay|tuan|thang|nam)\s*(?:toi|nua|ke tiep|sap toi)/);
+  if (!match) return undefined;
+
+  const amount = Number(match[1]);
+  const unit = match[2];
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+
+  const today = getTodayIso();
+  const shift =
+    unit === 'ngay'
+      ? { days: amount }
+      : unit === 'tuan'
+        ? { days: amount * 7 }
+        : unit === 'thang'
+          ? { months: amount }
+          : { years: amount };
+
+  return { from: today, to: shiftIsoDate(today, shift) };
+}
+
+// Vietnamese comparison cues shared by every numeric-range field. Kept as source fragments so each
+// field can compose them with its own unit. "tu"/"trong khoang" lead a between-range; the min/max
+// groups cover the common "trên/dưới/ít nhất/tối đa/lớn hơn/nhỏ hơn/≥/≤" phrasings plus English.
+const RANGE_MIN_SIGNAL = '(?:tren|lon hon|cao hon|hon|it nhat|toi thieu|tu|from|over|more than|>=?)';
+const RANGE_MAX_SIGNAL = '(?:duoi|nho hon|thap hon|khong qua|khong vuot qua|khong vuot|toi da|at most|under|less than|<=?)';
+const RANGE_BETWEEN_LEAD = '(?:tu|trong khoang|khoang|from|between)';
+const RANGE_BETWEEN_MID = '(?:den|toi|to|va)';
+const RANGE_NUMBER = '(\\d[\\d.,]*)';
+const RANGE_SCALE = '\\s*(nghin|trieu)?\\s*';
+
+// Convert a matched number + optional magnitude word ("nghìn"→×1000) + optional unit ("năm"→×12
+// months for tenor) into a scalar. normalizeNumber already reads "." as a thousands separator and
+// "," as a decimal, so "1.000" → 1000 and "9,5" → 9.5.
+function scaleRangeNumber(
+  numText: string,
+  magnitude: string | undefined,
+  unit: string | undefined,
+  options: { thousandForBillion?: boolean; yearToMonth?: boolean } = {},
+): number | undefined {
+  let value = normalizeNumber(numText);
+  if (value === undefined) return undefined;
+  if (options.thousandForBillion && magnitude === 'nghin') value *= 1000;
+  if (options.yearToMonth && unit === 'nam') value *= 12;
+  return value;
+}
+
+// Where a field's clause ends: at the next field/marker keyword after its own anchor, so numbers
+// belonging to a later criterion ("...lãi suất trên 8% kỳ hạn dưới 24 tháng") are not swallowed.
+const NUMERIC_CLAUSE_BOUNDARIES = [
+  'lai suat', 'coupon', 'yield', 'ky han', 'gia tri phat hanh', 'gia tri niem yet',
+  'khoi luong niem yet', 'khoi luong phat hanh', 'dao han', 'phat hanh', 'con lai', 'nganh', 'loai',
+];
+
+function sliceFieldClause(text: string, anchorIndex: number, anchorKeyword: string): string {
+  const start = anchorIndex + anchorKeyword.length;
+  let end = text.length;
+  for (const boundary of NUMERIC_CLAUSE_BOUNDARIES) {
+    const idx = text.indexOf(boundary, start);
+    if (idx !== -1 && idx < end) end = idx;
+  }
+  return text.slice(anchorIndex, end);
+}
+
+// A field's expected unit token(s). A number is only accepted for a field when the unit right after
+// it is blank or one the field allows — this stops a stray number from a neighbouring clause (e.g. a
+// "%" value) from being read as tenor months or a billion-VND value when clause slicing is imperfect.
+function unitIsCompatible(unit: string | undefined, allowed: string[]) {
+  if (!unit) return true;
+  return allowed.includes(unit);
+}
+
+// Extract {min,max} for one numeric field from `text`, scoped to the clause following its keyword.
+function extractFieldRange(
+  text: string,
+  keywords: string[],
+  allowedUnits: string[],
+  scaleOptions: { thousandForBillion?: boolean; yearToMonth?: boolean } = {},
+): { min?: number; max?: number } {
+  const anchorKeyword = keywords.find((keyword) => text.includes(keyword));
+  if (!anchorKeyword) return {};
+  // "kỳ hạn còn lại" is a remaining-term phrase, handled elsewhere — never a tenor range.
+  const clause = sliceFieldClause(text, text.indexOf(anchorKeyword), anchorKeyword);
+  if (/con lai/.test(clause)) return {};
+
+  const unitAlt = ['%', 'thang', 'nam', 'ty', 'ngay'].join('|');
+  // The unit is a CAPTURING group so between[3]/[6] and min/max[3] hold the unit for the
+  // compatibility check and the năm→months scaling — keep it capturing, not (?:…).
+  const tail = `${RANGE_SCALE}(${unitAlt})?`;
+  const scale = (num: string, mag: string | undefined, unit: string | undefined) =>
+    scaleRangeNumber(num, mag, unit, scaleOptions);
+
+  const between = clause.match(
+    new RegExp(`${RANGE_BETWEEN_LEAD}\\s*${RANGE_NUMBER}${tail}\\s*${RANGE_BETWEEN_MID}\\s*${RANGE_NUMBER}${tail}`),
+  );
+  if (between && unitIsCompatible(between[3], allowedUnits) && unitIsCompatible(between[6], allowedUnits)) {
+    const min = scale(between[1], between[2], between[3]);
+    const max = scale(between[4], between[5], between[6]);
+    if (min !== undefined || max !== undefined) return { min, max };
+  }
+
+  const result: { min?: number; max?: number } = {};
+  const minMatch = clause.match(new RegExp(`${RANGE_MIN_SIGNAL}\\s*${RANGE_NUMBER}${tail}`));
+  if (minMatch && unitIsCompatible(minMatch[3], allowedUnits)) {
+    result.min = scale(minMatch[1], minMatch[2], minMatch[3]);
+  }
+  const maxMatch = clause.match(new RegExp(`${RANGE_MAX_SIGNAL}\\s*${RANGE_NUMBER}${tail}`));
+  if (maxMatch && unitIsCompatible(maxMatch[3], allowedUnits)) {
+    result.max = scale(maxMatch[1], maxMatch[2], maxMatch[3]);
+  }
+
+  // Trailing cues: "8% trở lên" (min), "24 tháng trở xuống" (max) — no leading comparator.
+  if (result.min === undefined) {
+    const trailingMin = clause.match(new RegExp(`${RANGE_NUMBER}${tail}\\s*tro len`));
+    if (trailingMin && unitIsCompatible(trailingMin[3], allowedUnits)) {
+      result.min = scale(trailingMin[1], trailingMin[2], trailingMin[3]);
+    }
+  }
+  if (result.max === undefined) {
+    const trailingMax = clause.match(new RegExp(`${RANGE_NUMBER}${tail}\\s*tro xuong`));
+    if (trailingMax && unitIsCompatible(trailingMax[3], allowedUnits)) {
+      result.max = scale(trailingMax[1], trailingMax[2], trailingMax[3]);
+    }
+  }
+  return result;
+}
+
+// Deterministically parse every numeric-range criterion so a multi-criteria request narrows on all
+// of them even when the LLM is unavailable or misses one. Rate is also read from a bare "N%" cue
+// anywhere in the text, since a percentage here always denotes the coupon rate.
+function inferNumericRangeCriteria(text: string): AIBondFilterCriteria {
+  const rate = extractFieldRange(text, ['lai suat', 'coupon', 'yield', 'bond rate'], ['%']);
+  if (rate.min === undefined && rate.max === undefined) {
+    const bareMin = text.match(new RegExp(`${RANGE_MIN_SIGNAL}\\s*${RANGE_NUMBER}\\s*%`));
+    const bareMax = text.match(new RegExp(`${RANGE_MAX_SIGNAL}\\s*${RANGE_NUMBER}\\s*%`));
+    if (bareMin) rate.min = normalizeNumber(bareMin[1]);
+    if (bareMax) rate.max = normalizeNumber(bareMax[1]);
+  }
+
+  const tenor = extractFieldRange(text, ['ky han'], ['thang', 'nam'], { yearToMonth: true });
+  const issuedValue = extractFieldRange(text, ['gia tri phat hanh', 'issued value'], ['ty'], { thousandForBillion: true });
+  const listedValue = extractFieldRange(text, ['gia tri niem yet', 'listed value'], ['ty'], { thousandForBillion: true });
+  const listedVolume = extractFieldRange(text, ['khoi luong niem yet', 'listed volume'], []);
+
+  return pruneEmptyValues({
+    minBondRate: rate.min,
+    maxBondRate: rate.max,
+    minTenorMonths: tenor.min,
+    maxTenorMonths: tenor.max,
+    minIssuedValueBillion: issuedValue.min,
+    maxIssuedValueBillion: issuedValue.max,
+    minListedValueBillion: listedValue.min,
+    maxListedValueBillion: listedValue.max,
+    minListedVolume: listedVolume.min,
+    maxListedVolume: listedVolume.max,
+  } as Record<string, unknown>) as AIBondFilterCriteria;
+}
+
+export function inferHeuristicBondFilterCriteria(message: string): AIBondFilterCriteria {
   const text = normalizeSearchText(message);
   if (!text) return {};
 
   const sortPreferences = inferAIBondSortPreferences(message);
   const fallbackPrimarySort = inferAIBondSortByFromText(text);
+  const numericCriteria = inferNumericRangeCriteria(text);
   const remainingDaysBetweenMatch = text.match(/(?:tu|trong khoang|khoang)\D*(\d{1,4})\D*(?:den|toi)\D*(\d{1,4})\s*ngay/);
   const remainingDaysBelowMatch = text.match(/(?:duoi|toi da|khong qua|less than|under)\D*(\d{1,4})\s*ngay/);
   const remainingDaysAboveMatch = text.match(/(?:tren|tu|toi thieu|more than|over)\D*(\d{1,4})\s*ngay/);
   const remainingDaysAtMatch = text.match(/(?:con lai|remaining term|days left|ngay con lai)\D*(\d{1,4})\s*ngay/);
 
+  const maturityWindow = inferMaturityWindow(text);
+
   return pruneEmptyValues({
+    ...numericCriteria,
     bondRateType: normalizeAIBondRateType(text),
     remainingDaysMin: remainingDaysBetweenMatch
       ? normalizeNumber(remainingDaysBetweenMatch[1])
@@ -351,6 +543,8 @@ function inferHeuristicBondFilterCriteria(message: string): AIBondFilterCriteria
         : remainingDaysAtMatch
           ? normalizeNumber(remainingDaysAtMatch[1])
           : undefined,
+    maturityDateFrom: maturityWindow?.from,
+    maturityDateTo: maturityWindow?.to,
     sortBy: sortPreferences.primary ?? fallbackPrimarySort,
     secondarySorts: dedupeSorts(sortPreferences.secondary),
   } as Record<string, unknown>) as AIBondFilterCriteria;
@@ -634,7 +828,8 @@ export async function extractBondFilterCriteria({
       systemPrompt: [
         'Ban la bo xu ly trich xuat tieu chi loc trai phieu doanh nghiep.',
         'Nhiem vu cua ban la chuyen mo ta tu nhien thanh JSON ngan gon, khong giai thich them.',
-        'Ngay hien tai la 2026-06-11. Neu nguoi dung noi hom nay, thang nay, quy nay, nam nay, 12 thang toi, 6 thang toi... thi phai quy doi ra ngay thang cu the.',
+        `Ngay hien tai la ${getTodayIso()}. Neu nguoi dung noi hom nay, thang nay, quy nay, nam nay, 12 thang toi, 6 thang toi... thi phai quy doi ra ngay thang cu the dua tren ngay hien tai nay.`,
+        'Voi cac cum "dao han trong vong X ngay/tuan/thang/nam", "dao han X tuan/thang toi", hay dat maturityDateFrom = ngay hien tai va maturityDateTo = ngay hien tai cong them khoang do. Khong dung remainingDays cho cac cum ve dao han.',
         'Chi ho tro cac truong: industry, issuer, bondType, remainingDaysMin, remainingDaysMax, minTenorMonths, maxTenorMonths, issueDateFrom, issueDateTo, maturityDateFrom, maturityDateTo, minBondRate, maxBondRate, bondRateType, minListedVolume, maxListedVolume, minIssuedValueBillion, maxIssuedValueBillion, minListedValueBillion, maxListedValueBillion, sortBy, secondarySorts.',
         'Neu nguoi dung noi ve ky han con lai / remaining term / days left, hay su dung remainingDaysMin va remainingDaysMax.',
         'industry la nganh nghe; issuer la ten to chuc phat hanh; bondType la loai trai phieu.',
@@ -824,6 +1019,22 @@ function parseComparableDate(value?: string) {
   return Number.isNaN(timestamp) ? undefined : timestamp;
 }
 
+// Remaining days until maturity. Prefers a precomputed `daysLeft` (the maturity list view attaches
+// one) and otherwise derives it live from `maturityDate`. Deriving it here is what makes the
+// remaining-term criterion work on the market-bond list and in chat: those rows carry no daysLeft,
+// so the criterion used to be silently skipped and never narrowed anything.
+function resolveRemainingDays(row: BondDataRow): number | undefined {
+  const provided = Number((row as any).daysLeft);
+  if (Number.isFinite(provided)) return provided;
+
+  const maturity = parseComparableDate(row.maturityDate);
+  if (maturity === undefined) return undefined;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((maturity - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 function matchesMinMaxNumber(value: number, min?: number, max?: number) {
   if (min !== undefined && value < min) return false;
   if (max !== undefined && value > max) return false;
@@ -886,8 +1097,8 @@ export function filterBondRowsByCriteria(rows: BondDataRow[], criteria: AIBondFi
     }
 
     if (criteria.remainingDaysMin !== undefined || criteria.remainingDaysMax !== undefined) {
-      const daysLeft = Number((row as any).daysLeft);
-      if (Number.isFinite(daysLeft) && !matchesMinMaxNumber(daysLeft, criteria.remainingDaysMin, criteria.remainingDaysMax)) {
+      const daysLeft = resolveRemainingDays(row);
+      if (daysLeft !== undefined && !matchesMinMaxNumber(daysLeft, criteria.remainingDaysMin, criteria.remainingDaysMax)) {
         return false;
       }
     }
@@ -1057,5 +1268,5 @@ export function getBondFilterPresetSignature(criteria: AIBondFilterCriteria) {
 }
 
 export function getTodayIsoForBondFilter() {
-  return TODAY_ISO;
+  return getTodayIso();
 }

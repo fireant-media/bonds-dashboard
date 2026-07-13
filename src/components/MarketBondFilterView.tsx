@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { EyeOff, Filter, FilterX, ListOrdered, RefreshCcw, Search } from 'lucide-react';
+import { EyeOff, Filter, FilterX, ListOrdered, Loader2, RefreshCcw, Search, Sparkles } from 'lucide-react';
 import { Bond } from '../types';
 import { useLanguage } from '../LanguageContext';
 import {
@@ -846,7 +846,7 @@ export default function MarketBondFilterView({
       header: t('issuer'),
       accessor: (row) => getDisplayedIssuerName(row),
       sortable: true,
-      widthClassName: 'w-96',
+      widthClassName: 'w-56',
       cell: (row) => {
         const issuerName = getDisplayedIssuerName(row);
         const industry = resolveDisplayedIndustry(row);
@@ -869,7 +869,7 @@ export default function MarketBondFilterView({
       header: t('bondTypeLabel'),
       accessor: (row) => getLocalizedBondType(row.bondType, language),
       sortable: true,
-      widthClassName: 'w-60',
+      widthClassName: 'w-44',
       cell: (row) => (
         <div className="min-w-0 whitespace-normal break-words leading-5 transition-colors group-hover:text-blue-600">
           {getLocalizedBondType(row.bondType, language) || t('none')}
@@ -1132,38 +1132,50 @@ export default function MarketBondFilterView({
         )}
       />
 
-      {loading ? (
-        <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center text-sm font-medium text-text-muted shadow-md shadow-blue-950/5 dark:shadow-black/20">
-          {t('loadingBondsMessage')}
-        </div>
-      ) : error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-10 text-center text-sm font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-          {error}
-        </div>
-      ) : (
-      <DataTable
-        rows={filteredRows}
-        columns={columns}
-        getRowKey={(row) => row.bondCode}
-        persistKey="market-bond-list"
-        pageSize={10}
-        initialSort={tableInitialSort}
-        emptyState={t('noData')}
-        noColumnsState={t('noColumnsSelected')}
-        hiddenColumnIds={hiddenColumnIds}
-        onRowClick={(row) => {
-          setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
-          setSelectedBond(toBondModel(row));
-        }}
-        onVisibleRowsChange={(nextVisibleRows) => {
-          const nextCodes = nextVisibleRows.map((row) => row.bondCode);
-          setVisibleBondCodes((currentCodes) => (
-            currentCodes.length === nextCodes.length
-            && currentCodes.every((code, index) => code === nextCodes[index])
-            ) ? currentCodes : nextCodes);
-          }}
-        />
-      )}
+      <div className="relative">
+        {isApplyingAIFilter ? (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 rounded-lg border border-blue-100/80 bg-bg-surface/85 backdrop-blur-sm transition-colors dark:border-blue-400/20 dark:bg-slate-950/70">
+            <div className="relative flex h-12 w-12 items-center justify-center">
+              <Loader2 className="h-12 w-12 animate-spin text-blue-500/40" />
+              <Sparkles className="absolute h-5 w-5 text-blue-600" />
+            </div>
+            <p className="px-4 text-center text-sm font-semibold text-text-base">{t('aiFilterLoading')}</p>
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center text-sm font-medium text-text-muted shadow-md shadow-blue-950/5 dark:shadow-black/20">
+            {t('loadingBondsMessage')}
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-10 text-center text-sm font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+            {error}
+          </div>
+        ) : (
+          <DataTable
+            rows={filteredRows}
+            columns={columns}
+            getRowKey={(row) => row.bondCode}
+            persistKey="market-bond-list"
+            pageSize={10}
+            initialSort={tableInitialSort}
+            emptyState={t('noData')}
+            noColumnsState={t('noColumnsSelected')}
+            hiddenColumnIds={hiddenColumnIds}
+            onRowClick={(row) => {
+              setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
+              setSelectedBond(toBondModel(row));
+            }}
+            onVisibleRowsChange={(nextVisibleRows) => {
+              const nextCodes = nextVisibleRows.map((row) => row.bondCode);
+              setVisibleBondCodes((currentCodes) => (
+                currentCodes.length === nextCodes.length
+                && currentCodes.every((code, index) => code === nextCodes[index])
+                ) ? currentCodes : nextCodes);
+              }}
+            />
+        )}
+      </div>
     </div>
   );
 }

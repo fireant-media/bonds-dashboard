@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { filterBondRowsByCriteria, isBondFilterIntent, normalizeAIBondRateType } from './aiBondFilter';
+import {
+  filterBondRowsByCriteria,
+  getTodayIsoForBondFilter,
+  inferHeuristicBondFilterCriteria,
+  isBondFilterIntent,
+  normalizeAIBondRateType,
+} from './aiBondFilter';
 
 test('normalizeAIBondRateType handles Vietnamese fixed and floating values', () => {
   assert.equal(normalizeAIBondRateType('Cố định'), 'fixed');
@@ -98,6 +104,126 @@ test('filterBondRowsByCriteria matches an issuer ticker via bond code / symbol /
   assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'Vingroup' } as any).length, 1);
   // Unknown issuer returns nothing.
   assert.equal(filterBondRowsByCriteria(rows as any, { issuer: 'XYZ' } as any).length, 0);
+});
+
+// The remaining-term criterion must narrow the market-bond list / chat rows too. Those rows carry
+// no precomputed `daysLeft`, so the filter now derives it live from `maturityDate`. Uses dates
+// relative to today (never a hard-coded date) with wide margins so a timezone wobble can't flip it.
+test('filterBondRowsByCriteria applies remaining days by deriving daysLeft from maturityDate', () => {
+  const isoOffsetFromToday = (days: number) => {
+    const base = new Date();
+    const utcMidnight = Date.UTC(base.getFullYear(), base.getMonth(), base.getDate());
+    return new Date(utcMidnight + days * 86_400_000).toISOString().split('T')[0];
+  };
+
+  const rows = [
+    makeRow({ bondCode: 'SOON', maturityDate: isoOffsetFromToday(3) }),
+    makeRow({ bondCode: 'LATER', maturityDate: isoOffsetFromToday(40) }),
+  ];
+
+  // "đáo hạn trong vòng 1 tuần" → remainingDaysMax 7: only the bond maturing in ~3 days survives.
+  const withinWeek = filterBondRowsByCriteria(rows as any, { remainingDaysMax: 7 } as any);
+  assert.equal(withinWeek.length, 1);
+  assert.equal(withinWeek[0].bondCode, 'SOON');
+
+  // A precomputed daysLeft is still honored when present.
+  const preComputed = [makeRow({ bondCode: 'X', maturityDate: '', daysLeft: 5 })];
+  assert.equal(filterBondRowsByCriteria(preComputed as any, { remainingDaysMax: 7 } as any).length, 1);
+  assert.equal(filterBondRowsByCriteria(preComputed as any, { remainingDaysMax: 3 } as any).length, 0);
+});
+
+// "đáo hạn trong vòng X ..." must become a concrete maturity-date window anchored on TODAY (never a
+// stale hard-coded date) and expressed as maturityDateFrom/To — the field the market filter renders
+// and can filter on — not remainingDays. Weeks/months/years are supported, not just days.
+test('inferHeuristicBondFilterCriteria maps maturity windows to a maturityDate range from today', () => {
+  const today = getTodayIsoForBondFilter();
+  const shift = (base: string, { days = 0, months = 0, years = 0 }) => {
+    const [y, m, d] = base.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCFullYear(dt.getUTCFullYear() + years);
+    dt.setUTCMonth(dt.getUTCMonth() + months);
+    dt.setUTCDate(dt.getUTCDate() + days);
+    return dt.toISOString().split('T')[0];
+  };
+
+  const week = inferHeuristicBondFilterCriteria('danh sách trái phiếu đáo hạn trong vòng 1 tuần');
+  assert.equal(week.maturityDateFrom, today);
+  assert.equal(week.maturityDateTo, shift(today, { days: 7 }));
+
+  const days30 = inferHeuristicBondFilterCriteria('trái phiếu đáo hạn trong 30 ngày');
+  assert.equal(days30.maturityDateTo, shift(today, { days: 30 }));
+
+  const months3 = inferHeuristicBondFilterCriteria('đáo hạn 3 tháng tới');
+  assert.equal(months3.maturityDateTo, shift(today, { months: 3 }));
+
+  const year1 = inferHeuristicBondFilterCriteria('trái phiếu đáo hạn trong vòng 1 năm');
+  assert.equal(year1.maturityDateTo, shift(today, { years: 1 }));
+
+  // A tenor phrase ("kỳ hạn 3 tháng") without a maturity cue must NOT become a maturity window.
+  const tenor = inferHeuristicBondFilterCriteria('trái phiếu kỳ hạn 3 tháng');
+  assert.equal(tenor.maturityDateFrom, undefined);
+  assert.equal(tenor.maturityDateTo, undefined);
+});
+
+// Every numeric-range criterion must parse deterministically from Vietnamese phrasing so a filter
+// request narrows on it even without the LLM: coupon rate (%), tenor (months, years→×12), issued /
+// listed value (tỷ, "nghìn tỷ"→×1000) and listed volume. Covers trên/dưới/từ…đến/trở lên phrasings.
+test('inferHeuristicBondFilterCriteria parses each numeric range from text', () => {
+  const rateAbove = inferHeuristicBondFilterCriteria('trái phiếu lãi suất trên 8%');
+  assert.equal(rateAbove.minBondRate, 8);
+  assert.equal(rateAbove.maxBondRate, undefined);
+
+  const rateBetween = inferHeuristicBondFilterCriteria('lãi suất từ 8% đến 10,5%');
+  assert.equal(rateBetween.minBondRate, 8);
+  assert.equal(rateBetween.maxBondRate, 10.5);
+
+  const rateBelow = inferHeuristicBondFilterCriteria('lãi suất dưới 7%');
+  assert.equal(rateBelow.maxBondRate, 7);
+  assert.equal(rateBelow.minBondRate, undefined);
+
+  const rateUpward = inferHeuristicBondFilterCriteria('lãi suất 9% trở lên');
+  assert.equal(rateUpward.minBondRate, 9);
+
+  const tenorBetween = inferHeuristicBondFilterCriteria('kỳ hạn từ 12 đến 36 tháng');
+  assert.equal(tenorBetween.minTenorMonths, 12);
+  assert.equal(tenorBetween.maxTenorMonths, 36);
+
+  const tenorYears = inferHeuristicBondFilterCriteria('kỳ hạn trên 2 năm');
+  assert.equal(tenorYears.minTenorMonths, 24);
+
+  const issued = inferHeuristicBondFilterCriteria('giá trị phát hành trên 1.000 tỷ');
+  assert.equal(issued.minIssuedValueBillion, 1000);
+
+  const issuedThousand = inferHeuristicBondFilterCriteria('giá trị phát hành trên 1 nghìn tỷ');
+  assert.equal(issuedThousand.minIssuedValueBillion, 1000);
+
+  const listedValue = inferHeuristicBondFilterCriteria('giá trị niêm yết dưới 500 tỷ');
+  assert.equal(listedValue.maxListedValueBillion, 500);
+
+  const listedVolume = inferHeuristicBondFilterCriteria('khối lượng niêm yết trên 1000000');
+  assert.equal(listedVolume.minListedVolume, 1000000);
+});
+
+// A single request combining many criteria must yield ALL of them at once — the market filter ANDs
+// them together — and must not confuse a tenor with a remaining-term or maturity-window phrase.
+test('inferHeuristicBondFilterCriteria handles multiple criteria at once', () => {
+  const c = inferHeuristicBondFilterCriteria(
+    'trái phiếu lãi suất cố định lãi suất trên 8% kỳ hạn dưới 24 tháng giá trị phát hành trên 1000 tỷ',
+  );
+  assert.equal(c.bondRateType, 'fixed');
+  assert.equal(c.minBondRate, 8);
+  assert.equal(c.maxTenorMonths, 24);
+  assert.equal(c.minIssuedValueBillion, 1000);
+
+  // "kỳ hạn còn lại" is remaining term, never tenor; "đáo hạn trong vòng 1 tuần" is a maturity window.
+  const remaining = inferHeuristicBondFilterCriteria('trái phiếu kỳ hạn còn lại dưới 7 ngày');
+  assert.equal(remaining.remainingDaysMax, 7);
+  assert.equal(remaining.maxTenorMonths, undefined);
+  assert.equal(remaining.minTenorMonths, undefined);
+
+  const maturity = inferHeuristicBondFilterCriteria('trái phiếu đáo hạn trong vòng 1 tuần');
+  assert.equal(maturity.maxTenorMonths, undefined);
+  assert.ok(maturity.maturityDateFrom && maturity.maturityDateTo);
 });
 
 // Analytical / aggregate questions must route to grounded Q&A (isBondFilterIntent === false),

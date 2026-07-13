@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { formatNumber } from '../utils/format';
 import { BarChart3, Download, EllipsisVertical, LineChart, Maximize2, RotateCcw, TableProperties, X, type LucideIcon } from 'lucide-react';
@@ -410,6 +410,21 @@ export default function ChartWithToolbar({
   const zoomChartContainerRef = useRef<HTMLDivElement | null>(null);
   const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
   const zoomToolbarMenuRef = useRef<HTMLDivElement | null>(null);
+  // Coalesce every resize trigger (ResizeObserver ticks during a drag, window 'resize') into at most
+  // one echarts resize per animation frame. Calling instance.resize() synchronously on each
+  // ResizeObserver notification thrashes layout and can trip the "ResizeObserver loop" cap, which the
+  // browser resolves by deferring work — the visible lag/jank while dragging the window edge.
+  const resizeFrameRef = useRef<number | null>(null);
+  const scheduleChartResize = useCallback(() => {
+    if (resizeFrameRef.current !== null) return;
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null;
+      chartRef.current?.getEchartsInstance?.()?.resize?.();
+    });
+  }, []);
+  useEffect(() => () => {
+    if (resizeFrameRef.current !== null) window.cancelAnimationFrame(resizeFrameRef.current);
+  }, []);
   const [showDataView, setShowDataView] = useState(false);
   const [showDataViewBackButton, setShowDataViewBackButton] = useState(false);
   const [showZoom, setShowZoom] = useState(false);
@@ -673,26 +688,26 @@ export default function ChartWithToolbar({
     if (!showZoom) return;
 
     const handleResize = () => {
-      chartRef.current?.getEchartsInstance?.()?.resize?.();
+      scheduleChartResize();
     };
 
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [showZoom]);
+  }, [showZoom, scheduleChartResize]);
 
   useEffect(() => {
     const container = chartContainerRef.current;
     if (!container || typeof ResizeObserver === 'undefined') return;
 
     const observer = new ResizeObserver(() => {
-      chartRef.current?.getEchartsInstance?.()?.resize?.();
+      scheduleChartResize();
     });
 
     observer.observe(container);
     return () => observer.disconnect();
-  }, [chartMode, renderedOption]);
+  }, [chartMode, renderedOption, scheduleChartResize]);
 
   useEffect(() => {
     if (!showZoom) return undefined;
@@ -701,12 +716,12 @@ export default function ChartWithToolbar({
     if (!container || typeof ResizeObserver === 'undefined') return undefined;
 
     const observer = new ResizeObserver(() => {
-      chartRef.current?.getEchartsInstance?.()?.resize?.();
+      scheduleChartResize();
     });
 
     observer.observe(container);
     return () => observer.disconnect();
-  }, [renderedZoomOption, showZoom]);
+  }, [renderedZoomOption, showZoom, scheduleChartResize]);
 
   useEffect(() => {
     if (!showZoom) {
@@ -860,7 +875,9 @@ export default function ChartWithToolbar({
             ref={chartRef}
             option={renderedOption}
             style={{ height: '100%', width: '100%' }}
-            autoResize
+            /* Disable the library's own size-sensor resize: the rAF-coalesced ResizeObserver below
+               is the single resize path, so the chart isn't resized twice per frame (jank source). */
+            autoResize={false}
             notMerge={notMerge}
             lazyUpdate={lazyUpdate}
         />
@@ -958,7 +975,7 @@ export default function ChartWithToolbar({
                 ref={chartRef}
                 option={renderedZoomOption}
                 style={zoomChartStyle}
-                autoResize
+                autoResize={false}
                 notMerge={notMerge}
                 lazyUpdate={lazyUpdate}
               />

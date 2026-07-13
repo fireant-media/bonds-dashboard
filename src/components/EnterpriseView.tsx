@@ -637,7 +637,7 @@ export default function EnterpriseView({
         className="inline-flex w-full items-center justify-center gap-1.5 text-center text-white transition-opacity hover:opacity-90"
       >
         <span className="flex min-w-0 flex-col items-center justify-center gap-0.5">
-          <span className={cn("whitespace-nowrap leading-none", labelClassName)}>
+          <span className={cn("min-w-0 whitespace-normal break-words text-center leading-tight", labelClassName)}>
             {label}
           </span>
           {unit ? (
@@ -1093,9 +1093,18 @@ export default function EnterpriseView({
     bodyElement.addEventListener('scroll', syncHeaderPosition, { passive: true });
     window.addEventListener('resize', syncHeaderPosition);
 
+    // Re-sync on any width change to the body box (scrollbar gutter, sidebar/filter panel toggles),
+    // which window 'resize' alone misses and which otherwise misaligns the sticky header.
+    let resizeObserver: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => syncHeaderPosition());
+      resizeObserver.observe(bodyElement);
+    }
+
     return () => {
       bodyElement.removeEventListener('scroll', syncHeaderPosition);
       window.removeEventListener('resize', syncHeaderPosition);
+      resizeObserver?.disconnect();
     };
   }, [
     showEnterpriseIssuerNameColumn,
@@ -2693,9 +2702,9 @@ export default function EnterpriseView({
             <colgroup>
               <col className="w-14" />
               {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
-              {showEnterpriseTickerColumn ? <col className="w-28" /> : null}
+              {showEnterpriseTickerColumn ? <col className="w-24" /> : null}
               {showEnterpriseIndustryColumn ? <col className="w-44" /> : null}
-              {showEnterpriseBondCountColumn ? <col className="w-32" /> : null}
+              {showEnterpriseBondCountColumn ? <col className="w-24" /> : null}
               {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
               {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
             </colgroup>
@@ -2712,9 +2721,9 @@ export default function EnterpriseView({
             <colgroup>
               <col className="w-14" />
               {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
-              {showEnterpriseTickerColumn ? <col className="w-28" /> : null}
+              {showEnterpriseTickerColumn ? <col className="w-24" /> : null}
               {showEnterpriseIndustryColumn ? <col className="w-44" /> : null}
-              {showEnterpriseBondCountColumn ? <col className="w-32" /> : null}
+              {showEnterpriseBondCountColumn ? <col className="w-24" /> : null}
               {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
               {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
             </colgroup>
@@ -2741,8 +2750,8 @@ export default function EnterpriseView({
                     <span className="text-sm font-medium text-text-base">{idx + 1}</span>
                   </td>
                   {showEnterpriseIssuerNameColumn ? (
-                    <td className="px-4 py-3 text-left whitespace-nowrap">
-                      <p className="truncate text-sm font-bold text-text-base transition-colors group-hover:text-blue-600">
+                    <td className="px-4 py-3 text-left align-middle">
+                      <p className="whitespace-normal break-words leading-snug text-sm font-bold text-text-base transition-colors group-hover:text-blue-600">
                         {language === 'en' && enterpriseNamesEN[enterprise.ticker]
                           ? enterpriseNamesEN[enterprise.ticker]
                           : t(enterprise.name as any, enterprise.ticker)}

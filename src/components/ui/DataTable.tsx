@@ -169,9 +169,20 @@ export function DataTable<T>({
     bodyElement.addEventListener('scroll', syncHeaderPosition, { passive: true });
     window.addEventListener('resize', syncHeaderPosition);
 
+    // Re-sync on ANY change to the body's own box — not just window resizes. This covers the cases
+    // window 'resize' misses and that leave the sticky header misaligned with the body columns: a
+    // vertical scrollbar gutter appearing/disappearing, and sidebar/filter panels expanding or
+    // collapsing the available width.
+    let resizeObserver: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => syncHeaderPosition());
+      resizeObserver.observe(bodyElement);
+    }
+
     return () => {
       bodyElement.removeEventListener('scroll', syncHeaderPosition);
       window.removeEventListener('resize', syncHeaderPosition);
+      resizeObserver?.disconnect();
     };
   }, [visibleColumns.length]);
 
@@ -199,7 +210,7 @@ export function DataTable<T>({
       <th
         key={column.id}
         className={cn(
-          "bg-transparent px-4 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap text-center text-white",
+          "bg-transparent px-4 py-3 text-xs font-bold uppercase tracking-wider text-center text-white",
           column.stickyHeaderClassName,
         )}
       >
@@ -208,14 +219,15 @@ export function DataTable<T>({
           onClick={() => handleSort(column)}
           disabled={!column.sortable || !column.accessor}
           className={cn(
-            "w-full text-center disabled:cursor-default",
+            "w-full min-w-0 text-center disabled:cursor-default",
             column.unit
               ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-2 items-center justify-center gap-x-1"
               : "inline-flex items-center justify-center gap-1",
           )}
         >
           <span className={cn(
-            "leading-none",
+            // Let long headers wrap onto multiple lines instead of overflowing a narrow column.
+            "min-w-0 whitespace-normal break-words leading-tight",
             column.unit ? "col-start-1 row-start-1" : "block",
           )}>
             {column.header}
