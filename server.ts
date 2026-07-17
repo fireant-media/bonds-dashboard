@@ -15,6 +15,7 @@ import {
   OPENAI_BASE_URL,
 } from "./api/_lib/config";
 import { handlePageDataRequest } from "./api/_lib/page-data";
+import { isAllowedOrigin } from "./api/_lib/cors";
 
 dotenv.config();
 
@@ -181,21 +182,6 @@ async function fetchAvailableModels(apiKey: string, force = false): Promise<Fetc
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
-
-  // Origins allowed to call this server cross-origin: local dev hosts plus the FireAnt AI widget
-  // host (answer.fireant.vn), so the embedded aip-widget can reach the app's endpoints.
-  const ALLOWED_CORS_HOSTS = new Set(["localhost", "127.0.0.1", "answer.fireant.vn"]);
-  const isAllowedOrigin = (origin?: string) => {
-    if (!origin) return false;
-    if (origin === "null") return true;
-
-    try {
-      const url = new URL(origin);
-      return ALLOWED_CORS_HOSTS.has(url.hostname);
-    } catch {
-      return false;
-    }
-  };
 
   app.use((req, res, next) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";

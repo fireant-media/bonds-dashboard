@@ -1,20 +1,30 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Origins allowed to call these serverless endpoints cross-origin. Mirrors the Express dev server
-// (server.ts) allowlist: local dev hosts plus the FireAnt AI widget host (answer.fireant.vn), so the
-// embedded aip-widget can fetch the dashboard's data from another origin without a CORS error.
-const ALLOWED_CORS_HOSTS = new Set(['localhost', '127.0.0.1', 'answer.fireant.vn']);
+// Single source of truth for cross-origin access, shared by the Vercel serverless functions and the
+// Express dev server (server.ts).
+//
+// External hosts are matched by EXACT origin (scheme + host) and are https-only: an insecure
+// http:// page on the same host is NOT trusted. This matters because responses set
+// Access-Control-Allow-Credentials: true, so reflecting an insecure origin would be a weakness.
+// Local dev hosts are matched by hostname alone, so any scheme/port works while developing.
+const ALLOWED_ORIGINS = new Set<string>([
+  'https://answer.fireant.vn',
+]);
+const ALLOWED_LOCAL_HOSTS = new Set<string>(['localhost', '127.0.0.1']);
 
-const isAllowedOrigin = (origin?: string) => {
+export function isAllowedOrigin(origin?: string): boolean {
   if (!origin) return false;
-  if (origin === 'null') return true;
+  if (origin === 'null') return true; // sandboxed iframes / file:// documents
 
   try {
-    return ALLOWED_CORS_HOSTS.has(new URL(origin).hostname);
+    const url = new URL(origin);
+    if (ALLOWED_LOCAL_HOSTS.has(url.hostname)) return true;
+    // url.origin is scheme + host (+ non-default port), so http:// is rejected for external hosts.
+    return ALLOWED_ORIGINS.has(url.origin);
   } catch {
     return false;
   }
-};
+}
 
 /**
  * Set CORS response headers for allowed origins and answer preflight (OPTIONS) requests.
