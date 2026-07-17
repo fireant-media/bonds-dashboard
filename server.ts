@@ -182,13 +182,16 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  const isAllowedLocalOrigin = (origin?: string) => {
+  // Origins allowed to call this server cross-origin: local dev hosts plus the FireAnt AI widget
+  // host (answer.fireant.vn), so the embedded aip-widget can reach the app's endpoints.
+  const ALLOWED_CORS_HOSTS = new Set(["localhost", "127.0.0.1", "answer.fireant.vn"]);
+  const isAllowedOrigin = (origin?: string) => {
     if (!origin) return false;
     if (origin === "null") return true;
 
     try {
       const url = new URL(origin);
-      return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      return ALLOWED_CORS_HOSTS.has(url.hostname);
     } catch {
       return false;
     }
@@ -197,7 +200,7 @@ async function startServer() {
   app.use((req, res, next) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
 
-    if (isAllowedLocalOrigin(origin)) {
+    if (isAllowedOrigin(origin)) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header("Access-Control-Allow-Credentials", "true");
       res.header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Fireant-Access-Token");
