@@ -10,6 +10,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 const ALLOWED_ORIGINS = new Set<string>([
   'https://answer.fireant.vn',
   'https://onecompiler.com',
+  'https://www.onecompiler.com',
 ]);
 const ALLOWED_LOCAL_HOSTS = new Set<string>(['localhost', '127.0.0.1']);
 

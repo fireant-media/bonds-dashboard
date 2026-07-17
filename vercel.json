@@ -58,6 +58,10 @@
       "destination": "/api/auth.ts?path=:path*"
     },
     {
+      "source": "/api/cors-debug",
+      "destination": "/api/cors-debug.ts"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
