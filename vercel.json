@@ -3,7 +3,10 @@
   "builds": [
     {
       "src": "api/*.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 30
+      }
     },
     {
       "src": "package.json",
@@ -15,16 +18,48 @@
   ],
   "rewrites": [
     {
-      "source": "/api/news",
-      "destination": "/api/news.ts"
+      "source": "/api/health/fireant",
+      "destination": "/api/health-fireant.ts"
     },
     {
-      "source": "/api/news/:id",
-      "destination": "/api/detail.ts?id=:id"
+      "source": "/api/proxy",
+      "destination": "/api/proxy.ts"
     },
     {
       "source": "/api/fireant/:path*",
       "destination": "/api/proxy.ts?path=:path*"
+    },
+    {
+      "source": "/api/fa/:path*",
+      "destination": "/api/proxy.ts?path=:path*"
+    },
+    {
+      "source": "/api/news/:id",
+      "destination": "/api/news.ts?id=:id"
+    },
+    {
+      "source": "/api/news",
+      "destination": "/api/news.ts"
+    },
+    {
+      "source": "/api/page-data/:view",
+      "destination": "/api/page-data.ts?view=:view"
+    },
+    {
+      "source": "/api/page-data",
+      "destination": "/api/page-data.ts"
+    },
+    {
+      "source": "/api/ai/:path*",
+      "destination": "/api/ai.ts?path=:path*"
+    },
+    {
+      "source": "/api/auth/:path*",
+      "destination": "/api/auth.ts?path=:path*"
+    },
+    {
+      "source": "/api/cors-debug",
+      "destination": "/api/cors-debug.ts"
     },
     {
       "source": "/(.*)",

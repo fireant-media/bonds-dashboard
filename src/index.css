@@ -1,42 +1,121 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --color-bg-base: var(--bg-base);
   --color-bg-surface: var(--bg-surface);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-bright: var(--surface-bright);
   --color-text-base: var(--text-base);
   --color-text-muted: var(--text-muted);
   --color-text-highlight: var(--text-highlight);
+  --color-action-accent: var(--action-accent);
   --color-border-base: var(--border-base);
+  --color-blue-50: #edf6ff;
+  --color-blue-100: #d8edff;
+  --color-blue-200: #b7e0ff;
+  --color-blue-300: #68d7f0;
+  --color-blue-400: #40bdf0;
+  --color-blue-500: #0e87f7;
+  --color-blue-600: #006feb;
+  --color-blue-700: #0b4ea2;
+  --color-blue-800: #0b3d91;
+  --color-blue-900: #092c68;
+  --color-ref-blue-start: #0e87f7;
+  --color-ref-blue-end: #68d7f0;
+  --color-ref-purple-start: #7c4dff;
+  --color-ref-purple-end: #9b6bff;
+  --color-ref-green-start: #18c985;
+  --color-ref-green-end: #61e5bd;
+  --color-ref-orange-start: #f7a52b;
+  --color-ref-orange-end: #f6be66;
+  --font-sans: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
+  --font-data-mono: "Manrope", Inter, "Segoe UI", Arial, ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
-  --bg-base: #f8f9fa;
+  --bg-base: #f6f8fd;
   --bg-surface: #ffffff;
-  --text-base: #111827;
-  --text-muted: #6b7280;
-  --text-highlight: #3634B3;
-  --border-base: #e5e7eb;
+  --surface-container-low: #f1f4f9;
+  --surface-bright: #ffffff;
+  --text-base: #0b102f;
+  --text-muted: #64748b;
+  --text-highlight: #0b4ea2;
+  --action-accent: #006feb;
+  --border-base: rgba(15, 23, 42, 0.08);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+[role='button'],
+a {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+.chart-tooltip-value {
+  color: var(--text-highlight);
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+body[data-app-view='login'] .ai-chatbot-shell {
+  display: none;
+}
+
+#aip-widget-container {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 60;
 }
 
 .dark {
-  --bg-base: #111827;
-  --bg-surface: #1f2937;
-  --text-base: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-highlight: #3634B3;
-  --border-base: #374151;
+  --bg-base: #0f172a;
+  --bg-surface: #131c31;
+  --surface-container-low: #17233a;
+  --surface-bright: #18243a;
+  --text-base: #e5e7eb;
+  --text-muted: #94a3b8;
+  --text-highlight: #63d8f2;
+  --action-accent: #168bff;
+  --border-base: rgba(255, 255, 255, 0.06);
 }
 
 @layer base {
   body {
-    @apply bg-bg-base text-text-base transition-colors duration-300;
+    @apply bg-bg-base text-text-base font-sans transition-colors duration-300;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image:
+      radial-gradient(circle at top left, rgba(14, 135, 247, 0.08), transparent 28rem),
+      radial-gradient(circle at bottom right, rgba(99, 216, 242, 0.06), transparent 30rem);
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2 ring-offset-bg-base;
   }
   
   .fireant-content p {
     @apply mb-4 leading-relaxed;
   }
   .fireant-content img {
-    @apply rounded-xl my-6 max-w-full h-auto mx-auto border border-border-base shadow-sm;
+    @apply rounded-lg my-6 max-w-full h-auto mx-auto border border-border-base shadow-sm;
   }
   .fireant-content h2, .fireant-content h3 {
     @apply font-bold mt-8 mb-4 text-lg md:text-xl text-text-base;
@@ -45,16 +124,16 @@
     @apply my-6 text-center;
   }
   .fireant-content figcaption {
-    @apply text-[11px] italic text-text-muted mt-2 block;
+    @apply text-xs italic text-text-muted mt-2 block;
   }
   .fireant-content a {
-    @apply text-[#3634B3] hover:underline transition-colors;
+    @apply text-blue-600 dark:text-blue-400 hover:underline transition-colors;
   }
   .fireant-content ul, .fireant-content ol {
     @apply my-4 ml-6 list-disc space-y-2;
   }
   .fireant-content table {
-    @apply w-full border-collapse my-6 overflow-hidden rounded-xl border border-border-base;
+    @apply w-full border-collapse my-6 overflow-hidden rounded-lg border border-border-base;
   }
   .fireant-content th, .fireant-content td {
     @apply p-3 border-b border-border-base text-sm;
@@ -71,5 +150,30 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-muted) 45%, transparent) transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--text-muted) 35%, transparent);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--text-muted) 55%, transparent);
   }
 }

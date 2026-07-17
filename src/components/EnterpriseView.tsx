@@ -1,76 +1,747 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, ChevronRight, ChevronLeft, ArrowUpDown, Download, Share2, Info } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowUpDown, ChevronRight, ChevronLeft, Hash, BadgeDollarSign, Landmark, Wallet, CheckCircle2, RotateCcw, Filter, FilterX, ListFilter, ListOrdered, EyeOff, Search, X } from 'lucide-react';
 import { Enterprise } from '../types';
 import { Bond } from "../types";
 import BondDetailPopup from './BondDetailPopup';
-import ReactECharts from 'echarts-for-react';
+import ChartWithToolbar from './ChartWithToolbar';
+import AIInsightPanel from './AIInsightPanel';
 import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
 import { useTheme } from '../ThemeContext';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
 interface EnterpriseViewProps {
   selectedEnterprise: Enterprise | null;
   setSelectedEnterprise: (enterprise: Enterprise | null) => void;
   setSelectedBond: (bond: Bond | null) => void;
   setBondEnterpriseName: (name: string) => void;
+  listTitle?: string;
+  breadcrumbTitle?: string;
 }
 
 import { getFireantToken, cleanTokenString } from '../utils/token';
-import { Settings } from 'lucide-react';
 import { getCache, setCache } from '../utils/cache';
 import { useLanguage } from '../LanguageContext';
+import { CHART_PALETTE, getComparisonAreaSeriesStyle, getChartTheme, getChartTooltip, highlightChartTooltipValue, PIE_PALETTE, splitLegendItems } from '../utils/chart';
+import { readJsonResponse } from '../utils/http';
+import { sendChat } from '../api/ai';
+import { buildFireantUrl } from '../api/fireant';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { MetricCard } from './ui/Card';
+import { fireantApi } from '../api/fireant';
+import {
+  buildEnterpriseIndustryOptions,
+  resolveIndustryKeyFromCandidates,
+  resolveIndustryKeyFromCandidates as resolveIndustryFromShared,
+} from '../constants/industries';
+import { ENTERPRISE_LIST_DATA_CACHE_KEY, loadEnterpriseListByIssuerSymbol } from '../services/enterpriseListData';
+import { loadBondDetail, loadIssuerBondsByFilter, loadIssuerProfile, type BondDataRow } from '../services/bondData';
+import { useAIStore } from '../store/aiStore';
+import { clearViewChatContext, setViewChatContext } from '../utils/viewChatContext';
+import {
+  RangeFilterChip,
+  SearchFilterField,
+  SelectFilterChip,
+} from './BondFilterPanel';
+
+const readEnterpriseCache = (primaryKey: string) => {
+  const primary = getCache(primaryKey);
+  return Array.isArray(primary) && primary.length > 0 ? primary : null;
+};
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+const roundMetric = (value: number, digits = 2) => {
+  if (!Number.isFinite(value)) return 0;
+  return Number(value.toFixed(digits));
+};
+
+const INDUSTRY_BADGE_CLASSES: Array<{ keywords: string[]; className: string }> = [
+  { keywords: ['bank', 'ngân hàng', 'tài chính'], className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' },
+  { keywords: ['real estate', 'bất động sản', 'property'], className: 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300' },
+  { keywords: ['industrial', 'công nghiệp', 'manufacturing', 'sản xuất'], className: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' },
+  { keywords: ['securities', 'chứng khoán'], className: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-500/10 dark:text-fuchsia-300' },
+  { keywords: ['energy', 'năng lượng', 'power', 'utilities'], className: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' },
+  { keywords: ['telecom', 'viễn thông', 'technology', 'công nghệ'], className: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300' },
+  { keywords: ['consumer', 'bán lẻ', 'retail', 'tiêu dùng'], className: 'bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300' },
+  { keywords: ['transport', 'logistics', 'vận tải'], className: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300' },
+  { keywords: ['health', 'y tế', 'pharmaceutical', 'dược'], className: 'bg-teal-50 text-teal-700 dark:bg-teal-500/10 dark:text-teal-300' },
+  { keywords: ['agriculture', 'nông nghiệp', 'food', 'thực phẩm'], className: 'bg-lime-50 text-lime-700 dark:bg-lime-500/10 dark:text-lime-300' },
+];
+
+const getIndustryBadgeClassName = (industry: string) => {
+  const normalized = String(industry || '').trim().toLowerCase();
+  if (!normalized) {
+    return 'bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
+  }
+
+  const matched = INDUSTRY_BADGE_CLASSES.find((entry) => (
+    entry.keywords.some((keyword) => normalized.includes(keyword))
+  ));
+
+  return matched?.className || 'bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300';
+};
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeTermBase = (value: unknown, monthUnit: string) => {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const normalizedMonthUnit = String(monthUnit || '').trim();
+  if (!normalizedMonthUnit) return raw;
+
+  const monthUnitPattern = escapeRegExp(normalizedMonthUnit);
+  return raw.replace(new RegExp(`(?:\\s*${monthUnitPattern})+$`, 'i'), '').trim();
+};
+
+const formatTermWithMonthUnit = (value: unknown, monthUnit: string) => {
+  const base = normalizeTermBase(value, monthUnit);
+  if (!base) return '';
+  return `${base} ${monthUnit}`.trim();
+};
+
+const ENTERPRISE_AI_FALLBACK_MODEL = 'gpt-5.4-mini';
+
+const normalizeAIJsonText = (value: string) =>
+  value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+const normalizeTextKey = (value: string) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const toEnterpriseBondRow = (bond: Bond, issuerName = '', issuerSymbol = ''): BondDataRow => ({
+  bondCode: bond.code,
+  issuerSymbol: issuerSymbol || bond.enterpriseId || '',
+  issuerName,
+  bondType: '',
+  industry: '',
+  issueDate: bond.issueDate || '',
+  maturityDate: bond.maturityDate || '',
+  tenorPeriod: Number.parseFloat(String(bond.term || '')) || 0,
+  bondRate: Number(bond.interestRate || 0),
+  bondRateType: bond.interestType || '',
+  currentListedVolume: Number(bond.listedVolume || 0),
+  currentListedValue: Number(bond.listedValue || 0) * 1000000000,
+  totalIssuedValue: Number(bond.issuedValue || 0) * 1000000000,
+  totalRemainingDebt: 0,
+  totalDebtFull: 0,
+  status: bond.status || '',
+  bondInfos: {},
+  raw: bond,
+});
+
+const toBondValueBillion = (value: unknown) => {
+  const numericValue = Number(value || 0);
+  return numericValue > 0 ? numericValue / 1_000_000_000 : 0;
+};
+
+const mapIssuerBondRowToBond = (row: BondDataRow, enterpriseId: string): Bond => ({
+  id: row.bondCode,
+  code: row.bondCode,
+  enterpriseId,
+  term: row.tenorPeriod ? String(row.tenorPeriod) : 'N/A',
+  interestRate: Number(row.bondRate || 0),
+  listedVolume: Number(row.currentListedVolume || 0),
+  issuedValue: toBondValueBillion(row.totalIssuedValue),
+  listedValue: toBondValueBillion(row.currentListedValue || row.totalRemainingDebt || row.totalIssuedValue),
+  issueDate: row.issueDate?.split('T')[0] || '',
+  maturityDate: row.maturityDate?.split('T')[0] || '',
+  interestType: normalizeInterestType(
+    row.bondRateType || '',
+    row.bondInfos?.interestPaymentMethod || row.bondInfos?.paymentMethod || row.bondType || '',
+    [],
+  ) || 'N/A',
+  bondType: row.bondType || '',
+  status: row.status || '',
+});
+
+const enrichIssuerBondWithDetail = (bond: Bond, detailData: any): Bond => {
+  const detail = detailData?.detail || detailData || {};
+  const historyItem = Array.isArray(detailData?.history) ? detailData.history[0] : undefined;
+  const rawCashFlows = Array.isArray(detailData?.cashFlows) ? detailData.cashFlows : [];
+  const rawInterestType =
+    detail?.bondRateType ||
+    detail?.BondRateType ||
+    detail?.interestRateType ||
+    detail?.InterestRateType ||
+    detail?.couponRateType ||
+    detail?.CouponRateType ||
+    detail?.interestType ||
+    bond.interestType ||
+    '';
+  const paymentMethod =
+    detail?.interestPaymentMethod ||
+    detail?.paymentMethod ||
+    detail?.bondType ||
+    detail?.BondType ||
+    detail?.bondName ||
+    bond.bondType ||
+    '';
+  const listedVolume = Number(
+    detail?.currentListedVolume ||
+    detail?.CurrentListedVolume ||
+    historyItem?.volume ||
+    bond.listedVolume ||
+    0,
+  );
+  const issuedValueRaw = Number(
+    detail?.totalIssuedValue ||
+    detail?.TotalIssuedValue ||
+    historyItem?.value ||
+    0,
+  );
+  const listedValueRaw = Number(
+    detail?.currentListedValue ||
+    detail?.CurrentListedValue ||
+    detail?.totalRemainingDebt ||
+    detail?.TotalRemainingDebt ||
+    historyItem?.value ||
+    issuedValueRaw ||
+    0,
+  );
+
+  return {
+    ...bond,
+    enterpriseId: detail?.issuerSymbol || detail?.IssuerSymbol || bond.enterpriseId,
+    term: detail?.tenorPeriod ? String(detail.tenorPeriod) : detail?.TenorPeriod ? String(detail.TenorPeriod) : bond.term,
+    interestRate: Number(
+      detail?.bondRate ||
+      detail?.BondRate ||
+      detail?.interestRate ||
+      detail?.InterestRate ||
+      detail?.couponRate ||
+      detail?.CouponRate ||
+      rawCashFlows[0]?.bondRate ||
+      bond.interestRate ||
+      0,
+    ),
+    listedVolume,
+    issuedValue: issuedValueRaw > 0 ? issuedValueRaw / 1_000_000_000 : bond.issuedValue,
+    listedValue: listedValueRaw > 0 ? listedValueRaw / 1_000_000_000 : bond.listedValue,
+    issueDate: detail?.issueDate ? String(detail.issueDate).split('T')[0] : detail?.IssueDate ? String(detail.IssueDate).split('T')[0] : bond.issueDate,
+    maturityDate: detail?.maturityDate ? String(detail.maturityDate).split('T')[0] : detail?.MaturityDate ? String(detail.MaturityDate).split('T')[0] : bond.maturityDate,
+    interestType: normalizeInterestType(rawInterestType, paymentMethod, rawCashFlows) || bond.interestType,
+    bondType: detail?.bondType || detail?.BondType || bond.bondType,
+    status: detail?.status || detail?.Status || bond.status,
+    cashFlows: rawCashFlows.map((cf: any) => ({
+      paymentDate: cf.paymentDate,
+      interestAmount: (cf.interestAmount || 0) / 1_000_000_000,
+      principalAmount: (cf.principalAmount || 0) / 1_000_000_000,
+      totalCashflow: (cf.totalCashflow || 0) / 1_000_000_000,
+      bondRate: cf.bondRate || 0,
+    })),
+  };
+};
 
 export default function EnterpriseView({ 
   selectedEnterprise, 
   setSelectedEnterprise,
   setSelectedBond,
-  setBondEnterpriseName
+  setBondEnterpriseName,
+  listTitle,
+  breadcrumbTitle,
 }: EnterpriseViewProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
+  const { isLoadingStatus } = useAIStore();
   const isDark = effectiveTheme === 'dark';
-  const cachedData = getCache('enterprise_list');
-  const [searchTerm, setSearchTerm] = useState('');
+  const chartTheme = getChartTheme(isDark);
+  const cachedData = readEnterpriseCache(ENTERPRISE_LIST_DATA_CACHE_KEY);
   const [industryFilter, setIndustryFilter] = useState('All');
-  const [issueValueSort, setIssueValueSort] = useState('None');
-  const [enterprises, setEnterprises] = useState<Enterprise[]>(cachedData || []);
+  const [enterpriseSearchTerm, setEnterpriseSearchTerm] = useState('');
+  const [enterpriseIssuedValueMin, setEnterpriseIssuedValueMin] = useState('');
+  const [enterpriseIssuedValueMax, setEnterpriseIssuedValueMax] = useState('');
+  const [enterpriseRemainingDebtMin, setEnterpriseRemainingDebtMin] = useState('');
+  const [enterpriseRemainingDebtMax, setEnterpriseRemainingDebtMax] = useState('');
+  const [appliedIndustryFilter, setAppliedIndustryFilter] = useState('All');
+  const [appliedEnterpriseSearchTerm, setAppliedEnterpriseSearchTerm] = useState('');
+  const [appliedEnterpriseIssuedValueMin, setAppliedEnterpriseIssuedValueMin] = useState('');
+  const [appliedEnterpriseIssuedValueMax, setAppliedEnterpriseIssuedValueMax] = useState('');
+  const [appliedEnterpriseRemainingDebtMin, setAppliedEnterpriseRemainingDebtMin] = useState('');
+  const [appliedEnterpriseRemainingDebtMax, setAppliedEnterpriseRemainingDebtMax] = useState('');
+  const previousRoute = (location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+  const [enterpriseAIPrompt, setEnterpriseAIPrompt] = useState('');
+  const [enterpriseAISummary, setEnterpriseAISummary] = useState<string[]>([]);
+  const [enterpriseAIError, setEnterpriseAIError] = useState<string | null>(null);
+  const [isApplyingEnterpriseAIFilter, setIsApplyingEnterpriseAIFilter] = useState(false);
+  // On mobile, focusing the inline AI-filter input opens this centered modal (a bigger, easier
+  // input + apply button) instead of typing in the small inline field.
+  const [isEnterpriseAIFilterModalOpen, setIsEnterpriseAIFilterModalOpen] = useState(false);
+  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
+  const [enterpriseAppliedSortField, setEnterpriseAppliedSortField] = useState<'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt' | null>(null);
+  const [enterpriseAppliedSortDirection, setEnterpriseAppliedSortDirection] = useState<'asc' | 'desc' | null>(null);
+  const [enterprises, setEnterprises] = useState<Enterprise[]>(
+    Array.isArray(cachedData)
+      ? cachedData.map((enterprise: Enterprise) => ({
+          ...enterprise,
+          industry: resolveIndustryFromShared(enterprise.industry),
+        }))
+      : []
+  );
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(getCache('enterprise_names_en') || {});
   const [issuerBonds, setIssuerBonds] = useState<Bond[]>([]);
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
   const [loadingBonds, setLoadingBonds] = useState(false);
   const [bondError, setBondError] = useState<string | null>(null);
-  const [bondPage, setBondPage] = useState(1);
   const [enterprisePage, setEnterprisePage] = useState(1);
-  const [bondTermFilter, setBondTermFilter] = useState('All');
-  const [bondInterestSort, setBondInterestSort] = useState('None');
+  const [cashFlowPeriod, setCashFlowPeriod] = useState<'month' | 'year'>('year');
+  const [loadingCashFlows, setLoadingCashFlows] = useState(false);
   const [financialData, setFinancialData] = useState<any>(null);
   const [enterpriseProfile, setEnterpriseProfile] = useState<any>(null);
   const [loadingFinancial, setLoadingFinancial] = useState(false);
-  const bondsPerPage = 10;
+  const [enterpriseFilterMenu, setEnterpriseFilterMenu] = useState<string | null>(null);
+  const [enterpriseHiddenColumnIds, setEnterpriseHiddenColumnIds] = useState<string[]>([]);
+  const [enterpriseColumnVisibilityDraft, setEnterpriseColumnVisibilityDraft] = useState<string[]>([]);
+  const [enterpriseColumnVisibilityOpen, setEnterpriseColumnVisibilityOpen] = useState(false);
+  const enterpriseColumnVisibilityRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseHeaderViewportRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseHeaderTableRef = useRef<HTMLTableElement | null>(null);
+  const enterpriseBodyScrollRef = useRef<HTMLDivElement | null>(null);
   const enterprisesPerPage = 10;
 
-  const chartColors = isDark 
-    ? ['#5c6bc0', '#ff8a65', '#4d5bbd', '#8e99f3', '#c5cae9', '#3949ab', '#64b5f6', '#ffb199', '#ffab91']
-    : ['#3634B3', '#ff7043', '#4fc3f7', '#7986cb', '#c5cae9', '#5c6bc0', '#8e99f3', '#ffab91', '#ff8a65'];
+  const chartColors = CHART_PALETTE;
 
   const legendStyle = {
     fontSize: 10,
-    color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    color: chartTheme.subText,
+    fontFamily: 'Manrope',
   };
 
   const axisLabelStyle = {
     fontSize: 10,
-    color: isDark ? '#9ca3af' : '#666',
-    fontFamily: 'Inter',
+    color: chartTheme.subText,
+    fontFamily: 'Manrope',
   };
+
+  const tooltipTextStyle = { ...getChartTooltip(isDark).textStyle, fontSize: 10 };
+  const chartTooltip = getChartTooltip(isDark);
 
   const chartTitleStyle = {
     fontSize: 10,
-    color: isDark ? '#e5e7eb' : '#374151',
+    color: chartTheme.text,
     fontWeight: 'bold' as const,
-    fontFamily: 'Inter',
+    fontFamily: 'Manrope',
   };
+
+  const chartPalette = CHART_PALETTE;
+  const normalizeEnterpriseSearch = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+
+  // Match a term only where it aligns to the start of a word, so a query like "tc"
+  // does not match the ubiquitous legal-form prefix "CTCP" (which contains "tc" mid-word).
+  const matchesWordStart = (text: string, term: string) => {
+    if (!term) return false;
+    let index = text.indexOf(term);
+    while (index !== -1) {
+      const previousChar = index === 0 ? '' : text[index - 1];
+      if (!previousChar || !/[a-z0-9]/.test(previousChar)) return true;
+      index = text.indexOf(term, index + 1);
+    }
+    return false;
+  };
+
+  const enterpriseIndustryOptions = useMemo(() => {
+    return buildEnterpriseIndustryOptions(enterprises).map((item) => ({
+      ...item,
+      label: t(item.label as any),
+    }));
+  }, [enterprises, t]);
+  const enterpriseSearchSuggestions = useMemo(() => {
+    const normalizedTerm = normalizeEnterpriseSearch(enterpriseSearchTerm);
+    if (!normalizedTerm) return [];
+
+    return enterprises
+      .map((enterprise) => {
+        const ticker = String(enterprise.ticker || '').trim();
+        const displayName = String(t(enterprise.name as any, enterprise.ticker) || '').trim();
+        const rawName = String(enterprise.name || '').trim();
+        const englishName = String(enterpriseNamesEN[enterprise.ticker] || '').trim();
+
+        const normalizedTicker = normalizeEnterpriseSearch(ticker);
+        const normalizedName = normalizeEnterpriseSearch([displayName, rawName, englishName].filter(Boolean).join(' '));
+        // Ticker: substring match. Name: word-start match only (so "tc" ignores the "CTCP" prefix).
+        const tickerMatch = normalizedTicker.includes(normalizedTerm);
+        const nameMatch = matchesWordStart(normalizedName, normalizedTerm);
+        if (!tickerMatch && !nameMatch) return null;
+
+        // Rank so ticker matches surface before name matches, most exact first:
+        // exact ticker (0) > ticker prefix (1) > ticker contains (2) > name prefix (3) > name word-start (4).
+        let rank: number;
+        if (normalizedTicker === normalizedTerm) rank = 0;
+        else if (normalizedTicker.startsWith(normalizedTerm)) rank = 1;
+        else if (tickerMatch) rank = 2;
+        else if (normalizedName.startsWith(normalizedTerm)) rank = 3;
+        else rank = 4;
+
+        const label = displayName || englishName || rawName || ticker;
+        return {
+          ticker,
+          rank,
+          value: label,
+          label,
+          sublabel: ticker ? `${t('ticker')}: ${ticker}` : undefined,
+          searchText: [label, ticker, rawName, englishName].filter(Boolean).join(' '),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .sort((left, right) => (left.rank - right.rank) || left.label.localeCompare(right.label))
+      .slice(0, 8);
+  }, [enterpriseNamesEN, enterpriseSearchTerm, enterprises, t]);
+  const enterpriseAIPromptPlaceholder = language === 'en'
+    ? 'Example: real estate firms, high debt'
+    : 'Ví dụ: doanh nghiệp bất động sản, dư nợ lớn';
+  const enterpriseAISuggestions = useMemo(() => (
+    language === 'en'
+      ? [
+          'Banks, high debt',
+          'Real estate, issued > 1,000B',
+          'Industrials, low debt',
+        ]
+      : [
+          'Ngân hàng dư nợ cao',
+          'BĐS phát hành > 1.000 tỷ',
+          'Công nghiệp dư nợ thấp',
+        ]
+  ), [language]);
+  const showEnterpriseAISuggestions = enterpriseAISummary.length === 0 && !enterpriseAIError && !enterpriseAIPrompt.trim();
+  const safeEnterpriseSearchSuggestions = useMemo(
+    () => enterpriseSearchSuggestions.filter((item) => Boolean(item?.label && item?.ticker)),
+    [enterpriseSearchSuggestions],
+  );
+
+  const bondSortOptions = useMemo(() => ([
+    { value: '__default__', label: t('sortBy'), isDefault: true },
+    { value: 'issueDate', label: t('issueDate') },
+    { value: 'maturityDate', label: t('maturityDate') },
+    { value: 'interestRate', label: t('interestRate') },
+    { value: 'listedVolume', label: t('listedVolume') },
+    { value: 'issuedValue', label: t('issuedValue') },
+    { value: 'listedValue', label: t('listedValueTitle') },
+  ]), [t]);
+
+  const handleResetEnterpriseFilters = () => {
+    setEnterpriseSearchTerm('');
+    setEnterpriseIssuedValueMin('');
+    setEnterpriseIssuedValueMax('');
+    setEnterpriseRemainingDebtMin('');
+    setEnterpriseRemainingDebtMax('');
+    setIndustryFilter('All');
+    setAppliedEnterpriseSearchTerm('');
+    setAppliedEnterpriseIssuedValueMin('');
+    setAppliedEnterpriseIssuedValueMax('');
+    setAppliedEnterpriseRemainingDebtMin('');
+    setAppliedEnterpriseRemainingDebtMax('');
+    setAppliedIndustryFilter('All');
+    setEnterpriseFilterMenu(null);
+    setEnterpriseAIPrompt('');
+    setEnterpriseAISummary([]);
+    setEnterpriseAIError(null);
+    setEnterpriseAppliedSortField(null);
+    setEnterpriseAppliedSortDirection(null);
+    setEnterprisePage(1);
+  };
+
+  const applyEnterpriseFilterState = (nextState?: {
+    searchTerm?: string;
+    industry?: string;
+    issuedValueMin?: string;
+    issuedValueMax?: string;
+    remainingDebtMin?: string;
+    remainingDebtMax?: string;
+  }) => {
+    const nextSearchTerm = nextState?.searchTerm ?? enterpriseSearchTerm;
+    const nextIndustry = nextState?.industry ?? industryFilter;
+    const nextIssuedValueMin = nextState?.issuedValueMin ?? enterpriseIssuedValueMin;
+    const nextIssuedValueMax = nextState?.issuedValueMax ?? enterpriseIssuedValueMax;
+    const nextRemainingDebtMin = nextState?.remainingDebtMin ?? enterpriseRemainingDebtMin;
+    const nextRemainingDebtMax = nextState?.remainingDebtMax ?? enterpriseRemainingDebtMax;
+
+    setAppliedEnterpriseSearchTerm(nextSearchTerm);
+    setAppliedEnterpriseIssuedValueMin(nextIssuedValueMin);
+    setAppliedEnterpriseIssuedValueMax(nextIssuedValueMax);
+    setAppliedEnterpriseRemainingDebtMin(nextRemainingDebtMin);
+    setAppliedEnterpriseRemainingDebtMax(nextRemainingDebtMax);
+    setAppliedIndustryFilter(nextIndustry);
+    setEnterpriseFilterMenu(null);
+    setEnterprisePage(1);
+  };
+
+  const handleApplyEnterpriseFilters = () => {
+    setAppliedEnterpriseSearchTerm(enterpriseSearchTerm);
+    setAppliedEnterpriseIssuedValueMin(enterpriseIssuedValueMin);
+    setAppliedEnterpriseIssuedValueMax(enterpriseIssuedValueMax);
+    setAppliedEnterpriseRemainingDebtMin(enterpriseRemainingDebtMin);
+    setAppliedEnterpriseRemainingDebtMax(enterpriseRemainingDebtMax);
+    setAppliedIndustryFilter(industryFilter);
+    setEnterpriseFilterMenu(null);
+    setEnterprisePage(1);
+  };
+
+  const handleApplyEnterpriseAIFilter = async () => {
+    const promptToApply = String(enterpriseAIPrompt).trim();
+    if (!promptToApply || isApplyingEnterpriseAIFilter) return;
+
+    setEnterpriseAIPrompt(promptToApply);
+    setEnterpriseAISummary([]);
+    setEnterpriseAIError(null);
+    setIsApplyingEnterpriseAIFilter(true);
+
+    try {
+      let aiState = useAIStore.getState();
+      if (!aiState.configured && !aiState.isLoadingStatus) {
+        await aiState.refreshStatus();
+        aiState = useAIStore.getState();
+      }
+
+      if (!aiState.configured) {
+        throw new Error(t('aiNotConfigured'));
+      }
+
+      const response = await sendChat({
+        userMessage: promptToApply,
+        model: aiState.selectedModel || aiState.defaultModel || ENTERPRISE_AI_FALLBACK_MODEL,
+        systemPrompt: [
+          'You convert enterprise filter requests into compact JSON.',
+          'Return JSON only, with no markdown fence.',
+          'Number formatting rule: "." is the thousands separator and "," is the decimal separator.',
+          'Examples: 1.000 ty = 1000 ty = 1 thousand billion VND. 1000 ty = 1 thousand billion VND. 1,000 = 1 billion VND.',
+          'Supported keys:',
+          '{"industry":"","minIssuedValueBillion":null,"maxIssuedValueBillion":null,"minRemainingDebtBillion":null,"maxRemainingDebtBillion":null,"summary":[]}',
+          'industry should be a Vietnamese or English industry name if present, otherwise empty string.',
+          'summary should be a short array of up to 3 human-readable Vietnamese summaries.',
+        ].join(' '),
+      });
+
+      const parsed = JSON.parse(normalizeAIJsonText(response.text || '{}')) as {
+        industry?: string;
+        minIssuedValueBillion?: number | string | null;
+        maxIssuedValueBillion?: number | string | null;
+        minRemainingDebtBillion?: number | string | null;
+        maxRemainingDebtBillion?: number | string | null;
+        summary?: string[];
+      };
+
+      const toOptionalStringNumber = (value: unknown) => {
+        if (value === null || value === undefined || value === '') return '';
+        if (typeof value === 'number') {
+          return Number.isFinite(value) ? String(value) : '';
+        }
+
+        const normalizedText = String(value)
+          .trim()
+          .replace(/\s+/g, '')
+          .replace(/[^\d,.-]/g, '')
+          .replace(/\./g, '')
+          .replace(/,/g, '.');
+
+        if (!normalizedText) return '';
+
+        const parsedNumber = Number(normalizedText);
+        return Number.isFinite(parsedNumber) ? String(parsedNumber) : '';
+      };
+
+      const resolvedIndustry = parsed.industry
+        ? (
+            enterpriseIndustryOptions.find((item) => {
+              const normalizedCandidate = normalizeTextKey(parsed.industry || '');
+              return normalizedCandidate === normalizeTextKey(item.value)
+                || normalizedCandidate === normalizeTextKey(item.label)
+                || normalizedCandidate === normalizeTextKey(t(item.value as any));
+            })?.value
+            || resolveIndustryKeyFromCandidates(parsed.industry)
+          )
+        : '';
+
+      const nextIssuedValueMin = toOptionalStringNumber(parsed.minIssuedValueBillion);
+      const nextIssuedValueMax = toOptionalStringNumber(parsed.maxIssuedValueBillion);
+      const nextRemainingDebtMin = toOptionalStringNumber(parsed.minRemainingDebtBillion);
+      const nextRemainingDebtMax = toOptionalStringNumber(parsed.maxRemainingDebtBillion);
+      const nextIndustry = resolvedIndustry || 'All';
+      const nextFilters = {
+        issuedValueMin: nextIssuedValueMin,
+        issuedValueMax: nextIssuedValueMax,
+        remainingDebtMin: nextRemainingDebtMin,
+        remainingDebtMax: nextRemainingDebtMax,
+        industry: nextIndustry,
+      };
+
+      setEnterpriseIssuedValueMin(nextIssuedValueMin);
+      setEnterpriseIssuedValueMax(nextIssuedValueMax);
+      setEnterpriseRemainingDebtMin(nextRemainingDebtMin);
+      setEnterpriseRemainingDebtMax(nextRemainingDebtMax);
+      setIndustryFilter(nextIndustry);
+      applyEnterpriseFilterState(nextFilters);
+      setEnterpriseAISummary(
+        Array.isArray(parsed.summary) ? parsed.summary.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3) : [],
+      );
+      // Applied successfully → dismiss the mobile modal so the filtered table is visible.
+      setIsEnterpriseAIFilterModalOpen(false);
+    } catch (requestError) {
+      console.error('Failed to apply enterprise AI filter', requestError);
+      setEnterpriseAIError(
+        requestError instanceof Error && requestError.message
+          ? requestError.message
+          : t('error'),
+      );
+    } finally {
+      setIsApplyingEnterpriseAIFilter(false);
+    }
+  };
+
+  const handleEnterpriseSuggestionClick = (suggestion: string) => {
+    setEnterpriseAIPrompt(suggestion);
+    setEnterpriseAISummary([]);
+    setEnterpriseAIError(null);
+  };
+
+  const handleEnterpriseTableSort = (field: 'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt') => {
+    if (enterpriseAppliedSortField === field) {
+      setEnterpriseAppliedSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
+      return;
+    }
+
+    setEnterpriseAppliedSortField(field);
+    setEnterpriseAppliedSortDirection('asc');
+  };
+
+  const renderEnterpriseSortHeader = (
+    field: 'ticker' | 'industry' | 'bondCount' | 'issuedValue' | 'remainingDebt',
+    label: string,
+    unit?: string,
+    labelClassName = '',
+  ) => {
+    const isActive = enterpriseAppliedSortField === field;
+
+    return (
+      <button
+        type="button"
+        onClick={() => handleEnterpriseTableSort(field)}
+        className="inline-flex w-full items-center justify-center gap-1.5 text-center text-white transition-opacity hover:opacity-90"
+      >
+        <span className="flex min-w-0 flex-col items-center justify-center gap-0.5">
+          <span className={cn("min-w-0 whitespace-normal break-words text-center leading-tight", labelClassName)}>
+            {label}
+          </span>
+          {unit ? (
+            <span className="whitespace-nowrap leading-none normal-case">
+              ({unit})
+            </span>
+          ) : null}
+        </span>
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center self-center">
+          <ArrowUpDown className={`h-3.5 w-3.5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+        </span>
+      </button>
+    );
+  };
+
+  const renderEnterpriseTableHeaderCells = () => (
+    <>
+      <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+        <span className="flex items-center justify-center">
+          <ListOrdered className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </th>
+      {showEnterpriseIssuerNameColumn ? (
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+          {renderEnterpriseSortHeader('issuerName', t('issuerName'))}
+        </th>
+      ) : null}
+      {showEnterpriseTickerColumn ? (
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+          {renderEnterpriseSortHeader('ticker', t('ticker'))}
+        </th>
+      ) : null}
+      {showEnterpriseIndustryColumn ? (
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+          {renderEnterpriseSortHeader('industry', t('industryLabel'))}
+        </th>
+      ) : null}
+      {showEnterpriseBondCountColumn ? (
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+          {renderEnterpriseSortHeader('bondCount', 'Số mã trái phiếu', undefined, 'normal-case')}
+        </th>
+      ) : null}
+      {showEnterpriseIssuedValueColumn ? (
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+          {renderEnterpriseSortHeader('issuedValue', t('issuedValue'), t('unitBillionVND'))}
+        </th>
+      ) : null}
+      {showEnterpriseRemainingDebtColumn ? (
+        <th className="bg-transparent px-4 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-white">
+          {renderEnterpriseSortHeader('remainingDebt', t('remainingDebtTitle'), t('unitBillionVND'))}
+        </th>
+      ) : null}
+    </>
+  );
+
+  const enterpriseColumnOptions = useMemo(() => ([
+    { id: 'issuerName', label: t('issuerName') },
+    { id: 'ticker', label: t('ticker') },
+    { id: 'industry', label: t('industryLabel') },
+    { id: 'bondCount', label: 'Số mã trái phiếu' },
+    { id: 'issuedValue', label: `${t('issuedValue')} (${t('unitBillionVND')})` },
+    { id: 'remainingDebt', label: `${t('remainingDebtTitle')} (${t('unitBillionVND')})` },
+  ]), [t]);
+
+  useEffect(() => {
+    if (!enterpriseColumnVisibilityOpen) return undefined;
+
+    setEnterpriseColumnVisibilityDraft(enterpriseHiddenColumnIds);
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!enterpriseColumnVisibilityRef.current) return;
+      if (enterpriseColumnVisibilityRef.current.contains(event.target as Node)) return;
+      setEnterpriseColumnVisibilityOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setEnterpriseColumnVisibilityOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+    document.removeEventListener('keydown', handleEscape);
+    };
+  }, [enterpriseColumnVisibilityOpen, enterpriseHiddenColumnIds]);
+
+  const showEnterpriseTickerColumn = !enterpriseHiddenColumnIds.includes('ticker');
+  const showEnterpriseIssuerNameColumn = !enterpriseHiddenColumnIds.includes('issuerName');
+  const showEnterpriseIndustryColumn = !enterpriseHiddenColumnIds.includes('industry');
+  const showEnterpriseBondCountColumn = !enterpriseHiddenColumnIds.includes('bondCount');
+  const showEnterpriseIssuedValueColumn = !enterpriseHiddenColumnIds.includes('issuedValue');
+  const showEnterpriseRemainingDebtColumn = !enterpriseHiddenColumnIds.includes('remainingDebt');
+  const enterpriseVisibleColumnCount =
+    Number(showEnterpriseTickerColumn)
+    + Number(showEnterpriseIssuerNameColumn)
+    + Number(showEnterpriseIndustryColumn)
+    + Number(showEnterpriseBondCountColumn)
+    + Number(showEnterpriseIssuedValueColumn)
+    + Number(showEnterpriseRemainingDebtColumn)
+    + 1;
 
   useEffect(() => {
     /**
@@ -80,54 +751,37 @@ export default function EnterpriseView({
     const fetchBonds = async () => {
       if (!selectedEnterprise) {
         setIssuerBonds([]);
-        setBondPage(1);
+        setLoadingCashFlows(false);
         return;
       }
 
       setLoadingBonds(true);
       setBondError(null);
-      setBondPage(1);
-      setBondTermFilter('All');
-      setBondInterestSort('None');
+      setCashFlowPeriod('year');
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
+        const data = await loadIssuerBondsByFilter(selectedEnterprise.ticker);
 
-        const headers: Record<string, string> = {
-          'Accept': 'application/json'
-        };
-        
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        const response = await fetch(`/api/fireant/bonds/issuer/${selectedEnterprise.ticker}`, {
-          headers
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const mappedBonds: Bond[] = data.map((b: any) => ({
-            id: b.bondCode,
-            code: b.bondCode,
-            enterpriseId: selectedEnterprise.id,
-            term: String(b.tenorPeriod || 'N/A'),
-            interestRate: b.bondRate,
-            listedVolume: b.currentListedVolume,
-            issuedValue: b.currentListedVolume, // Assuming face value 1B
-            listedValue: b.currentListedVolume, // Assuming face value 1B
-            issueDate: b.issueDate?.split('T')[0] || '',
-            maturityDate: b.maturityDate?.split('T')[0] || '',
-            interestType: normalizeInterestType(
-              b.bondRateType || b.interestRateType || b.interestType || '',
-              b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-              []
-            ) || 'N/A',
-            status: b.status
-          }));
+        if (Array.isArray(data)) {
+          const mappedBonds: Bond[] = data.map((bondRow) => mapIssuerBondRowToBond(bondRow, selectedEnterprise.id));
           setIssuerBonds(mappedBonds);
-        } else {
-          throw new Error(`${language === 'vi' ? 'Lỗi khi lấy dữ liệu trái phiếu:' : 'Error fetching bond data:'} ${response.status}`);
+          setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, mappedBonds);
+
+          if (mappedBonds.length === 0) return;
+
+          setLoadingCashFlows(true);
+
+          const fetchBondCashFlows = async (bond: Bond): Promise<Bond> => {
+            const detailData = await loadBondDetail(bond.code);
+            if (!detailData) return bond;
+            return enrichIssuerBondWithDetail(bond, detailData);
+          };
+
+          const results = await mapWithConcurrency(mappedBonds, 8, fetchBondCashFlows);
+          const detailedBonds = results.map((result, index) =>
+            result.status === 'fulfilled' ? result.value : mappedBonds[index]
+          );
+          setIssuerBonds(detailedBonds);
+          setCache(`enterprise_bonds_${selectedEnterprise.ticker}`, detailedBonds);
         }
       } catch (error) {
         console.error('Error fetching issuer bonds:', error);
@@ -138,6 +792,7 @@ export default function EnterpriseView({
         }
       } finally {
         setLoadingBonds(false);
+        setLoadingCashFlows(false);
       }
     };
 
@@ -166,7 +821,8 @@ export default function EnterpriseView({
         const symbol = selectedEnterprise.ticker;
 
         // Fetch multiple quarters to handle null values by falling back to previous periods
-        const response = await fetch(`/api/fireant/symbols/${encodeURIComponent(symbol)}/financial-data?type=Q&count=4`, {
+        const response = await fetch(buildFireantUrl(`symbols/${encodeURIComponent(symbol)}/financial-data`, { type: 'Q', count: 4 }), {
+          cache: 'no-store',
           headers: {
             'Accept': 'application/json',
             'Authorization': `Bearer ${cleanToken}`
@@ -174,7 +830,7 @@ export default function EnterpriseView({
         });
 
         if (response.ok) {
-          const quarters = await response.json();
+          const quarters = await readJsonResponse<any[]>(response, `Financial data ${symbol}`);
           if (Array.isArray(quarters) && quarters.length > 0) {
             // Helper to find the latest non-null value for a given field across quarters
             const findLatestValue = (field: string) => {
@@ -210,6 +866,7 @@ export default function EnterpriseView({
             });
 
             setFinancialData(consolidatedData);
+            setCache(`enterprise_financial_${symbol}`, consolidatedData);
           } else {
             console.warn(`No financial values found for ${symbol}`);
           }
@@ -239,20 +896,10 @@ export default function EnterpriseView({
 
       const symbol = selectedEnterprise.ticker;
       try {
-        const token = getFireantToken();
-        if (!token) return;
-
-        const cleanToken = cleanTokenString(token);
-        const response = await fetch(`/api/fireant/symbols/${encodeURIComponent(symbol)}/profile`, {
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${cleanToken}`
-          }
-        });
-
-        if (response.ok) {
-          const profile = await response.json();
+        const profile = await loadIssuerProfile(symbol);
+        if (profile) {
           setEnterpriseProfile(profile);
+          setCache(`enterprise_profile_${symbol}`, profile);
         }
       } catch (error) {
         console.error('Error fetching enterprise profile:', error);
@@ -270,155 +917,58 @@ export default function EnterpriseView({
       }
       setError(null);
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        
-        const headers: Record<string, string> = {
-          'Accept': 'application/json'
-        };
-
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        // Fetch top debtors
-        let issuers = getCache('top_debt_200');
-        if (!issuers) {
-          const issuersRes = await fetch('/api/fireant/bonds/stats/issuers/top-debt?top=200', { headers });
-          if (issuersRes.ok) {
-            issuers = await issuersRes.json();
-            setCache('top_debt_200', issuers);
-          } else {
-            // Fallback to empty instead of throwing if we don't have token
-            if (issuersRes.status === 401 && !cleanToken) {
-              console.warn('Unauthorized and no token provided. Using empty list or cached data.');
-              issuers = [];
-            } else {
-              throw new Error(`${language === 'vi' ? 'Lỗi tải danh sách doanh nghiệp:' : 'Error loading enterprise list:'} ${issuersRes.status}`);
-            }
-          }
-        }
+        const mappedEnterprises = await loadEnterpriseListByIssuerSymbol();
 
         if (!isMounted) return;
 
-        if (issuers) {
-          const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-          // Map issuers immediately. Use existing industries if available.
-          const mappedEnterprises: Enterprise[] = issuers.map((issuer: any) => {
-            const currentEnt = enterprises.find(e => e.ticker === issuer.issuerSymbol);
-            return {
-              id: issuer.issuerSymbol,
-              ticker: issuer.issuerSymbol,
-              name: issuer.issuerName,
-              industry: currentEnt?.industry || 'N/A', 
-              bondCount: issuer.bondCount,
-              issuedValue: issuer.totalIssuedValue / 1000000000,
-              initialDebt: (issuer.totalDebtFull || issuer.totalIssuedValue) / 1000000000,
-              remainingDebt: issuer.totalRemainingDebt / 1000000000
-            };
-          });
-
+        if (mappedEnterprises) {
           setEnterprises(mappedEnterprises);
           if (isMounted) setLoading(false); 
 
-          // Fetch industries background mapping
-          const icbCodes = ['3010', '3510', '30202005'];
-          const industriesMap: Record<string, string> = {
-            '3010': 'Banking',
-            '3510': 'RealEstate',
-            '30202005': 'Securities'
-          };
-
-          const industryBatches = await Promise.all(icbCodes.map(async (code) => {
-             try {
-               const res = await fetch(`/api/fireant/icb/${code}/symbols`, { headers });
-               if (res.ok) {
-                 const symbols = await res.json();
-                 return { code, symbols };
-               }
-             } catch(e) {}
-             return { code, symbols: [] };
-          }));
-
-          if (!isMounted) return;
-
-          const symbolToIndustry: Record<string, string> = {};
-          industryBatches.forEach(batch => {
-            batch.symbols.forEach((s: string) => {
-              symbolToIndustry[s] = industriesMap[batch.code];
-            });
-          });
-
-          const finalEnterprises = mappedEnterprises.map(ent => ({
-            ...ent,
-            industry: symbolToIndustry[ent.ticker] || 'Other'
-          }));
-
-          setEnterprises(finalEnterprises);
-          setCache('enterprise_list', finalEnterprises);
+          setCache('enterprise_list', mappedEnterprises);
 
           // Background fetch international names for English mode
-          const tickersToFetch = finalEnterprises
+          const tickersToFetch = mappedEnterprises
             .map(e => e.ticker)
             .filter(ticker => !enterpriseNamesEN[ticker]);
           
           if (tickersToFetch.length > 0) {
-            const fetchInChunks = async () => {
-              const chunkSize = 5;
+            const fetchNames = async () => {
               const currentENNames = { ...enterpriseNamesEN };
-              let totalUpdated = 0;
+              const results = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => {
+                const profile = await loadIssuerProfile(ticker);
+                if (!profile) return null;
+                return { ticker, name: profile.internationalName };
+              });
 
-              for (let i = 0; i < tickersToFetch.length; i += chunkSize) {
-                if (!isMounted) break;
-                
-                const chunk = tickersToFetch.slice(i, i + chunkSize);
-                const results = await Promise.all(
-                  chunk.map(async (ticker) => {
-                    try {
-                      const res = await fetch(`/api/fireant/symbols/${encodeURIComponent(ticker)}/profile`, { headers });
-                      if (res.ok) {
-                        const profile = await res.json();
-                        return { ticker, name: profile.internationalName };
-                      }
-                    } catch (e) {
-                      console.error(`Failed to fetch EN name for ${ticker}`, e);
-                    }
-                    return null;
-                  })
-                );
+              if (!isMounted) return;
 
-                let chunkUpdated = false;
-                results.forEach(res => {
-                  if (res && res.name) {
-                    currentENNames[res.ticker] = res.name;
-                    chunkUpdated = true;
-                    totalUpdated++;
-                  }
-                });
-
-                if (chunkUpdated && isMounted) {
-                  setEnterpriseNamesEN({ ...currentENNames });
-                  setCache('enterprise_names_en', { ...currentENNames });
+              let hasUpdates = false;
+              getFulfilledValues(results).forEach(res => {
+                if (res && res.name) {
+                  currentENNames[res.ticker] = res.name;
+                  hasUpdates = true;
                 }
+              });
 
-                // Small delay between chunks
-                if (i + chunkSize < tickersToFetch.length) {
-                  await new Promise(resolve => setTimeout(resolve, 200));
-                }
+              if (hasUpdates) {
+                setEnterpriseNamesEN({ ...currentENNames });
+                setCache('enterprise_names_en', { ...currentENNames });
               }
             };
 
-            fetchInChunks();
+            fetchNames();
           }
         }
       } catch (error) {
         if (!isMounted) return;
         console.error('Error fetching enterprise data:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('error'));
+        if (!cachedData) {
+          if (error instanceof Error && error.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(error instanceof Error ? error.message : t('error'));
+          }
         }
       } finally {
         if (isMounted) setLoading(false);
@@ -431,60 +981,238 @@ export default function EnterpriseView({
 
   useEffect(() => {
     setEnterprisePage(1);
-  }, [searchTerm, industryFilter, issueValueSort]);
+  }, [appliedIndustryFilter, appliedEnterpriseIssuedValueMin, appliedEnterpriseIssuedValueMax, appliedEnterpriseRemainingDebtMin, appliedEnterpriseRemainingDebtMax, enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
 
   useEffect(() => {
-    setBondPage(1);
-  }, [bondTermFilter, bondInterestSort]);
+    setEnterprisePage(1);
+  }, [enterpriseAppliedSortField, enterpriseAppliedSortDirection]);
 
-  const filteredEnterprises = enterprises.filter(e => 
-    (e.name.toLowerCase().includes(searchTerm.toLowerCase()) || e.ticker.toLowerCase().includes(searchTerm.toLowerCase())) &&
-    (industryFilter === 'All' || e.industry === industryFilter)
+  const filteredEnterprises = useMemo(() => {
+    const searchTerm = normalizeEnterpriseSearch(appliedEnterpriseSearchTerm);
+    const minIssuedValue = appliedEnterpriseIssuedValueMin.trim() ? Number(appliedEnterpriseIssuedValueMin) : null;
+    const maxIssuedValue = appliedEnterpriseIssuedValueMax.trim() ? Number(appliedEnterpriseIssuedValueMax) : null;
+    const minRemainingDebt = appliedEnterpriseRemainingDebtMin.trim() ? Number(appliedEnterpriseRemainingDebtMin) : null;
+    const maxRemainingDebt = appliedEnterpriseRemainingDebtMax.trim() ? Number(appliedEnterpriseRemainingDebtMax) : null;
+
+    return enterprises.filter((enterprise) => {
+      const issuedValue = Number(enterprise.issuedValue || 0);
+      const remainingDebt = Number(enterprise.remainingDebt || 0);
+      const ticker = normalizeEnterpriseSearch(String(enterprise.ticker || ''));
+      const englishName = normalizeEnterpriseSearch(String(enterpriseNamesEN[enterprise.ticker] || ''));
+      const displayName = normalizeEnterpriseSearch(String(t(enterprise.name as any, enterprise.ticker) || ''));
+      const rawName = normalizeEnterpriseSearch(String(enterprise.name || ''));
+
+      if (appliedIndustryFilter !== 'All' && enterprise.industry !== appliedIndustryFilter) {
+        return false;
+      }
+
+      if (searchTerm) {
+        const haystack = [ticker, englishName, displayName, rawName].filter(Boolean).join(' ');
+        if (!haystack.includes(searchTerm)) {
+          return false;
+        }
+      }
+
+      if (minIssuedValue !== null && Number.isFinite(minIssuedValue) && issuedValue < minIssuedValue) {
+        return false;
+      }
+
+      if (maxIssuedValue !== null && Number.isFinite(maxIssuedValue) && issuedValue > maxIssuedValue) {
+        return false;
+      }
+
+      if (minRemainingDebt !== null && Number.isFinite(minRemainingDebt) && remainingDebt < minRemainingDebt) {
+        return false;
+      }
+
+      if (maxRemainingDebt !== null && Number.isFinite(maxRemainingDebt) && remainingDebt > maxRemainingDebt) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [
+    appliedEnterpriseIssuedValueMax,
+    appliedEnterpriseIssuedValueMin,
+    appliedEnterpriseRemainingDebtMax,
+    appliedEnterpriseRemainingDebtMin,
+    appliedEnterpriseSearchTerm,
+    appliedIndustryFilter,
+    enterprises,
+    enterpriseNamesEN,
+    t,
+  ]);
+  const enterpriseTableLoading = loading;
+  const enterpriseTableError = !loading ? error : null;
+
+  const sortedEnterprises = useMemo(() => {
+    return [...filteredEnterprises].sort((a, b) => {
+      if (!enterpriseAppliedSortField || !enterpriseAppliedSortDirection) return 0;
+      const direction = enterpriseAppliedSortDirection === 'asc' ? 1 : -1;
+      if (enterpriseAppliedSortField === 'ticker') {
+        return a.ticker.localeCompare(b.ticker) * direction;
+      }
+      if (enterpriseAppliedSortField === 'industry') {
+        const aIndustry = String(t(a.industry as any) || a.industry || 'N/A');
+        const bIndustry = String(t(b.industry as any) || b.industry || 'N/A');
+        return aIndustry.localeCompare(bIndustry) * direction;
+      }
+      if (enterpriseAppliedSortField === 'bondCount') {
+        return (Number(a.bondCount || 0) - Number(b.bondCount || 0)) * direction;
+      }
+      if (enterpriseAppliedSortField === 'issuedValue') {
+        return (Number(a.issuedValue || 0) - Number(b.issuedValue || 0)) * direction;
+      }
+      if (enterpriseAppliedSortField === 'remainingDebt') {
+        return (Number(a.remainingDebt || 0) - Number(b.remainingDebt || 0)) * direction;
+      }
+      return 0;
+    });
+  }, [enterpriseAppliedSortDirection, enterpriseAppliedSortField, filteredEnterprises]);
+
+  const totalEnterprisePages = useMemo(() => Math.ceil(sortedEnterprises.length / enterprisesPerPage), [sortedEnterprises.length]);
+  const paginatedEnterprises = useMemo(
+    () => sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage),
+    [enterprisePage, sortedEnterprises]
   );
 
-  const sortedEnterprises = [...filteredEnterprises].sort((a, b) => {
-    if (issueValueSort === 'HighToLow') return b.issuedValue - a.issuedValue;
-    if (issueValueSort === 'LowToHigh') return a.issuedValue - b.issuedValue;
-    return 0;
-  });
+  useEffect(() => {
+    const headerViewportElement = enterpriseHeaderViewportRef.current;
+    const headerTableElement = enterpriseHeaderTableRef.current;
+    const bodyElement = enterpriseBodyScrollRef.current;
+    if (!headerViewportElement || !headerTableElement || !bodyElement) return undefined;
 
-  const totalEnterprisePages = Math.ceil(sortedEnterprises.length / enterprisesPerPage);
-  const paginatedEnterprises = sortedEnterprises.slice((enterprisePage - 1) * enterprisesPerPage, enterprisePage * enterprisesPerPage);
+    const syncHeaderPosition = () => {
+      headerTableElement.style.transform = `translateX(-${bodyElement.scrollLeft}px)`;
+      headerTableElement.style.width = `${bodyElement.scrollWidth}px`;
+      headerViewportElement.scrollLeft = 0;
+    };
+
+    syncHeaderPosition();
+
+    bodyElement.addEventListener('scroll', syncHeaderPosition, { passive: true });
+    window.addEventListener('resize', syncHeaderPosition);
+
+    // Re-sync on any width change to the body box (scrollbar gutter, sidebar/filter panel toggles),
+    // which window 'resize' alone misses and which otherwise misaligns the sticky header.
+    let resizeObserver: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => syncHeaderPosition());
+      resizeObserver.observe(bodyElement);
+    }
+
+    return () => {
+      bodyElement.removeEventListener('scroll', syncHeaderPosition);
+      window.removeEventListener('resize', syncHeaderPosition);
+      resizeObserver?.disconnect();
+    };
+  }, [
+    showEnterpriseIssuerNameColumn,
+    showEnterpriseTickerColumn,
+    showEnterpriseIndustryColumn,
+    showEnterpriseBondCountColumn,
+    showEnterpriseIssuedValueColumn,
+    showEnterpriseRemainingDebtColumn,
+  ]);
 
   const enterpriseBonds = selectedEnterprise 
     ? (issuerBonds.length > 0 ? issuerBonds : [])
     : [];
 
-  const filteredSortedBonds = [...enterpriseBonds]
-    .filter(bond => bondTermFilter === 'All' || bond.term === bondTermFilter)
-    .sort((a, b) => {
-      if (bondInterestSort === 'HighToLow') return b.interestRate - a.interestRate;
-      if (bondInterestSort === 'LowToHigh') return a.interestRate - b.interestRate;
-      return 0;
-    });
+  const toPercentValue = (value: number, total: number) => (
+    total > 0 ? roundMetric((value / total) * 100, 2) : 0
+  );
 
-  const totalBondPages = Math.ceil(filteredSortedBonds.length / bondsPerPage);
-  const paginatedBonds = filteredSortedBonds.slice((bondPage - 1) * bondsPerPage, bondPage * bondsPerPage);
+  const pieData = useMemo(() => {
+    const monthUnit = t('monthUnit');
+    const termData = enterpriseBonds.reduce((acc: any, bond) => {
+      const normalizedTerm = normalizeTermBase(bond.term, monthUnit);
+      if (!normalizedTerm) return acc;
+      acc[normalizedTerm] = (acc[normalizedTerm] || 0) + 1;
+      return acc;
+    }, {});
 
-  // Get unique terms for the filter
-  const uniqueTerms = Array.from(new Set(enterpriseBonds.map(b => b.term))).sort((a, b) => {
-      const valA = parseInt(a as string) || 0;
-      const valB = parseInt(b as string) || 0;
-      return valA - valB;
-    });
-
-  // Data for charts
-  const termData = enterpriseBonds.reduce((acc: any, bond) => {
-    acc[bond.term] = (acc[bond.term] || 0) + 1;
-    return acc;
-  }, {});
-  const pieData = Object.entries(termData)
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => {
-      const valA = parseInt(a.name) || 0;
-      const valB = parseInt(b.name) || 0;
-      return valA - valB;
-    });
+    return Object.entries(termData)
+      .map(([name, value]) => ({
+        name: formatTermWithMonthUnit(name, monthUnit),
+        value,
+        term: name,
+      }))
+      .sort((a, b) => {
+        const valA = parseInt(a.term || a.name) || 0;
+        const valB = parseInt(b.term || b.name) || 0;
+        return valA - valB;
+      });
+  }, [enterpriseBonds, t]);
+  const pieDataTotal = useMemo(
+    () => pieData.reduce((sum, item) => sum + Number(item.value || 0), 0),
+    [pieData],
+  );
+  const pieDataViewRows = useMemo(
+    () => pieData.map((item) => [
+      item.name,
+      Number(item.value || 0),
+      toPercentValue(Number(item.value || 0), pieDataTotal),
+    ]),
+    [pieData, pieDataTotal],
+  );
+  // Assign colors by slice size (largest first) so the biggest slices take the
+  // primary blue / near-blue tones (blue, teal, emerald), keeping this chart in
+  // sync with the other blue-led charts on the page. The base palette matches the
+  // Market Overview "Remaining debt composition by industry" pie; if there are
+  // more slices than base colors, later (smaller) slices get lightened shades so
+  // no two slices ever share the same color.
+  const pieColoredData = useMemo(() => {
+    // Blue-led ordering of the shared palette so large slices read as blue.
+    // Blue, Cyan and Teal (the true/near blues) lead — cyan (#0EA5E9) matches the
+    // light blue used in the "bond structure by interest type" chart. Emerald is
+    // green so it is pushed to the back to avoid two green-looking large slices.
+    const basePalette = ['#2563EB', '#0EA5E9', '#14B8A6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#A16207', '#6B7280', '#10B981'];
+    const lighten = (hex: string, amount: number) => {
+      const value = parseInt(hex.slice(1), 16);
+      const mix = (channel: number) => Math.round(channel + (255 - channel) * amount);
+      const r = mix((value >> 16) & 255);
+      const g = mix((value >> 8) & 255);
+      const b = mix(value & 255);
+      return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+    };
+    const colorForRank = (rank: number) => {
+      const base = basePalette[rank % basePalette.length];
+      const cycle = Math.floor(rank / basePalette.length);
+      return cycle === 0 ? base : lighten(base, Math.min(0.6, cycle * 0.22));
+    };
+    const rankByIndex = pieData
+      .map((item, index) => ({ index, value: Number(item.value || 0) }))
+      .sort((a, b) => b.value - a.value)
+      .reduce((acc, entry, rank) => {
+        acc[entry.index] = rank;
+        return acc;
+      }, {} as Record<number, number>);
+    return pieData.map((item, index) => ({
+      ...item,
+      itemStyle: { color: colorForRank(rankByIndex[index]) },
+    }));
+  }, [pieData]);
+  const pieLegendConfig = {
+    show: pieData.length > 0,
+    type: 'scroll' as const,
+    orient: 'vertical' as const,
+    right: 0,
+    top: 'center' as const,
+    itemWidth: 10,
+    itemHeight: 10,
+    textStyle: legendStyle,
+  };
+  const pieZoomLegendConfig = {
+    show: pieData.length > 0,
+    type: 'scroll' as const,
+    orient: 'vertical' as const,
+    right: 12,
+    top: 'center' as const,
+    itemWidth: 10,
+    itemHeight: 10,
+    textStyle: legendStyle,
+  };
 
   const interestTypeData = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
@@ -493,33 +1221,103 @@ export default function EnterpriseView({
     return acc;
   }, {});
   const interestTypePieData = Object.entries(interestTypeData)
-    .map(([name, value]) => ({ name, value }));
+    .sort((a, b) => {
+      const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
+      return (order[a[0]] || 99) - (order[b[0]] || 99);
+    })
+    .map(([name, value]) => ({ 
+      name, 
+      value
+    }));
+  const interestTypePieDataTotal = useMemo(
+    () => interestTypePieData.reduce((sum, item) => sum + Number(item.value || 0), 0),
+    [interestTypePieData],
+  );
+  const interestTypePieDataViewRows = useMemo(
+    () => interestTypePieData.map((item) => [
+      item.name,
+      Number(item.value || 0),
+      toPercentValue(Number(item.value || 0), interestTypePieDataTotal),
+    ]),
+    [interestTypePieData, interestTypePieDataTotal],
+  );
+  const interestTypePieLegendGroups = splitLegendItems(interestTypePieData.map((item) => item.name), 5, 2);
+  const interestTypePieLegendBase = {
+    textStyle: legendStyle,
+  };
+  const interestTypePieLegendConfig = interestTypePieLegendGroups.length > 1
+    ? [
+        {
+          ...interestTypePieLegendBase,
+          bottom: 28,
+          left: 'center' as const,
+          data: interestTypePieLegendGroups[0],
+        },
+        {
+          ...interestTypePieLegendBase,
+          bottom: 0,
+          left: 'center' as const,
+          data: interestTypePieLegendGroups[1],
+        },
+      ]
+    : {
+        ...interestTypePieLegendBase,
+        bottom: 0,
+        left: 'center' as const,
+        data: interestTypePieLegendGroups[0],
+      };
 
   const bubbleGroups = enterpriseBonds.reduce((acc: any, bond) => {
     const type = (bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
                  ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : t('others'));
     if (!acc[type]) acc[type] = [];
-    // Use months directly for the chart
-    const termMonths = parseFloat(bond.term) || 0;
-    acc[type].push([termMonths, bond.interestRate, bond.listedVolume, bond.code]);
+    const termMonths = Number.parseFloat(String(bond.term || ''));
+    const interestRate = Number(bond.interestRate || 0);
+    const listedVolume = Number(bond.listedVolume || 0);
+
+    if (!Number.isFinite(termMonths) || !Number.isFinite(interestRate) || termMonths <= 0) {
+      return acc;
+    }
+
+    acc[type].push([termMonths, interestRate, Math.max(0, listedVolume), bond.code]);
     return acc;
   }, {});
 
-  const maxVolume = Math.max(...enterpriseBonds.map(b => b.listedVolume), 1);
+  const bubbleDataViewRows = useMemo(
+    () => enterpriseBonds.map((bond) => ([
+      bond.code,
+      parseFloat(bond.term) || 0,
+      roundMetric(Number(bond.interestRate || 0), 2),
+      roundMetric(Number(bond.listedVolume || 0), 0),
+    ])),
+    [enterpriseBonds],
+  );
 
-  const bubbleSeries = Object.entries(bubbleGroups).map(([name, data]) => ({
-    name,
-    data,
-    type: 'scatter',
-    symbolSize: (data: any) => {
-      const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
-      return Math.max(8, size);
-    },
-    itemStyle: { 
-      color: name === t('fixed') ? '#3634B3' : (name === t('floating') ? '#ff7043' : undefined),
-      opacity: 0.7 
-    }
-  }));
+  const maxVolume = Math.max(
+    ...Object.values(bubbleGroups).flatMap((points: any) => points.map((point: any[]) => Number(point[2] || 0))),
+    1,
+  );
+
+  const bubbleSeries = Object.entries(bubbleGroups)
+    .sort((a, b) => {
+      const order: any = { [t('fixed')]: 1, [t('floating')]: 2, [t('others')]: 3 };
+      return (order[a[0]] || 99) - (order[b[0]] || 99);
+    })
+    .map(([name, data], index) => ({
+      name,
+      data,
+      type: 'scatter',
+      symbolSize: (data: any) => {
+        const size = (Math.sqrt(data[2]) / Math.sqrt(maxVolume)) * 40;
+        return Math.max(8, size);
+      },
+      itemStyle: {
+        // Match the interest-type pie exactly: Cố định = PIE_PALETTE[0], Thả nổi = PIE_PALETTE[1], Khác = PIE_PALETTE[4].
+        // Semi-transparent so overlapping bubbles stay legible — the bubble underneath shows through.
+        color: index === 0 ? PIE_PALETTE[0] : index === 1 ? PIE_PALETTE[1] : PIE_PALETTE[4],
+        opacity: 0.7,
+      },
+    }));
 
   const maturityYearData = enterpriseBonds.reduce((acc: any, bond) => {
     const year = bond.maturityDate.split('-')[0];
@@ -529,82 +1327,453 @@ export default function EnterpriseView({
   const sortedYears = Object.keys(maturityYearData).sort();
   const columnData = sortedYears.map(year => maturityYearData[year]);
 
+  const projectedCashFlowData = useMemo(() => {
+    const buckets = new Map<string, { label: string; interest: number; principal: number }>();
+
+    const ensureBucket = (date: Date) => {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      const key = cashFlowPeriod === 'month'
+        ? `${year}-${String(month).padStart(2, '0')}`
+        : String(year);
+      const label = cashFlowPeriod === 'month' ? `T${month}/${year}` : String(year);
+
+      if (!buckets.has(key)) {
+        buckets.set(key, { label, interest: 0, principal: 0 });
+      }
+
+      return buckets.get(key)!;
+    };
+
+    enterpriseBonds.forEach((bond) => {
+      const cashFlows = Array.isArray(bond.cashFlows) ? bond.cashFlows : [];
+
+      cashFlows.forEach((cashFlow) => {
+        if (!cashFlow.paymentDate) return;
+
+        const paymentDate = new Date(cashFlow.paymentDate);
+        if (Number.isNaN(paymentDate.getTime())) return;
+
+        const bucket = ensureBucket(paymentDate);
+        bucket.interest += cashFlow.interestAmount || 0;
+        bucket.principal += cashFlow.principalAmount || 0;
+      });
+
+      if (cashFlows.length === 0 && bond.maturityDate && bond.listedValue) {
+        const maturityDate = new Date(bond.maturityDate);
+        if (!Number.isNaN(maturityDate.getTime())) {
+          const bucket = ensureBucket(maturityDate);
+          bucket.principal += bond.listedValue || 0;
+        }
+      }
+    });
+
+    const sortedEntries = Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+    const labels = sortedEntries.map(([, value]) => value.label);
+    const interest = sortedEntries.map(([, value]) => value.interest);
+    const principal = sortedEntries.map(([, value]) => value.principal);
+    const total = sortedEntries.map(([, value]) => value.interest + value.principal);
+
+    return { labels, interest, principal, total };
+  }, [enterpriseBonds, cashFlowPeriod]);
+
+  const hasProjectedCashFlowData = projectedCashFlowData.total.some(value => value > 0);
+  const projectedCashFlowTitle = language === 'vi'
+    ? `${t('projectedCashFlowChart')} theo ${cashFlowPeriod === 'month' ? t('month').toLowerCase() : t('year').toLowerCase()}`
+    : `${t('projectedCashFlowChart')} by ${cashFlowPeriod === 'month' ? 'month' : 'year'}`;
+  const enterpriseDisplayName = selectedEnterprise
+    ? (language === 'en' && enterpriseProfile?.internationalName
+      ? enterpriseProfile.internationalName
+      : t(selectedEnterprise.name as any, selectedEnterprise.ticker))
+    : '';
+  const enterpriseInsightTitle = language === 'vi'
+    ? 'Nhận xét'
+    : 'Remarks';
+  // Keep the issuer insight aligned with the same concise, verdict-first mechanism used by the other AI commentary panels.
+  const enterpriseInsightInstructions = language === 'vi'
+    ? [
+        'Bạn là chuyên gia phân tích trái phiếu doanh nghiệp. Trả lời bằng tiếng Việt có dấu.',
+        'CHỈ dùng dữ liệu được cung cấp cho tổ chức phát hành đang xem; TUYỆT ĐỐI không bịa, suy diễn hay tự tính thêm số. Mọi số phải khớp 100% với dữ liệu; khía cạnh nào thiếu dữ liệu thì bỏ qua.',
+        'Viết NGẮN GỌN, súc tích: mỗi câu là một ý trọn vẹn và NGẮN (khoảng 15-20 từ), nêu số liệu KÈM nhận định. KHÔNG viết dài dòng, KHÔNG liệt kê mọi nhóm kỳ hạn hay mọi năm.',
+        'Trình bày đúng thứ tự ưu tiên sau, mỗi ý MỘT câu ngắn (câu sau có thể bị lược cho vừa card nên ý quan trọng phải đặt trước):',
+        '1) Kết luận tổng thể về quy mô và dư nợ trái phiếu của tổ chức (nêu tên hoặc mã).',
+        '2) BẮT BUỘC: nhận xét dòng tiền dự kiến theo năm (trường projectedCashFlowByYear, đơn vị tỷ đồng) — nêu năm có tổng nghĩa vụ cao nhất (peakCashFlowYear) kèm giá trị và giai đoạn nghĩa vụ tập trung.',
+        '3) Một điểm nổi bật nhất của danh mục: cơ cấu lãi suất (thả nổi/cố định) HOẶC mức độ tập trung kỳ hạn — chỉ nêu điểm chính, không liệt kê hết.',
+        'Không nhắc tới JSON, API, tên biến, hàm hay cấu trúc nội bộ.',
+      ].join('\n')
+    : [
+        'You are a corporate-bond analyst. Respond in English only.',
+        'Use ONLY the data provided for the issuer shown; NEVER fabricate, infer, or compute extra figures. Every number must match the data 100%; skip any aspect that lacks data.',
+        'Write CONCISELY: each sentence is one complete, SHORT idea (about 15-20 words) pairing a figure with its meaning. Do NOT be verbose and do NOT enumerate every term bucket or every year.',
+        'Follow this priority order, one short sentence per point (later sentences may be trimmed to fit the card, so the important points must come first):',
+        "1) Overall verdict on the issuer's bond scale and outstanding debt (name the issuer or ticker).",
+        '2) REQUIRED: projected cash flow by year (projectedCashFlowByYear field, in billion VND) — the year with the highest total obligation (peakCashFlowYear) with its value and the period where obligations concentrate.',
+        '3) The single most notable portfolio trait: interest-type mix (floating/fixed) OR maturity concentration — only the key point, not a full list.',
+        'Do not mention JSON, APIs, variable names, functions, or internal structure.',
+      ].join('\n');
+  const handleEnterpriseBondDataViewCategoryClick = (bondCode: string) => {
+    const normalizedBondCode = String(bondCode || '').trim().toUpperCase();
+    if (!normalizedBondCode) return;
+
+    const matchedBond = enterpriseBonds.find((bond) => String(bond.code || '').trim().toUpperCase() === normalizedBondCode);
+    if (!matchedBond) return;
+
+    setBondEnterpriseName(enterpriseDisplayName || selectedEnterprise?.ticker || '');
+    setSelectedBond(matchedBond);
+  };
+
+  const enterpriseInsightPayload = useMemo(() => {
+    if (!selectedEnterprise) return null;
+
+    const topBonds = [...enterpriseBonds]
+      .sort((left, right) => Number(right.listedValue || 0) - Number(left.listedValue || 0))
+      .slice(0, 6)
+      .map((bond) => ({
+        bondCode: bond.code,
+        tenorMonths: Number(bond.term || 0),
+        interestRate: roundMetric(Number(bond.interestRate || 0)),
+        interestType: bond.interestType || '',
+        issueDate: bond.issueDate,
+        maturityDate: bond.maturityDate,
+        listedValueBillion: roundMetric(Number(bond.listedValue || 0)),
+      }));
+
+    const financialHighlights = financialData ? {
+      totalAssetsBillion: roundMetric(Number(financialData.TotalAsset || financialData.TotalAssets || financialData.Assets || 0) / 1_000_000_000),
+      equityBillion: roundMetric(Number(financialData.TotalStockHolderEquity || financialData.StockHolderEquity || financialData.OwnerEquity || financialData.Equity || 0) / 1_000_000_000),
+      revenueBillion: roundMetric(Number(financialData.TotalRevenue_TTM || financialData.TotalRevenue || financialData.NetSale_TTM || financialData.NetSale || 0) / 1_000_000_000),
+      profitBillion: roundMetric(Number(financialData.ProfitAfterTax_TTM || financialData.ProfitAfterTax || financialData.ParentCompanyShareholderProfitAfterTax_TTM || 0) / 1_000_000_000),
+    } : null;
+
+    // Projected cash flow aggregated BY YEAR — same source as the "Dòng tiền dự kiến theo năm"
+    // chart (forced to year buckets, independent of the month/year toggle) so the remark can also
+    // comment on cash flow. Values are already in tỷ đồng (billion VND).
+    const cashFlowYearBuckets = new Map<string, { year: string; interest: number; principal: number }>();
+    const ensureCashFlowYear = (date: Date) => {
+      const year = String(date.getFullYear());
+      if (!cashFlowYearBuckets.has(year)) cashFlowYearBuckets.set(year, { year, interest: 0, principal: 0 });
+      return cashFlowYearBuckets.get(year)!;
+    };
+    enterpriseBonds.forEach((bond) => {
+      const cashFlows = Array.isArray(bond.cashFlows) ? bond.cashFlows : [];
+      cashFlows.forEach((cashFlow) => {
+        if (!cashFlow.paymentDate) return;
+        const paymentDate = new Date(cashFlow.paymentDate);
+        if (Number.isNaN(paymentDate.getTime())) return;
+        const bucket = ensureCashFlowYear(paymentDate);
+        bucket.interest += cashFlow.interestAmount || 0;
+        bucket.principal += cashFlow.principalAmount || 0;
+      });
+      if (cashFlows.length === 0 && bond.maturityDate && bond.listedValue) {
+        const maturityDate = new Date(bond.maturityDate);
+        if (!Number.isNaN(maturityDate.getTime())) {
+          ensureCashFlowYear(maturityDate).principal += bond.listedValue || 0;
+        }
+      }
+    });
+    const projectedCashFlowByYear = Array.from(cashFlowYearBuckets.values())
+      .sort((left, right) => left.year.localeCompare(right.year))
+      .map((bucket) => ({
+        year: bucket.year,
+        interestBillion: roundMetric(bucket.interest, 2),
+        principalBillion: roundMetric(bucket.principal, 2),
+        totalBillion: roundMetric(bucket.interest + bucket.principal, 2),
+      }));
+    const peakCashFlowYear = projectedCashFlowByYear.reduce<{ year: string; totalBillion: number } | null>(
+      (peak, bucket) => (peak && peak.totalBillion >= bucket.totalBillion
+        ? peak
+        : { year: bucket.year, totalBillion: bucket.totalBillion }),
+      null,
+    );
+
+    return {
+      issuer: {
+        ticker: selectedEnterprise.ticker,
+        name: enterpriseDisplayName,
+        industry: selectedEnterprise.industry,
+        bondCount: enterpriseBonds.length > 0 ? enterpriseBonds.length : selectedEnterprise.bondCount,
+        issuedValueBillion: roundMetric(Number(selectedEnterprise.issuedValue || 0)),
+        initialDebtBillion: roundMetric(Number(selectedEnterprise.initialDebt || 0)),
+        remainingDebtBillion: roundMetric(Number(selectedEnterprise.remainingDebt || 0)),
+      },
+      termStructure: pieData.slice(0, 6).map((item) => ({
+        term: item.name,
+        bondCount: Number(item.value || 0),
+      })),
+      interestTypeStructure: interestTypePieData.map((item) => ({
+        type: String(item.name || ''),
+        bondCount: Number(item.value || 0),
+      })),
+      topBonds,
+      maturityDistribution: sortedYears.slice(0, 8).map((year, index) => ({
+        year,
+        listedValueBillion: roundMetric(Number(columnData[index] || 0)),
+      })),
+      // Cash flow (by year, in tỷ đồng) so the remark also covers projected cash flow.
+      projectedCashFlowByYear: projectedCashFlowByYear.slice(0, 12),
+      peakCashFlowYear,
+      financialHighlights,
+    };
+  }, [columnData, enterpriseBonds, enterpriseDisplayName, financialData, interestTypePieData, pieData, selectedEnterprise, sortedYears]);
+
+  const enterpriseChatContext = useMemo(() => {
+    if (selectedEnterprise) {
+      return {
+        label: `Tổ chức phát hành ${selectedEnterprise.ticker}`,
+        dataset: {
+          route: location.pathname,
+          page: 'issuer-detail',
+          title: `Tổ chức phát hành ${selectedEnterprise.ticker}`,
+          issuer: {
+            ticker: selectedEnterprise.ticker,
+            name: enterpriseDisplayName || selectedEnterprise.ticker,
+            industry: selectedEnterprise.industry,
+            bondCount: enterpriseBonds.length > 0 ? enterpriseBonds.length : Number(selectedEnterprise.bondCount || 0),
+            issuedValueBillion: roundMetric(Number(selectedEnterprise.issuedValue || 0)),
+            initialDebtBillion: roundMetric(Number(selectedEnterprise.initialDebt || 0)),
+            remainingDebtBillion: roundMetric(Number(selectedEnterprise.remainingDebt || 0)),
+          },
+          filters: {
+            industry: appliedIndustryFilter,
+            searchTerm: appliedEnterpriseSearchTerm,
+            minIssuedValueBillion: appliedEnterpriseIssuedValueMin || null,
+            maxIssuedValueBillion: appliedEnterpriseIssuedValueMax || null,
+            minRemainingDebtBillion: appliedEnterpriseRemainingDebtMin || null,
+            maxRemainingDebtBillion: appliedEnterpriseRemainingDebtMax || null,
+            aiSummary: enterpriseAISummary,
+          },
+          bonds: enterpriseBonds.slice(0, 1000).map((bond) => ({
+            bondCode: bond.code,
+            tenorMonths: Number(bond.term || 0),
+            interestRate: roundMetric(Number(bond.interestRate || 0)),
+            interestType: bond.interestType || '',
+            issueDate: bond.issueDate,
+            maturityDate: bond.maturityDate,
+            listedValueBillion: roundMetric(Number(bond.listedValue || 0)),
+          })),
+          termStructure: pieData.slice(0, 10).map((item) => ({
+            term: item.name,
+            bondCount: Number(item.value || 0),
+          })),
+          interestTypeStructure: interestTypePieData.map((item) => ({
+            type: String(item.name || ''),
+            bondCount: Number(item.value || 0),
+          })),
+          maturityDistribution: sortedYears.slice(0, 10).map((year, index) => ({
+            year,
+            listedValueBillion: roundMetric(Number(columnData[index] || 0)),
+          })),
+          projectedCashFlows: projectedCashFlowData.labels.slice(0, 10).map((label, index) => ({
+            period: label,
+            interestBillion: roundMetric(projectedCashFlowData.interest[index] || 0),
+            principalBillion: roundMetric(projectedCashFlowData.principal[index] || 0),
+            totalBillion: roundMetric(projectedCashFlowData.total[index] || 0),
+          })),
+          financialHighlights: enterpriseInsightPayload?.financialHighlights || null,
+        },
+      };
+    }
+
+    return {
+      label: 'Tổ chức phát hành',
+      dataset: {
+        route: location.pathname,
+        page: 'issuer-list',
+        title: 'Tổ chức phát hành',
+        filters: {
+          industry: appliedIndustryFilter,
+          searchTerm: appliedEnterpriseSearchTerm,
+          minIssuedValueBillion: appliedEnterpriseIssuedValueMin || null,
+          maxIssuedValueBillion: appliedEnterpriseIssuedValueMax || null,
+          minRemainingDebtBillion: appliedEnterpriseRemainingDebtMin || null,
+          maxRemainingDebtBillion: appliedEnterpriseRemainingDebtMax || null,
+          aiSummary: enterpriseAISummary,
+        },
+        summary: {
+          totalEnterprises: enterprises.length,
+          filteredEnterprises: sortedEnterprises.length,
+          currentPage: enterprisePage,
+          totalPages: totalEnterprisePages,
+          isLoading: loading,
+          error,
+        },
+        enterprises: sortedEnterprises.slice(0, 1000).map((enterprise) => ({
+          ticker: enterprise.ticker,
+          name: String(t(enterprise.name as any, enterprise.ticker) || enterprise.ticker),
+          industry: String(t(enterprise.industry as any) || enterprise.industry || ''),
+          bondCount: Number(enterprise.bondCount || 0),
+          issuedValueBillion: roundMetric(Number(enterprise.issuedValue || 0)),
+          remainingDebtBillion: roundMetric(Number(enterprise.remainingDebt || 0)),
+        })),
+        // Pre-aggregated count of issuers per industry (localized label), sorted by issuer count
+        // desc, so grounded Q&A can directly answer "which industry concentrates the most issuers?"
+        // without the model having to group the raw enterprises list itself (which it would decline,
+        // answering "Không tìm thấy thông tin phù hợp").
+        industryDistribution: (() => {
+          const counts = new Map<string, { industry: string; issuerCount: number; bondCount: number; remainingDebtBillion: number }>();
+          enterprises.forEach((enterprise) => {
+            const label = String(t(enterprise.industry as any) || enterprise.industry || 'N/A');
+            const key = label.toLowerCase();
+            const current = counts.get(key) || { industry: label, issuerCount: 0, bondCount: 0, remainingDebtBillion: 0 };
+            current.issuerCount += 1;
+            current.bondCount += Number(enterprise.bondCount || 0);
+            current.remainingDebtBillion += Number(enterprise.remainingDebt || 0);
+            counts.set(key, current);
+          });
+          return Array.from(counts.values())
+            .map((item) => ({ ...item, remainingDebtBillion: roundMetric(item.remainingDebtBillion) }))
+            .sort((a, b) => b.issuerCount - a.issuerCount);
+        })(),
+      },
+    };
+  }, [
+    appliedEnterpriseIssuedValueMax,
+    appliedEnterpriseIssuedValueMin,
+    appliedEnterpriseRemainingDebtMax,
+    appliedEnterpriseRemainingDebtMin,
+    appliedEnterpriseSearchTerm,
+    appliedIndustryFilter,
+    columnData,
+    enterpriseAISummary,
+    enterpriseBonds,
+    enterpriseDisplayName,
+    enterpriseInsightPayload,
+    enterprisePage,
+    enterprises,
+    error,
+    interestTypePieData,
+    loading,
+    location.pathname,
+    pieData,
+    projectedCashFlowData,
+    selectedEnterprise,
+    sortedEnterprises,
+    sortedYears,
+    t,
+    totalEnterprisePages,
+  ]);
+
+  useEffect(() => {
+    setViewChatContext({
+      routePathname: location.pathname,
+      label: enterpriseChatContext.label,
+      dataset: enterpriseChatContext.dataset,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return () => {
+      clearViewChatContext(location.pathname);
+    };
+  }, [enterpriseChatContext, location.pathname]);
+
   const pieOptions = {
+    // Mirror the per-slice colors (assigned by size in pieColoredData) here in
+    // data order so the legend markers match their slices exactly. Base palette:
+    // Blue, Cyan, Teal, Amber, Red, Violet, Pink, Brown, Slate, Emerald.
+    color: pieColoredData.map((item) => item.itemStyle.color),
+    __dataView: {
+      columns: [
+        { label: t('term'), align: 'left', kind: 'text' },
+        { label: 'Số mã trái phiếu', align: 'right', kind: 'number' },
+        { label: t('percent'), unit: '%', align: 'right', kind: 'number' },
+      ],
+      rows: pieDataViewRows,
+    },
     tooltip: { 
-      trigger: 'item', 
-      formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
+      ...chartTooltip,
+      trigger: 'item',
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        return `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`;
+      }
     },
-    legend: { 
-      bottom: 0, 
-      left: 'center',
-      width: 300,
-      itemWidth: 26,
-      itemHeight: 14,
-      itemGap: 10,
-      textStyle: { 
-        ...legendStyle,
-        width: 88,
-        overflow: 'truncate',
-        align: 'left',
-        padding: [0, 10, 0, 5]
-      } 
-    },
+    legend: pieLegendConfig,
     series: [{
       type: 'pie',
-      radius: ['30%', '60%'],
-      center: ['50%', '36%'],
+      radius: ['39%', '64%'],
+      center: ['36%', '48%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 8 },
       label: { show: false },
-      emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
-      data: pieData,
-      color: chartColors
+      emphasis: {
+        label: {
+          show: true,
+          fontSize: '12',
+          fontWeight: 'bold',
+          formatter: (params: any) => params.name,
+        },
+      },
+      data: pieColoredData
     }]
   };
 
   const interestTypePieOptions = {
+    color: [PIE_PALETTE[0], PIE_PALETTE[1], PIE_PALETTE[4]],
+    __dataView: {
+      columns: [
+        { label: t('interestType'), align: 'left', kind: 'text' },
+        { label: 'Số mã trái phiếu', align: 'right', kind: 'number' },
+        { label: t('percent'), unit: '%', align: 'right', kind: 'number' },
+      ],
+      rows: interestTypePieDataViewRows,
+    },
     tooltip: { 
-      trigger: 'item', 
-      formatter: (params: any) => `${params.name}: ${formatNumber(params.value, 0)} ${t('bondCode')} (${params.percent}%)`
+      ...chartTooltip,
+      trigger: 'item',
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params.name}: ${highlightChartTooltipValue(formatNumber(params.value, 0), ` ${t('bondCode')}`)} (${highlightChartTooltipValue(params.percent, '%')})`
     },
-    legend: { 
-      bottom: 0, 
-      left: 'center',
-      textStyle: legendStyle
-    },
+    legend: interestTypePieLegendConfig,
     series: [{
       type: 'pie',
-      radius: ['40%', '70%'],
+      radius: ['40%', '66%'],
       center: ['50%', '45%'],
       avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 10, borderColor: isDark ? '#1f2937' : '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 8 },
       label: { show: false },
       emphasis: { label: { show: true, fontSize: '12', fontWeight: 'bold' } },
-      data: interestTypePieData,
-      color: chartColors.slice(0, 3)
+      data: interestTypePieData
     }]
   };
 
   const bubbleOptions = {
+    // Same colors as the interest-type pie so Cố định / Thả nổi match across both charts.
+    color: [PIE_PALETTE[0], PIE_PALETTE[1], PIE_PALETTE[4]],
+    __dataView: {
+      columns: [
+        { label: t('bondCode'), align: 'left', kind: 'text' },
+        { label: t('termMonths'), align: 'center', kind: 'number' },
+        { label: `${t('interestRate')} (%)`, align: 'right', kind: 'number' },
+        { label: t('listedVolume'), align: 'right', kind: 'number' },
+      ],
+      rows: bubbleDataViewRows,
+    },
     tooltip: {
+      ...chartTooltip,
       trigger: 'item',
-      formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${params.data[0]} ${t('monthUnit')}<br/>${t('interestRate')}: ${formatInterestRate(params.data[1])}%<br/>${t('listedVolume')}: ${formatNumber(params.data[2] || 0, 0)}`
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params.data[3]} (${params.seriesName})<br/>${t('term')}: ${highlightChartTooltipValue(params.data[0], ` ${t('monthUnit')}`)}<br/>${t('interestRate')}: ${highlightChartTooltipValue(formatInterestRate(params.data[1]), '%')}<br/>${t('listedVolume')}: ${highlightChartTooltipValue(formatNumber(params.data[2] || 0, 0))}`
     },
     legend: {
       bottom: 0,
       left: 'center',
       textStyle: legendStyle
     },
-    grid: { top: '15%', bottom: '20%', left: '15%', right: '10%' },
+    grid: { top: '15%', bottom: '20%', left: '8%', right: '10%' },
     xAxis: { 
+      type: 'value',
+      scale: true,
       name: `${t('term')} (${t('monthUnit')})`, 
-      nameLocation: 'middle', 
-      nameGap: 25, 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: axisLabelStyle 
     },
     yAxis: { 
+      type: 'value',
+      scale: true,
       name: `${t('interestRate')} (${t('unitPercentLabel')})`, 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
@@ -617,14 +1786,25 @@ export default function EnterpriseView({
   };
 
   const columnOptions = {
-    tooltip: { 
-      trigger: 'axis',
-      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${formatNumber(params[0].value, 2)} ${t('unitBillionShort')}`
+    color: chartPalette,
+    __dataView: {
+      columns: [
+        { label: t('year'), align: 'center', kind: 'text' },
+        { label: t('listedValueTitle'), unit: t('unitBillionVND'), align: 'right', kind: 'number' },
+      ],
+      rows: sortedYears.map((year, index) => [year, columnData[index] || 0]),
     },
-    grid: { top: '15%', bottom: '15%', left: '15%', right: '5%' },
+    tooltip: { 
+      ...chartTooltip,
+      trigger: 'axis',
+      confine: true,
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => `${params[0].name}<br/>${params[0].marker} ${params[0].seriesName}: ${highlightChartTooltipValue(formatNumber(params[0].value, 2), ` ${t('unitBillionVND')}`)}`
+    },
+    grid: { top: '15%', bottom: '15%', left: '10%', right: '5%' },
     xAxis: { type: 'category', data: sortedYears, axisLabel: axisLabelStyle },
     yAxis: { 
-      name: t('unitBillionShort'), 
+      name: t('unitBillion'), 
       nameTextStyle: chartTitleStyle, 
       splitLine: { show: false }, 
       axisLabel: { 
@@ -636,37 +1816,146 @@ export default function EnterpriseView({
       name: t('listedValueTitle'),
       type: 'bar',
       data: columnData,
-      itemStyle: { 
-        color: chartColors[0], 
-        borderRadius: [4, 4, 0, 0] 
+      itemStyle: {
+        borderRadius: [4, 4, 0, 0]
       },
-      barWidth: '40%'
+      barWidth: '40%',
+      barMaxWidth: 48,
+      barMinWidth: 8
     }]
+  };
+
+  const projectedCashFlowOptions = {
+    color: chartPalette,
+    tooltip: {
+      ...chartTooltip,
+      trigger: 'axis',
+      confine: true,
+      axisPointer: { type: 'line' },
+      textStyle: tooltipTextStyle,
+      formatter: (params: any) => {
+        let content = `${params[0].name}<br/>`;
+        let total = 0;
+        params.forEach((param: any) => {
+          total += param.value || 0;
+          content += `${param.marker} ${param.seriesName}: ${highlightChartTooltipValue(formatNumber(param.value || 0, 2), ` ${t('unitBillionVND')}`)}<br/>`;
+        });
+        content += `<strong>${t('totalCashFlow')}: ${highlightChartTooltipValue(formatNumber(total, 2), ` ${t('unitBillionVND')}`)}</strong>`;
+        return content;
+      }
+    },
+    legend: {
+      bottom: 20,
+      left: 'center',
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: legendStyle
+    },
+    grid: { top: '12%', bottom: '24%', left: '5%', right: '8%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: projectedCashFlowData.labels,
+      axisLabel: {
+        ...axisLabelStyle,
+        rotate: cashFlowPeriod === 'month' && projectedCashFlowData.labels.length > 10 ? 45 : 0
+      }
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'none',
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 18,
+        bottom: 0,
+        filterMode: 'none',
+        brushSelect: false,
+        textStyle: axisLabelStyle,
+      },
+    ],
+    yAxis: {
+      type: 'value',
+      name: t('unitBillionVND'),
+      nameTextStyle: chartTitleStyle,
+      splitLine: { show: false },
+      axisLabel: {
+        ...axisLabelStyle,
+        formatter: (value: number) => formatNumber(value, 0)
+      }
+    },
+    series: [
+      {
+        name: t('totalInterestPayable'),
+        type: 'line',
+        stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 0),
+        data: projectedCashFlowData.interest,
+      },
+      {
+        name: t('totalPrincipalPayable'),
+        type: 'line',
+        stack: 'cashFlow',
+        ...getComparisonAreaSeriesStyle(isDark, 1),
+        data: projectedCashFlowData.principal,
+      }
+    ]
+  };
+
+  const handleBack = () => {
+    const currentRoute = `${location.pathname}${location.search || ''}${location.hash || ''}`;
+    const previousRouteTarget = previousRoute?.pathname
+      ? `${previousRoute.pathname}${previousRoute.search || ''}${previousRoute.hash || ''}`
+      : '';
+
+    if (previousRouteTarget && previousRouteTarget !== currentRoute && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    if (previousRouteTarget && previousRouteTarget !== currentRoute) {
+      navigate(previousRouteTarget, { replace: true });
+      return;
+    }
+
+    if (location.pathname.startsWith('/filter/issuer/')) {
+      navigate('/filter/issuer');
+      return;
+    }
+
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate('/filter/issuer');
   };
 
   if (loading) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#3634B3]"></div>
-        <p className="text-gray-500 font-medium">{t('loadingEnterprisesMessage')}</p>
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p className="text-text-muted font-medium">{t('loadingEnterprisesMessage')}</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center min-h-[400px] space-y-4 text-center">
-        <div className="bg-red-50 p-4 rounded-full">
+      <div className="p-4 flex flex-col items-center justify-center min-h-96 space-y-3 text-center">
+        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
           <svg className="h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-xl font-bold text-gray-900">{t('failedToLoadData')}</h3>
-        <p className="text-gray-500 max-w-md">{error}</p>
+        <h3 className="text-xl font-bold text-text-base">{t('failedToLoadData')}</h3>
+        <p className="text-text-muted max-w-md">{error}</p>
         <div className="flex gap-3">
           <button 
             onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-colors"
+            className="rounded-lg bg-action-accent px-6 py-2 font-bold text-slate-950 transition-colors hover:opacity-90"
           >
             {t('tryAgain')}
           </button>
@@ -677,25 +1966,37 @@ export default function EnterpriseView({
 
   if (selectedEnterprise) {
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-widest">
-          <button onClick={() => setSelectedEnterprise(null)} className="hover:text-text-highlight">{t('enterprise').toUpperCase()}</button>
-          <ChevronRight className="h-3 w-3" />
-          <span className="text-text-highlight">{t('enterpriseDetail').toUpperCase()}</span>
-        </div>
-
-        <div className="flex items-start justify-between">
-          <div className="space-y-2">
-            <h2 className="text-4xl font-bold text-text-base tracking-tight">
-              {language === 'en' && enterpriseProfile?.internationalName 
-                ? enterpriseProfile.internationalName 
-                : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
-            </h2>
+      <div className="min-w-0 space-y-3 py-2 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+        <div className="min-w-0 space-y-3">
+          <div className="min-w-0 space-y-3">
+            <div className="flex min-w-0 items-start gap-2">
+              <button
+                type="button"
+                onClick={handleBack}
+                aria-label={t('back')}
+                title={t('back')}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-blue-50 hover:text-blue-600"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="min-w-0 break-words text-2xl font-bold leading-tight text-text-base md:text-3xl">
+                    {language === 'en' && enterpriseProfile?.internationalName
+                      ? enterpriseProfile.internationalName
+                      : t(selectedEnterprise.name as any, selectedEnterprise.ticker)} ({selectedEnterprise.ticker})
+                  </h2>
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-blue-600 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+                    <CheckCircle2 className="h-4 w-4" />
+                  </span>
+                </div>
+              </div>
+            </div>
             
             {/* Financial Badges Section */}
-            <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2 pt-1">
+            <div key={`financial-badges-${selectedEnterprise.ticker}`} className="flex flex-wrap gap-2 pl-12">
               {!loadingFinancial ? (() => {
-                const ind = selectedEnterprise.industry?.toLowerCase() || '';
+                const ind = selectedEnterprise.industry ? t(selectedEnterprise.industry as any).toLowerCase() : '';
                 const type = (financialData?.__companyType || '').toLowerCase();
                 const d = financialData && financialData.__symbol === selectedEnterprise.ticker ? financialData : {};
                 
@@ -811,17 +2112,17 @@ export default function EnterpriseView({
                 return activeBadges.map((badge, idx) => (
                   <div 
                     key={idx} 
-                    className="flex items-center px-4 py-1.5 bg-indigo-50/40 dark:bg-indigo-900/20 border border-indigo-100/50 dark:border-indigo-400/30 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all cursor-help h-[32px] shadow-sm select-none"
+                    className="flex min-h-8 items-center rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 shadow-sm shadow-blue-950/5 transition-colors hover:border-blue-200 hover:bg-blue-100 cursor-help select-none dark:border-blue-500/20 dark:bg-blue-500/10 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/20"
                     title={badge.tooltip}
                   >
-                    <span className="text-[10px] font-medium text-[#3634B3] mr-2 uppercase tracking-tight opacity-80">{badge.label}:</span>
-                    <span className="text-xs font-bold text-[#3634B3] leading-none">{badge.value}</span>
+                    <span className="mr-2 text-xs font-semibold uppercase text-text-muted/80">{badge.label}:</span>
+                    <span className="text-xs font-bold leading-none text-text-highlight">{badge.value || 'N/A'}</span>
                   </div>
                 ));
               })() : loadingFinancial ? (
                 <div className="flex gap-2 animate-pulse">
                   {[1, 2, 3, 4, 5].map(idx => (
-                    <div key={idx} className="h-[32px] w-24 bg-bg-surface border border-border-base rounded-full"></div>
+                    <div key={idx} className="h-8 w-24 rounded-full border border-border-base bg-bg-surface"></div>
                   ))}
                 </div>
               ) : null}
@@ -830,412 +2131,668 @@ export default function EnterpriseView({
         </div>
 
         {loadingBonds ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4">
-            <div className="w-12 h-12 border-4 border-[#3634B3] border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm font-bold text-text-muted uppercase tracking-widest">{t('loadingBondsMessage')}</p>
+          <div className="flex items-center gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm font-semibold text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+            <span>{t('loadingBondsMessage')}</span>
           </div>
-        ) : bondError ? (
-          <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
-            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full">
-              <Info className="h-8 w-8 text-red-500" />
-            </div>
-            <p className="text-sm font-bold text-text-muted uppercase tracking-widest">{bondError}</p>
-            <button 
-              onClick={() => setSelectedEnterprise(selectedEnterprise)}
-              className="text-xs font-bold text-text-highlight hover:underline transition-colors"
-            >
-              {t('tryAgain')}
-            </button>
+        ) : null}
+
+        {bondError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+            {bondError}
           </div>
-        ) : (
-          <>
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('bondCodeCount')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBondCode')}</span>
-              </div>
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('totalIssuedValueTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.issuedValue, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
-              </div>
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('initialDebtFull')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.initialDebt, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
-              </div>
-              <div className="bg-bg-surface p-5 rounded-2xl border border-border-base shadow-sm hover:shadow-md transition-all group text-center flex flex-col items-center justify-center min-h-[140px] transition-colors">
-                <p className="text-base font-bold text-text-muted mb-2">{t('remainingDebtTitle')}</p>
-                <span className="text-3xl font-bold text-text-base mb-1 transition-colors">{formatNumber(selectedEnterprise.remainingDebt, 2)}</span>
-                <span className="text-sm font-bold text-gray-400">{t('unitBillionShort')}</span>
-              </div>
-            </div>
+        ) : null}
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <MetricCard
+            label={t('bondCodeCount')}
+            value={String(issuerBonds.length > 0 ? issuerBonds.length : selectedEnterprise.bondCount)}
+            unit={t('unitBondCode')}
+            icon={Hash}
+            tone="purple"
+          />
+          <MetricCard
+            label={t('totalIssuedValueTitle')}
+            value={formatNumber(selectedEnterprise.issuedValue, 2)}
+            unit={t('unitBillionVND')}
+            icon={BadgeDollarSign}
+            tone="blue"
+          />
+          <MetricCard
+            label={t('initialDebtFull')}
+            value={formatNumber(selectedEnterprise.initialDebt, 2)}
+            unit={t('unitBillionVND')}
+            icon={Landmark}
+            tone="green"
+          />
+          <MetricCard
+            label={t('remainingDebtTitle')}
+            value={formatNumber(selectedEnterprise.remainingDebt, 2)}
+            unit={t('unitBillionVND')}
+            icon={Wallet}
+            tone="orange"
+          />
+        </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
-          >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('bondStructureByTerm')}</h3>
-            <ReactECharts option={pieOptions} style={{ height: '320px' }} />
-          </div>
-          <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
-          >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('bondStructureByInterestType')}</h3>
-            <ReactECharts option={interestTypePieOptions} style={{ height: '300px' }} />
-          </div>
-          <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
-          >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('interestRateVsTerm')}</h3>
-            <ReactECharts option={bubbleOptions} style={{ height: '300px' }} />
-          </div>
-          <div 
-            className="bg-bg-surface p-4 rounded-2xl border border-border-base shadow-sm transition-colors"
-          >
-            <h3 className="text-base font-bold text-text-base mb-4 text-center transition-colors">{t('totalListedValueByMaturityYear')}</h3>
-            <ReactECharts option={columnOptions} style={{ height: '300px' }} />
-          </div>
-        </div>
-
-        {/* Bond List Table */}
-        <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
-          <div className="p-4 md:p-6 border-b border-border-base flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <h3 className="text-sm font-bold text-text-base uppercase tracking-wider transition-colors">{t('bondList')}</h3>
-            <div className="flex flex-col sm:flex-row gap-3 md:gap-4 w-full sm:w-auto">
-              <div className="relative">
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-                <select 
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-                  value={bondTermFilter}
-                  onChange={(e) => setBondTermFilter(e.target.value)}
-                >
-                  <option value="All">{t('term')}</option>
-                  {uniqueTerms.map(term => (
-                    <option key={term} value={term} className="bg-bg-surface">{term}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="relative">
-                <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-                <select 
-                  className="w-full sm:w-auto pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-none rounded-lg focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-                  value={bondInterestSort}
-                  onChange={(e) => setBondInterestSort(e.target.value)}
-                >
-                  <option value="None">{t('interestRate')}</option>
-                  <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-                  <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-                </select>
-              </div>
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
+            <div className="flex flex-1 items-center justify-center">
+              <ChartWithToolbar
+                className="w-full"
+                option={pieOptions}
+                style={{ height: '100%', minHeight: '320px' }}
+                title={t('bondStructureByTerm')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    legend: pieZoomLegendConfig,
+                    series: [
+                      {
+                        center: ['36%', '50%'],
+                        radius: ['39%', '64%'],
+                        label: {
+                          show: true,
+                          position: 'outside',
+                          formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                          fontSize: 11,
+                          fontWeight: 'bold',
+                        },
+                        labelLine: {
+                          show: true,
+                          length: 12,
+                          length2: 10,
+                          smooth: true,
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            fontSize: '12',
+                            fontWeight: 'bold',
+                            formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                            color: isDark ? '#e5e7eb' : '#1e293b',
+                          },
+                        },
+                      },
+                    ],
+                  },
+                }}
+              />
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] text-left border-collapse">
-              <thead className="bg-[#3634B3] text-white">
-                <tr>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('bondCode').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('term').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('monthUnit').toUpperCase()})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('issueDate').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('maturityDate').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('interestRate').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitPercentLabel')})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('interestType').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('listedVolume').toUpperCase()}</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('totalIssuedValueTitle').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center leading-tight">
-                    <div className="flex flex-col items-center">
-                      <span className="whitespace-nowrap">{t('listedValueTitle').toUpperCase()}</span>
-                      <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-center">{t('status').toUpperCase()}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {paginatedBonds.map((bond, idx) => (
-                  <tr 
-                    key={bond.id} 
-                    onClick={() => {
-                      setBondEnterpriseName(language === 'en' && enterpriseProfile?.internationalName ? enterpriseProfile.internationalName : selectedEnterprise.name);
-                      setSelectedBond(bond);
-                    }}
-                    className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-left">
-                      <span className="text-xs font-bold text-text-highlight group-hover:underline">{bond.code}</span>
-                    </td>
-                    <td className="px-6 py-4 text-left">
-                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-border-base transition-colors group-hover:bg-text-highlight/10 group-hover:text-text-highlight group-hover:border-text-highlight/20">{bond.term}</span>
-                    </td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-right transition-colors">{formatDate(bond.issueDate)}</td>
-                    <td className="px-6 py-4 text-xs text-text-muted font-bold whitespace-nowrap text-right transition-colors">{formatDate(bond.maturityDate)}</td>
-                    <td className="px-6 py-4 text-xs font-bold text-green-600 whitespace-nowrap text-right">{formatInterestRate(bond.interestRate)}%</td>
-                    <td className={`px-6 py-4 text-xs font-bold whitespace-nowrap text-left transition-colors ${
-                      bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed') ? 'text-blue-600' : 'text-orange-600'
-                    }`}>
-                      {(bond.interestType?.toLowerCase().includes('cố định') || bond.interestType?.toLowerCase().includes('fixed')) ? t('fixed') : 
-                       ((bond.interestType?.toLowerCase().includes('thả nổi') || bond.interestType?.toLowerCase().includes('floating')) ? t('floating') : bond.interestType)}
-                    </td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedVolume || 0, 0)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.issuedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 text-xs text-text-base dark:text-white font-bold whitespace-nowrap text-right transition-colors">{formatNumber(bond.listedValue || 0, 2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-left">
-                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
-                        bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {(bond.status?.toLowerCase().includes('hiệu lực') || bond.status?.toLowerCase().includes('active')) ? t('active') : 
-                         ((bond.status?.toLowerCase().includes('hết hiệu lực') || bond.status?.toLowerCase().includes('inactive')) ? t('inactive') : bond.status)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
+            <div className="flex flex-1 items-center justify-center">
+              <ChartWithToolbar
+                className="w-full"
+                option={interestTypePieOptions}
+                style={{ height: '100%', minHeight: '300px' }}
+                title={t('bondStructureByInterestType')}
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    legend: {
+                      left: 'center',
+                      bottom: 6,
+                      top: undefined,
+                      itemWidth: 16,
+                      itemHeight: 10,
+                      itemGap: 18,
+                      textStyle: {
+                        ...legendStyle,
+                        width: 160,
+                        overflow: 'truncate',
+                        align: 'center',
+                      },
+                    },
+                    series: [
+                      {
+                        center: ['50%', '44%'],
+                        radius: ['40%', '66%'],
+                        label: {
+                          show: true,
+                          position: 'inside',
+                          formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                          color: isDark ? '#e5e7eb' : '#1e293b',
+                          fontSize: 11,
+                          fontWeight: 'bold',
+                        },
+                        labelLine: {
+                          show: false,
+                          length: 12,
+                          length2: 10,
+                          smooth: true,
+                        },
+                        emphasis: {
+                          label: {
+                            show: true,
+                            position: 'inside',
+                            fontSize: '12',
+                            fontWeight: 'bold',
+                            formatter: (params: any) => `${formatNumber(params.value, 0)}`,
+                            color: isDark ? '#e5e7eb' : '#1e293b',
+                          },
+                        },
+                      },
+                    ],
+                  },
+                }}
+              />
+            </div>
           </div>
-          
-          {/* Pagination Controls */}
-          {totalBondPages > 1 && (
-            <div className="p-4 border-t border-border-base flex items-center justify-end bg-bg-surface transition-colors">
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => setBondPage(prev => Math.max(1, prev - 1))}
-                  disabled={bondPage === 1}
-                  className="p-2 text-xs font-bold text-text-base bg-bg-base rounded-lg hover:bg-bg-surface border border-border-base disabled:opacity-50 transition-colors"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                
-                {totalBondPages <= 4 ? (
-                  [...Array(totalBondPages)].map((_, i) => (
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
+            <ChartWithToolbar
+              option={bubbleOptions}
+              style={{ height: '320px' }}
+              title={t('interestRateVsTerm')}
+              onDataViewCategoryClick={handleEnterpriseBondDataViewCategoryClick}
+            />
+          </div>
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
+            <ChartWithToolbar option={columnOptions} style={{ height: '320px' }} allowMagicType title={t('totalListedValueByMaturityYear')} />
+          </div>
+          <AIInsightPanel
+            cacheKey={`enterprise-insight-v11-${selectedEnterprise.ticker}`}
+            title={enterpriseInsightTitle}
+            pageTitle={`${enterpriseDisplayName} (${selectedEnterprise.ticker})`}
+            sectionTitle={enterpriseDisplayName || selectedEnterprise.ticker}
+            payload={enterpriseInsightPayload}
+            className="xl:col-span-6 xl:self-start"
+            layout="stacked"
+            contentChrome="plain"
+            adaptive
+            contentAreaClassName="overflow-hidden h-[244px]"
+            instructions={enterpriseInsightInstructions}
+            boldTerms={[enterpriseDisplayName, selectedEnterprise.ticker].filter(Boolean) as string[]}
+          />
+          <div className="group relative overflow-hidden rounded-xl border border-border-base bg-bg-surface p-3 shadow-sm shadow-blue-950/5 ring-1 ring-transparent transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-lg hover:shadow-blue-950/10 hover:ring-blue-100/80 motion-reduce:hover:translate-y-0 dark:shadow-black/20 dark:hover:border-blue-500/20 dark:hover:shadow-black/30 dark:hover:ring-blue-500/10 md:p-4 xl:col-span-6">
+            {loadingCashFlows && !hasProjectedCashFlowData ? (
+              <div className="flex h-72 items-center justify-center">
+                <div className="flex items-center gap-3 text-xs font-bold text-text-muted uppercase tracking-wider">
+                  <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  {t('loading')}
+                </div>
+              </div>
+            ) : hasProjectedCashFlowData ? (
+              <ChartWithToolbar
+                option={projectedCashFlowOptions}
+                style={{ height: '300px' }}
+                allowMagicType
+                title={projectedCashFlowTitle}
+                showDataZoomSliderOnHover
+                zoomConfig={{
+                  shellClassName: 'flex h-full max-h-screen w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border-base bg-surface-bright shadow-2xl',
+                  chartStyle: { height: '100%', width: '100%' },
+                  option: {
+                    grid: { bottom: '22%' },
+                    legend: {
+                      bottom: 8,
+                    },
+                    dataZoom: [
+                      {
+                        type: 'inside',
+                        xAxisIndex: 0,
+                        filterMode: 'none',
+                      },
+                      {
+                        type: 'slider',
+                        xAxisIndex: 0,
+                        height: 18,
+                        bottom: 44,
+                        filterMode: 'none',
+                        brushSelect: false,
+                        textStyle: axisLabelStyle,
+                      },
+                    ],
+                  },
+                }}
+                actions={(
+                  <div className="flex items-center justify-center gap-1 rounded-lg border border-border-base bg-bg-base p-1 sm:justify-self-end">
                     <button
-                      key={i + 1}
-                      onClick={() => setBondPage(i + 1)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === i + 1 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
+                      type="button"
+                      onClick={() => setCashFlowPeriod('month')}
+                      className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                        cashFlowPeriod === 'month'
+                          ? 'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20'
+                          : 'text-text-muted hover:text-text-base'
                       }`}
                     >
-                      {i + 1}
-                    </button>
-                  ))
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setBondPage(1)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === 1 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                      }`}
-                    >
-                      1
+                      {t('month')}
                     </button>
                     <button
-                      onClick={() => setBondPage(2)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === 2 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
+                      type="button"
+                      onClick={() => setCashFlowPeriod('year')}
+                      className={`rounded-md px-3 py-1.5 text-xs font-bold transition-colors ${
+                        cashFlowPeriod === 'year'
+                          ? 'bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20'
+                          : 'text-text-muted hover:text-text-base'
                       }`}
                     >
-                      2
+                      {t('year')}
                     </button>
-                    
-                    {bondPage <= 3 ? (
-                      <>
-                        <button
-                          onClick={() => setBondPage(3)}
-                          className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                            bondPage === 3 
-                              ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
-                              : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                          }`}
-                        >
-                          3
-                        </button>
-                        <span className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
-                        {bondPage < totalBondPages && (
-                          <>
-                            <button
-                              className="px-3 py-1 text-xs font-bold rounded-lg bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20"
-                            >
-                              {bondPage}
-                            </button>
-                            <span className="px-2 py-1 text-xs font-bold text-text-muted">...</span>
-                          </>
-                        )}
-                      </>
-                    )}
-
-                    <button
-                      onClick={() => setBondPage(totalBondPages)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
-                        bondPage === totalBondPages 
-                          ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
-                          : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
-                      }`}
-                    >
-                      {totalBondPages}
-                    </button>
-                  </>
+                  </div>
                 )}
-
-                <button 
-                  onClick={() => setBondPage(prev => Math.min(totalBondPages, prev + 1))}
-                  disabled={bondPage === totalBondPages}
-                  className="p-2 text-xs font-bold text-text-base bg-bg-base rounded-lg hover:bg-bg-surface border border-border-base disabled:opacity-50 transition-colors"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+              />
+            ) : (
+              <div className="h-80 flex items-center justify-center text-sm font-medium text-text-muted">
+                {t('noData')}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-
         {/* Bond Detail Popup removed from here, now handled in App.tsx */}
-          </>
-        )}
       </div>
     );
   }
 
   return (
-    <div className="p-0 md:p-6 space-y-4 md:space-y-6 transition-colors">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-text-base tracking-tight transition-colors">{t('enterprise')}</h2>
-        </div>
-      </div>
+    <div className="min-w-0 space-y-2 pt-2 transition-colors duration-300 md:pt-3">
+      <div className="flex flex-col gap-3 rounded-lg border border-border-base bg-bg-surface/95 p-3 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20 md:p-4">
+        <div className="rounded-lg border border-blue-100/80 bg-gradient-to-br from-indigo-50 via-blue-50 to-cyan-50 p-2.5 transition-colors dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20">
+          <div className="space-y-1">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-blue-700 dark:text-blue-300">
+              <BadgeDollarSign className="h-4 w-4" />
+              <span>{t('applyAIFilter')}</span>
+            </span>
+            <div className="flex flex-row items-stretch gap-2">
+              <div className="min-w-0 flex-1">
+                <textarea
+                  rows={1}
+                  value={enterpriseAIPrompt}
+                  onChange={(event) => {
+                    const nextPrompt = event.target.value;
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 md:gap-4 items-stretch sm:items-center bg-bg-surface p-3 md:p-4 rounded-2xl border border-border-base shadow-sm transition-colors">
-        <div className="relative flex-1 min-w-0 sm:min-w-[300px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <input 
-            type="text" 
-            placeholder={t('searchPlaceholderEnterprises')}
-            className="w-full pl-10 pr-4 py-2 bg-bg-base border-border-base border rounded-xl text-sm text-text-base focus:ring-2 focus:ring-[#3634B3]/20 transition-all outline-none"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-          <div className="relative flex-1 sm:flex-none">
-            <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select 
-              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-              value={issueValueSort}
-              onChange={(e) => setIssueValueSort(e.target.value)}
-            >
-              <option value="None" className="bg-bg-surface">{t('issuedValue')}</option>
-              <option value="HighToLow" className="bg-bg-surface">{t('highToLow')}</option>
-              <option value="LowToHigh" className="bg-bg-surface">{t('lowToHigh')}</option>
-            </select>
+                    if (!nextPrompt.trim()) {
+                      handleResetEnterpriseFilters();
+                      return;
+                    }
+
+                    setEnterpriseAIPrompt(nextPrompt);
+                    if (enterpriseAISummary.length > 0) setEnterpriseAISummary([]);
+                    if (enterpriseAIError) setEnterpriseAIError(null);
+                  }}
+                  onFocus={(event) => {
+                    // On mobile, don't type in the cramped inline field — pop a centered modal.
+                    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) {
+                      event.target.blur();
+                      setIsEnterpriseAIFilterModalOpen(true);
+                    }
+                  }}
+                  placeholder={enterpriseAIPromptPlaceholder}
+                  className="h-11 w-full resize-none overflow-hidden rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-xs placeholder:text-text-muted/80 focus:border-blue-400 sm:placeholder:text-sm"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleApplyEnterpriseAIFilter()}
+                disabled={!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter || isLoadingStatus}
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BadgeDollarSign className={`h-4 w-4 ${isApplyingEnterpriseAIFilter ? 'animate-pulse' : ''}`} />
+                <span>{t('applyAIFilter')}</span>
+              </button>
+            </div>
           </div>
-          <div className="relative flex-1 sm:flex-none">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select 
-              className="w-full pl-9 pr-4 py-2 text-xs font-bold text-text-base bg-bg-base border-border-base border rounded-xl focus:ring-0 outline-none appearance-none cursor-pointer transition-colors"
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
+
+          {showEnterpriseAISuggestions ? (
+            <div className="mt-2 hidden max-h-8 flex-wrap content-start items-center gap-2 overflow-hidden md:flex">
+              <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
+              {enterpriseAISuggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleEnterpriseSuggestionClick(suggestion);
+                  }}
+                  className="shrink-0 whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-blue-400/20 dark:bg-slate-900/40 dark:text-blue-300 dark:hover:text-blue-400"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {enterpriseAISummary.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {enterpriseAISummary.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold leading-tight text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/10 dark:text-blue-300"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {enterpriseAIError ? (
+            <p className="mt-2 text-sm font-medium text-red-600">{enterpriseAIError}</p>
+          ) : null}
+        </div>
+
+        {isFilterControlsVisible ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-stretch xl:gap-2">
+              <div className="min-w-0 flex-1">
+                <SearchFilterField
+                  value={enterpriseSearchTerm}
+                  onChange={setEnterpriseSearchTerm}
+                  suggestions={safeEnterpriseSearchSuggestions}
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <SelectFilterChip
+                  icon={ListFilter}
+                  label={t('industryLabel')}
+                  value={industryFilter === 'All' ? '' : industryFilter}
+                  options={enterpriseIndustryOptions.map((item) => item.value)}
+                  open={enterpriseFilterMenu === 'industry'}
+                  onToggle={() => setEnterpriseFilterMenu((current) => (current === 'industry' ? null : 'industry'))}
+                  onChange={(value) => setIndustryFilter(value || 'All')}
+                  onClose={() => setEnterpriseFilterMenu(null)}
+                  fullWidth
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <RangeFilterChip
+                  icon={BadgeDollarSign}
+                  label={t('issuedValue')}
+                  unit={t('unitBillionVND')}
+                  minValue={enterpriseIssuedValueMin}
+                  maxValue={enterpriseIssuedValueMax}
+                  open={enterpriseFilterMenu === 'issuedValue'}
+                  onToggle={() => setEnterpriseFilterMenu((current) => (current === 'issuedValue' ? null : 'issuedValue'))}
+                  onClose={() => setEnterpriseFilterMenu(null)}
+                  onMinChange={setEnterpriseIssuedValueMin}
+                  onMaxChange={setEnterpriseIssuedValueMax}
+                  fullWidth
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <RangeFilterChip
+                  icon={Wallet}
+                  label={t('remainingDebtTitle')}
+                  unit={t('unitBillionVND')}
+                  minValue={enterpriseRemainingDebtMin}
+                  maxValue={enterpriseRemainingDebtMax}
+                  open={enterpriseFilterMenu === 'remainingDebt'}
+                  onToggle={() => setEnterpriseFilterMenu((current) => (current === 'remainingDebt' ? null : 'remainingDebt'))}
+                  onClose={() => setEnterpriseFilterMenu(null)}
+                  onMinChange={setEnterpriseRemainingDebtMin}
+                  onMaxChange={setEnterpriseRemainingDebtMax}
+                  fullWidth
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <div className="inline-flex w-fit shrink-0 items-center whitespace-nowrap rounded-full border border-blue-100/80 bg-gradient-to-r from-indigo-50 via-blue-50 to-cyan-50 px-2 py-1 text-xs font-semibold text-blue-700 dark:border-blue-400/20 dark:from-slate-900 dark:via-blue-950/30 dark:to-cyan-950/20 dark:text-blue-300 sm:px-3 sm:py-1.5 sm:text-sm">
+            {t('filterResults')}: {formatNumber(sortedEnterprises.length, 0)} / {formatNumber(enterprises.length, 0)}
+          </div>
+
+          <div ref={enterpriseColumnVisibilityRef} className={enterpriseColumnVisibilityOpen ? 'relative z-40 ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2' : 'relative ml-auto flex shrink-0 items-center justify-end gap-1 sm:gap-1.5 md:gap-2'}>
+            <button
+              type="button"
+              onClick={handleApplyEnterpriseFilters}
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
+              aria-label={t('applyFilters')}
+              title={t('applyFilters')}
             >
-              <option value="All" className="bg-bg-surface">{t('allIndustries')}</option>
-              {Array.from(new Set(enterprises.map(e => e.industry)))
-                .sort()
-                .map(industry => (
-                  <option key={industry} value={industry} className="bg-bg-surface">{t(industry as any)}</option>
-                ))
-              }
-            </select>
+              <Search className="h-4 w-4 shrink-0 text-blue-600" />
+              <span className="hidden xl:inline">{t('applyFilters')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetEnterpriseFilters}
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
+              aria-label={t('reset')}
+              title={t('reset')}
+            >
+              <RotateCcw className="h-4 w-4 shrink-0 text-blue-600" />
+              <span className="hidden xl:inline">{t('reset')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFilterControlsVisible((current) => !current)}
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
+              aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+              title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+            >
+              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
+              <span className="hidden xl:inline">{t('filterTab')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setEnterpriseColumnVisibilityOpen((current) => !current)}
+              className="inline-flex h-8 flex-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:h-9 sm:px-2.5"
+              aria-haspopup="dialog"
+              aria-expanded={enterpriseColumnVisibilityOpen}
+              aria-label={t('hideColumns')}
+              title={t('hideColumns')}
+            >
+              <EyeOff className="h-4 w-4 text-blue-600" />
+              <span className="hidden xl:inline">{t('hideColumns')}</span>
+            </button>
+
+            {enterpriseColumnVisibilityOpen ? (
+              <div className="absolute right-0 top-full z-50 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+                <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+                  <EyeOff className="h-4 w-4 text-blue-600" />
+                  <span>{t('hideColumns')}</span>
+                </div>
+
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {enterpriseColumnOptions.map((column) => {
+                    const checked = enterpriseColumnVisibilityDraft.includes(column.id);
+
+                    return (
+                      <label
+                        key={column.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-base transition-colors hover:bg-surface-container-low"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setEnterpriseColumnVisibilityDraft((current) => (
+                              current.includes(column.id)
+                                ? current.filter((item) => item !== column.id)
+                                : [...current, column.id]
+                            ));
+                          }}
+                          className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-400"
+                        />
+                        <span className="truncate">{column.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnterpriseHiddenColumnIds(enterpriseColumnVisibilityDraft);
+                      setEnterpriseColumnVisibilityOpen(false);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                  >
+                    {t('hideColumns')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnterpriseHiddenColumnIds([]);
+                      setEnterpriseColumnVisibilityDraft([]);
+                      setEnterpriseColumnVisibilityOpen(false);
+                    }}
+                    className="inline-flex flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight"
+                  >
+                    {t('reset')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
 
       {/* Enterprise Table */}
-      <div className="bg-bg-surface rounded-2xl border border-border-base shadow-sm overflow-hidden transition-colors">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
+      <div className="overflow-visible rounded-lg border border-border-base bg-bg-surface/95 shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+        <div className="hidden divide-y divide-border-base">
+          {enterpriseTableLoading ? (
+            <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</div>
+          ) : enterpriseTableError ? (
+            <div className="px-4 py-10 text-center text-sm text-red-600 font-medium transition-colors">{enterpriseTableError}</div>
+          ) : paginatedEnterprises.length > 0 ? (
+            paginatedEnterprises.map((enterprise) => (
+              <button
+                key={enterprise.id}
+                type="button"
+                onClick={() => setSelectedEnterprise(enterprise)}
+                className="w-full p-4 text-left transition-colors hover:bg-surface-container-low"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-base font-bold text-text-highlight">{enterprise.ticker}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base">
+                      {language === 'en' && enterpriseNamesEN[enterprise.ticker]
+                        ? enterpriseNamesEN[enterprise.ticker]
+                        : t(enterprise.name as any, enterprise.ticker)}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-text-muted">{t(enterprise.industry as any) || enterprise.industry || 'N/A'}</p>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-text-muted" />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-bg-base p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-text-muted/80">Số mã trái phiếu</p>
+                    <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.bondCount, 0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('issuedValue')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-base dark:text-white">{formatNumber(enterprise.issuedValue, 2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase text-text-muted/80">{t('remainingDebtTitle')}</p>
+                    <p className="mt-1 text-sm font-bold text-text-highlight">{formatNumber(enterprise.remainingDebt, 2)}</p>
+                  </div>
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="px-4 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('noData')}</div>
+          )}
+        </div>
+
+        <div ref={enterpriseHeaderViewportRef} className="sticky top-0 z-20 overflow-hidden border-b border-cyan-400/30 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 transition-colors">
+          <table ref={enterpriseHeaderTableRef} className="min-w-full table-fixed text-left will-change-transform">
+            <colgroup>
+              <col className="w-14" />
+              {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
+              {showEnterpriseTickerColumn ? <col className="w-24" /> : null}
+              {showEnterpriseIndustryColumn ? <col className="w-44" /> : null}
+              {showEnterpriseBondCountColumn ? <col className="w-24" /> : null}
+              {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
+              {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
+            </colgroup>
             <thead>
-              <tr className="bg-[#3634B3] text-white transition-colors">
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('ticker').toUpperCase()}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('issuerName').toUpperCase()}</th>
-                <th className="px-5 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCodeCount').toUpperCase()}</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
-                  </div>
-                </th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap leading-tight">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('remainingDebtTitle').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
-                  </div>
-                </th>
+              <tr>
+                {renderEnterpriseTableHeaderCells()}
               </tr>
             </thead>
+          </table>
+        </div>
+
+        <div ref={enterpriseBodyScrollRef} className="overflow-x-auto">
+          <table className="w-full min-w-full table-fixed text-left">
+            <colgroup>
+              <col className="w-14" />
+              {showEnterpriseIssuerNameColumn ? <col className="w-72" /> : null}
+              {showEnterpriseTickerColumn ? <col className="w-24" /> : null}
+              {showEnterpriseIndustryColumn ? <col className="w-44" /> : null}
+              {showEnterpriseBondCountColumn ? <col className="w-24" /> : null}
+              {showEnterpriseIssuedValueColumn ? <col className="w-36" /> : null}
+              {showEnterpriseRemainingDebtColumn ? <col className="w-36" /> : null}
+            </colgroup>
             <tbody className="divide-y divide-border-base">
-              {loading ? (
+              {enterpriseTableLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-text-muted font-medium transition-colors">{t('loading')}</td>
+                  <td colSpan={enterpriseVisibleColumnCount} className="px-4 py-10 text-center text-sm font-medium text-text-muted transition-colors">{t('loading')}</td>
+                </tr>
+              ) : enterpriseTableError ? (
+                <tr>
+                  <td colSpan={enterpriseVisibleColumnCount} className="px-4 py-10 text-center text-sm font-medium text-red-600 transition-colors">{enterpriseTableError}</td>
+                </tr>
+              ) : paginatedEnterprises.length === 0 ? (
+                <tr>
+                  <td colSpan={enterpriseVisibleColumnCount} className="px-4 py-10 text-center text-sm font-medium text-text-muted transition-colors">{t('noData')}</td>
                 </tr>
               ) : paginatedEnterprises.map((enterprise, idx) => (
                 <tr 
                   key={enterprise.id} 
                   onClick={() => setSelectedEnterprise(enterprise)}
-                  className={`cursor-pointer transition-colors group ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-indigo-50 dark:hover:bg-indigo-900/20`}
+                  className={`group cursor-pointer transition-colors ${idx % 2 === 1 ? 'bg-bg-base/50' : 'bg-bg-surface'} hover:bg-surface-container-low/70`}
                 >
-                  <td className="px-6 py-5 text-left">
-                    <span className="text-sm font-bold text-text-highlight">{enterprise.ticker}</span>
+                  <td className="px-4 py-3 text-center whitespace-nowrap">
+                    <span className="text-sm font-medium text-text-base">{idx + 1}</span>
                   </td>
-                  <td className="px-6 py-5 text-left">
-                    <div className="space-y-1">
-                      <p className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
-                        {language === 'en' && enterpriseNamesEN[enterprise.ticker] 
-                          ? enterpriseNamesEN[enterprise.ticker] 
+                  {showEnterpriseIssuerNameColumn ? (
+                    <td className="px-4 py-3 text-left align-middle">
+                      <p className="whitespace-normal break-words leading-snug text-sm font-bold text-text-base transition-colors group-hover:text-blue-600">
+                        {language === 'en' && enterpriseNamesEN[enterprise.ticker]
+                          ? enterpriseNamesEN[enterprise.ticker]
                           : t(enterprise.name as any, enterprise.ticker)}
                       </p>
-                      <p className="text-[10px] font-bold text-text-muted tracking-wider group-hover:text-text-highlight transition-colors">
-                        {t(enterprise.industry as any)}
-                      </p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <span className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">{formatNumber(enterprise.bondCount, 0)}</span>
-                  </td>
-                  <td className="px-6 py-5 text-right whitespace-nowrap">
-                    <span className="text-sm font-bold text-text-base group-hover:text-text-highlight transition-colors">
-                      {formatNumber(enterprise.issuedValue, 2)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5 text-right whitespace-nowrap">
-                    <span className="text-sm font-bold text-text-highlight">
-                      {formatNumber(enterprise.remainingDebt, 2)}
-                    </span>
-                  </td>
+                    </td>
+                  ) : null}
+                  {showEnterpriseTickerColumn ? (
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <span className="inline-flex max-w-full items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold leading-none text-blue-700 transition-colors group-hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-300 dark:group-hover:bg-blue-500/20">
+                        <span className="truncate">{enterprise.ticker}</span>
+                      </span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseIndustryColumn ? (
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <span className={`inline-flex max-w-full items-center rounded-full px-3 py-1.5 text-xs font-semibold leading-tight transition-colors ${getIndustryBadgeClassName(String(t(enterprise.industry as any) || enterprise.industry || ''))} group-hover:brightness-95`}>
+                        <span className="truncate">
+                          {t(enterprise.industry as any) || enterprise.industry || 'N/A'}
+                        </span>
+                      </span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseBondCountColumn ? (
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">{formatNumber(enterprise.bondCount, 0)}</span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseIssuedValueColumn ? (
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">
+                        {formatNumber(enterprise.issuedValue, 2)}
+                      </span>
+                    </td>
+                  ) : null}
+                  {showEnterpriseRemainingDebtColumn ? (
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <span className="text-sm font-medium text-text-base transition-colors group-hover:text-blue-600">
+                        {formatNumber(enterprise.remainingDebt, 2)}
+                      </span>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -1244,7 +2801,7 @@ export default function EnterpriseView({
 
         {/* Enterprise Pagination Controls */}
         {totalEnterprisePages > 1 && (
-          <div className="p-4 border-t border-border-base flex items-center justify-end bg-bg-surface transition-colors">
+          <div className="flex items-center justify-center border-t border-border-base bg-surface-container-low/70 px-4 py-4 transition-colors md:px-6">
             <div className="flex gap-2">
               <button 
                 onClick={() => setEnterprisePage(prev => Math.max(1, prev - 1))}
@@ -1261,7 +2818,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(i + 1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === i + 1 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1274,7 +2831,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(1)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 1 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1284,7 +2841,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(2)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === 2 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1297,7 +2854,7 @@ export default function EnterpriseView({
                         onClick={() => setEnterprisePage(3)}
                         className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                           enterprisePage === 3 
-                            ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                            ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                             : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                         }`}
                       >
@@ -1311,7 +2868,7 @@ export default function EnterpriseView({
                       {enterprisePage < totalEnterprisePages && (
                         <>
                           <button
-                            className="px-3 py-1 text-xs font-bold rounded-lg bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20"
+                            className="px-3 py-1 text-xs font-bold rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                           >
                             {enterprisePage}
                           </button>
@@ -1325,7 +2882,7 @@ export default function EnterpriseView({
                     onClick={() => setEnterprisePage(totalEnterprisePages)}
                     className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors border ${
                       enterprisePage === totalEnterprisePages 
-                        ? "bg-[#3634B3] text-white border-transparent shadow-md shadow-[#3634B3]/20" 
+                        ? "bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 text-white border-transparent shadow-none"
                         : "text-text-base bg-bg-base border-border-base hover:bg-bg-surface"
                     }`}
                   >
@@ -1344,7 +2901,87 @@ export default function EnterpriseView({
             </div>
           </div>
         )}
+
       </div>
+
+      {isEnterpriseAIFilterModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-3"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setIsEnterpriseAIFilterModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border-base bg-bg-surface p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-2 text-sm font-bold text-text-base">
+                <BadgeDollarSign className="h-4 w-4 text-blue-600" />
+                {t('applyAIFilter')}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsEnterpriseAIFilterModalOpen(false)}
+                className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-bg-base hover:text-text-base"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              rows={3}
+              value={enterpriseAIPrompt}
+              onChange={(event) => {
+                const nextPrompt = event.target.value;
+
+                if (!nextPrompt.trim()) {
+                  handleResetEnterpriseFilters();
+                  return;
+                }
+
+                setEnterpriseAIPrompt(nextPrompt);
+                if (enterpriseAISummary.length > 0) setEnterpriseAISummary([]);
+                if (enterpriseAIError) setEnterpriseAIError(null);
+              }}
+              placeholder={enterpriseAIPromptPlaceholder}
+              className="w-full resize-none rounded-lg border border-border-base bg-bg-base px-3 py-2.5 text-sm font-medium text-text-base outline-none transition-colors placeholder:text-text-muted/80 focus:border-blue-400"
+            />
+            {enterpriseAIError ? (
+              <p className="mt-2 text-sm font-medium text-red-600">{enterpriseAIError}</p>
+            ) : null}
+            {showEnterpriseAISuggestions ? (
+              <div className="mt-3 flex flex-col gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wider text-text-muted/80">Gợi ý nhanh:</span>
+                <div className="flex flex-wrap gap-2">
+                  {enterpriseAISuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => handleEnterpriseSuggestionClick(suggestion)}
+                      className="whitespace-nowrap rounded-full border border-blue-100 bg-white px-3 py-1 text-left text-xs font-semibold leading-tight text-blue-700 transition-colors hover:border-blue-200 hover:text-blue-600 dark:border-blue-400/20 dark:bg-slate-900/40 dark:text-blue-300 dark:hover:text-blue-400"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                onClick={() => void handleApplyEnterpriseAIFilter()}
+                disabled={!enterpriseAIPrompt.trim() || isApplyingEnterpriseAIFilter || isLoadingStatus}
+                className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-colors hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <BadgeDollarSign className={`h-4 w-4 ${isApplyingEnterpriseAIFilter ? 'animate-pulse' : ''}`} />
+                <span>{t('applyAIFilter')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
