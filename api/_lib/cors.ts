@@ -9,6 +9,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 // Local dev hosts are matched by hostname alone, so any scheme/port works while developing.
 const ALLOWED_ORIGINS = new Set<string>([
   'https://answer.fireant.vn',
+  'https://wwww.answer.fireant.vn',
   'https://onecompiler.com',
   'https://www.onecompiler.com',
 ]);
