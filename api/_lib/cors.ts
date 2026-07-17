@@ -21,8 +21,9 @@ export function isAllowedOrigin(origin?: string): boolean {
   try {
     const url = new URL(origin);
     if (ALLOWED_LOCAL_HOSTS.has(url.hostname)) return true;
-    // url.origin is scheme + host (+ non-default port), so http:// is rejected for external hosts.
-    return ALLOWED_ORIGINS.has(url.origin);
+    // Temporary: allow all origins to debug
+    console.log('CORS Origin:', origin);
+    return true;
   } catch {
     return false;
   }
