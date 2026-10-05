@@ -1,21 +1,34 @@
-import { useState, useEffect } from 'react';
-import { Search, Filter, Calendar, Activity, Briefcase, AlertCircle, Zap, Eye, CheckCircle2, ChevronLeft, ChevronRight, ArrowUpDown, Settings } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, Bookmark, BookmarkCheck, EyeOff, Filter, FilterX, ListOrdered } from 'lucide-react';
 import { Bond } from '../types';
-import { formatInterestRate, formatNumber, formatDate, normalizeInterestType } from '../utils/format';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-import { useTheme } from '../ThemeContext';
 import { useLanguage } from '../LanguageContext';
+import {
+  BondDataRow,
+  loadBondDetailsMapByCodes,
+  loadMaturingBondUniverse,
+  loadIssuerProfile,
+} from '../services/bondData';
+import { loadDedupedIndustrySymbols } from '../services/industryBondData';
+import { getCache, getCacheEntryAllowExpired, setCache } from '../utils/cache';
+import { getFulfilledValues, mapWithConcurrency } from '../utils/async';
+import { formatDate, formatInterestRate, formatNumber, normalizeInterestType, parseDateToTimestamp } from '../utils/format';
+import { getLocalizedBondType, getLocalizedInterestType } from '../utils/bondPresentation';
+import {
+  buildIndustrySymbolLookup,
+  resolveIndustryKeyFromCandidates,
+  resolveIndustryKeyFromSymbolGroups,
+} from '../constants/industries';
+import BondSectionNav from './BondSectionNav';
+import {
+  BondFilterPanel,
+  useBondFilterController,
+} from './BondFilterPanel';
+import { DataTable, type DataTableColumn } from './ui/DataTable';
+import { filterBondRowsByCriteria, sortBondRowsByCriteria } from '../services/aiBondFilter';
+import { createWatchlistItemFromBond, isBondTracked, onWatchlistUpdated, removeWatchlistItemWithStatus, upsertWatchlistItemWithStatus } from '../utils/watchlist';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-interface MaturityBond extends Bond {
-  issuerName: string;
-  ticker?: string;
+interface MaturityRow extends BondDataRow {
   daysLeft: number;
-  industry?: string;
 }
 
 interface MaturityListViewProps {
@@ -23,559 +36,928 @@ interface MaturityListViewProps {
   setBondEnterpriseName: (name: string) => void;
 }
 
-import { getFireantToken, cleanTokenString } from '../utils/token';
-import { getCache, setCache } from '../utils/cache';
+const MATURITY_WINDOW_DAYS = 365;
+const MATURITY_LIST_BACKGROUND_REFRESH_MS = 5 * 60 * 1000;
+
+const getMaturityIndustryKey = (bond: any, enterpriseIndustry?: string) =>
+  resolveIndustryKeyFromCandidates(
+    bond?.industry,
+    bond?.industryLabel,
+    bond?.infoObj?.icbNameLv2,
+    bond?.infoObj?.icbNameLv1,
+    bond?.infoObj?.icbCodeLv2,
+    bond?.infoObj?.icbCodeLv1,
+    bond?.infoObj?.industryName,
+    bond?.infoObj?.industryCode,
+    bond?.icbNameLv2,
+    bond?.icbNameLv1,
+    bond?.icbCodeLv2,
+    bond?.icbCodeLv1,
+    bond?.industryName,
+    bond?.industryCode,
+    enterpriseIndustry,
+  );
+
+const mergeRowWithBondDetail = (row: BondDataRow, detailPayload: any): BondDataRow => {
+  const detail = detailPayload?.detail || detailPayload || {};
+  const historyItem = Array.isArray(detailPayload?.history) ? detailPayload.history[0] : undefined;
+  const issuerName = String(detail?.issuerName || detail?.IssuerName || row.issuerName || row.issuerSymbol || '').trim();
+  const bondType = String(detail?.bondType || detail?.BondType || row.bondType || '').trim();
+  const industry = resolveIndustryKeyFromCandidates(
+    detail?.icbNameLv2,
+    detail?.ICBNameLv2,
+    detail?.icbNameLv1,
+    detail?.ICBNameLv1,
+    detail?.industryName,
+    detail?.IndustryName,
+    detail?.infoObj?.icbNameLv2,
+    detail?.infoObj?.icbNameLv1,
+    detail?.infoObj?.icbName,
+    detail?.infoObj?.icbCode,
+    detailPayload?.icbNameLv2,
+    detailPayload?.ICBNameLv2,
+    detailPayload?.industryName,
+    detailPayload?.IndustryName,
+    issuerName,
+    row.issuerSymbol,
+    row.industry,
+  );
+
+  const currentListedValue = row.currentListedValue > 0
+    ? row.currentListedValue
+    : Number(detail?.currentListedValue || detail?.CurrentListedValue || historyItem?.value || 0);
+  const totalIssuedValue = row.totalIssuedValue > 0
+    ? row.totalIssuedValue
+    : Number(detail?.totalIssuedValue || detail?.TotalIssuedValue || historyItem?.value || 0);
+  const currentListedVolume = row.currentListedVolume > 0
+    ? row.currentListedVolume
+    : Number(detail?.currentListedVolume || detail?.CurrentListedVolume || historyItem?.volume || 0);
+
+  return {
+    ...row,
+    issuerName,
+    bondType,
+    industry,
+    currentListedVolume,
+    currentListedValue,
+    totalIssuedValue,
+    raw: {
+      ...row.raw,
+      issuerName,
+      bondType,
+      detail,
+    },
+  };
+};
+
+const mergeRowWithIssuerProfile = (row: BondDataRow, issuerProfile: any): BondDataRow => {
+  const issuerName = String(
+    issuerProfile?.name ||
+    issuerProfile?.companyName ||
+    issuerProfile?.internationalName ||
+    row.issuerName ||
+    row.issuerSymbol ||
+    '',
+  ).trim();
+  const industry = resolveIndustryKeyFromCandidates(
+    issuerProfile?.icbNameLv2,
+    issuerProfile?.ICBNameLv2,
+    issuerProfile?.icbNameLv1,
+    issuerProfile?.ICBNameLv1,
+    issuerProfile?.industryName,
+    issuerProfile?.IndustryName,
+    issuerProfile?.industry,
+    issuerProfile?.Industry,
+    issuerProfile?.icbName,
+    issuerProfile?.ICBName,
+    issuerProfile?.icbCode,
+    issuerProfile?.ICBCode,
+    issuerName,
+    row.issuerSymbol,
+    row.industry,
+  );
+
+  return {
+    ...row,
+    issuerName,
+    industry,
+    raw: {
+      ...row.raw,
+      issuerName,
+      industry,
+      issuerProfile,
+    },
+  };
+};
+
+const toBondModel = (row: MaturityRow): Bond => ({
+  id: row.bondCode,
+  code: row.bondCode,
+  enterpriseId: row.issuerSymbol,
+  term: String(row.tenorPeriod || ''),
+  interestRate: row.bondRate || 0,
+  listedVolume: row.currentListedVolume || 0,
+  issuedValue: (row.totalIssuedValue || 0) / 1000000000,
+  listedValue: (row.currentListedValue || 0) / 1000000000,
+  issueDate: row.issueDate || '',
+  maturityDate: row.maturityDate || '',
+  interestType: row.bondRateType || '',
+  status: row.status || '',
+});
+
+const getMaturitySituationMeta = (
+  daysLeft: number,
+  t: (key: any) => string,
+) => {
+  if (daysLeft < 30) {
+    return {
+      label: t('statusVeryNear'),
+      className: 'border border-red-100 bg-red-50 text-red-600',
+    };
+  }
+
+  if (daysLeft <= 90) {
+    return {
+      label: t('statusNear'),
+      className: 'border border-orange-100 bg-orange-50 text-orange-600',
+    };
+  }
+
+  if (daysLeft <= 180) {
+    return {
+      label: t('statusMonitor'),
+      className: 'border border-yellow-100 bg-yellow-50 text-yellow-700',
+    };
+  }
+
+  if (daysLeft <= 270) {
+    return {
+      label: t('statusMediumTerm'),
+      className: 'border border-blue-100 bg-blue-50 text-blue-600',
+    };
+  }
+
+  return {
+    label: t('statusLongTerm'),
+    className: 'border border-green-100 bg-green-50 text-green-600',
+  };
+};
+
+const resolveTableSort = (
+  sortBy?: number,
+  secondarySorts: number[] = [],
+): { columnId: string; direction: 'asc' | 'desc' } | null => {
+  if (secondarySorts.length > 0) return null;
+  if (sortBy === undefined) return { columnId: 'maturityDate', direction: 'asc' };
+
+  switch (sortBy) {
+    case 1:
+      return { columnId: 'bondCode', direction: 'asc' };
+    case 3:
+      return { columnId: 'totalIssuedValue', direction: 'desc' };
+    case 4:
+      return { columnId: 'maturityDate', direction: 'asc' };
+    case 5:
+      return { columnId: 'issueDate', direction: 'desc' };
+    case 6:
+      return { columnId: 'bondRate', direction: 'desc' };
+    case 7:
+      return { columnId: 'currentListedVolume', direction: 'desc' };
+    case 8:
+      return { columnId: 'currentListedValue', direction: 'desc' };
+    default:
+      return null;
+  }
+};
 
 export default function MaturityListView({ setSelectedBond, setBondEnterpriseName }: MaturityListViewProps) {
-  const { effectiveTheme } = useTheme();
   const { t, language } = useLanguage();
-  const isDark = effectiveTheme === 'dark';
-  const [selectedTimeRange, setSelectedTimeRange] = useState(30); // Default 1 month
-  const cacheKey = `maturity_list_${selectedTimeRange}`;
-  const cachedData = getCache(cacheKey);
-  const [bonds, setBonds] = useState<MaturityBond[]>(cachedData || []);
+  const cacheKey = `maturity_list_${MATURITY_WINDOW_DAYS}`;
+  const cachedData = getCacheEntryAllowExpired<MaturityRow[]>(cacheKey)?.data;
+  const [rows, setRows] = useState<MaturityRow[]>(() =>
+    Array.isArray(cachedData) ? cachedData : [],
+  );
   const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [industryFilter, setIndustryFilter] = useState(t('allIndustries'));
-  const [warningFilter, setWarningFilter] = useState(t('allStatuses'));
-  const [valueFilter, setValueFilter] = useState(t('allValues'));
-  const [sortType, setSortType] = useState<'default' | 'maturity-near' | 'maturity-far' | 'value-high' | 'value-low'>('default');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-
+  const [hiddenColumnIds, setHiddenColumnIds] = useState<string[]>([]);
+  const [columnVisibilityDraft, setColumnVisibilityDraft] = useState<string[]>([]);
+  const [isColumnVisibilityOpen, setIsColumnVisibilityOpen] = useState(false);
+  const [isFilterControlsVisible, setIsFilterControlsVisible] = useState(false);
+  const [watchlistVersion, setWatchlistVersion] = useState(0);
   const [enterpriseNamesEN, setEnterpriseNamesEN] = useState<Record<string, string>>(() => {
     return getCache('enterprise_names_en') || {};
+  });
+  const enterpriseNamesENRef = useRef<Record<string, string>>(enterpriseNamesEN);
+  const enterpriseList = (getCache('enterprise_list') || []) as Array<{ ticker?: string; industry?: string }>;
+  const columnVisibilityRef = useRef<HTMLDivElement | null>(null);
+  const enterpriseIndustryBySymbol = useMemo(
+    () => new Map(
+      enterpriseList
+        .map((item) => {
+          const ticker = String(item?.ticker || '').trim();
+          const industry = String(item?.industry || '').trim();
+          return ticker && industry ? [ticker, industry] as const : null;
+        })
+        .filter((item): item is readonly [string, string] => Boolean(item)),
+    ),
+    [enterpriseList],
+  );
+
+  useEffect(() => {
+    enterpriseNamesENRef.current = enterpriseNamesEN;
+  }, [enterpriseNamesEN]);
+
+  const getDisplayedIssuerName = (row: MaturityRow) => {
+    const fallbackName = row.issuerName || row.issuerSymbol || t('none');
+    return String(t(fallbackName as any, row.issuerSymbol) || fallbackName).trim();
+  };
+
+  const rateTypeOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => String(row.bondRateType || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const issuerOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.issuerName || row.issuerSymbol).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const bondTypeOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.bondType).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const industryOptions = useMemo(() => {
+    return Array.from(new Set(rows.map((row) => row.industry).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const {
+    draftFilters,
+    setDraftFilters,
+    appliedFilters,
+    appliedCriteria,
+    aiPrompt,
+    setAiPrompt,
+    aiSummary,
+    setAiSummary,
+    aiError,
+    setAiError,
+    isApplyingAIFilter,
+    isLoadingStatus,
+    aiPromptSuggestions,
+    showPromptSuggestions,
+    applyDraftFilters,
+    resetFilters,
+    applyAIFilter,
+  } = useBondFilterController({
+    rateTypeOptions,
+    issuerOptions,
+    bondTypeOptions,
+    industryOptions,
   });
 
   useEffect(() => {
     let isMounted = true;
-    const fetchBonds = async () => {
-      if (!cachedData) {
-        setLoading(true);
+
+    const hydrateBonds = async () => {
+      const cachedEntry = getCacheEntryAllowExpired<MaturityRow[]>(cacheKey);
+      const cachedRows = Array.isArray(cachedEntry?.data) ? cachedEntry.data : [];
+      const hasCachedRows = cachedRows.length > 0;
+      const shouldRefresh = !cachedEntry || Date.now() - cachedEntry.timestamp > MATURITY_LIST_BACKGROUND_REFRESH_MS;
+
+      if (hasCachedRows) {
+        setRows(cachedRows);
       }
+
+      setLoading(!hasCachedRows);
       setError(null);
+
+      if (!shouldRefresh) {
+        return;
+      }
+
       try {
-        const token = getFireantToken();
-        const cleanToken = token ? cleanTokenString(token) : undefined;
-        
-        const headers: Record<string, string> = {
-          'Accept': 'application/json'
-        };
-
-        if (cleanToken) {
-          headers['Authorization'] = `Bearer ${cleanToken}`;
-        }
-
-        const response = await fetch(`/api/fireant/bonds/stats/bonds/maturing-soon?days=${selectedTimeRange}`, {
-          headers
+        const data = await loadMaturingBondUniverse(MATURITY_WINDOW_DAYS, {
+          forceRefresh: hasCachedRows,
         });
-
         if (!isMounted) return;
 
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            const mapped: MaturityBond[] = data.map((b: any) => {
-              const maturity = new Date(b.maturityDate);
-              maturity.setHours(0, 0, 0, 0);
-              const diffTime = maturity.getTime() - today.getTime();
-              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-              return {
-                id: b.bondCode,
-                code: b.bondCode,
-                enterpriseId: b.issuerSymbol || '',
-                ticker: b.issuerSymbol,
-                issuerName: b.issuerName,
-                maturityDate: b.maturityDate?.split('T')[0] || '',
-                daysLeft: diffDays > 0 ? diffDays : 0,
-                listedVolume: b.currentListedVolume || 0,
-                listedValue: (b.currentListedVolume * 100000) / 1000000000, 
-                interestRate: b.bondRate || 0,
-                interestType: normalizeInterestType(
-                  b.bondRateType || b.interestRateType || b.interestType || '',
-                  b.interestPaymentMethod || b.paymentMethod || b.bondType || b.bondName || '',
-                  []
-                ) || 'N/A',
-                term: `${b.tenorPeriod} ${t('monthUnit')}`,
-                issueDate: b.issueDate?.split('T')[0] || '',
-                issuedValue: 0,
-                status: b.status || t('active'),
-                industry: b.infoObj?.icbNameLv2 || t('others')
-              };
-            });
-            setBonds(mapped);
-            setCache(cacheKey, mapped);
-
-            // Trigger background fetch for international names if in English mode
-            if (language === 'en') {
-              const bondsToFetch = mapped.filter(b => !enterpriseNamesEN[b.ticker || ''] || !b.ticker);
-              
-              if (bondsToFetch.length > 0) {
-                const fetchInChunks = async () => {
-                  const chunkSize = 5;
-                  const currentENNames = { ...enterpriseNamesEN };
-                  
-                  for (let i = 0; i < bondsToFetch.length; i += chunkSize) {
-                    if (!isMounted) break;
-                    
-                    const chunk = bondsToFetch.slice(i, i + chunkSize);
-                    const results = await Promise.all(
-                      chunk.map(async (bond) => {
-                        try {
-                          let ticker = bond.ticker;
-                          
-                          // Step 1: If ticker is missing, fetch bond details to get issuerSymbol
-                          if (!ticker) {
-                            const bondRes = await fetch(`/api/fireant/bonds/${encodeURIComponent(bond.code)}`, { headers });
-                            if (bondRes.ok) {
-                              const bondDetail = await bondRes.json();
-                              ticker = bondDetail.detail?.issuerSymbol;
-                            }
-                          }
-
-                          // Step 2 & 3: Fetch profile and get internationalName
-                          if (ticker) {
-                            const profileRes = await fetch(`/api/fireant/symbols/${encodeURIComponent(ticker)}/profile`, { headers });
-                            if (profileRes.ok) {
-                              const profile = await profileRes.json();
-                              return { code: bond.code, ticker, name: profile.internationalName };
-                            }
-                          }
-                        } catch (e) {
-                          console.error(`Failed to fetch EN name for ${bond.code}`, e);
-                        }
-                        return null;
-                      })
-                    );
-
-                    let hasUpdates = false;
-                    results.forEach(res => {
-                      if (res && res.name && res.ticker) {
-                        currentENNames[res.ticker] = res.name;
-                        hasUpdates = true;
-                      }
-                    });
-
-                    if (hasUpdates && isMounted) {
-                      setEnterpriseNamesEN({ ...currentENNames });
-                      setCache('enterprise_names_en', { ...currentENNames });
-                      
-                      // Also update the currently displayed bonds list if they match the ticker
-                      setBonds(prev => prev.map(b => {
-                        const res = results.find(r => r?.code === b.code);
-                        if (res && res.name) {
-                          return { ...b, ticker: res.ticker, issuerName: res.name };
-                        }
-                        // Even if it didn't just update, if we now have it in currentENNames, apply it
-                        if (b.ticker && currentENNames[b.ticker]) {
-                          return { ...b, issuerName: currentENNames[b.ticker] };
-                        }
-                        return b;
-                      }));
-                    }
-
-                    if (i + chunkSize < bondsToFetch.length) {
-                      await new Promise(resolve => setTimeout(resolve, 200));
-                    }
-                  }
-                };
-                fetchInChunks();
-              }
-            }
-          }
-        } else {
-          if (response.status === 401) {
-            throw new Error('401');
-          }
-          throw new Error(`${t('bondFetchError')}: ${response.status}`);
+        if (!Array.isArray(data) || data.length === 0) {
+          setRows([]);
+          setCache(cacheKey, []);
+          return;
         }
-      } catch (error) {
+
+        const symbolGroups = await loadDedupedIndustrySymbols();
         if (!isMounted) return;
-        console.error('Error fetching maturity bonds:', error);
-        if (error instanceof Error && error.message.includes('401')) {
-          setError(t('tokenError401'));
-        } else {
-          setError(error instanceof Error ? error.message : t('dataError'));
+
+        const symbolToIndustryKey = buildIndustrySymbolLookup(symbolGroups);
+        const fallbackTickerByCode = new Map<string, string>();
+        const detailMap = await loadBondDetailsMapByCodes(
+          data.map((row: any) => row.bondCode),
+          {
+            concurrency: 8,
+            forceRefresh: false,
+          },
+        );
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const mapped: MaturityRow[] = data
+          .map((row: any) => {
+            const detailPayload = detailMap[row.bondCode];
+            const mergedRow = detailPayload
+              ? mergeRowWithBondDetail(row, detailMap[row.bondCode])
+              : row;
+            const resolvedTicker = String(
+              mergedRow.issuerSymbol
+              || detailPayload?.detail?.issuerSymbol
+              || detailPayload?.issuerSymbol
+              || row.issuerSymbol
+              || '',
+            ).trim();
+            if (resolvedTicker) {
+              fallbackTickerByCode.set(mergedRow.bondCode, resolvedTicker);
+            }
+            const enterpriseIndustry = enterpriseIndustryBySymbol.get(resolvedTicker);
+            const maturity = new Date(mergedRow.maturityDate);
+            maturity.setHours(0, 0, 0, 0);
+            const diffTime = maturity.getTime() - today.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            return {
+              ...mergedRow,
+              issuerName:
+                language === 'en' && enterpriseNamesENRef.current[mergedRow.issuerSymbol || '']
+                  ? enterpriseNamesENRef.current[mergedRow.issuerSymbol || '']
+                  : mergedRow.issuerName,
+              bondType: mergedRow.bondType || '',
+              bondRateType: normalizeInterestType(
+                mergedRow.bondRateType || mergedRow.raw?.interestRateType || mergedRow.raw?.interestType || '',
+                mergedRow.raw?.interestPaymentMethod || mergedRow.raw?.paymentMethod || mergedRow.raw?.bondType || mergedRow.raw?.bondName || '',
+                [],
+              ) || mergedRow.bondRateType || 'N/A',
+              industry: resolveIndustryKeyFromSymbolGroups(
+                resolvedTicker,
+                symbolToIndustryKey,
+                getMaturityIndustryKey(mergedRow, enterpriseIndustry),
+              ),
+              daysLeft: diffDays > 0 ? diffDays : 0,
+            };
+          })
+          .filter((row) => row.daysLeft <= MATURITY_WINDOW_DAYS);
+
+        setRows(mapped);
+        setCache(cacheKey, mapped);
+
+        const tickersToFetch = Array.from(new Set(
+          mapped.flatMap((row) => {
+            const ticker = String(row.issuerSymbol || fallbackTickerByCode.get(row.bondCode) || '').trim();
+            if (!ticker) return [];
+
+            const needsIndustry = !row.industry;
+            const needsEnglishName = language === 'en' && !enterpriseNamesENRef.current[ticker];
+            return needsIndustry || needsEnglishName ? [ticker] : [];
+          }),
+        ));
+
+        if (tickersToFetch.length > 0) {
+          const profileResults = await mapWithConcurrency(tickersToFetch, 5, async (ticker) => (
+            [ticker, await loadIssuerProfile(ticker)] as const
+          ));
+
+          if (!isMounted) return;
+
+          const profileMap = new Map<string, any>(
+            getFulfilledValues(profileResults).filter((entry): entry is readonly [string, any] => Boolean(entry[1])),
+          );
+
+          if (profileMap.size > 0) {
+            const currentENNames = { ...enterpriseNamesENRef.current };
+            let hasNameUpdates = false;
+
+            if (language === 'en') {
+              profileMap.forEach((profile, ticker) => {
+                const nextName = String(profile?.internationalName || '').trim();
+                if (nextName && currentENNames[ticker] !== nextName) {
+                  currentENNames[ticker] = nextName;
+                  hasNameUpdates = true;
+                }
+              });
+            }
+
+            if (hasNameUpdates) {
+              setEnterpriseNamesEN({ ...currentENNames });
+              setCache('enterprise_names_en', { ...currentENNames });
+            }
+
+            setRows((prev) => {
+              const next = prev.map((row) => {
+                const ticker = String(row.issuerSymbol || fallbackTickerByCode.get(row.bondCode) || '').trim();
+                const profile = profileMap.get(ticker);
+                const industry = row.industry || !profile
+                  ? row.industry
+                  : resolveIndustryKeyFromSymbolGroups(
+                      ticker,
+                      symbolToIndustryKey,
+                      getMaturityIndustryKey(profile, enterpriseIndustryBySymbol.get(ticker)),
+                    );
+                const issuerName = language === 'en' && ticker && currentENNames[ticker]
+                  ? currentENNames[ticker]
+                  : row.issuerName;
+
+                if (
+                  ticker === row.issuerSymbol
+                  && issuerName === row.issuerName
+                  && industry === row.industry
+                ) {
+                  return row;
+                }
+
+                return {
+                  ...row,
+                  issuerSymbol: ticker || row.issuerSymbol,
+                  issuerName,
+                  industry,
+                };
+              });
+              setCache(cacheKey, next);
+              return next;
+            });
+          }
+        }
+      } catch (fetchError) {
+        if (!isMounted) return;
+        console.error('Error fetching maturity bonds:', fetchError);
+        if (!hasCachedRows) {
+          if (fetchError instanceof Error && fetchError.message.includes('401')) {
+            setError(t('tokenError401'));
+          } else {
+            setError(fetchError instanceof Error ? fetchError.message : t('dataError'));
+          }
         }
       } finally {
         if (isMounted) setLoading(false);
       }
     };
 
-    fetchBonds();
-    return () => { isMounted = false; };
-  }, [selectedTimeRange]);
+    void hydrateBonds();
+    return () => {
+      isMounted = false;
+    };
+  }, [cacheKey, enterpriseIndustryBySymbol, language, t]);
 
-  const getWarningStatus = (days: number) => {
-    if (days < 30) return { label: t('statusVeryNear'), color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-400/30', icon: AlertCircle, iconColor: 'text-red-600' };
-    if (days <= 90) return { label: t('statusNear'), color: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-400/30', icon: Zap, iconColor: 'text-orange-600' };
-    if (days <= 180) return { label: t('statusMonitor'), color: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-400/30', icon: Eye, iconColor: 'text-yellow-600' };
-    if (days <= 270) return { label: t('statusMediumTerm'), color: 'bg-[#3634B3]/5 text-[#3634B3] border-[#3634B3]/10', icon: Activity, iconColor: 'text-[#3634B3]' };
-    return { label: t('statusLongTerm'), color: 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-400/30', icon: CheckCircle2, iconColor: 'text-green-600' };
-  };
+  useEffect(() => {
+    if (!isColumnVisibilityOpen) return undefined;
 
-  const filteredBonds = bonds.filter(bond => {
-    const matchesSearch = bond.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         bond.issuerName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesIndustry = industryFilter === t('allIndustries') || bond.industry === industryFilter;
-    const status = getWarningStatus(bond.daysLeft);
-    const matchesWarning = warningFilter === t('allStatuses') || status.label === warningFilter;
-    
-    let matchesValue = true;
-    if (valueFilter === t('rangeLess100')) matchesValue = bond.listedValue < 100;
-    else if (valueFilter === t('range100to500')) matchesValue = bond.listedValue >= 100 && bond.listedValue <= 500;
-    else if (valueFilter === t('rangeMore500')) matchesValue = bond.listedValue > 500;
+    setColumnVisibilityDraft(hiddenColumnIds);
 
-    return matchesSearch && matchesIndustry && matchesWarning && matchesValue;
-  });
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!columnVisibilityRef.current) return;
+      if (columnVisibilityRef.current.contains(event.target as Node)) return;
+      setIsColumnVisibilityOpen(false);
+    };
 
-  const sortedBonds = [...filteredBonds].sort((a, b) => {
-    if (sortType === 'maturity-far') {
-      const dateA = new Date(a.maturityDate).getTime();
-      const dateB = new Date(b.maturityDate).getTime();
-      return dateB - dateA;
-    } else if (sortType === 'value-high') {
-      return b.listedValue - a.listedValue;
-    } else if (sortType === 'value-low') {
-      return a.listedValue - b.listedValue;
-    } else {
-      // Default and maturity-near both sort by maturity asc
-      const dateA = new Date(a.maturityDate).getTime();
-      const dateB = new Date(b.maturityDate).getTime();
-      return dateA - dateB;
-    }
-  });
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsColumnVisibilityOpen(false);
+      }
+    };
 
-  const totalPages = Math.ceil(sortedBonds.length / itemsPerPage);
-  const paginatedBonds = sortedBonds.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
 
-  const industries = [t('allIndustries'), ...new Set(bonds.map(b => b.industry).filter(Boolean) as string[])];
-  const warningLevels = [t('allStatuses'), t('statusVeryNear'), t('statusNear'), t('statusMonitor'), t('statusMediumTerm'), t('statusLongTerm')];
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [hiddenColumnIds, isColumnVisibilityOpen]);
+
+  useEffect(() => onWatchlistUpdated(() => {
+    setWatchlistVersion((value) => value + 1);
+  }), []);
+
+  const filteredRows = useMemo(() => {
+    const searchTerm = appliedFilters.searchTerm.trim().toLowerCase();
+    const maturityWindowDays = Math.max(1, Number(appliedFilters.maturityWindowDays) || MATURITY_WINDOW_DAYS);
+    const remainingDaysMin = appliedFilters.remainingDaysMin.trim() ? Number(appliedFilters.remainingDaysMin) : null;
+    const remainingDaysMax = appliedFilters.remainingDaysMax.trim() ? Number(appliedFilters.remainingDaysMax) : null;
+
+    const filtered = filterBondRowsByCriteria(rows, appliedCriteria).filter((row) => {
+      if (row.daysLeft > maturityWindowDays) {
+        return false;
+      }
+
+      if (remainingDaysMin !== null && row.daysLeft < remainingDaysMin) {
+        return false;
+      }
+
+      if (remainingDaysMax !== null && row.daysLeft > remainingDaysMax) {
+        return false;
+      }
+
+      if (!searchTerm) return true;
+      const haystack = [
+        row.bondCode,
+        getDisplayedIssuerName(row),
+        row.issuerSymbol,
+        getLocalizedBondType(row.bondType, language),
+        getLocalizedInterestType(row.bondRateType, t),
+        row.industry ? (t(row.industry as any) || row.industry) : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(searchTerm);
+    });
+
+    return sortBondRowsByCriteria(filtered, appliedCriteria) as MaturityRow[];
+  }, [
+    appliedCriteria,
+    appliedFilters.searchTerm,
+    appliedFilters.maturityWindowDays,
+    appliedFilters.remainingDaysMax,
+    appliedFilters.remainingDaysMin,
+    language,
+    rows,
+    t,
+  ]);
+
+  const tableInitialSort = useMemo(
+    () => resolveTableSort(appliedCriteria.sortBy, appliedCriteria.secondarySorts || []),
+    [appliedCriteria.secondarySorts, appliedCriteria.sortBy],
+  );
+
+  const columns = useMemo<DataTableColumn<MaturityRow>[]>(() => ([
+    {
+      id: 'order',
+      header: <ListOrdered className="h-4 w-4" aria-hidden="true" />,
+      align: 'center',
+      widthClassName: 'w-14',
+      cell: (_row, index) => index + 1,
+    },
+    {
+      id: 'bondCode',
+      header: t('bondCode'),
+      accessor: (row) => row.bondCode,
+      sortable: true,
+      widthClassName: 'w-32',
+      cell: (row) => (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (isBondTracked(row.bondCode)) {
+                removeWatchlistItemWithStatus(row.bondCode);
+                return;
+              }
+
+              upsertWatchlistItemWithStatus(
+                createWatchlistItemFromBond({
+                  code: row.bondCode,
+                  enterpriseId: row.issuerSymbol,
+                  ticker: row.issuerSymbol,
+                  issuerName: row.issuerName || row.issuerSymbol || row.bondCode,
+                  term: row.tenorPeriod,
+                  interestRate: row.bondRate,
+                  listedVolume: row.currentListedVolume,
+                  issuedValue: row.totalIssuedValue,
+                  listedValue: row.currentListedValue,
+                  issueDate: row.issueDate,
+                  maturityDate: row.maturityDate,
+                  interestType: row.bondRateType,
+                  bondType: row.bondType,
+                  status: row.status,
+                }),
+                { preserveAddedAt: true },
+              );
+            }}
+            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center transition-colors ${
+              isBondTracked(row.bondCode)
+                ? 'text-amber-500'
+                : 'text-text-muted hover:text-blue-600'
+            }`}
+            aria-label={`${isBondTracked(row.bondCode) ? t('trackedBond') : t('trackBond')} ${row.bondCode}`}
+            title={`${isBondTracked(row.bondCode) ? t('trackedBond') : t('trackBond')} ${row.bondCode}`}
+          >
+              {isBondTracked(row.bondCode) ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+            </button>
+          <button
+            type="button"
+            onClick={() => {
+              setBondEnterpriseName(row.issuerName || row.issuerSymbol || '');
+              setSelectedBond(toBondModel(row));
+            }}
+            className="min-w-0 truncate font-bold text-text-highlight transition-colors hover:text-blue-600"
+          >
+            {row.bondCode}
+          </button>
+        </div>
+      ),
+    },
+    {
+      id: 'issuerName',
+      header: t('enterprise'),
+      accessor: (row) => getDisplayedIssuerName(row),
+      sortable: true,
+      widthClassName: 'w-60',
+      cell: (row) => {
+        const issuerName = getDisplayedIssuerName(row);
+        const industry = row.industry ? (t(row.industry as any) || row.industry) : '';
+
+        return (
+          <div className="min-w-0 max-w-xs">
+            <div className="truncate">{issuerName}</div>
+            {industry ? (
+              <div className="mt-1 text-xs font-semibold text-text-muted">
+                {industry}
+              </div>
+            ) : null}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'bondType',
+      header: t('bondTypeLabel'),
+      accessor: (row) => getLocalizedBondType(row.bondType, language),
+      sortable: true,
+      widthClassName: 'w-40',
+      cell: (row) => getLocalizedBondType(row.bondType, language) || t('none'),
+    },
+    {
+      id: 'tenorPeriod',
+      header: t('term'),
+      unit: `(${t('monthUnit')})`,
+      accessor: (row) => row.tenorPeriod || 0,
+      sortable: true,
+      align: 'right',
+      widthClassName: 'w-24',
+      cell: (row) => formatNumber(row.tenorPeriod || 0, 0),
+    },
+    {
+      id: 'daysLeft',
+      header: t('remainingTermLabel'),
+      unit: `(${t('daysUnit')})`,
+      accessor: (row) => row.daysLeft || 0,
+      sortable: true,
+      align: 'right',
+      widthClassName: 'w-28',
+      cell: (row) => row.daysLeft,
+    },
+    {
+      id: 'issueDate',
+      header: t('issueDate'),
+      accessor: (row) => parseDateToTimestamp(row.issueDate) || 0,
+      sortable: true,
+      align: 'center',
+      widthClassName: 'w-28',
+      cell: (row) => formatDate(row.issueDate),
+    },
+    {
+      id: 'maturityDate',
+      header: t('maturityDate'),
+      accessor: (row) => parseDateToTimestamp(row.maturityDate) || 0,
+      sortable: true,
+      align: 'center',
+      widthClassName: 'w-28',
+      cell: (row) => formatDate(row.maturityDate),
+    },
+    {
+      id: 'bondRate',
+      header: t('interestRate'),
+      unit: `(${t('unitPercentLabel')})`,
+      accessor: (row) => row.bondRate || 0,
+      sortable: true,
+      align: 'right',
+      widthClassName: 'w-24',
+      cell: (row) => formatInterestRate(row.bondRate),
+    },
+    {
+      id: 'bondRateType',
+      header: t('interestType'),
+      accessor: (row) => getLocalizedInterestType(row.bondRateType, t),
+      sortable: true,
+      align: 'center',
+      widthClassName: 'w-32',
+      cell: (row) => getLocalizedInterestType(row.bondRateType, t) || t('none'),
+    },
+    {
+      id: 'currentListedVolume',
+      header: t('listedVolume'),
+      accessor: (row) => row.currentListedVolume || 0,
+      sortable: true,
+      align: 'right',
+      widthClassName: 'w-32',
+      cell: (row) => formatNumber(row.currentListedVolume || 0, 0),
+    },
+    {
+      id: 'totalIssuedValue',
+      header: t('issuedValue'),
+      unit: `(${t('unitBillionVND')})`,
+      accessor: (row) => row.totalIssuedValue || 0,
+      sortable: true,
+      align: 'right',
+      widthClassName: 'w-36',
+      cell: (row) => formatNumber((row.totalIssuedValue || 0) / 1000000000, 2),
+    },
+    {
+      id: 'currentListedValue',
+      header: t('listedValue'),
+      unit: `(${t('unitBillionVND')})`,
+      accessor: (row) => row.currentListedValue || 0,
+      sortable: true,
+      align: 'right',
+      widthClassName: 'w-36',
+      cell: (row) => formatNumber((row.currentListedValue || 0) / 1000000000, 2),
+    },
+    {
+      id: 'situation',
+      header: t('situation'),
+      accessor: (row) => row.daysLeft || 0,
+      sortable: true,
+      align: 'center',
+      widthClassName: 'w-40',
+      cell: (row) => {
+        const situation = getMaturitySituationMeta(row.daysLeft, t);
+
+        return (
+          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${situation.className}`}>
+            {situation.label}
+          </span>
+        );
+      },
+    },
+  ]), [language, setBondEnterpriseName, setSelectedBond, t, watchlistVersion]);
+
+  const columnVisibilityOptions = useMemo(
+    () => columns
+      .filter((column) => column.id !== 'order')
+      .map((column) => ({
+        id: column.id,
+        label: typeof column.header === 'string' ? column.header : t(column.id as any),
+      })),
+    [columns, t],
+  );
 
   if (error) {
     return (
-      <div className="p-4 md:p-8 flex flex-col items-center justify-center min-h-[400px] text-center transition-colors">
-        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-full mb-4">
+      <div className="flex min-h-96 flex-col items-center justify-center p-4 text-center transition-colors">
+        <div className="mb-4 rounded-full bg-red-50 p-4 dark:bg-red-900/20">
           <AlertCircle className="h-12 w-12 text-red-500 dark:text-red-400" />
         </div>
-        <h3 className="text-xl font-bold text-text-base mb-2 transition-colors">{t('failedToLoadData')}</h3>
-        <p className="text-text-muted max-w-sm mb-6 transition-colors">{error}</p>
-        <div className="flex gap-4">
-          <button 
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-[#3634B3] text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-[#3634B3]/20"
-          >
-            {t('tryAgain')}
-          </button>
-        </div>
+        <h3 className="mb-2 text-xl font-bold text-text-base transition-colors">{t('failedToLoadData')}</h3>
+        <p className="mb-4 max-w-sm text-text-muted transition-colors">{error}</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-xl bg-blue-600 px-6 py-2 font-bold text-white shadow-lg shadow-blue-600/20 transition-colors hover:bg-blue-500"
+        >
+          {t('tryAgain')}
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="p-0 md:p-6 animate-in fade-in duration-500 transition-colors">
-      <div className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-text-base tracking-tight mb-2 transition-colors">{t('maturityTitle')}</h1>
+    <div className="min-w-0 space-y-4 transition-colors duration-300">
+      <BondSectionNav activeSection="maturity" />
+
+      <div className="space-y-2">
+        <h2 className="text-xl font-bold text-text-base">{t('maturityTitle')}</h2>
       </div>
 
-      {/* Time Range Selector */}
-      <div className="flex justify-center mb-8 overflow-x-auto pb-1">
-        <div className="bg-bg-base p-1 rounded-2xl flex gap-1 transition-colors min-w-max">
-          {[
-            { label: t('range1Month'), days: 30 },
-            { label: t('range3Months'), days: 90 },
-            { label: t('range6Months'), days: 180 },
-            { label: t('range9Months'), days: 270 },
-            { label: t('range12Months'), days: 365 },
-          ].map((range) => (
+      <BondFilterPanel
+        title={t('maturityTitle')}
+        resultCount={filteredRows.length}
+        totalCount={rows.length}
+        draftFilters={draftFilters}
+        setDraftFilters={setDraftFilters}
+        rateTypeOptions={rateTypeOptions}
+        aiPrompt={aiPrompt}
+        setAiPrompt={setAiPrompt}
+        aiSummary={aiSummary}
+        setAiSummary={setAiSummary}
+        aiError={aiError}
+        setAiError={setAiError}
+        isApplyingAIFilter={isApplyingAIFilter}
+        isLoadingStatus={isLoadingStatus}
+        aiPromptSuggestions={aiPromptSuggestions}
+        showPromptSuggestions={showPromptSuggestions}
+        onApply={applyDraftFilters}
+        onReset={resetFilters}
+        onApplyAI={applyAIFilter}
+        variant="maturity"
+        issuerOptions={issuerOptions}
+        bondTypeOptions={bondTypeOptions}
+        industryOptions={industryOptions}
+        searchOptions={rows.map((row) => row.bondCode)}
+        showFilterControls={isFilterControlsVisible}
+        marketActionSlot={(
+          <div ref={columnVisibilityRef} className="relative flex items-center justify-end gap-2">
             <button
-              key={range.days}
-              onClick={() => {
-                setSelectedTimeRange(range.days);
-                setCurrentPage(1);
-              }}
-              className={cn(
-                "px-4 md:px-6 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap",
-                selectedTimeRange === range.days 
-                  ? "bg-bg-surface text-[#3634B3] shadow-sm" 
-                  : "text-text-muted hover:text-text-base"
-              )}
+              type="button"
+              onClick={() => setIsFilterControlsVisible((current) => !current)}
+              className="inline-flex h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+              aria-label={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
+              title={isFilterControlsVisible ? t('hideFilters') : t('showFilters')}
             >
-              {range.label}
+              {isFilterControlsVisible ? <FilterX className="h-4 w-4 text-blue-600" /> : <Filter className="h-4 w-4 text-blue-600" />}
+              <span className="hidden sm:inline">{t('filterTab')}</span>
             </button>
-          ))}
-          <button className="px-4 py-2.5 text-text-muted hover:text-text-base transition-colors">
-            <Calendar className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-bg-surface p-4 md:p-6 rounded-3xl shadow-sm border border-border-base mb-6 transition-colors">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Row 1 */}
-          {/* Search Item */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-text-muted" />
-            <input
-              type="text"
-              placeholder={t('searchPlaceholderMaturity')}
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-12 pr-4 py-3 bg-bg-base/50 focus:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 transition-all placeholder:text-text-muted outline-none"
-            />
-          </div>
-
-          {/* Maturity Date Sort */}
-          <div className="relative">
-            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={sortType === 'maturity-near' ? 'near' : (sortType === 'maturity-far' ? 'far' : 'default')}
-              onChange={(e) => {
-                if (e.target.value === 'default') {
-                  setSortType('default');
-                } else if (e.target.value === 'near') {
-                  setSortType('maturity-near');
-                } else if (e.target.value === 'far') {
-                  setSortType('maturity-far');
-                }
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
+            <button
+              type="button"
+              onClick={() => setIsColumnVisibilityOpen((current) => !current)}
+              className="inline-flex h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-border-base bg-bg-surface px-2 text-sm font-semibold text-text-base shadow-sm transition-colors hover:border-blue-200 hover:text-text-highlight sm:gap-2 sm:px-3"
+              aria-haspopup="dialog"
+              aria-expanded={isColumnVisibilityOpen}
+              aria-label={t('hideColumns')}
+              title={t('hideColumns')}
             >
-              <option value="default">{t('maturityDateSort')}</option>
-              <option value="near">{t('nearest')}</option>
-              <option value="far">{t('farthest')}</option>
-            </select>
-          </div>
+              <EyeOff className="h-4 w-4 text-blue-600" />
+              <span className="hidden sm:inline">{t('hideColumns')}</span>
+            </button>
 
-          {/* Issue Value Sort */}
-          <div className="relative">
-            <ArrowUpDown className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={sortType === 'value-high' ? 'high' : (sortType === 'value-low' ? 'low' : 'default')}
-              onChange={(e) => {
-                if (e.target.value === 'default') {
-                  setSortType('default');
-                } else if (e.target.value === 'high') {
-                  setSortType('value-high');
-                } else if (e.target.value === 'low') {
-                  setSortType('value-low');
-                }
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              <option value="default">{t('issuedValue')}</option>
-              <option value="high">{t('highToLow')}</option>
-              <option value="low">{t('lowToHigh')}</option>
-            </select>
-          </div>
-
-          {/* Row 2 */}
-          {/* Industry Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={industryFilter}
-              onChange={(e) => {
-                setIndustryFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              {industries.map(ind => <option key={ind} value={ind}>{t(ind as any)}</option>)}
-            </select>
-          </div>
-
-          {/* Value Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={valueFilter}
-              onChange={(e) => {
-                setValueFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              {[t('allValues'), t('rangeLess100'), t('range100to500'), t('rangeMore500')].map(val => <option key={val} value={val}>{val}</option>)}
-            </select>
-          </div>
-
-          {/* Warning Filter */}
-          <div className="relative">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
-            <select
-              value={warningFilter}
-              onChange={(e) => {
-                setWarningFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-bg-base/50 hover:bg-bg-base border-none rounded-2xl text-sm font-medium text-text-base focus:ring-2 focus:ring-[#3634B3]/20 outline-none cursor-pointer transition-all appearance-none"
-            >
-              {warningLevels.map(level => <option key={level} value={level}>{level}</option>)}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-bg-surface rounded-3xl shadow-sm border border-border-base overflow-hidden transition-colors">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left border-collapse">
-            <thead>
-              <tr className="bg-[#3634B3] text-white transition-colors">
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('bondCode').toUpperCase()}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('enterprise').toUpperCase()}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('maturityDate').toUpperCase()}</th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('daysLeftLabel')}</span>
-                    <span className="whitespace-nowrap">({t('daysUnit')})</span>
-                  </div>
-                </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('issuedValue').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitBillionShort').toUpperCase()})</span>
-                  </div>
-                </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">
-                  <div className="flex flex-col items-center">
-                    <span className="whitespace-nowrap">{t('interestRate').toUpperCase()}</span>
-                    <span className="whitespace-nowrap">({t('unitPercentLabel')})</span>
-                  </div>
-                </th>
-                <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap">{t('situation')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-base transition-colors">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                      <p className="text-sm text-text-muted font-bold uppercase transition-colors">{t('loading')}</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : paginatedBonds.length > 0 ? (
-                paginatedBonds.map((bond, idx) => {
-                  const status = getWarningStatus(bond.daysLeft);
-                  return (
-                    <tr 
-                      key={bond.id} 
-                      onClick={() => {
-                        setBondEnterpriseName(bond.issuerName);
-                        setSelectedBond(bond);
-                      }}
-                      className={cn(
-                        "cursor-pointer transition-colors group",
-                        idx % 2 === 1 ? 'bg-bg-base/30' : 'bg-bg-surface',
-                        "hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
-                      )}
-                    >
-                      <td className="px-6 py-5 whitespace-nowrap text-left border-none">
-                        <span className="text-xs font-bold text-text-highlight group-hover:underline transition-colors">{bond.code}</span>
-                      </td>
-                      <td className="px-6 py-5 text-left border-none">
-                        <div className="max-w-[200px]">
-                          <p className="text-xs font-bold text-text-base truncate group-hover:text-text-highlight transition-colors">
-                            {language === 'en' && bond.ticker && enterpriseNamesEN[bond.ticker] 
-                              ? enterpriseNamesEN[bond.ticker] 
-                              : t(bond.issuerName as any, bond.ticker)}
-                          </p>
-                          <p className="text-[10px] text-text-muted truncate font-semibold group-hover:text-text-highlight transition-colors">
-                            {t(bond.industry as any)}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-xs font-bold text-text-muted text-right border-none group-hover:text-text-highlight transition-colors">
-                        {formatDate(bond.maturityDate)}
-                      </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-right border-none">
-                        <div className="flex items-center gap-1 justify-end">
-                          <span className={cn(
-                            "px-2 py-1 rounded-lg text-[10px] font-bold transition-colors",
-                            status.color,
-                            "group-hover:text-text-highlight group-hover:bg-white/50"
-                          )}>
-                            {bond.daysLeft}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-xs font-bold text-text-base text-right border-none group-hover:text-text-highlight transition-colors">
-                        {formatNumber(bond.listedValue, 2)}
-                      </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-xs font-bold text-green-600 dark:text-green-500 text-right border-none transition-colors">
-                        {formatInterestRate(bond.interestRate)}%
-                      </td>
-                      <td className="px-6 py-5 whitespace-nowrap text-left border-none">
-                        <span className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase border transition-colors", status.color)}>
-                          {status.label}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-text-muted text-sm font-bold uppercase transition-colors">
-                    {t('noBondsFound')}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-4 md:px-6 py-4 border-t border-border-base flex items-center justify-end bg-bg-base/30 transition-colors overflow-x-auto">
-            <div className="flex items-center gap-2 min-w-max">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="p-2 rounded-lg hover:bg-bg-surface text-text-muted disabled:opacity-30 transition-colors"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <div className="flex items-center gap-1">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={cn(
-                      "h-8 w-8 rounded-lg text-xs font-bold transition-all",
-                      currentPage === page 
-                        ? "bg-text-highlight text-white shadow-lg shadow-indigo-500/20" 
-                        : "hover:bg-bg-surface text-text-muted"
-                    )}
-                  >
-                    {page}
-                  </button>
-                ))}
+          {isColumnVisibilityOpen ? (
+            <div className="absolute right-0 top-full z-30 mt-3 w-96 max-w-none rounded-lg border border-border-base bg-bg-surface p-4 shadow-xl shadow-blue-950/10">
+              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-text-muted/80">
+                <EyeOff className="h-4 w-4 text-blue-600" />
+                <span>{t('hideColumns')}</span>
               </div>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                className="p-2 rounded-lg hover:bg-bg-surface text-text-muted disabled:opacity-30 transition-colors"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
+
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {columnVisibilityOptions.map((column) => {
+                  const checked = columnVisibilityDraft.includes(column.id);
+
+                  return (
+                    <label
+                      key={column.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-text-base transition-colors hover:bg-surface-container-low"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setColumnVisibilityDraft((current) => (
+                            current.includes(column.id)
+                              ? current.filter((item) => item !== column.id)
+                              : [...current, column.id]
+                          ));
+                        }}
+                        className="h-4 w-4 rounded border-border-base text-blue-600 focus:ring-blue-400"
+                      />
+                      <span className="truncate">{column.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHiddenColumnIds(columnVisibilityDraft);
+                    setIsColumnVisibilityOpen(false);
+                  }}
+                  className="inline-flex flex-1 items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-500"
+                >
+                  {t('hideColumns')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHiddenColumnIds([]);
+                    setColumnVisibilityDraft([]);
+                    setIsColumnVisibilityOpen(false);
+                  }}
+                  className="inline-flex flex-1 items-center justify-center rounded-lg border border-border-base bg-bg-base px-3 py-2 text-sm font-semibold text-text-base transition-colors hover:border-blue-200 hover:text-text-highlight"
+                >
+                  {t('reset')}
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          ) : null}
+        </div>
+      )}
+      />
+
+      {loading ? (
+        <div className="rounded-lg border border-border-base bg-bg-surface px-4 py-10 text-center text-sm font-medium text-text-muted shadow-md shadow-blue-950/5 transition-colors dark:shadow-black/20">
+          {t('loading')}
+        </div>
+      ) : (
+        <DataTable
+          rows={filteredRows}
+          columns={columns}
+          getRowKey={(row) => row.bondCode}
+          pageSize={15}
+          initialSort={tableInitialSort}
+          emptyState={t('noBondsFound')}
+          noColumnsState={t('noColumnsSelected')}
+          hiddenColumnIds={hiddenColumnIds}
+        />
+      )}
     </div>
   );
 }

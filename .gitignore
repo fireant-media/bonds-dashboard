@@ -1,8 +1,39 @@
+# Dependencies
 node_modules/
-build/
+
+# Build outputs
 dist/
+build/
 coverage/
-.DS_Store
-*.log
-.env*
+
+# Environment files
+.env
+.env.*
 !.env.example
+
+# Logs and temporary files
+*.log
+.tmp-*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Tool caches
+.cache/
+.vite/
+.turbo/
+
+# Runtime access-control store (allowlist of FireAnt accounts, managed via /admin)
+data/access-control.json
+
+# Local screenshots and generated artifacts
+codex-local-screenshot.png
+bond hướng dẫn truy vấn.docx

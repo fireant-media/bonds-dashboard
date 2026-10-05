@@ -1,23 +1,154 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import axios from 'axios';
+import { FIREANT_ACCESS_TOKEN, FIREANT_BASE_URL, FIREANT_BETA_BASE_URL, FIREANT_WEB_URL } from './_lib/config.js';
 
 let fireantToken: string | null = null;
 let lastTokenFetch = 0;
 
+type QueryValue = string | string[] | undefined;
+type BaseTarget = 'default' | 'beta';
+
+interface UpstreamTarget {
+  path: string;
+  query: Record<string, string | string[] | number | boolean | null | undefined>;
+  method?: string;
+  body?: unknown;
+}
+
+const getQueryValue = (value: QueryValue) => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === 'string' ? raw.trim() : '';
+};
+
+const getQueryNumber = (value: QueryValue) => {
+  const numberValue = Number(getQueryValue(value));
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+};
+
+const getMaturityDays = (fromDate: string, toDate: string) => {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return undefined;
+
+  return Math.max(1, Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)));
+};
+
+function resolveUpstreamTarget(path: string, query: Record<string, QueryValue>, req: VercelRequest): UpstreamTarget {
+  if (path === 'bond_Filter') {
+    const issuerSymbol = getQueryValue(query.IssuerSymbol);
+    if (issuerSymbol) {
+      return {
+        path: `bonds/issuer/${encodeURIComponent(issuerSymbol)}`,
+        query: {},
+        method: 'GET',
+      };
+    }
+
+    const icbCode = getQueryValue(query.ICBCode);
+    if (icbCode) {
+      return {
+        path: 'bonds/filter',
+        query: {},
+        method: 'POST',
+        body: {
+          icbCode,
+          statusID: getQueryNumber(query.StatusID) ?? 1,
+        },
+      };
+    }
+
+    const maturityFrom = getQueryValue(query.MaturityDateFrom);
+    const maturityTo = getQueryValue(query.MaturityDateTo);
+    const days = maturityFrom && maturityTo ? getMaturityDays(maturityFrom, maturityTo) : undefined;
+    if (days) {
+      return {
+        path: 'bonds/stats/bonds/maturing-soon',
+        query: { days },
+        method: 'GET',
+      };
+    }
+  }
+
+  if (path === 'bond_StatisticsByIssuer') {
+    return {
+      path: 'bonds/stats/issuers/top-debt',
+      query: { top: getQueryNumber(query.Top) ?? 200 },
+      method: 'GET',
+    };
+  }
+
+  if (path === 'bond_GetCategoryList') {
+    const option = getQueryNumber(query.Option);
+    if (option === 5) {
+      return {
+        path: 'bonds/stats/industries',
+        query: {
+          top: getQueryNumber(query.Top) ?? 1000,
+          level: getQueryNumber(query.ICBLevel) ?? 1,
+        },
+        method: 'GET',
+      };
+    }
+
+    if (option === 0) {
+      return {
+        path: 'bonds/stats/issuers/top-debt',
+        query: { top: getQueryNumber(query.Top) ?? 200 },
+        method: 'GET',
+      };
+    }
+  }
+
+  return {
+    path,
+    query,
+    method: req.method,
+    body: req.body,
+  };
+}
+
+function getRequestToken(req: VercelRequest): string | null {
+  const headerToken = req.headers.authorization;
+  const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+  if (!rawToken) return null;
+  const token = rawToken.replace(/^bearer\s+/i, '').trim();
+  return token || null;
+}
+
+function sendUpstreamResponse(res: VercelResponse, status: number, data: unknown) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+
+  if (data === undefined) {
+    return res.status(status).json({});
+  }
+
+  if (typeof data === 'string') {
+    try {
+      return res.status(status).json(JSON.parse(data));
+    } catch {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.status(status).send(data);
+    }
+  }
+
+  return res.status(status).json(data);
+}
+
 async function getFireantToken(force = false) {
   const now = Date.now();
-  if (process.env.FIREANT_ACCESS_TOKEN && !force) return process.env.FIREANT_ACCESS_TOKEN;
+  if (FIREANT_ACCESS_TOKEN && !force) return FIREANT_ACCESS_TOKEN;
   if (!force && fireantToken && (now - lastTokenFetch < 15 * 60 * 1000)) return fireantToken;
 
   try {
-    const response = await axios.get('https://fireant.vn/bai-viet', {
+    const response = await fetch(`${FIREANT_WEB_URL}/bai-viet`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       },
-      timeout: 8000
+      signal: AbortSignal.timeout(8000)
     });
-    const html = response.data;
+    const html = await response.text();
     const startIdx = html.indexOf('<script id="__NEXT_DATA__" type="application/json">');
     if (startIdx !== -1) {
       const jsonStart = html.indexOf('{', startIdx);
@@ -50,7 +181,7 @@ async function getFireantToken(force = false) {
   } catch (e) {
     console.error("Token fetch failed", (e as any).message);
   }
-  return fireantToken || process.env.FIREANT_ACCESS_TOKEN || null;
+  return fireantToken || FIREANT_ACCESS_TOKEN || null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -59,28 +190,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   if (!path) return res.status(400).json({ error: "Path is required" });
 
+  const baseTarget = getQueryValue(otherQuery.__base) === 'beta' ? 'beta' as BaseTarget : 'default' as BaseTarget;
+  const { __base: _ignoredBase, ...upstreamQuery } = otherQuery;
+  const target = resolveUpstreamTarget(path, upstreamQuery as Record<string, QueryValue>, req);
+
   const queryObj = new URLSearchParams();
-  Object.entries(otherQuery).forEach(([key, value]) => {
+  Object.entries(target.query).forEach(([key, value]) => {
     if (Array.isArray(value)) {
       value.forEach(v => queryObj.append(key, v));
-    } else if (value !== undefined) {
+    } else if (value !== undefined && value !== null) {
       queryObj.append(key, value as string);
     }
   });
   
   const queryString = queryObj.toString();
-  const baseUrl = "https://betarest.fireant.vn";
-  const url = `${baseUrl}/${path}${queryString ? `?${queryString}` : ""}`;
+  const upstreamBaseUrl = baseTarget === 'beta' ? FIREANT_BETA_BASE_URL : FIREANT_BASE_URL;
+  const url = `${upstreamBaseUrl}/${target.path}${queryString ? `?${queryString}` : ""}`;
 
-  console.log(`[Vercel Proxy] ${req.method} ${url}`);
+  console.log(`[Vercel Proxy] ${req.method} ${url} (base=${baseTarget})`);
 
   const fetchWithToken = async (authToken: string | null) => {
     const headers: any = {
       'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://fireant.vn/',
-      'Origin': 'https://fireant.vn',
+      'Referer': `${FIREANT_WEB_URL}/`,
+      'Origin': FIREANT_WEB_URL,
       'X-Requested-With': 'XMLHttpRequest'
     };
     
@@ -88,18 +223,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
     }
 
-    return await axios({
-      method: req.method,
-      url: url,
+    if (target.method !== 'GET' && target.method !== 'HEAD') {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(url, {
+      method: target.method || req.method,
       headers,
-      data: req.body,
-      timeout: 20000,
-      validateStatus: (status) => status < 500
+      body: target.method === 'GET' || target.method === 'HEAD' ? undefined : JSON.stringify(target.body),
+      signal: AbortSignal.timeout(20000),
     });
+
+    const text = await response.text();
+    let data: unknown = text;
+
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = text;
+    }
+
+    return {
+      status: response.status,
+      data,
+    };
   };
 
   try {
-    let token = await getFireantToken();
+    let token = getRequestToken(req) || await getFireantToken();
     let response = await fetchWithToken(token);
     
     // If 401, try refreshing the token once
@@ -111,9 +262,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
     
-    return res.status(response.status).json(response.data);
+    return sendUpstreamResponse(res, response.status, response.data);
   } catch (error: any) {
-    console.error(`[Vercel Proxy Error] ${path}:`, error.message);
-    return res.status(500).json({ error: "Failed to proxy request", message: error.message });
+    console.error(`[Vercel Proxy Error] ${target.path}:`, error?.stack || error?.message || error);
+    return res.status(500).json({
+      error: "Failed to proxy request",
+      message: error?.message || "Unknown error",
+    });
   }
 }

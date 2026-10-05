@@ -1,34 +1,25 @@
 
+import { safeSetLocalStorageItem } from './localStorageBudget';
+
 // Persistent cache for API data to avoid spinners on tab navigation and after login
 const MEMORY_CACHE: Record<string, { data: any, timestamp: number }> = {};
 const DEFAULT_TTL = 30 * 60 * 1000; // Increase to 30 minutes for better persistence
 const CACHE_PREFIX = 'sentinel_cache_';
+const MAX_PERSISTED_CACHE_ITEM_LENGTH = 450_000;
 
-export const setCache = (key: string, data: any) => {
-  const item = { data, timestamp: Date.now() };
-  
-  // Save to memory
-  MEMORY_CACHE[key] = item;
-  
-  // Save to localStorage for persistence
-  try {
-    localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(item));
-  } catch (e) {
-    console.warn('Failed to save cache to localStorage', e);
-  }
-};
+export interface CacheEntry<T = any> {
+  data: T;
+  timestamp: number;
+}
 
-export const getCache = (key: string, ttl = DEFAULT_TTL) => {
-  // Try memory first (fastest)
-  let item = MEMORY_CACHE[key];
-  
-  // Try localStorage if not in memory
+const readCacheEntry = <T = any>(key: string): CacheEntry<T> | null => {
+  let item = MEMORY_CACHE[key] as CacheEntry<T> | undefined;
+
   if (!item) {
     try {
       const stored = localStorage.getItem(`${CACHE_PREFIX}${key}`);
       if (stored) {
-        item = JSON.parse(stored);
-        // Hydrate memory cache
+        item = JSON.parse(stored) as CacheEntry<T>;
         MEMORY_CACHE[key] = item;
       }
     } catch (e) {
@@ -36,6 +27,25 @@ export const getCache = (key: string, ttl = DEFAULT_TTL) => {
     }
   }
 
+  return item || null;
+};
+
+export const setCache = (key: string, data: any): boolean => {
+  const item = { data, timestamp: Date.now() };
+  
+  // Save to memory
+  MEMORY_CACHE[key] = item;
+  
+  const serialized = JSON.stringify(item);
+  return safeSetLocalStorageItem(`${CACHE_PREFIX}${key}`, serialized, {
+    maxLength: MAX_PERSISTED_CACHE_ITEM_LENGTH,
+    warnOnFailure: false,
+    warnLabel: `cache ${key}`,
+  });
+};
+
+export const getCache = (key: string, ttl = DEFAULT_TTL) => {
+  const item = readCacheEntry(key);
   if (!item) return null;
   
   const isExpired = Date.now() - item.timestamp > ttl;
@@ -46,6 +56,20 @@ export const getCache = (key: string, ttl = DEFAULT_TTL) => {
   
   return item.data;
 };
+
+export const getCacheEntry = <T = any>(key: string, ttl = DEFAULT_TTL): CacheEntry<T> | null => {
+  const item = readCacheEntry<T>(key);
+  if (!item) return null;
+
+  if (Date.now() - item.timestamp > ttl) {
+    return null;
+  }
+
+  return item;
+};
+
+export const getCacheEntryAllowExpired = <T = any>(key: string): CacheEntry<T> | null =>
+  readCacheEntry<T>(key);
 
 export const clearCache = (prefix?: string) => {
   // Clear memory

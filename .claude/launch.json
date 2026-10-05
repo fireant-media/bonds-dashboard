@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Dev Server (Express + Vite)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "watch", "--tsconfig", "tsconfig.server.json", "server.ts"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}
