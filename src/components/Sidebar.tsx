@@ -13,6 +13,7 @@ import {
   Moon,
   PanelLeft,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Sun,
   User,
@@ -24,7 +25,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useLanguage } from '../LanguageContext';
 import { useTheme } from '../ThemeContext';
-import { useAuthUser } from '../auth/authStore';
+import { useAuthUser, useIsAdmin } from '../auth/authStore';
 import { getCache } from '../utils/cache';
 import { INDUSTRY_NAV_ITEMS } from '../constants/industries';
 import { warmDashboardCoreDataInBackground, warmIndustryData } from '../services/dashboardPrefetch';
@@ -86,6 +87,7 @@ export default function Sidebar({
   const { t, language, setLanguage } = useLanguage();
   const { setTheme, effectiveTheme } = useTheme();
   const authUser = useAuthUser();
+  const isAdmin = useIsAdmin();
   const industryIssuedValuesQuery = useSidebarIndustryIssuedValuesQuery();
   const userName = authUser?.profile?.name || 'Admin User';
   const userInitial = (userName.charAt(0) || 'A').toUpperCase();
@@ -171,6 +173,17 @@ export default function Sidebar({
       isActive: activeTab === 'watchlist',
       onClick: () => setActiveTab('watchlist'),
     },
+    ...(isAdmin
+      ? [
+          {
+            id: 'admin',
+            label: t('adminPanel'),
+            icon: ShieldCheck,
+            isActive: activeTab === 'admin',
+            onClick: () => setActiveTab('admin'),
+          },
+        ]
+      : []),
   ];
 
   const contextItems = [

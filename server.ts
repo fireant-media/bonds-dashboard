@@ -16,6 +16,14 @@ import {
 } from "./api/_lib/config";
 import { handlePageDataRequest } from "./api/_lib/page-data";
 import { isAllowedOrigin } from "./api/_lib/cors";
+import {
+  getAccessForEmail,
+  listUsers,
+  upsertUser,
+  removeUser,
+  recordLogin,
+  type AccessRole,
+} from "./api/_lib/access-control";
 
 dotenv.config();
 
@@ -34,6 +42,63 @@ const getRequestAIKey = (req: express.Request): string => {
   const headerToken = req.headers["x-fireant-access-token"];
   const rawToken = Array.isArray(headerToken) ? headerToken[0] : headerToken;
   return (rawToken || AI_API_KEY || "").replace(/^bearer\s+/i, "").trim();
+};
+
+// The FireAnt access token supplied by the CURRENT request only (no server-key fallback) — used to
+// authenticate the user for the admin/allowlist decision. Read from X-Fireant-Access-Token, then
+// Authorization.
+const getRequestFireantToken = (req: express.Request): string => {
+  const header = req.headers["x-fireant-access-token"];
+  let token = Array.isArray(header) ? header[0] : header;
+  if (!token) {
+    const auth = req.headers["authorization"];
+    token = Array.isArray(auth) ? auth[0] : auth;
+  }
+  return (token || "").replace(/^bearer\s+/i, "").trim();
+};
+
+// Best-effort email from a JWT access token's payload (`email` claim, else `name` when it looks
+// like an email). No signature check here — authenticity comes from the /me/account call accepting
+// the token; this only reads the value.
+const emailFromJwt = (token: string): string => {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return "";
+    const json = JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8"));
+    const email = typeof json?.email === "string" ? json.email : "";
+    if (email.includes("@")) return email.trim().toLowerCase();
+    const name = typeof json?.name === "string" ? json.name : "";
+    return name.includes("@") ? name.trim().toLowerCase() : "";
+  } catch {
+    return "";
+  }
+};
+
+// Verify the request's FireAnt token by calling the account API (rejects forged tokens), then
+// resolve the authoritative email. Returns null when there is no valid token.
+const verifyFireantEmail = async (req: express.Request): Promise<string | null> => {
+  const token = getRequestFireantToken(req);
+  if (!token) return null;
+  try {
+    const resp = await axios.get(`${FIREANT_BASE_URL}/me/account`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      timeout: 12000,
+      validateStatus: (status) => status < 500,
+    });
+    if (resp.status !== 200) {
+      console.warn(`[Auth] /me/account returned ${resp.status} — token not accepted`);
+      return null;
+    }
+    const data = resp.data || {};
+    const fromAccount = data?.identityData?.email || data?.email || data?.profile?.email;
+    if (typeof fromAccount === "string" && fromAccount.includes("@")) {
+      return fromAccount.trim().toLowerCase();
+    }
+    return emailFromJwt(token) || null;
+  } catch (error: any) {
+    console.warn(`[Auth] Failed to verify FireAnt token: ${error?.message || error}`);
+    return null;
+  }
 };
 
 const DEFAULT_SYSTEM_PROMPT = `Bạn là Chuyên gia phân tích trái phiếu cấp cao.
@@ -1508,13 +1573,41 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.post("/api/auth/login", (req, res) => {
-    const { userData } = req.body;
+  app.post("/api/auth/login", async (req, res) => {
     const session = getSession(req);
+    const { userData } = req.body || {};
+
+    // The access decision uses the email VERIFIED from the FireAnt token (rejects spoofing), not
+    // the email the client claims in the body. Body userData is kept only for display/activity.
+    const verifiedEmail = await verifyFireantEmail(req);
+    const email = verifiedEmail || "";
+    const decision = getAccessForEmail(email);
+
     if (session) {
-      session.user = userData;
+      session.user = userData || null;
+      session.email = email;
+      session.role = decision.role;
+      session.isAdmin = decision.isAdmin;
+      session.allowed = decision.allowed;
     }
-    res.json({ success: true, user: userData });
+
+    if (decision.allowed && email) {
+      recordLogin(email);
+    }
+
+    console.log(
+      `[Auth] login email=${email || "(unverified)"} allowed=${decision.allowed} admin=${decision.isAdmin} enforced=${decision.enforced}`,
+    );
+
+    res.json({
+      success: true,
+      email,
+      allowed: decision.allowed,
+      isAdmin: decision.isAdmin,
+      role: decision.role,
+      enforced: decision.enforced,
+      verified: Boolean(verifiedEmail),
+    });
   });
 
   app.post("/api/auth/logout", (req, res) => {
@@ -1523,7 +1616,52 @@ async function startServer() {
   });
 
   app.get("/api/auth/session", (req, res) => {
-    res.json({ user: (req.session as any)?.user || null });
+    const session = getSession(req);
+    res.json({
+      user: session?.user || null,
+      email: session?.email || "",
+      allowed: Boolean(session?.allowed),
+      isAdmin: Boolean(session?.isAdmin),
+      role: (session?.role as AccessRole) || "user",
+    });
+  });
+
+  // =============================================
+  // Admin: manage the allowlist of FireAnt accounts (admin-only, gated by the signed session).
+  // =============================================
+  const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const session = getSession(req);
+    if (session?.isAdmin === true) return next();
+    return res.status(403).json({ error: "Chỉ admin mới truy cập được chức năng này." });
+  };
+
+  app.get("/api/admin/users", requireAdmin, (_req, res) => {
+    res.json({ users: listUsers() });
+  });
+
+  app.post("/api/admin/users", requireAdmin, (req, res) => {
+    const session = getSession(req);
+    const { email, role, enabled } = req.body || {};
+    const result = upsertUser({
+      email,
+      role: role === "admin" ? "admin" : role === "user" ? "user" : undefined,
+      enabled: typeof enabled === "boolean" ? enabled : undefined,
+      addedBy: session?.email || "admin",
+    });
+    if (result.ok) {
+      res.json({ user: result.user, users: listUsers() });
+    } else {
+      res.status(400).json({ error: result.error });
+    }
+  });
+
+  app.delete("/api/admin/users/:email", requireAdmin, (req, res) => {
+    const result = removeUser(req.params.email);
+    if (result.ok) {
+      res.json({ success: true, users: listUsers() });
+    } else {
+      res.status(400).json({ error: result.error });
+    }
   });
 
   // Vite middleware for development

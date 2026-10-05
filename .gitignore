@@ -31,6 +31,9 @@ Thumbs.db
 .vite/
 .turbo/
 
+# Runtime access-control store (allowlist of FireAnt accounts, managed via /admin)
+data/access-control.json
+
 # Local screenshots and generated artifacts
 codex-local-screenshot.png
 bond hướng dẫn truy vấn.docx

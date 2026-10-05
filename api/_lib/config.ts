@@ -22,11 +22,19 @@ export const TRADESTATION_BASE_URL =
 export const OPENAI_BASE_URL =
   readEnv("OPENAI_BASE_URL", "FIREANT_AI_BASE_URL", "VITE_FIREANT_AI_BASE_URL") || "https://openai.fireant.vn/v1";
 
-export const OPENAI_API_KEY = readEnv(
-  "OPENAI_API_KEY",
-);
-
 export const FIREANT_ACCESS_TOKEN = readEnv("VITE_FIREANT_ACCESS_TOKEN", "FIREANT_ACCESS_TOKEN");
+
+// AI gateway key: prefer an explicit OPENAI_API_KEY, otherwise fall back to the shared FireAnt
+// access token (as documented in .env.example). This lets AI work for the server default even
+// when a request carries no per-user token.
+export const OPENAI_API_KEY = readEnv("OPENAI_API_KEY") || FIREANT_ACCESS_TOKEN;
+
+// FireAnt account emails granted ADMIN. Comma-separated, normalized to lowercase.
+// Empty = access control disabled (any FireAnt login allowed).
+export const ADMIN_FIREANT_EMAILS: string[] = readEnv("ADMIN_FIREANT")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
 
 export const DEFAULT_AI_MODEL =
   readEnv("OPENAI_DEFAULT_MODEL", "FIREANT_AI_DEFAULT_MODEL") || "gpt-5.4-mini";

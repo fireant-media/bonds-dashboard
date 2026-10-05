@@ -2,14 +2,27 @@ import { create } from 'zustand';
 import type { User } from 'oidc-client';
 import type { UserAccount } from '../models/users';
 
+export interface AccessInfo {
+  /** Whether this FireAnt account is allowed to use the app (on the allowlist / open mode). */
+  allowed: boolean;
+  /** Whether this account is an admin (email in ADMIN_FIREANT or promoted via /admin). */
+  isAdmin: boolean;
+  role: 'admin' | 'user' | string;
+  /** Whether server-side access control is active (an admin exists). */
+  enforced?: boolean;
+}
+
 export interface AuthState {
   user: User | null;
   account: UserAccount | null;
   roles: string[];
+  /** Server-verified access decision for the current FireAnt account. `null` = not resolved yet. */
+  access: AccessInfo | null;
   isLoading: boolean;
   isAccountLoading: boolean;
   setUser: (user: User | null) => void;
   setAccount: (account: UserAccount | null) => void;
+  setAccess: (access: AccessInfo | null) => void;
   setLoading: (loading: boolean) => void;
   setAccountLoading: (loading: boolean) => void;
   reset: () => void;
@@ -28,6 +41,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   account: null,
   roles: [],
+  access: null,
   isLoading: true,
   isAccountLoading: false,
   setUser: (user) =>
@@ -36,6 +50,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       roles: extractRoles(user),
     }),
   setAccount: (account) => set({ account }),
+  setAccess: (access) => set({ access }),
   setLoading: (loading) => set({ isLoading: loading }),
   setAccountLoading: (loading) => set({ isAccountLoading: loading }),
   reset: () =>
@@ -43,6 +58,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       user: null,
       account: null,
       roles: [],
+      access: null,
       isLoading: false,
       isAccountLoading: false,
     }),
@@ -65,6 +81,10 @@ export const useOidcSession = (): User | null =>
 
 export const useIsAuthenticated = (): boolean =>
   useAuthStore((s) => Boolean(s.user));
+
+export const useAccess = (): AccessInfo | null => useAuthStore((s) => s.access);
+
+export const useIsAdmin = (): boolean => useAuthStore((s) => Boolean(s.access?.isAdmin));
 
 export const useIsGoogleUser = (): boolean =>
   useAuthStore((s) => {

@@ -3,12 +3,14 @@ import { Routes, Route, useNavigate, useLocation, Navigate, useNavigationType, u
 import Header, { SearchSuggestion } from './components/Header';
 import Sidebar from './components/Sidebar';
 import LoginView from './components/LoginView';
+import NotAuthorizedView from './components/NotAuthorizedView';
 import { IndustryType, Enterprise, NewsItem, Bond } from './types';
 import { getCache } from './utils/cache';
 import { normalizeInterestType } from './utils/format';
 import { POST_LOGIN_REDIRECT_KEY, SignInCallback, SignOutCallback, SilentRenewCallback, useOidcAuth } from './auth/oidc';
+import { useAccess, useIsAdmin, useAuthStore } from './auth/authStore';
+import { postAuthLogin, postAuthLogout } from './api/admin';
 import { fireantApi } from './api/fireant';
-import { buildAppApiUrl } from './api/config';
 import { warmDashboardCoreDataInBackground } from './services/dashboardPrefetch';
 import { dashboardQueryClient } from './query/client';
 import { prefetchDashboardCoreData, prefetchDashboardRouteData } from './query/dashboardQueries';
@@ -23,9 +25,10 @@ const BondDetailPopup = lazy(() => import('./components/BondDetailPopup'));
 const BondComparisonPopup = lazy(() => import('./components/BondComparisonPopup'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
 const HelpView = lazy(() => import('./components/HelpView'));
+const AdminView = lazy(() => import('./components/AdminView'));
 const AIChatBot = lazy(() => import('./components/AIChatBot'));
 
-const RESERVED_ROUTES = ['industry', 'enterprise', 'filter', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login'];
+const RESERVED_ROUTES = ['industry', 'enterprise', 'filter', 'maturity', 'news', 'news-list', 'profile', 'help', 'watchlist', 'login', 'admin'];
 
 const isBondCode = (s: string) => {
   if (!s) return false;
@@ -101,6 +104,10 @@ const deriveRouteContext = (pathname: string, urlBondCode?: string | null): Rout
     return { activeTab: 'help', helpSection, bondCode: urlBondCode || null };
   }
 
+  if (pathname.startsWith('/admin')) {
+    return { activeTab: 'admin', bondCode: urlBondCode || null };
+  }
+
   return { activeTab: 'overview', bondCode: urlBondCode || null };
 };
 
@@ -109,7 +116,10 @@ export default function App() {
   const location = useLocation();
   const navigationType = useNavigationType();
   const { user, isLoading: authLoading, signIn, signOut } = useOidcAuth();
-  
+  const access = useAccess();
+  const isAdmin = useIsAdmin();
+  const setAccess = useAuthStore((state) => state.setAccess);
+
   // Derive activeTab from location.pathname
   const { activeTab, activeIndustry, ticker, bondCode, filterSubTab } = (() => {
     const backgroundPath = location.state?.backgroundLocation?.pathname;
@@ -168,6 +178,7 @@ export default function App() {
       case 'watchlist': navigate('/watchlist'); break;
       case 'profile': navigate('/profile/info'); break;
       case 'help': navigate('/help/manual'); break;
+      case 'admin': navigate('/admin'); break;
       default: navigate('/');
     }
   };
@@ -344,31 +355,43 @@ export default function App() {
     }
   }, [bondCode]); // Removed selectedBond from dependency to prevent re-fetch flicker on close
 
+  // Resolve server-side access (allowlist + admin role) for the signed-in FireAnt account. The
+  // server decides based on the email VERIFIED from the token, not the email the client claims.
   useEffect(() => {
     if (authLoading) return;
 
     if (!user) {
-      fetch(buildAppApiUrl('/api/auth/logout'), {
-        method: 'POST',
-        credentials: 'include',
-      }).catch(console.error);
+      setAccess(null);
+      void postAuthLogout().catch(console.error);
       return;
     }
 
     void recordLoginActivityOncePerSession(activityUserId);
 
-    fetch(buildAppApiUrl('/api/auth/login'), {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userData: {
-          id: oidcProfile.sub ?? oidcProfile.sid ?? '',
-          email: oidcProfile.email ?? '',
-          name: oidcProfile.name ?? oidcProfile.preferred_username ?? oidcProfile.email ?? '',
-        },
-      }),
-    }).catch(console.error);
+    let cancelled = false;
+    void postAuthLogin({
+      id: String(oidcProfile.sub ?? oidcProfile.sid ?? ''),
+      email: String(oidcProfile.email ?? ''),
+      name: String(oidcProfile.name ?? oidcProfile.preferred_username ?? oidcProfile.email ?? ''),
+    })
+      .then((res) => {
+        if (!cancelled) {
+          setAccess({ allowed: res.allowed, isAdmin: res.isAdmin, role: res.role, enforced: res.enforced });
+        }
+      })
+      .catch((error) => {
+        console.error('Access check failed', error);
+        if (!cancelled) setAccess({ allowed: false, isAdmin: false, role: 'user' });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authLoading, activityUserId, setAccess]);
+
+  // Prefetch dashboard data once authenticated.
+  useEffect(() => {
+    if (authLoading || !user) return;
 
     const currentViewPrefetch = prefetchDashboardRouteData(dashboardQueryClient, {
       activeTab,
@@ -609,6 +632,24 @@ export default function App() {
     );
   }
 
+  // Signed in via FireAnt, but the server-side access decision hasn't resolved yet.
+  if (access === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-bg-base text-text-base">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600/20 border-t-blue-600"></div>
+          <p className="text-xs font-bold uppercase tracking-widest text-text-muted/80">Đang kiểm tra quyền truy cập...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // FireAnt account is not on the allowlist -> blocked at the app gate.
+  if (!access.allowed) {
+    const deniedEmail = String(oidcProfile.email ?? oidcProfile.name ?? oidcProfile.preferred_username ?? '');
+    return <NotAuthorizedView email={deniedEmail} onLogout={handleLogout} />;
+  }
+
   const isProfileMode = activeTab === 'profile' || activeTab === 'help';
   const isDashboardSidebarMode =
     activeTab === 'overview' ||
@@ -616,7 +657,8 @@ export default function App() {
     (activeTab === 'filter' && (filterSubTab === 'issuer' || filterSubTab === 'bonds')) ||
     activeTab === 'watchlist' ||
     activeTab === 'profile' ||
-    activeTab === 'help';
+    activeTab === 'help' ||
+    activeTab === 'admin';
   const shouldShowDashboardSidebar = isDashboardSidebarMode || activeTab === 'bond-detail';
   const sidebarDisplayMode: SidebarDisplayMode = shouldShowDashboardSidebar
     ? (isSidebarCollapsed ? 'collapsed' : 'expanded')
@@ -753,6 +795,7 @@ export default function App() {
                           } />
                           <Route path="/settings" element={<Navigate to="/" replace />} />
                           <Route path="/help/:section?" element={<HelpView section={navigationRouteContext.helpSection || 'manual'} />} />
+                          <Route path="/admin" element={isAdmin ? <AdminView /> : <Navigate to="/" replace />} />
                           <Route path="/:bondCode" element={<MarketOverview />} />
                           <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
